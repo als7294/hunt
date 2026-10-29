@@ -18,6 +18,7 @@ from ._api import client, fetch, tidy
 NAME = "openpgp"
 KINDS = {"email"}
 API = "https://keys.openpgp.org/vks/v1/"
+HEALTH = "https://keys.openpgp.org/"
 UID = re.compile(r"^\s*(.*?)\s*(?:\(([^)]*)\))?\s*<([^>]+)>\s*$")  # 'Jane Doe (work) <jane@example.com>'
 
 

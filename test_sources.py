@@ -1,4 +1,4 @@
-"""Offline self-check for the API sources. Run: uv run python test_sources.py  (--live adds a few real calls)
+"""Offline self-check for the API sources and their health check. Run: uv run python test_sources.py  (--live adds a few real calls)
 
 Responses are hand-written fixtures served by httpx.MockTransport; the proxy check uses a
 fake proxy on localhost, so nothing leaves the machine. The people here are fictional.
@@ -15,17 +15,21 @@ import time
 from urllib.parse import unquote
 
 os.environ["HUNT_HOME"] = tempfile.mkdtemp()  # before hunt.case reads it
-for var in ("HUNT_PROXY", "HUNT_GITHUB_TOKEN", "HUNT_GRAVATAR_KEY", "HUNT_FEC_KEY", "HUNT_SEC_UA", "HUNT_COURTLISTENER_TOKEN"):
+for var in ("HUNT_PROXY", "HUNT_GITHUB_TOKEN", "HUNT_GRAVATAR_KEY", "HUNT_FEC_KEY", "HUNT_SEC_UA", "HUNT_COURTLISTENER_TOKEN",
+            "HUNT_SOCRATA_TOKEN"):
     os.environ.pop(var, None)
 
 import httpx
 
 from hunt.match import score
 from hunt.seed import KINDS, Seed
-from hunt.sources import (SOURCES, _api, bluesky, courtlistener, edgar, fec, github, gravatar, keybase, mastodon, npi,
-                          openpgp, stackexchange, wayback)
+import hunt.sources as registry
+from hunt.sources import (SOURCES, _api, _socrata, bluesky, businesses, courtlistener, edgar, fec, fmcsa, github, gravatar,
+                          keybase, licences, mastodon, npi, openpgp, stackexchange, wayback)
 
-NEW = [github, gravatar, keybase, bluesky, mastodon, stackexchange, openpgp, wayback, fec, edgar, npi, courtlistener]
+NEW = [github, gravatar, keybase, bluesky, mastodon, stackexchange, openpgp, wayback, fec, edgar, npi, courtlistener,
+       licences, businesses, fmcsa]
+CLIENTS = [m for m in NEW if hasattr(m, "client")] + [_socrata, registry]  # every module that opens a client
 REAL_CLIENT = _api.client
 wayback.PAUSE = 0
 EMAIL = "rv@example.com"
@@ -35,23 +39,28 @@ MD5 = hashlib.md5(EMAIL.encode()).hexdigest()
 def serve(routes):
     """Point every new source at a MockTransport and return the requests it sees.
 
-    routes: {substring of the decoded URL: (status, json or text[, headers])}; first match wins, else 404.
+    routes: {substring of the decoded URL: (status, json or text[, headers])}, or an exception to raise;
+    first match wins, else 404. A key may start with "HEAD " to match only HEAD requests.
     """
     shutil.rmtree(github.CACHE, ignore_errors=True)
     seen = []
 
     def answer(request):
         seen.append(request)
-        for key, (status, payload, *headers) in routes.items():
-            if key in unquote(str(request.url)):
+        for key, answer_ in routes.items():
+            method, _, part = key.rpartition(" ") if key.startswith("HEAD ") else ("", "", key)
+            if part in unquote(str(request.url)) and (not method or method == request.method):
+                if isinstance(answer_, Exception):
+                    raise answer_
+                status, payload, *headers = answer_
                 body = {"text": payload} if isinstance(payload, str) else {"json": payload}
                 return httpx.Response(status, headers=headers[0] if headers else None, **body)
         return httpx.Response(404, json={})
 
-    def fake(**headers):
+    def fake(timeout=None, **headers):
         return httpx.AsyncClient(transport=httpx.MockTransport(answer), headers={"User-Agent": _api.UA, **headers})
 
-    for m in NEW:
+    for m in CLIENTS:
         m.client = fake
     return seen
 
@@ -324,8 +333,121 @@ assert f.url == "https://www.courtlistener.com/docket/1/vance-v-example-corp/" a
 assert seen[0].headers["authorization"] == "Token test-token" and seen[0].url.params["q"] == 'party:"Robert Vance"'
 
 
+def licence_rows(request):
+    """Rows by dataset id, as each portal would answer the name query."""
+    return {"7358-krk7": [{"owner_name": "VANCE, ROBERT J", "license_type": "A/C Technician", "license_number": "TACLA1",
+                           "license_expiration_date_mmddccyy": "01312027", "business_city_state_zip": "TUCSON AZ 85701"},
+                          {"owner_name": "VANCEY, ROBERT", "license_number": "TACLA2"}],  # not a VANCE: dropped
+            "s7ft-44qi": [{"first_name": "ROBERT", "last_name": "VANCE", "full_name": "Vance, Robert J",
+                           "license_type": "SALE", "license_number": "700001", "status": "Active", "county": "PIMA",
+                           "original_license_date": "2019-04-01T00:00:00.000", "related_license_full_name": "Example Realty"}],
+            "7s5z-vewr": [{"firstname": "Robert", "lastname": "Vance", "licensetype": "Plumber", "licensenumber": "PL.1",
+                           "city": "DENVER", "state": "CO", "licensestatusdescription": "Active",
+                           "linktoverifylicense": {"url": "https://apps.colorado.gov/dora/licensing/Lookup/1"}}],
+            "m8qx-ubtq": [{"primaryprincipalname": "VANCE, ROBERT", "businessname": "VANCE BIRDING LLC",
+                           "contractorlicensenumber": "VANCEBL001", "city": "SPOKANE", "state": "WA"}],
+            "4xk5-x9j6": [{"principalname": "VANCE, ROBERT", "businessname": "VANCE BIRDING LLC",
+                           "contractorlicensenumber": "VANCEBL001", "startdate": "2020-01-01T00:00:00.000"}]}
+
+
+# Licences: one query per dataset; whole-name columns filtered to whole words; both WA tables share a record page
+rows = licence_rows(None)
+seen = serve({**{f"resource/{k}.json": (200, v) for k, v in rows.items()}, "pzzh-kp68": (500, {"message": "down"}),
+              "data.delaware.gov": (429, {"message": "slow down"}), "/resource/": (200, [])})
+found, checked, note = run(licences, "name", "Robert J. Vance Jr.")
+by = {f.site: f for f in found}
+assert len(found) == 5 and checked == 9, (len(found), checked, note)
+tx = by["Texas TDLR licence"]
+assert (tx.attrs["fullname"], tx.attrs["expires"], tx.attrs["roles"]) == ("VANCE, ROBERT J", "2027-01-31", ["licence holder"])
+assert tx.url == "https://data.texas.gov/resource/7358-krk7.json?license_number=TACLA1"
+trec = by["Texas real estate licence (TREC)"].attrs
+assert (trec["location"], trec["sponsor"], trec["issued"]) == ("Pima County, TX", "Example Realty", "2019-04-01")
+assert by["Colorado licence (DORA)"].attrs["verify"] == "https://apps.colorado.gov/dora/licensing/Lookup/1"
+wa = [f for f in found if f.site == "Washington contractor licence (L&I)"]
+assert len(wa) == 2 and wa[0].url == wa[1].url  # the scorer's URL grouping makes them one candidate
+assert "Illinois licence (IDFPR) failed (HTTPStatusError)" in note and "Delaware licence rate-limited" in note, note
+where = {r.url.path.split("/")[-1]: r.url.params["$where"] for r in seen}
+assert where["s7ft-44qi.json"] == "(upper(last_name) = 'VANCE' and upper(first_name) like 'ROBERT%')", where
+assert where["7358-krk7.json"] == "(upper(owner_name) like '%VANCE%' and upper(owner_name) like '%ROBERT%')"
+assert all(r.url.params["$limit"] == str(_socrata.LIMIT) for r in seen)
+seen = serve({"/resource/": (200, [])})
+run(licences, "name", "Siobhan O'Vance")
+assert "upper(last_name) = 'O''VANCE'" in seen[1].url.params["$where"]  # quotes escaped for SoQL
+asked = len(seen)
+assert run(licences, "name", "Cher")[:2] == ([], 0) and len(seen) == asked
+os.environ["HUNT_SOCRATA_TOKEN"] = "app-token"
+seen = serve({"/resource/": (200, [])})
+run(fmcsa, "name", "Robert Vance")
+assert seen[0].headers["x-app-token"] == "app-token"
+del os.environ["HUNT_SOCRATA_TOKEN"]
+
+# Businesses: a role from the row; one person in two roles is one record; CT business names joined in
+seen = serve({"tckn-sxa6": (200, [{"first_name": "ROBERT", "last_name": "VANCE", "associated_name_type": "PRESIDENT",
+                                   "business_name": "VANCE BIRDING INC", "registry_number": "123456-78", "city": "BEND",
+                                   "state": "OR"},
+                                  {"first_name": "ROBERT", "last_name": "VANCE", "associated_name_type": "SECRETARY",
+                                   "business_name": "VANCE BIRDING INC", "registry_number": "123456-78"}]),
+              "resource/ka36-64k6": (200, [{"firstname": "Robert", "lastname": "Vance", "designation": "Manager",
+                                            "business_id": "B1", "residence_city": "HARTFORD", "residence_state": "CT"}]),
+              "resource/n7gp-d28j": (200, [{"id": "B1", "name": "VANCE MAPS LLC", "status": "Active",
+                                            "date_registration": "2021-05-01T00:00:00.000"}]),
+              "n9v6-gdp6": (200, [{"chairman_name": "ROBERT VANCE", "current_entity_name": "VANCE HOLDINGS CORP",
+                                   "dos_id": "999", "chairman_city": "ALBANY", "chairman_state": "NY",
+                                   "location_city": "NEW YORK", "location_state": "NY"}]),
+              "/resource/": (200, [])})
+found, _, note = run(businesses, "name", "Robert Vance")
+by = {f.site: f for f in found}
+assert len(found) == 3, (found, note)
+assert by["Oregon business (SOS)"].attrs["roles"] == ["president", "secretary"]
+ct = by["Connecticut business (SOTS)"].attrs
+assert (ct["business"], ct["location"], ct["registered"], ct["roles"]) == ("VANCE MAPS LLC", "Hartford, CT", "2021-05-01",
+                                                                            ["manager"])
+assert any(r.url.params.get("$where") == "id in ('B1')" for r in seen)
+ny = by["New York corporation (DOS)"].attrs
+assert (ny["fullname"], ny["location"], ny["business_location"], ny["roles"]) == ("ROBERT VANCE", "Albany, NY",
+                                                                                  "New York, NY", ["chief executive"])
+
+# FMCSA: an owner-operator under their own name, and an officer of someone else's carrier
+serve({"az4n-8mr2": (200, [{"legal_name": "ROBERT J VANCE", "dot_number": "1234567", "status_code": "A",
+                            "carrier_operation": "A", "power_units": "1", "total_drivers": "1", "phy_city": "TUCSON",
+                            "phy_state": "AZ", "email_address": "RV@EXAMPLE.COM", "mcs150_date": "2026-03-02T00:00:00.000"},
+                           {"legal_name": "EXAMPLE FREIGHT LLC", "company_officer_1": "ROBERT VANCE",
+                            "company_officer_2": "DANA HOLT", "dot_number": "7654321", "status_code": "I"}])})
+found, _, _ = run(fmcsa, "name", "Robert Vance")
+own, officer = found
+assert own.url == fmcsa.SAFER + "1234567" and own.attrs["roles"] == ["carrier (legal name)"]
+assert (own.attrs["operation"], own.attrs["status"], own.attrs["email"], own.attrs["last_update"]) == \
+       ("interstate", "active", EMAIL, "2026-03-02")
+assert (officer.attrs["fullname"], officer.attrs["carrier"], officer.attrs["officers"], officer.attrs["status"]) == \
+       ("ROBERT VANCE", "EXAMPLE FREIGHT LLC", ["ROBERT VANCE", "DANA HOLT"], "inactive")
+assert any(f"profile lists {EMAIL}" in r for r in score(Seed("name", "Robert Vance"), own.url, own.attrs,
+                                                         [Seed("name", "Robert Vance"), Seed("email", EMAIL)])[2])
+
+# Health: HEAD, GET when HEAD isn't served, throttling and outages reported, keys reported (never their values)
+seen = serve({"HEAD api.github.com/rate_limit": (404, {}), "api.github.com/rate_limit": (200, {}),
+              "mastodon.social": (429, {}), "keys.openpgp.org": httpx.ConnectError("no route"),
+              "npiregistry": (503, ""), "data.texas.gov/api/views/7358-krk7": (404, {}), "": (200, {})})
+os.environ["HUNT_GITHUB_TOKEN"] = "secret-value"
+court_token = os.environ.pop("HUNT_COURTLISTENER_TOKEN")
+rows = {r["source"]: r for r in asyncio.run(registry.health())}
+del os.environ["HUNT_GITHUB_TOKEN"]
+os.environ["HUNT_COURTLISTENER_TOKEN"] = court_token  # the proxy check below needs it
+assert list(rows) == [s.NAME for s in SOURCES]
+assert rows["github"]["ready"] and rows["github"]["key_set"] and "secret-value" not in str(rows)
+assert [r.method for r in seen if r.url.host == "api.github.com"] == ["HEAD", "GET"]
+assert rows["mastodon"]["detail"].endswith("rate-limited right now") and not rows["mastodon"]["ready"]
+assert rows["openpgp"]["detail"].endswith("unreachable (ConnectError)") and rows["openpgp"]["reachable"] is False
+assert rows["npi"]["detail"].endswith("server error 503")
+assert not rows["licences"]["reachable"] and "7358-krk7.json: not found (404)" in rows["licences"]["detail"]
+assert rows["businesses"]["ready"] and len(rows["businesses"]["checks"]) == len(businesses.DATASETS)
+assert rows["courtlistener"]["reachable"] and not rows["courtlistener"]["ready"]  # its key is required and unset
+assert rows["phonenumbers"]["reachable"] is None and rows["phonenumbers"]["ready"]
+assert next(r for r in seen if r.url.host == "efts.sec.gov").headers["user-agent"] == edgar.UA
+
+
 # Proxy: every new source's first connection goes to HUNT_PROXY (a fake one here that refuses everything)
-async def first_proxy_request(mod, seed):
+async def proxy_lines(make):
+    """Run make() with HUNT_PROXY pointing at a fake proxy; return the first line of each connection it got."""
     lines = []
 
     async def refuse(reader, writer):
@@ -337,7 +459,7 @@ async def first_proxy_request(mod, seed):
     server = await asyncio.start_server(refuse, "127.0.0.1", 0)
     os.environ["HUNT_PROXY"] = f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}"
     try:
-        await mod.search(seed)
+        await make()
     except httpx.HTTPError:
         pass
     finally:
@@ -346,7 +468,7 @@ async def first_proxy_request(mod, seed):
     return lines
 
 
-for m in NEW:
+for m in CLIENTS:
     m.client = REAL_CLIENT
 name, handle = Seed("name", "Robert Vance"), Seed("username", "kvane")
 for mod, seed, host in [(github, Seed("username", "proxy-check"), "api.github.com"),
@@ -356,9 +478,15 @@ for mod, seed, host in [(github, Seed("username", "proxy-check"), "api.github.co
                         (stackexchange, name, "api.stackexchange.com"), (openpgp, Seed("email", EMAIL), "keys.openpgp.org"),
                         (wayback, Seed("url", "https://kvane.example"), "web.archive.org"), (fec, name, "api.open.fec.gov"),
                         (edgar, name, "efts.sec.gov"), (npi, name, "npiregistry.cms.hhs.gov"),
-                        (courtlistener, name, "www.courtlistener.com")]:
-    lines = asyncio.run(first_proxy_request(mod, seed))
+                        (courtlistener, name, "www.courtlistener.com"), (fmcsa, name, "data.transportation.gov")]:
+    lines = asyncio.run(proxy_lines(lambda: mod.search(seed)))
     assert lines and lines[0].startswith(f"CONNECT {host}:443 "), (mod.NAME, lines)
+for mod in (licences, businesses):  # every dataset's portal, all through the proxy
+    lines = asyncio.run(proxy_lines(lambda: mod.search(name)))
+    assert sorted(lines) == sorted(f"CONNECT {d.domain}:443 HTTP/1.1" for d in mod.DATASETS), (mod.NAME, lines)
+lines = asyncio.run(proxy_lines(registry.health))
+probed = {u for s in SOURCES for u in ([s.HEALTH] if isinstance(getattr(s, "HEALTH", None), str) else getattr(s, "HEALTH", []))}
+assert len(lines) >= len(probed) and all(l.startswith("CONNECT ") for l in lines), lines
 del os.environ["HUNT_COURTLISTENER_TOKEN"]
 
 if "--live" in sys.argv:  # a few real logged-out calls: public organisations, example.com, or nobody's name

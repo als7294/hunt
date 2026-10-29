@@ -22,6 +22,7 @@ import threading
 import time
 import webbrowser
 from collections import Counter
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import date, datetime, timedelta, timezone
 from importlib.metadata import version
@@ -38,10 +39,10 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from . import report, search, vlm
-from . import bundle, inbox, notes, recheck  # docs/qol.md
+from . import bundle, inbox, notes, recheck, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import extension  # docs/capture.md
-from .case import DECISIONS, EVIDENCE_NAME, HOME, Case, all_cases
+from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, Case, all_cases
 from .match import ICD203
 from .seed import detect
 
@@ -100,7 +101,7 @@ class Guard:
         if req.method not in ("GET", "HEAD"):
             if req.headers.get("origin") not in self.origins:
                 return 403, "cross-origin request"
-            want = "multipart/form-data" if req.url.path.endswith(("/media", "/facebook")) else "application/json"
+            want = "multipart/form-data" if req.url.path.endswith(("/media", "/logo", "/facebook")) else "application/json"
             if req.headers.get("content-type", "").split(";")[0].strip().lower() != want:
                 return 415, f"content type must be {want}"
         return None
@@ -398,18 +399,53 @@ async def create_case(req: Request):
         raise HTTPException(400, f"kind must be one of {', '.join(KINDS)}")
     if b.get("tool", "person") != "person":
         raise HTTPException(400, "tool must be 'person'")
-    if injury := b.get("injury_date"):
-        try:
-            date.fromisoformat(injury)
-        except (TypeError, ValueError):
-            raise HTTPException(400, "injury_date must be YYYY-MM-DD")
-    details = {"kind": b["kind"], "reference": b.get("reference") or None, "injury_date": injury or None,
-               "limits": b.get("limits") or None, "look_for": _str_list(b.get("look_for"), "look_for"), "tool": "person"}
+    details = {**_details(b), "kind": b["kind"], "tool": "person"}
+    details = {k: v for k, v in details.items() if v not in ("", None)}
     seeds = [s for raw in _str_list(b.get("seeds"), "seeds") for s in detect(raw)]
     c = Case.create(label, purpose, **details)
     c.add_seeds(seeds)
     c.audit("case details", {"label": label, **details, "seeds": [asdict(s) for s in seeds]})
     return JSONResponse({"slug": c.name}, 201)
+
+
+EDITABLE = ("reference", "injury_date", "limits", "look_for", "client", "adjuster", "file_number", "assignment_date",
+            "subject_dob", "recommendations")
+
+
+def _details(b: dict) -> dict:
+    """The editable case details present in a request body, validated. '' clears a field."""
+    out = {}
+    for k in EDITABLE:
+        if k not in b:
+            continue
+        v = b[k]
+        if k == "look_for":
+            out[k] = _str_list(v, k)
+        elif v is None or v == "":
+            out[k] = ""
+        elif not isinstance(v, str) or len(v) > 4000:
+            raise HTTPException(400, f"{k} must be text of at most 4,000 characters")
+        elif k in DATES:
+            try:
+                date.fromisoformat(v)
+            except ValueError:
+                raise HTTPException(400, f"{k} must be YYYY-MM-DD")
+            out[k] = v
+        else:
+            out[k] = v.strip()
+    return out
+
+
+async def update_details(req: Request):
+    """Fill in or correct the report's header fields after the wizard: client, adjuster, dates…"""
+    c = _case(req)
+    changes = _details(await _body(req))
+    if not changes:
+        raise HTTPException(400, f"send one or more of: {', '.join(EDITABLE)}")
+    c.set_details(**changes)
+    c.audit("case details", changes)
+    d = c.details()
+    return JSONResponse({"details": {k: d[k] for k in (*DETAILS, "purpose", "created")}})
 
 
 async def get_case(req: Request):
@@ -420,8 +456,7 @@ async def get_case(req: Request):
     d = c.details()
     return JSONResponse({
         "slug": c.name,
-        "details": {k: d[k] for k in ("label", "kind", "reference", "purpose", "injury_date", "limits", "look_for",
-                                      "tool", "created")},
+        "details": {k: d[k] for k in (*DETAILS, "purpose", "created")},
         "seeds": [{"kind": s.kind, "value": s.value} for s in c.seeds()],
         "steps": {"search": "running" if running("search") else _search_step(c),
                   "identity": "done" if c.decisions() else "todo",
@@ -631,6 +666,47 @@ async def set_hit(req: Request):
     return JSONResponse(await _call(scan.set_status, c, hit_id, status))  # it audits the change
 
 
+# --- the investigator's report settings -------------------------------------------------------------
+
+async def get_settings(req: Request):
+    return JSONResponse(report.settings())
+
+
+async def post_settings(req: Request):
+    b = await _body(req)
+    if "logo" in b:  # {"logo": null} removes it; a new one comes through /api/settings/logo
+        if b.pop("logo") is not None:
+            raise HTTPException(400, "upload a logo with POST /api/settings/logo; send logo: null to remove it")
+        report.save_logo(None)
+    try:
+        return JSONResponse(report.save_settings(**b))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+async def post_logo(req: Request):
+    form = await req.form(max_files=1, max_fields=1)
+    try:
+        f = form.get("file")
+        if not isinstance(f, UploadFile):
+            raise HTTPException(400, "send the logo as a file field named 'file'")
+        data = await f.read(report.LOGO_MAX + 1)
+        try:
+            report.save_logo(data)
+        except ValueError as e:
+            raise HTTPException(415, str(e))
+    finally:
+        await form.close()
+    return JSONResponse(report.settings())
+
+
+async def get_logo(req: Request):
+    path = report.logo_path()
+    if not path:
+        raise HTTPException(404, "no logo set")
+    return FileResponse(path, media_type="image/png" if path.suffix == ".png" else "image/jpeg")
+
+
 # --- report and evidence ------------------------------------------------------------------------
 
 async def _report(req: Request, c: Case, export: bool = False) -> dict:
@@ -652,14 +728,14 @@ async def export_report(req: Request):
     if fmt not in ("html", "pdf", "json"):
         raise HTTPException(404, "report formats: html, pdf, json")
     rep = await _report(req, c, export=True)
-    html = report.to_html(c, rep)
+    html = report.to_html(c, rep, pdf=fmt == "pdf")
     if fmt == "html":
         body, media = html.encode(), "text/html; charset=utf-8"
     elif fmt == "json":
         body, media = json.dumps(report.to_json(c, rep), indent=2, ensure_ascii=False).encode(), "application/json"
     else:
         async with search.HEAVY:
-            body, media = await report.to_pdf(html), "application/pdf"
+            body, media = await report.to_pdf(html, rep), "application/pdf"
     c.audit("report exported", {"format": fmt, "screening": rep["screening"], "tampered": rep["checks"]["tampered"]})
     name = f"{c.name}-report{'-screening' if rep['screening'] else ''}.{fmt}"
     return Response(body, media_type=media, headers={"content-disposition": f'attachment; filename="{name}"'})
@@ -769,9 +845,7 @@ async def unfurl(req: Request):
 
 async def start_recheck(req: Request):
     c = _case(req)
-    accounts = [{"url": x["url"], "site": x["site"], "finding_id": x["finding_ids"][0]}
-                for x in (await search.snapshot(c))["candidates"]
-                if x["decision"] == "him" and x["seed"]["kind"] != "email"]  # email hits are site homepages
+    accounts = await recheck.confirmed(c)
     if not accounts:
         raise HTTPException(409, "mark at least one account as him first")
 
@@ -808,6 +882,85 @@ async def post_note(req: Request):
         raise HTTPException(400, str(e))
 
 
+async def get_watch(req: Request):
+    return JSONResponse(watch.state(_case(req)))
+
+
+async def post_watch(req: Request):
+    c = _case(req)
+    b = await _body(req)
+    every = b.get("every_days", 7)
+    if not isinstance(b.get("on"), bool) or type(every) is not int:
+        raise HTTPException(400, "on must be true or false, and every_days a number of days")
+    if not b["on"]:
+        return JSONResponse(watch.stop(c, "turned off"))
+    if not await recheck.confirmed(c):
+        raise HTTPException(409, "mark at least one account as him first")
+    try:
+        return JSONResponse(watch.start(c, every))
+    except ValueError as e:
+        raise HTTPException(400 if "every_days" in str(e) else 409, str(e))
+
+
+async def get_alerts(req: Request):
+    return JSONResponse({"alerts": watch.alerts(_case(req))})
+
+
+async def post_alerts_seen(req: Request):
+    return JSONResponse({"marked": watch.mark_seen(_case(req))})
+
+
+async def get_background(req: Request):
+    return JSONResponse({"on": watch.background()})
+
+
+async def post_background(req: Request):
+    on = (await _body(req)).get("on")
+    if not isinstance(on, bool):
+        raise HTTPException(400, "on must be true or false")
+    try:
+        return JSONResponse({"on": await asyncio.to_thread(watch.keep_watching, on)})
+    except OSError as e:
+        raise HTTPException(409, str(e))
+
+
+async def _watch_job(app, c: Case) -> dict:
+    """A watch run as a job: the app shows it like a scan, and nothing else starts on the case meanwhile."""
+    job, out = Job(c.name, "watch"), {}
+    app.state.jobs[job.id] = job
+
+    async def work(job):
+        out.update(await watch.run(c, job.emit, job.pause))
+        job.emit({"type": "stage", "stage": "done"})
+    await job.start(work).task
+    if job.state != "done":
+        raise RuntimeError(json.loads(job.events[-1][1]).get("message", job.state) if job.events else job.state)
+    return out
+
+
+async def _watch_loop(app):
+    """While Hunt runs, due watched cases are checked from here, one at a time (hunt/watch.py)."""
+    lock = None
+    while True:
+        await asyncio.sleep(watch.TICK)
+        try:
+            lock = lock or watch.take_lock()  # None while a background `hunt watch` is mid-run: next tick
+            if lock:
+                await watch.tick(lambda c: _watch_job(app, c),
+                                 skip=lambda slug: any(j.slug == slug and not j.finished for j in app.state.jobs.values()))
+        except Exception as e:  # one bad round mustn't end watching
+            print(f"hunt app: watching: {type(e).__name__}: {e}", file=sys.stderr)
+
+
+def _watching(app):
+    @asynccontextmanager
+    async def lifespan(_):
+        task = asyncio.create_task(_watch_loop(app))
+        yield
+        task.cancel()
+    return lifespan
+
+
 QOL_ROUTES = [
     Route("/api/cases/{slug}/inbox", get_inbox),
     Route("/api/cases/{slug}/inbox", post_inbox, methods=["POST"]),
@@ -817,6 +970,12 @@ QOL_ROUTES = [
     Route("/api/cases/{slug}/changes", get_changes),
     Route("/api/cases/{slug}/notes", get_notes),
     Route("/api/cases/{slug}/notes", post_note, methods=["POST"]),
+    Route("/api/cases/{slug}/watch", get_watch),
+    Route("/api/cases/{slug}/watch", post_watch, methods=["POST"]),
+    Route("/api/cases/{slug}/alerts", get_alerts),
+    Route("/api/cases/{slug}/alerts/seen", post_alerts_seen, methods=["POST"]),
+    Route("/api/watch/background", get_background),
+    Route("/api/watch/background", post_background, methods=["POST"]),
 ]
 
 
@@ -1064,6 +1223,11 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/cases/{slug}/media", add_media, methods=["POST"]),
         Route("/api/cases/{slug}/posts", get_posts),
         Route("/api/cases/{slug}/hits/{id}", set_hit, methods=["POST"]),
+        Route("/api/cases/{slug}/details", update_details, methods=["POST"]),
+        Route("/api/settings", get_settings),
+        Route("/api/settings", post_settings, methods=["POST"]),
+        Route("/api/settings/logo", get_logo),
+        Route("/api/settings/logo", post_logo, methods=["POST"]),
         Route("/api/cases/{slug}/report", get_report),
         Route("/api/cases/{slug}/report.{fmt:str}", export_report),
         Route("/evidence/{slug}/{name}", evidence),
@@ -1081,7 +1245,9 @@ def serve():
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
     url = f"http://127.0.0.1:{port}/login?t={token}"
-    server = uvicorn.Server(uvicorn.Config(make_app(token, port), log_level="warning", timeout_graceful_shutdown=1))
+    app = make_app(token, port)
+    app.app.router.lifespan_context = _watching(app.app)  # watched cases are checked while Hunt runs (docs/qol.md)
+    server = uvicorn.Server(uvicorn.Config(app, log_level="warning", timeout_graceful_shutdown=1))
     print(f"Hunt is running on this computer only. If your browser doesn't open, visit:\n  {url}\n"
           "Press Ctrl+C to stop.", file=sys.stderr)
     threading.Timer(0.5, webbrowser.open, (url,)).start()

@@ -49,6 +49,13 @@ FIELDS = {"fullname": "name", "bio": "bio"}  # source attr → how a change is n
 MASTODON = re.compile(r"https?://([^/]+)/@([^/?#@]+)/?$")
 
 
+async def confirmed(case) -> list[dict]:
+    """The accounts marked as the subject's, as run() takes them. Email hits are site homepages: left out."""
+    return [{"url": x["url"], "site": x["site"], "finding_id": x["finding_ids"][0]}
+            for x in (await search.snapshot(case))["candidates"]
+            if x["decision"] == "him" and x["seed"]["kind"] != "email"]
+
+
 async def run(case, accounts: list[dict], emit, pause=None) -> dict:
     """accounts: [{url, site, finding_id}], the ones marked as the subject's. Returns the 'recheck' summary."""
     case.db.executescript(posts.SCHEMA + SCHEMA)

@@ -21,6 +21,12 @@ SEARCH = "https://efts.sec.gov/LATEST/search-index"
 ENTITIES = 5  # filers looked up in detail (one request each)
 FILINGS = 30  # full-text hits kept, in EDGAR's relevance order; a common name matches thousands
 UA = "Hunt/0.1 (open-source OSINT tool)"
+KEY = "HUNT_SEC_UA"  # not a key: who is asking
+HEALTH = SEARCH + "?keysTyped=sec"
+
+
+def headers() -> dict:
+    return {"User-Agent": os.environ.get(KEY) or UA}
 
 
 def _filer(seed, cik, entity, s):
@@ -54,7 +60,7 @@ def _mentions(seed, hits, body):
 async def search(seed):
     words = seed.value.split()
     as_filed = " ".join(words[-1:] + words[:-1])  # EDGAR names people 'Last First Middle'
-    async with client(**{"User-Agent": os.environ.get("HUNT_SEC_UA", UA)}) as c:
+    async with client(**headers()) as c:
         r = await fetch(c, SEARCH, {"keysTyped": as_filed})
         entities = r.json()["hits"]["hits"][:ENTITIES]
         found = [_filer(seed, int(e["_id"]), e["_source"]["entity"],

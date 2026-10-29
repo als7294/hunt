@@ -12,6 +12,7 @@ from ._api import client, fetch, handles, tidy
 NAME = "keybase"
 KINDS = {"username"}
 API = "https://keybase.io/_/api/1.0/user/lookup.json"
+HEALTH = API
 LOOKUPS = {"usernames": "Keybase username", "github": "proven GitHub handle", "twitter": "proven Twitter handle"}
 OK = 1  # proof state: 1 = currently verified (others are broken, revoked or superseded)
 NOT_ACCOUNTS = {"dns", "generic_web_site"}  # proofs of a website, not of a handle

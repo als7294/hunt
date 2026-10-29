@@ -9,7 +9,7 @@ opens `/login?t=<token>`, which sets an HttpOnly, SameSite=Strict cookie and red
 - **Non-GET requests:**
   - `Origin` must be `http://127.0.0.1:<port>` (or the `localhost` form).
   - JSON bodies need `Content-Type: application/json`.
-  - Uploads (`/media`, `/facebook`) are `multipart/form-data` with the same Origin check.
+  - Uploads (`/api/cases/{slug}/media`, `/api/cases/{slug}/facebook`, `/api/settings/logo`) are `multipart/form-data` with the same Origin check; nothing else accepts multipart. (The extension's `/api/capture/*` uploads pass their own check; see Hunt Capture.)
 - **`Sec-Fetch-Site`:** if present, must be `same-origin` or `none`.
 - **CORS:** no CORS headers, ever. GET requests never change state.
 - **Content-Security-Policy:**
@@ -27,8 +27,9 @@ Errors are `{"error": "message"}` with a 4xx or 5xx status.
 |---|---|---|
 | GET | `/api/startup` | `{version, proxy: bool, checks: [{id, label, ok, detail}]}`. Check ids: `cases`, `evidence` (re-hash), `ai` (Ollama `/api/tags` lists `HUNT_VLM`; the model isn't loaded), `network`, `proxy`, `retention` (cases older than 90 days with no legal hold) |
 | GET | `/api/cases` | `[{slug, label, kind, reference, tool, created, updated, headline}]`, newest first. `headline` reads like "9 flagged posts" or "Confirmed · report ready" |
-| POST | `/api/cases` | `{label, seeds: [str], kind: "insurance"\|"background"\|"diligence"\|"journalism", reference?, purpose (required: who asked and why it's lawful), injury_date?: "YYYY-MM-DD", limits?: str, look_for: [category key or custom text], tool: "person"}` → `201 {slug}`. A label that's already taken gets a `-2` suffix; nothing is ever merged |
-| GET | `/api/cases/{slug}` | `{slug, details: {label, kind, reference, purpose, injury_date, limits, look_for, tool, created}, seeds: [{kind, value}], steps: {search, identity, posts, report}` (each `"todo"`, `"running"` or `"done"`), `active_job: {id, kind} \| null, counts: {accounts, flagged, evidence}}` |
+| POST | `/api/cases` | `{label, seeds: [str], kind: "insurance"\|"background"\|"diligence"\|"journalism", reference?, purpose (required: who asked and why it's lawful), injury_date?: "YYYY-MM-DD", limits?: str, look_for: [category key or custom text], tool: "person"}` plus any **report header fields** (below) → `201 {slug}`. A label that's already taken gets a `-2` suffix; nothing is ever merged |
+| GET | `/api/cases/{slug}` | `{slug, details: {label, kind, reference, purpose, injury_date, limits, look_for, tool, created, client, adjuster, file_number, assignment_date, subject_dob, recommendations}, seeds: [{kind, value}], steps: {search, identity, posts, report}` (each `"todo"`, `"running"` or `"done"`), `active_job: {id, kind} \| null, counts: {accounts, flagged, evidence}}` |
+| POST | `/api/cases/{slug}/details` | Any of `{reference, injury_date, limits, look_for, client, adjuster, file_number, assignment_date, subject_dob, recommendations}`; `""` clears a field → `{details}`. Audited. Dates are `YYYY-MM-DD` |
 | POST | `/api/cases/{slug}/seeds` | `{seeds: [str]}` → `{seeds}` |
 | GET | `/api/cases/{slug}/case.json` | The full `search.build()` dict (candidates, methodology, audit…) |
 
@@ -85,14 +86,52 @@ Machine verdicts never exceed "likely". Only the investigator's Keep raises an i
 - **Response:** `posts` counts posts read, `added` counts new ones.
 - **Audit:** `facebook page imported`, `post imported`, `post already added`.
 
-## Report
+**Report header fields** (case details; all optional, all audited): `client` (carrier, TPA or law firm), `adjuster`,
+`file_number` (the investigator's own file number; the report falls back to the case slug), `assignment_date`,
+`subject_dob` (dropped in screening mode), `recommendations` (the investigator's own words, printed under
+"Conclusion and recommendations" and cited to the log entry that set them). `reference` is the client's claim or
+reference number; `injury_date` is the date of injury or loss.
+
+## Report settings (one per investigator, under `HUNT_HOME`)
 | Method | Path | Body / response |
 |---|---|---|
-| GET | `/api/cases/{slug}/report?screening=0\|1` | `{sections: [{id, title, done}], sentences: [{section, text, cites: [id]}], evidence: [{id, date, what, source, verdict, file}], couldnt_see: [str], checks: {every_sentence_cited, files_checked, tampered: [file]}}` |
-| GET | `/api/cases/{slug}/report.html` \| `.pdf` \| `.json` `?screening=1` | Downloads. Hashes are re-verified at export |
+| GET | `/api/settings` | `{firm, investigator, licence, contact, timezone, confidentiality, logo: bool}`. `timezone` defaults to this computer's (an IANA name); `confidentiality` to a standard line |
+| POST | `/api/settings` | Any of the fields above as strings (≤ 500 characters; `""` clears one; `timezone` must be an IANA zone name); `{logo: null}` removes the logo → the settings |
+| POST | `/api/settings/logo` | `multipart/form-data` with one `file`: PNG or JPEG under 2 MB (SVG and everything else get 415) → the settings |
+| GET | `/api/settings/logo` | The logo image, or 404 |
+
+## Report
+Laid out like an insurance / online-activity investigation report (`docs/research/report-format.md`).
+
+| Method | Path | Body / response |
+|---|---|---|
+| GET | `/api/cases/{slug}/report?screening=0\|1` | The report dict (below) |
+| GET | `/api/cases/{slug}/report.html` \| `.pdf` \| `.json` `?screening=1` | Downloads. Every evidence hash is re-verified at export (views use the quick check). HTML prints on US Letter with a running header and "Page X of Y" footer; the PDF has the same from Chromium |
 | GET | `/evidence/{slug}/{sha256}.{ext}` | Evidence file (security rules above) |
 
-Citation ids: `E-<post or hit id>` (evidence), `A-<finding id>` (accounts), `M-<run rowid>` (method).
+The report dict:
+- `screening: bool`
+- `header: {title, firm, investigator, licence, contact, logo, client, adjuster, reference, file_number, subject, subject_dob, injury_date, assignment_date, report_date, timezone, confidentiality}` (`subject_dob` and `injury_date` are null in screening mode)
+- `sections: [{id, title, done}]`, in order: `summary` Synopsis, `scope` Assignment and scope, `method` Search methodology, `presence` Online presence, `identity` Identity confirmation, `records` Public records, `found` Findings, `conclusion` Conclusion and recommendations, `couldnt_see` Limitations: what we couldn't see, `disclaimers` Disclaimers
+- `sentences: [{section, text, cites: [id], platform?}]`: every one cited. Findings sentences carry `platform`, so they can be grouped under platform headings. `couldnt_see` sentences aren't here; they're the bullets below
+- `presence: [{row, id, platform, url, username, visibility: "public"|"private"|"registered; no public profile seen", last_activity, relevant: "yes"|"no"|"not reviewed", status: "confirmed"|<verdict, at most likely>, exhibit}]`: the online presence table (accounts only)
+- `records: [{row, id, source: "fec"|"edgar"|"npi"|"courtlistener", site, url, summary, status, exhibit}]`: public records likely or confirmed to concern the subject, each with a one-line summary. They're records about the person, so they never appear in `presence` or as unread posts
+- `exhibits: [{no, id, kind, file, name, sha256, captured, platform, url, account?, posted_at, description, relevance?, page_source?}]`: numbered in the order the report refers to them (confirmed accounts' screenshots, then kept items by platform and date). `name` is the file's name in the evidence bundle (`hunt export`), e.g. `2026-04-04_bluesky_kestrel-vane88_image_1765f69b.jpg`
+- `evidence: [{id, exhibit, date, what, source, verdict, file}]`: the kept items
+- `accounts: [{id, site, url, verdict, decision, screenshot, captured}]`
+- `couldnt_see: [str]`, `couldnt_see_cites: [[id]]`: the limitations, as bullets, with their citations in the same order
+- `log: [{id, when, what, audit_log_id}]`: Appendix B, every `M-` id cited, in order; exports print `M-` citations as "Log n". `audit_log_id` is the entry's `id` in the evidence bundle's `audit-log.csv` (null for source runs)
+- `certification: {text, investigator, licence, firm, date}`: the signature block
+- `checks: {every_sentence_cited, files_checked, tampered: [file], missing: [header field]}`. `missing` lists what the header still needs (client, reference, assignment_date, investigator, licence)
+
+**Screening mode** (`?screening=1`, for employment use) leaves out: protected characteristics in any sentence; the date
+of birth and date of loss; injury items; profile and record screenshots; FEC contribution records and their source
+runs (political affiliation); NPI registry records and runs (health); and court dockets whose case, cause or nature of
+suit is about health or politics. It says so in its disclaimers.
+
+Citation ids: `E-<hit id>` (a kept item), `A-<finding id>` (an account), `M-<run rowid>` (a source run), `M-a<audit rowid>`
+(a case-log entry: purpose, decisions, captures, the scan). The exports print them as "Ex. n" (an exhibit), "Acct. n" (a
+row of the presence table), "Rec. n" (a row of the public records table) or "Log n" (Appendix B).
 
 ## Python interface between the server and the scan modules
 `hunt/posts.py` and `hunt/scan.py` own their tables (`posts`, `media`, `post_extra`, `hits`) and create them on first use. `emit(event: dict)` is a plain, non-blocking callable.
@@ -155,7 +194,7 @@ Capture uploads also share these rules:
 - A file of the wrong kind returns 415.
 - Posts are stored with `origin: "captured"`, and `/posts` counts them as `counts.captured`.
 
-## Quality of life: the Downloads inbox, the evidence bundle, links, Check again, notes
+## Quality of life: the Downloads inbox, the evidence bundle, links, Check again, notes, watching
 See [qol.md](qol.md) for the screens that use these.
 
 | Method | Path | Body / response |
@@ -166,6 +205,12 @@ See [qol.md](qol.md) for the screens that use these.
 | GET | `/api/unfurl?url=` | `{platform, handle, post_id, posted_at, url}`. Works offline. `url` comes back without tracking parameters. `posted_at` is read from TikTok and X post ids |
 | POST | `/api/cases/{slug}/recheck` | `{}` → `{job}`. **Check again:** the accounts marked `him` (not email hits) are looked at again. Returns 409 if none are marked, or if the case already has an active job. Takes the heavy lock only while capturing screenshots |
 | GET | `/api/cases/{slug}/changes` | `{checks: [{cite, ts, change: "recheck", accounts, new_posts, changes, captured}], changes: [change]}`, newest first. `cite` is the report's `M-a<audit rowid>` |
+| GET | `/api/cases/{slug}/watch` | `{on, every_days, started, last, next, status, stopped, why, unseen_alerts, background}`. `status`: `ok`, `waiting: on battery`, `waiting: the Mac is busy`, `waiting: the Mac is in use`, or `failed: …`. `why` is why watching stopped: `turned off`, `the case is closed`, or the retention period ended. `background` is whether the LaunchAgent is installed |
+| POST | `/api/cases/{slug}/watch` | `{on: bool, every_days?: 1\|3\|7}` (default 7) → the same state. The first check is one interval away; changing `every_days` while on counts from the last check. Returns 409 if no account is marked `him`, or the case can't be watched any more. Audited as `watch on` / `watch off` |
+| GET | `/api/cases/{slug}/alerts` | `{alerts: [{id, ts, kind: "flagged"\|"posts gone"\|"no posts"\|"account gone", text, audit, cite: "M-a<audit>", seen: bool}]}`, newest first |
+| POST | `/api/cases/{slug}/alerts/seen` | `{}` → `{marked: n}` |
+| GET | `/api/watch/background` | `{on}`: whether "Keep watching when Hunt is closed" is installed (one per-user LaunchAgent, for every watched case) |
+| POST | `/api/watch/background` | `{on: bool}` → `{on}`. Installs `~/Library/LaunchAgents/io.github.als7294.hunt.watch.plist` and loads it with `launchctl`, or unloads it and moves the plist to the Trash. Audited as `background watching` in every watched case. Returns 409 if `launchctl` refuses |
 | GET | `/api/cases/{slug}/notes?about=&ref=` | `{notes: [note]}`, oldest first, optionally only the notes about one thing. Returns 400 for an unknown `about` or a bad `ref` |
 | POST | `/api/cases/{slug}/notes` | `{text, about?: "case"\|"account"\|"post"\|"hit", ref?, replaces?: note id}` → `201 note`. A correction (`replaces`) keeps the old note's subject; a note can only be replaced once. Returns 400 for empty text (or more than 20,000 characters), an unknown subject, or a note that's already replaced. Audited as `note`, with its text |
 
@@ -201,3 +246,13 @@ See [qol.md](qol.md) for the screens that use these.
 - **note:** `{id, cite: "N-<id>", ts, about, ref, text, replaces: id|null, replaced_by: id|null}`.
   - `ref` is `null` for the case, the account's normalised URL, or the post's or hit's id, as a string.
   - Notes are never edited or deleted. A replaced note stays, with `replaced_by` set.
+
+### Watching: runs and jobs
+- **While Hunt is open:** due cases are checked every 10 minutes, one at a time. Each run is a job of kind `"watch"`, so `GET /api/cases/{slug}` shows it in `active_job`, and its events stream like a scan's.
+- **Event stages, in order:** `rechecking`, `collecting`, `capturing` (from Check again), then `scanning` (new media only), then `done`. Check again's own `done` is held back.
+- **What a run does:** `change` events as in Check again, then `scan` and `hit` events as in a scan.
+- **When it waits:** a case with another job running waits for the next round. So does every due case while the Mac is on battery, busy (1-minute load average above 0.5 per core), or in use (input in the last 5 minutes). "In use" stops counting once a check is a day overdue.
+- **After a run:** it's audited as `watch run` `{new_posts, changes, new_flagged, alerts}`.
+  - Each alert is audited as `alert` `{kind, text, hits | change}`, where `change` is the rowid of the Check again audit entry it came from.
+  - One local macOS notification sums up the run's alerts.
+  - A failed run is tried again an hour later.

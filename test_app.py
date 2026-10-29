@@ -240,6 +240,31 @@ assert r["weekly"] == [{"week": "2026-W15", "posts": 1, "flagged": 1}, {"week": 
 assert c.post("/api/cases/vance-claim/hits/7", content=json.dumps({"status": "great"}), headers=JSON).status_code == 400
 assert c.post("/api/cases/vance-claim/hits/7", content=json.dumps({"status": "in report"}), headers=JSON).json()["status"] == "in report"
 
+# --- Report settings and case details for the header ----------------------------------------------
+assert c.get("/api/settings").json()["firm"] == ""
+r = c.post("/api/settings", content=json.dumps({"firm": "Example Investigations", "licence": "PI-000000",
+                                                 "investigator": "Jo Example", "timezone": "America/Chicago"}), headers=JSON)
+assert r.status_code == 200 and r.json()["licence"] == "PI-000000", r.text
+assert c.post("/api/settings", content=json.dumps({"timezone": "Nowhere/Land"}), headers=JSON).status_code == 400
+assert c.post("/api/settings", content=json.dumps({"firm": "x"}), headers={**JSON, "origin": "http://evil.test"}).status_code == 403
+png = __import__("io").BytesIO()
+__import__("PIL.Image").Image.new("RGB", (30, 10), "navy").save(png, "PNG")
+assert c.post("/api/settings/logo", files=[("file", ("x.svg", b"<svg/>", "image/svg+xml"))], headers={"origin": BASE}).status_code == 415
+assert c.post("/api/settings/logo", content=b"{}", headers=JSON).status_code == 415  # uploads only
+r = c.post("/api/settings/logo", files=[("file", ("logo.png", png.getvalue(), "image/png"))], headers={"origin": BASE})
+assert r.status_code == 200 and r.json()["logo"] is True, r.text
+assert c.get("/api/settings/logo").headers["content-type"] == "image/png"
+r = c.post("/api/cases/vance-claim/details", content=json.dumps({"client": "Fictional Mutual", "assignment_date": "2026-03-20",
+                                                                  "adjuster": "A. Adjuster", "file_number": "EX-1"}), headers=JSON)
+assert r.status_code == 200 and r.json()["details"]["client"] == "Fictional Mutual", r.text
+assert c.post("/api/cases/vance-claim/details", content=json.dumps({"assignment_date": "20/03/2026"}), headers=JSON).status_code == 400
+assert c.post("/api/cases/vance-claim/details", content=json.dumps({"label": "renamed"}), headers=JSON).status_code == 400
+assert c.get("/api/cases/vance-claim").json()["details"]["file_number"] == "EX-1"
+h = c.get("/api/cases/vance-claim/report").json()["header"]
+assert (h["firm"], h["client"], h["file_number"], h["timezone"]) == ("Example Investigations", "Fictional Mutual", "EX-1",
+                                                                    "America/Chicago"), h
+assert c.post("/api/settings", content=json.dumps({"logo": None}), headers=JSON).json()["logo"] is False
+
 # --- Report and exports -------------------------------------------------------------------------
 rep = c.get("/api/cases/vance-claim/report").json()
 assert rep["checks"]["every_sentence_cited"] and rep["checks"]["tampered"] == [], rep["checks"]
