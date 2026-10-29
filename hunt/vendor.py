@@ -9,13 +9,15 @@ free plan's $5 a month: results_limit newest posts an account on the first read 
 and the credit left shown before a run (plan()), a hard per-run charge cap (Apify's maxTotalChargeUsd) and a
 monthly cap. Prices, terms and the date they were checked: docs/research/vendors.md.
 
-Settings live in HUNT_HOME/vendor.json, never in a case, mode 600:
-  apify_key        the investigator's token (HUNT_APIFY_KEY overrides); never shipped, never shown back
+The key is HUNT_APIFY_TOKEN, pasted on the app's "Connect free keys" screen (hunt/keys.py keeps it in HUNT_HOME/keys.json
+and in this process's environment); it is read at call time, never shipped, never shown back. The other settings live in
+HUNT_HOME/vendor.json, never in a case:
   actors           {"instagram": "apify~instagram-post-scraper", "facebook": "apify~facebook-posts-scraper"}
                    (HUNT_APIFY_ACTORS, a JSON object, overrides): any Actor taking the same inputs can be swapped in
   price_per_post   per-post prices used for estimates and the per-run cap; they change, so they're settings
   monthly_cap_usd  Hunt's own ceiling, under the plan's; results_limit; fresh_days
-Only the accounts the investigator marked as the subject's are passed in, as for every collector.
+Only the accounts the investigator marked as the subject's are passed in, as for every collector. A post Hunt Capture
+already holds (same URL, any source) isn't stored twice; Facebook URLs are canonicalised as facebook.py does.
 """
 
 import asyncio
@@ -26,13 +28,14 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import posts
+from . import facebook, posts
 from .case import HOME
 from .seed import Seed, now
 
 API = "https://api.apify.com/v2"
+KEY = "HUNT_APIFY_TOKEN"
 NAMES = {"instagram": "Instagram (via Apify)", "facebook": "Facebook (via Apify)"}
-DEFAULTS = {"apify_key": "", "actors": {"instagram": "apify~instagram-post-scraper", "facebook": "apify~facebook-posts-scraper"},
+DEFAULTS = {"actors": {"instagram": "apify~instagram-post-scraper", "facebook": "apify~facebook-posts-scraper"},
             "price_per_post": {"instagram": 0.0017, "facebook": 0.007},  # free-plan prices on 2026-10-29 (FB: $5 + $2 date filter per 1,000)
             "monthly_cap_usd": 5.0, "results_limit": 100, "fresh_days": 7}
 POLL = 60  # seconds the API waits per status call (its maximum)
@@ -40,6 +43,13 @@ SETTLE = 10  # seconds before the final cost read: the first figures after a run
 TIMEOUT = 900  # one run, in seconds
 HEADROOM = 1.25  # the per-run charge cap, over the estimate
 NO_KEY = "Apify key not set; Instagram and Facebook posts come from the Hunt Browser"
+try:  # the app's "Connect free keys" screen lists it; keys.py puts the saved value into the environment
+    from . import keys
+    keys.EXTRA[KEY] = {"label": "Apify", "url": "https://console.apify.com/sign-up",
+                       "free": "Instagram and Facebook public posts through Apify's Actors, inside the free plan's $5 a month "
+                               "(about 100 posts for $0.17 on Instagram, $0.70 on a Facebook Page); off without it"}
+except ImportError:
+    pass
 
 
 def settings() -> dict:
@@ -51,15 +61,14 @@ def settings() -> dict:
     for k, v in saved.items():
         if k in DEFAULTS:
             s[k] = s[k] | v if isinstance(DEFAULTS[k], dict) else v
-    if os.environ.get("HUNT_APIFY_KEY"):
-        s["apify_key"] = os.environ["HUNT_APIFY_KEY"]
     if os.environ.get("HUNT_APIFY_ACTORS"):
         s["actors"] |= json.loads(os.environ["HUNT_APIFY_ACTORS"])
+    s["apify_key"] = os.environ.get(KEY, "")
     return s
 
 
 def save_settings(**changes) -> dict:
-    """Store settings under HUNT_HOME (apify_key "" removes the key). Returns them as shown() does."""
+    """Store the caps and Actors under HUNT_HOME (the key goes through keys.py). Returns them as shown() does."""
     file = HOME / "vendor.json"
     saved = json.loads(file.read_text()) if file.exists() else {}
     for k, v in changes.items():
@@ -200,15 +209,15 @@ def _item(k: str, x: dict) -> dict:
             media.append(("video", video))
         elif uri := ((m.get("photo_image") or {}).get("uri") or m.get("thumbnail")):
             media.append(("image", uri))
-    return {"url": x["url"], "posted_at": x.get("time"), "text": x.get("text") or "", "media": media}
+    return {"url": facebook._canon(x["url"]), "posted_at": x.get("time"), "text": x.get("text") or "", "media": media}
 
 
 async def _save(case, client, k, account_url, item) -> int:
     """Store one vendor post and fetch its media from the platform's CDN. 0 if the post was already in the case."""
-    cur = case.db.execute("insert or ignore into posts values (null, ?, ?, ?, ?, ?, 'vendor', ?)",
-                          (NAMES[k], account_url, item["url"], item["posted_at"], item["text"], now()))
-    if not cur.rowcount:
+    if case.rows("select 1 from posts where url = ?", item["url"]):  # read, captured or added already, whatever the source
         return 0
+    cur = case.db.execute("insert into posts values (null, ?, ?, ?, ?, ?, 'vendor', ?)",
+                          (NAMES[k], account_url, item["url"], item["posted_at"], item["text"], now()))
     for kind, src in item["media"]:
         try:
             file, sha = await posts._download(case, client, src)

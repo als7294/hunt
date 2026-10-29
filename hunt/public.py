@@ -21,6 +21,7 @@ instagram, facebook   Login-walled, robots default-deny: not read automatically.
 X and Threads return nothing logged out and have the same robots default; not collected.
 
 posts.py registers FETCHERS here (see the bottom) and hands TikTok video pages to download() from posts._download.
+preview(case, url) is the app's "Read public preview": one account or post URL, on her click.
 """
 
 import asyncio
@@ -56,6 +57,18 @@ def site(url: str, site: str = "") -> str | None:
     """Which of these platforms an account or post URL belongs to, or None."""
     host = re.sub(r"^(?:[\w-]+\.)*(tiktok|facebook|fb|instagram)\.com$", r"\1", urlparse(url).netloc.lower())
     return next((k for k in NAMES if host in (k, k[:1] + "b") or k in site.lower()), None)
+
+
+async def preview(case, url: str) -> dict:
+    """Read one account or post URL into the case, logged out, on the investigator's click:
+    {source, status: 'found'|'nothing found'|'failed', added, checked, note}. The note says what was served and what
+    wasn't (a wall, a login-only site, a private account)."""
+    events = []
+    added = await posts.collect(case, [{"url": url}], None, events.append)
+    last = next((e for e in reversed(events) if e["type"] == "source" and e["status"] != "running"), None)
+    if not last:
+        raise ValueError("not an account or post address Hunt can read")
+    return {"source": last["source"], "status": last["status"], "added": added, "checked": last["checked"], "note": last["note"]}
 
 
 def handles(url: str) -> bool:
@@ -287,3 +300,10 @@ def _iso(ts: float | None) -> str | None:
 posts.FETCHERS.update(FETCHERS)
 posts.FETCHERS["youtube"] = _youtube  # the Data API when HUNT_YOUTUBE_KEY is set; posts._youtube's RSS read otherwise
 posts.NAMES.update(NAMES)
+try:  # the app's "Connect free keys" screen (hunt/keys.py) lists keys declared here
+    from . import keys
+    keys.EXTRA["HUNT_YOUTUBE_KEY"] = {"label": "YouTube Data API", "url": "https://console.cloud.google.com/apis/library/youtube.googleapis.com",
+                                      "free": "every upload of a channel with its full description (10,000 units a day); without it, the feed's latest 15"}
+except ImportError:
+    pass
+from . import vendor  # noqa: E402, F401  the Apify connector declares its key the same way

@@ -219,12 +219,22 @@ assert "Hunt Browser" in notes["https://www.instagram.com/nasa/"] and "Apify" in
 # Reading again adds nothing
 assert asyncio.run(posts.collect(case, accounts[:7], "2026-01-01", events.append)) == 0 and len(posts.list_posts(case)) == 8
 
+# Read public preview, one URL on her click: the app's POST /api/cases/{slug}/preview
+fresh = Case("public preview", purpose="self-check")
+seen = asyncio.run(public.preview(fresh, f"https://www.tiktok.com/@nasa/video/{SECOND}"))
+assert seen == {"source": "TikTok", "status": "found", "added": 1, "checked": 1,
+                "note": notes[f"https://www.tiktok.com/@nasa/video/{SECOND}"].replace(" since 2026-01-01", "")}, seen
+assert asyncio.run(public.preview(fresh, "https://www.tiktok.com/@nasa"))["status"] == "nothing found"
+walled = asyncio.run(public.preview(fresh, "https://www.instagram.com/nasa/"))
+assert walled["status"] == "failed" and walled["added"] == 0 and "Hunt Browser" in walled["note"]
+assert asyncio.run(public.preview(fresh, "https://www.reddit.com/user/x"))["status"] == "failed"
+
 # `since` on a single video page
 items, _ = asyncio.run(public._tiktok(httpx.AsyncClient(), f"https://www.tiktok.com/@nasa/video/{VID}", "2026-10-26"))
 assert items == []
 
 # The rules, on every yt-dlp run: logged out, explicit minimal config, no geo-bypass header, proxied, honest UA, paced, one try
-assert [re.search(r"/video/(\d+)", r[-1])[1] for r in runs] == [VID, BLOCKED, SECOND]  # THIRD was stopped by the budget first
+assert [re.search(r"/video/(\d+)", r[-1])[1] for r in runs] == [VID, BLOCKED, SECOND, SECOND]  # THIRD was stopped by the budget; the last is the preview's
 for argv in runs:
     assert argv[:3] == [sys.executable, "-m", "yt_dlp"] and argv[argv.index("--user-agent") + 1] == posts.UA
     assert argv[argv.index("--proxy") + 1] == "socks5h://127.0.0.1:9050" and argv[argv.index("--xff") + 1] == "never"

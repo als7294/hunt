@@ -14,7 +14,7 @@ from pathlib import Path
 
 os.environ["HUNT_HOME"] = tempfile.mkdtemp()  # before importing hunt: settings and cases land here, never in ~/Hunt
 os.environ["HUNT_PROXY"] = "socks5h://127.0.0.1:9050"
-os.environ.pop("HUNT_APIFY_KEY", None)
+os.environ.pop("HUNT_APIFY_TOKEN", None)
 
 import httpx
 import imageio_ffmpeg
@@ -92,19 +92,24 @@ assert asyncio.run(vendor.collect(case, accounts, None, events.append)) == 0 and
 assert [(e["source"], e["status"], e["note"]) for e in events] == [("Instagram (via Apify)", "failed", vendor.NO_KEY),
                                                                    ("Facebook (via Apify)", "failed", vendor.NO_KEY)]
 
-# Settings: stored under HUNT_HOME, mode 600, the key never shown back; env overrides
-shown = vendor.save_settings(apify_key=TOKEN, actors={"facebook": "apify~facebook-posts-scraper"})
+# Settings: the key comes from the environment (the app's key store puts it there), the rest from HUNT_HOME, mode 600
+os.environ["HUNT_APIFY_TOKEN"] = TOKEN
+shown = vendor.save_settings(actors={"facebook": "apify~facebook-posts-scraper"})
 assert shown["apify_key"] is True and (HOME / "vendor.json").stat().st_mode & 0o777 == 0o600
-assert json.loads((HOME / "vendor.json").read_text())["apify_key"] == TOKEN and "TESTTOKEN" not in json.dumps(shown)
+assert "TESTTOKEN" not in (HOME / "vendor.json").read_text() + json.dumps(shown)  # never written there, never shown
 assert vendor.settings()["actors"] == {"instagram": "apify~instagram-post-scraper", "facebook": "apify~facebook-posts-scraper"}
 os.environ["HUNT_APIFY_ACTORS"] = json.dumps({"instagram": "someone~cheaper-scraper"})
 assert vendor.settings()["actors"]["instagram"] == "someone~cheaper-scraper"
 os.environ.pop("HUNT_APIFY_ACTORS")
-try:
-    vendor.save_settings(nonsense=1)
-    raise AssertionError("unknown settings must be refused")
-except ValueError:
-    pass
+for bad in ({"nonsense": 1}, {"apify_key": "x"}):
+    try:
+        vendor.save_settings(**bad)
+        raise AssertionError("unknown settings must be refused")
+    except ValueError:
+        pass
+case.db.executescript(posts.SCHEMA)  # a post Hunt Capture recorded as she browsed: the vendor must not store it again
+case.db.execute("insert into posts values (null, 'Facebook', 'https://www.facebook.com/NASA', "
+                "'https://www.facebook.com/NASA/posts/pfbid0example1', '2026-10-29T21:45:00', 'captured words', 'captured', '2026-10-29')")
 
 # With a key: the plan shows the estimate and the credit left before anything runs
 plan = asyncio.run(vendor.plan(case, accounts))
@@ -117,25 +122,26 @@ assert [a["newer_than"] for a in plan["run"]] == [None, None] and calls[-1][1] =
 events.clear()
 added = asyncio.run(vendor.collect(case, accounts, None, events.append))
 got = {p["url"]: p for p in posts.list_posts(case)}
-assert added == 5 == len(got) and all(p["origin"] == "vendor" for p in got.values())
+assert added == 4 and len(got) == 5 and [p["origin"] for p in got.values()].count("vendor") == 4
 done = [(e["source"], e["status"], e["found"], e["checked"]) for e in events if e["status"] != "running"]
-assert done == [("Instagram (via Apify)", "found", 3, 3), ("Facebook (via Apify)", "found", 2, 2)], done
+assert done == [("Instagram (via Apify)", "found", 3, 3), ("Facebook (via Apify)", "found", 1, 2)], done
 reel = got["https://www.instagram.com/p/DfF3eqGSKKc/"]
 assert reel["source"] == "Instagram (via Apify)" and reel["posted_at"] == "2026-10-29T20:35:35.000Z" and reel["text"].startswith("More power loading")
 assert [(m["kind"], m["file"]) for m in reel["media"]] == [("video", f"evidence/{sha(CLIP)}.mp4")] and abs(reel["media"][0]["duration"] - 2) < 0.2
 assert [m["kind"] for m in got["https://www.instagram.com/p/DfDOxLEm-5w/"]["media"]] == ["image", "image"]  # a carousel's pictures
 assert [m["kind"] for m in got["https://www.instagram.com/p/DfCo97ZlL5F/"]["media"]] == ["image"]
-fb_photo = got["https://www.facebook.com/NASA/posts/pfbid0example1"]
-assert fb_photo["source"] == "Facebook (via Apify)" and fb_photo["media"][0]["file"] == f"evidence/{sha(IMG)}.jpg"
-assert fb_photo["account_url"] == "https://www.facebook.com/NASA" and fb_photo["text"].startswith("Welcome to the Artemis Accords")
-assert [m["kind"] for m in got["https://www.facebook.com/NASA/videos/1670177694477600/"]["media"]] == ["image"]  # only its thumbnail was given
+captured = got["https://www.facebook.com/NASA/posts/pfbid0example1"]
+assert captured["origin"] == "captured" and captured["text"] == "captured words"  # her capture kept; the vendor's copy skipped
+fb_video = got["https://www.facebook.com/NASA/videos/1670177694477600/"]
+assert fb_video["source"] == "Facebook (via Apify)" and [m["kind"] for m in fb_video["media"]] == ["image"]  # only its thumbnail was given
+assert fb_video["account_url"] == "https://www.facebook.com/NASA" and fb_video["media"][0]["file"] == f"evidence/{sha(IMG)}.jpg"
 audits = [json.loads(r["detail"]) for r in case.rows("select detail from audit where action = 'vendor run' order by rowid")]
 assert audits[0] == {"vendor": "Apify", "actor": "apify~instagram-post-scraper", "build": "0.0.648", "run_id": "run1", "status": "SUCCEEDED",
                      "cost_usd": 0.187, "account": "https://www.instagram.com/nasa/", "newer_than": None, "posts": 3,
                      "started": "2026-10-29T20:00:00.000Z", "finished": "2026-10-29T20:01:00.000Z"}, audits[0]
 assert audits[1]["actor"] == "apify~facebook-posts-scraper" and audits[1]["run_id"] == "run2" and audits[1]["posts"] == 2
 summary = json.loads(case.rows("select detail from audit where action = 'vendor posts collected'")[0]["detail"])
-assert summary == {"vendor": "Apify", "accounts": [accounts[0]["url"], accounts[1]["url"]], "added": 5, "spent_usd": 0.9 + 0.187 * 2}
+assert summary == {"vendor": "Apify", "accounts": [accounts[0]["url"], accounts[1]["url"]], "added": 4, "spent_usd": 0.9 + 0.187 * 2}
 runs_table = {r["seed"]: r for r in case.rows("select * from runs where source like 'apify-%'")}
 assert runs_table[accounts[0]["url"]]["source"] == "apify-instagram" and "Actor apify~instagram-post-scraper build 0.0.648 (run run1, $0.187 charged" in runs_table[accounts[0]["url"]]["note"]
 assert "(the newest 100)" in runs_table[accounts[1]["url"]]["note"]
@@ -146,7 +152,7 @@ assert starts[1][3] == {"startUrls": [{"url": "https://www.facebook.com/NASA"}],
 assert float(starts[0][2]["maxTotalChargeUsd"]) == 0.22 and starts[0][2]["timeout"] == str(vendor.TIMEOUT)  # Apify's own hard cap on the run's charge
 assert 0.7 < float(starts[1][2]["maxTotalChargeUsd"]) < 1.0
 assert all(kw.get("proxy") == "socks5h://127.0.0.1:9050" for kw in clients if "headers" in kw)  # Apify and the CDNs through HUNT_PROXY
-assert case.rows("select count(*) n from post_seen")[0]["n"] == 5  # re-checks can tell which vendor posts went away
+assert case.rows("select count(*) n from post_seen")[0]["n"] == 4  # re-checks can tell which vendor posts went away
 
 # Soon after: not run again (free credit), unless asked; then only posts newer than the last read are requested
 plan = asyncio.run(vendor.plan(case, accounts))
@@ -188,8 +194,9 @@ assert events[-1]["status"] == "failed" and "ended FAILED: boom" in events[-1]["
 assert json.loads(fresh.rows("select detail from audit where action = 'vendor run'")[0]["detail"])["status"] == "FAILED"
 
 # Item shapes the Actors document
-assert vendor._item("facebook", {"url": "u", "time": "t", "text": None, "media": [{"__typename": "Video", "playable_url": "https://v/x.mp4"}]}) == \
-    {"url": "u", "posted_at": "t", "text": "", "media": [("video", "https://v/x.mp4")]}
+assert vendor._item("facebook", {"url": "https://www.facebook.com/NASA/posts/1?__cft__[0]=x&__tn__=y", "time": "t", "text": None,
+                                 "media": [{"__typename": "Video", "playable_url": "https://v/x.mp4"}]}) == \
+    {"url": "https://www.facebook.com/NASA/posts/1", "posted_at": "t", "text": "", "media": [("video", "https://v/x.mp4")]}  # canonical, as captures
 assert vendor._item("instagram", {"shortCode": "abc", "caption": "c", "timestamp": "t"}) == \
     {"url": "https://www.instagram.com/p/abc/", "posted_at": "t", "text": "c", "media": []}
 assert [vendor.site(u) for u in ("https://www.instagram.com/nasa/", "https://m.facebook.com/NASA", "https://www.tiktok.com/@nasa")] == \
