@@ -96,6 +96,9 @@ We found no first-person method write-ups from Consus, Blinky or zi8gzag, only m
 | **Simplified vs traditional Chinese** | Yes | Yes, 3.0 bits. Character sets avoid modern Japanese forms |
 | **Language** | Yes | From the vision model's language field, 2.3 bits. English is ignored |
 | **Domains, phone codes** | Yes, readable by OCR. `.co`, `.io`, `.tv` and similar are global brands, not places ([GeoHints domains](https://geohints.com/meta/domains), [phone numbers](https://geohints.com/meta/phoneNumbers)) | Yes, 4.0 bits. Vanity domains are ignored |
+| **Currency signs** (₩ ₹ ₽ ฿ ₫ ¥ € £, R$, HK$, Rp…) | Yes. Prices on menus, shopfronts and markets are among the most common text in holiday and food photos ([Wikipedia](https://en.wikipedia.org/wiki/Currency_symbol)). € covers 21 eurozone members, Bulgaria since 2026-01-01, plus six non-EU users ([Eurozone](https://en.wikipedia.org/wiki/Eurozone)) | Yes, 3.8 bits. A bare `$` is too widely shared |
+| **Postcodes** | Yes where the format is distinctive: UK, Canada, Irish Eircode, Brazil's CEP, Japan's 〒 mark. Most countries' 4–6-digit codes look like any number | Yes, 3.8 bits, those five formats only |
+| **mph** | Yes on signs that print the unit. Only the US, the UK and about 30 territories and small states use it ([Wikipedia](https://en.wikipedia.org/wiki/Miles_per_hour)) | Yes, 3.8 bits. Liberia is left out (only occasional) |
 | **Driving side** | Partly. Needs traffic in frame. Mirrored selfies flip it. Some left-driving islands (Bahamas, Caymans) run mostly left-hand-drive cars, so judge by traffic flow, not the steering wheel ([Wikipedia](https://en.wikipedia.org/wiki/Left-_and_right-hand_traffic), [GeoHints](https://geohints.com/meta/drivingSide)) | Yes, ±2 bits |
 | **Line colours** | Partly. The road must be in frame. White balance and sodium lighting confuse yellow with white. Europe uses yellow for roadworks ([GeoHints lines](https://geohints.com/meta/lines), [Wikipedia](https://en.wikipedia.org/wiki/Road_surface_marking)) | Weak, 0.8 bits. Only countries where it is the norm |
 | **Warning-sign shape** | Yes where present. Yellow diamond vs red triangle is standardised ([Wikipedia](https://en.wikipedia.org/wiki/Warning_sign), [MUTCD comparison](https://en.wikipedia.org/wiki/Comparison_of_MUTCD-influenced_traffic_signs)) | Weak, 0.8 bits |
@@ -129,7 +132,8 @@ All of this describes Google's publishing process, not the place. The only real-
 ## How Tessera uses this
 
 **In `tessera/clues.py`:** `country_evidence(obs, ocr_text)` turns OCR text and the vision model's observation dict into per-country Fellegi-Sunter bits, which `photo.fuse()` adds to each hypothesis.
-- **Strong clues, 3–4 bits:** script, rare letters, Chinese character forms, domains, phone codes.
+- **Strong clues, 3–4 bits:** script, rare letters, Chinese character forms, domains, phone codes, currency signs, distinctive postcodes, "mph".
+- **OCR junk is filtered out.** Apple Vision's default Latin-only OCR turns kanji into strings like "İF E" or "îEĚV^". So a rare letter only counts inside a word-shaped token: 3+ letters, all lower, ALL UPPER or Title case.
 - **Driving side, ±2 bits.**
 - **Weak hints, under 1 bit**, drawn only from the countries sources call the norm. Left out on purpose:
   - **Yellow centre lines** that only mean no-passing (jp, nz, ar, uy), snow (cl, ro), alpine roads (au) or roadworks (continental Europe).
@@ -164,6 +168,7 @@ All of this describes Google's publishing process, not the place. The only real-
 
 **Reference:**
 - Wikipedia: [Left- and right-hand traffic](https://en.wikipedia.org/wiki/Left-_and_right-hand_traffic), [Road surface marking](https://en.wikipedia.org/wiki/Road_surface_marking), [Yellow line](https://en.wikipedia.org/wiki/Yellow_line_(road_marking)), [Warning sign](https://en.wikipedia.org/wiki/Warning_sign), [MUTCD comparison](https://en.wikipedia.org/wiki/Comparison_of_MUTCD-influenced_traffic_signs), [Vehicle registration plates of Europe](https://en.wikipedia.org/wiki/Vehicle_registration_plates_of_Europe), [Vehicle registration plates of Israel](https://en.wikipedia.org/wiki/Vehicle_registration_plates_of_Israel)
+- Wikipedia: [Currency symbol](https://en.wikipedia.org/wiki/Currency_symbol), [Eurozone](https://en.wikipedia.org/wiki/Eurozone), [Miles per hour](https://en.wikipedia.org/wiki/Miles_per_hour), [Postcodes in the United Kingdom](https://en.wikipedia.org/wiki/Postcodes_in_the_United_Kingdom), [Postal codes in Canada](https://en.wikipedia.org/wiki/Postal_codes_in_Canada), [Eircode](https://en.wikipedia.org/wiki/Eircode), [Postal codes in Brazil](https://en.wikipedia.org/wiki/Postal_codes_in_Brazil), [Postal codes in Japan](https://en.wikipedia.org/wiki/Postal_codes_in_Japan)
 - libphonenumber metadata (calling code → regions), via the `phonenumbers` package
 
 **OSINT tradecraft:**

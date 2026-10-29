@@ -1,7 +1,8 @@
 """Photo clues → per-country evidence, from the text in a photo and a vision model's observations.
 
 Only clues that hold in an ordinary phone photo are here: what the text says (script,
-rare letters, web addresses, phone numbers), which side traffic drives on, and a few
+rare letters, web addresses, phone numbers, currency signs, postcodes, mph), which side
+traffic drives on, and a few
 well-established road-marking, sign and plate conventions. Street-View-only "meta"
 (camera generation, Google car, blur, coverage) never applies to a real photo, and
 poles, bollards, architecture and vegetation are too fine-grained to trust from a
@@ -28,6 +29,7 @@ COUNTRIES = {c.lower() for c in phonenumbers.SUPPORTED_REGIONS}  # ISO 3166-1 al
 # (m, u) per clue. Calibrated for photo.fuse(), where a 3-5 bit gap between countries is decisive.
 SCRIPT = (0.9, 0.05)  # 4.2 bits: a distinctive script on signs
 ADDRESS = (0.8, 0.05)  # 4.0: a national web domain or phone code (foreign ads and tourists exist)
+MARKER = (0.7, 0.05)  # 3.8: a currency sign, postcode or 'mph' in the text
 LETTER = (0.6, 0.06)  # 3.3: a letter only a few languages use (OCR can misread one)
 HANZI = (0.8, 0.1)  # 3.0: simplified vs traditional Chinese characters
 DRIVING = (0.8, 0.2)  # ±2.0, a 4-bit swing: mirrored selfies and empty roads mislead
@@ -101,6 +103,33 @@ DOMAIN = re.compile(r"(?<![\w.-])((?:[a-z0-9-]+\.)+)([a-z]{2})(?![\w-])", re.I)
 PHONE = re.compile(r"(?<![\w+])\+(\d[\d\s().-]{6,})")
 
 EU = "at be bg cy cz de dk ee es fi fr gr hr hu ie it lt lu lv mt nl pl pt ro se si sk"
+# Euro users (en.wikipedia.org/wiki/Eurozone; Bulgaria joined 2026-01-01), with their French territories.
+EURO = "at be bg hr cy ee fi fr de gr ie it lv lt lu mt nl pt sk si es ad mc sm va xk me gp mq gf re yt pm bl mf"
+
+# National markers in shop, menu and street text, as regexes → countries.
+# Currency signs: en.wikipedia.org/wiki/Currency_symbol. A bare '$' is too widely shared to help.
+CURRENCIES = {re.compile(p): c.split() for p, c in {
+    "₩": "kr kp", "₹": "in", "₽": "ru", "₺": "tr", "₫": "vn", "₱": "ph", "฿": "th", "₴": "ua", "₪": "il ps",
+    "₦": "ng", "₵": "gh", "₸": "kz", "₾": "ge", "₼": "az tm", "₮": "mn", "៛": "kh", "₭": "la", "₲": "py",
+    "₡": "cr", "¥": "jp cn", "円": "jp", "€": EURO, "£": "gb gg je im gi fk sh",
+    r"(?<![A-Za-z])R\$": "br", r"(?<![A-Za-z])S\$": "sg", r"HK\$": "hk", r"NT\$": "tw", r"(?<![A-Za-z])AU?\$": "au",
+    r"NZ\$": "nz", r"MX\$": "mx", r"(?<![A-Za-z])Rp\.?\s?\d": "id", r"(?<![A-Za-z])Rs\.?\s?\d": "in pk lk np mu sc",
+    r"\d\s?Kč": "cz",
+}.items()}
+# Postcode formats distinctive enough to recognise (most countries' 4-6 digit codes look like any number).
+# Formats per Wikipedia's "Postcodes in the United Kingdom", "Postal codes in Canada", "Eircode",
+# "Postal codes in Brazil" and "Postal codes in Japan".
+POSTCODES = {re.compile(p): c.split() for p, c in {
+    r"\b[A-Z]{1,2}\d[A-Z\d]? \d[ABD-HJLNP-UW-Z]{2}\b": "gb gg je im",
+    r"\b[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z] ?\d[ABCEGHJ-NPRSTV-Z]\d\b": "ca",
+    r"\b(?:[AC-FHKNPRTV-Y]\d{2}|D6W) (?=[0-9AC-FHKNPRTV-Y]*[AC-FHKNPRTV-Y])[0-9AC-FHKNPRTV-Y]{4}\b": "ie",
+    r"\b\d{5}-\d{3}\b": "br",
+    r"〒\s?\d{3}-?\d{4}": "jp",
+}.items()}
+# Speed limits in mph (en.wikipedia.org/wiki/Miles_per_hour; Liberia only occasionally, so left out).
+MPH = re.compile(r"\bmph\b", re.I)
+MPH_COUNTRIES = ("us gb ag bs bz dm gd mh fm pw kn lc vc ai vg io ky fk ms sh ac ta tc gg im je as gu mp pr "
+                 "vi").split()
 # Conventions the vision model may describe in prose: (observation field, pattern, countries, what it means).
 # Only countries where Plonk It or Wikipedia say the style is the norm (docs/research/geoguessr-meta.md has
 # the sources and the near-misses left out: yellow centre lines that only mean no-passing, snow or
@@ -180,8 +209,12 @@ def _text_clues(text: str) -> list[tuple[str, list[str], float, str]]:
         if found := "".join(sorted({c for c in text if c in chars})):
             out.append((form, countries, bits(*HANZI), f"{form} Chinese characters ({found})"))
 
+    # Rare letters count only inside word-shaped tokens: 3+ letters, all lower, ALL UPPER or Title. Latin-only
+    # OCR turns kanji into junk like 'İF E' or 'îEĚV^', which would otherwise read as Turkish and Czech.
+    words = "".join(w for w in re.findall(r"[^\W\d_]+", text)
+                    if len(w) >= 3 and (w.islower() or w.isupper() or w.istitle()))
     letters = defaultdict(set)
-    chars = set(text) | set(text.lower())
+    chars = set(words) | set(words.lower()) | {c for c in text if not c.isalpha()}  # ¿ and ¡ are punctuation
     for group, countries in LETTERS.items():
         for c in countries:
             letters[c] |= chars & set(group)
@@ -201,4 +234,10 @@ def _text_clues(text: str) -> list[tuple[str, list[str], float, str]]:
         regions = next((r for n in (1, 2, 3) if (r := phonenumbers.region_codes_for_country_code(int(digits[:n])))), ())
         if codes := [r.lower() for r in regions if r.lower() in COUNTRIES]:
             out.append(("phone", codes, bits(*ADDRESS), f"phone number +{m.group(1).strip()}"))
+    for kind, table in (("currency", CURRENCIES), ("postcode", POSTCODES)):
+        for pattern, countries in table.items():
+            if m := pattern.search(text):
+                out.append((kind, countries, bits(*MARKER), f"{kind} '{m.group(0).strip()}' in the text"))
+    if MPH.search(text):
+        out.append(("mph", MPH_COUNTRIES, bits(*MARKER), "speeds in mph"))
     return out
