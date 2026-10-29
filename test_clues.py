@@ -28,6 +28,8 @@ assert LEFT <= COUNTRIES, LEFT - COUNTRIES
 for table in (LANGUAGES, SCRIPTS, LETTERS):
     assert all(set(v) <= COUNTRIES for v in table.values()), [v for v in table.values() if not set(v) <= COUNTRIES]
 assert all(set(countries) <= COUNTRIES for _, _, countries, _ in HINTS)
+assert all(set(c) <= COUNTRIES for t in (clues.CURRENCIES, clues.POSTCODES) for c in t.values())
+assert set(clues.MPH_COUNTRIES) <= COUNTRIES and set(clues.EURO.split()) <= COUNTRIES
 
 # Nothing in, nothing out
 assert country_evidence({}, "") == {}
@@ -68,7 +70,26 @@ assert best(country_evidence({}, "www.bbc.co.uk")) == {"gb"}
 assert best(country_evidence({}, "info@kfc.de")) == {"de"}
 assert country_evidence({}, "+44 20 7946 0000").keys() == {"gb", "gg", "im", "je"}
 
+# Currency signs, postcodes, mph
+assert best(country_evidence({}, "ラーメン ¥980")) == {"jp"}
+assert best(country_evidence({}, "Phở bò 65.000₫")) == {"vn"}
+assert best(country_evidence({}, "Rp 15.000")) == {"id"}
+assert best(country_evidence({}, "HK$38")) == {"hk"} and best(country_evidence({}, "R$ 12,90")) == {"br"}
+assert best(country_evidence({}, "Кафе €2,50")) == {"bg", "me"}  # Cyrillic and the euro (Bulgaria's since 2026)
+assert "gb" in best(country_evidence({}, "10 Downing Street, London SW1A 2AA"))
+assert best(country_evidence({}, "Ottawa ON K1A 0B1")) == {"ca"}
+assert best(country_evidence({}, "Dublin D02 X285")) == {"ie"}
+assert best(country_evidence({}, "〒100-0005")) == {"jp"}
+assert best(country_evidence({}, "São Paulo 01310-100")) == {"br"}  # postcode, plus ã
+ev = country_evidence({}, "SPEED LIMIT 25 MPH")
+assert {"us", "gb", "pr"} <= best(ev) and "fr" not in ev, ev
+
 # Things that look like clues but aren't
+for text in ("CA$5", "A1 2345", "Room 12345", "2+2 = 4 km/h", "Rs", "Ft. Worth", "MPHASIS", "D02 1234"):
+    assert country_evidence({}, text) == {}, (text, country_evidence({}, text))
+# Latin-only OCR reading kanji (vlm.md): junk letters must not pass for Turkish or Czech
+assert country_evidence({}, "İF E\nîEĚV^") == {}
+assert best(country_evidence({}, "İSTANBUL")) == {"tr", "az"}  # but real capitals still count
 for text in ("Dr.No", "get.io", "watch at twitch.tv", "2+2 4567 8901", "5μ", "Citroën", "e.g. Mt.Fuji", "A to B"):
     assert country_evidence({}, text) == {}, (text, country_evidence({}, text))
 
