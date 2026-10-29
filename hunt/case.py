@@ -11,6 +11,7 @@ import os
 import re
 import sqlite3
 import tempfile
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import BinaryIO
 
@@ -21,6 +22,7 @@ DETAILS = ("label", "kind", "reference", "injury_date", "limits", "look_for", "t
            # the report's header block and conclusion (docs/research/report-format.md)
            "client", "adjuster", "file_number", "assignment_date", "subject_dob", "recommendations")
 DATES = ("injury_date", "assignment_date", "subject_dob")  # YYYY-MM-DD
+RETENTION_DAYS = 90  # from opening; then the case is due for deletion unless on legal hold (watch.py stops then too)
 DECISIONS = ("him", "not him", "unsure")
 EVIDENCE_NAME = re.compile(r"^[0-9a-f]{64}\.\w{2,5}$")
 
@@ -30,7 +32,8 @@ pragma busy_timeout = 5000;
 create table if not exists meta (key text primary key, value text);
 create table if not exists audit (ts text, action text, detail text);
 create table if not exists seeds (kind text, value text, added text, primary key (kind, value));
-create table if not exists runs (ts text, source text, seed_kind text, seed text, status text, found int, checked int, note text);
+create table if not exists runs (ts text, source text, seed_kind text, seed text, status text, found int, checked int, note text,
+    audit int);
 create table if not exists findings (
     id integer primary key, fetched_at text, source text, seed_kind text, seed text,
     site text, url text, attrs text, sha256 text, evidence text);
@@ -60,6 +63,8 @@ class Case:
         # One connection per Case; the app may touch it from a worker thread, sqlite serialises.
         self.db = sqlite3.connect(self.dir / "case.db", isolation_level=None, check_same_thread=False)
         self.db.executescript(SCHEMA)
+        if "audit" not in {r[1] for r in self.db.execute("pragma table_info(runs)")}:  # cases from before runs were audited
+            self.db.execute("alter table runs add column audit int")
         if new:
             self.db.executemany("insert into meta values (?, ?)", [("purpose", purpose), ("created", now())])
             self.audit("case opened", {"purpose": purpose})
@@ -106,6 +111,31 @@ class Case:
         d["label"] = d["label"] or self.name
         return d
 
+    def status(self) -> dict:
+        """{closed, legal_hold, retention_ends, retention_due}. Retention runs from opening; a legal hold stops it."""
+        created, hold = self.meta("created"), self.meta("legal_hold")
+        ends = (datetime.fromisoformat(created) + timedelta(days=RETENTION_DAYS)).isoformat(timespec="seconds") \
+            if created and not hold else None
+        return {"closed": self.meta("closed"), "legal_hold": hold, "retention_ends": ends,
+                "retention_due": bool(ends and ends < now())}
+
+    def close(self, reason: str | None = None) -> int:
+        """Close the case: no new searches, scans or re-checks, and watching stops. Audited; returns the row id."""
+        self.db.execute("insert or replace into meta values ('closed', ?)", (now(),))
+        return self.audit("case closed", {"reason": reason})
+
+    def reopen(self) -> int:
+        self.db.execute("delete from meta where key = 'closed'")
+        return self.audit("case reopened", {})
+
+    def set_hold(self, on: bool, reason: str | None = None) -> int:
+        """A legal hold keeps the case past its retention period (and keeps watching it). Audited."""
+        if on:
+            self.db.execute("insert or replace into meta values ('legal_hold', ?)", (now(),))
+        else:
+            self.db.execute("delete from meta where key = 'legal_hold'")
+        return self.audit("legal hold", {"on": on, "reason": reason})
+
     def audit(self, action: str, detail: dict) -> int:
         return self.db.execute("insert into audit values (?, ?, ?)", (now(), action, json.dumps(detail))).lastrowid
 
@@ -116,8 +146,12 @@ class Case:
         return [Seed(*row) for row in self.db.execute("select kind, value from seeds order by added")]
 
     def add_run(self, source: str, seed: Seed, status: str, found: int, checked: int, note: str):
-        self.db.execute("insert into runs values (?, ?, ?, ?, ?, ?, ?, ?)",
-                        (now(), source, seed.kind, seed.value, status, found, checked, note))
+        """One source's answer for one seed. Also an audit entry, so the evidence bundle's audit-log.csv
+        carries every search the report cites."""
+        rid = self.audit("source run", {"source": source, "seed_kind": seed.kind, "seed": seed.value, "status": status,
+                                        "found": found, "checked": checked, "note": note})
+        self.db.execute("insert into runs values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (now(), source, seed.kind, seed.value, status, found, checked, note, rid))
 
     def add_finding(self, f: Finding):
         sha, path = self._store(f.body.encode(), "html") if f.body else (None, None)

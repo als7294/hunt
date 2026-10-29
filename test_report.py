@@ -218,6 +218,19 @@ assert all(x["cites"] for x in rep["sentences"])
 log_ids = {x["audit_log_id"] for x in compose()["log"] if x["audit_log_id"]}
 assert log_ids and all(isinstance(i, int) for i in log_ids)  # matches audit-log.csv in the evidence bundle
 
+# The case's life: re-checks, watching, legal hold and closing are reported, each cited to its log entry
+case.audit("recheck", {"accounts": 1, "new_posts": 2, "changes": 1, "captured": 1})
+case.audit("watch on", {"every_days": 3, "next": "2026-05-01"})
+case.audit("watch off", {"why": "the case is closed"})
+case.set_hold(True, "litigation expected")
+case.close("Claim settled")
+t = text(compose())
+assert "looked at again 1 time" in t and "2 new posts, 1 change" in t and "watched every 3 days" in t, t
+assert "Watching stopped on" in t and "The case was closed on" in t and "Claim settled." in t and "legal hold since" in t, t
+case.reopen()
+case.set_hold(False)
+assert "The case was closed" not in text(compose()) and "legal hold since" not in text(compose())
+
 # Exports: escaped HTML with images inlined, a running header and page numbers when printed
 rep = compose()
 page = report.to_html(case, rep)

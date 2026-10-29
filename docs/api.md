@@ -25,10 +25,14 @@ Errors are `{"error": "message"}` with a 4xx or 5xx status.
 ## Cases
 | Method | Path | Body / response |
 |---|---|---|
-| GET | `/api/startup` | `{version, proxy: bool, checks: [{id, label, ok, detail}]}`. Check ids: `cases`, `evidence` (re-hash), `ai` (Ollama `/api/tags` lists `HUNT_VLM`; the model isn't loaded), `network`, `proxy`, `retention` (cases older than 90 days with no legal hold) |
-| GET | `/api/cases` | `[{slug, label, kind, reference, tool, created, updated, headline}]`, newest first. `headline` reads like "9 flagged posts" or "Confirmed · report ready" |
+| GET | `/api/startup` | `{version, proxy: bool, checks: [{id, label, ok, detail, items?}]}`. Check ids, in order: `cases`, `evidence` (re-hash; quick for unchanged files), `ai` (Ollama `/api/tags` lists `HUNT_VLM`; the model isn't loaded), `network`, `proxy`, `sources` (`hunt.sources.health()`: "N of M ready; K of L keys set"; `items: [{source, ready, reachable, key, key_set, key_required, detail}]`), any **Hunt Browser rows**, then `retention` (cases past 90 days without a legal hold; `items: [{slug, label, created}]`, each to be deleted or held) |
+| GET | `/api/cases` | `[{slug, label, kind, reference, tool, created, updated, headline, closed, legal_hold, retention_due}]`, newest first. `headline` reads like "9 flagged posts" or "Confirmed · report ready" |
 | POST | `/api/cases` | `{label, seeds: [str], kind: "insurance"\|"background"\|"diligence"\|"journalism", reference?, purpose (required: who asked and why it's lawful), injury_date?: "YYYY-MM-DD", limits?: str, look_for: [category key or custom text], tool: "person"}` plus any **report header fields** (below) → `201 {slug}`. A label that's already taken gets a `-2` suffix; nothing is ever merged |
-| GET | `/api/cases/{slug}` | `{slug, details: {label, kind, reference, purpose, injury_date, limits, look_for, tool, created, client, adjuster, file_number, assignment_date, subject_dob, recommendations}, seeds: [{kind, value}], steps: {search, identity, posts, report}` (each `"todo"`, `"running"` or `"done"`), `active_job: {id, kind} \| null, counts: {accounts, flagged, evidence}}` |
+| GET | `/api/cases/{slug}` | `{slug, details: {label, kind, reference, purpose, injury_date, limits, look_for, tool, created, client, adjuster, file_number, assignment_date, subject_dob, recommendations}, seeds: [{kind, value}], steps: {search, identity, posts, report}` (each `"todo"`, `"running"` or `"done"`), `status: {closed, legal_hold, retention_ends, retention_due}, active_job: {id, kind} \| null, counts: {accounts, flagged, evidence}}` |
+| POST | `/api/cases/{slug}/close` | `{reason?}` → status. Watching stops, and no search, scan, re-check or watch run starts until it's reopened (409). Audited (`case closed`); the report says when it was closed. 409 while a job runs |
+| POST | `/api/cases/{slug}/reopen` | `{}` → status. Audited (`case reopened`). Watching doesn't restart by itself |
+| POST | `/api/cases/{slug}/hold` | `{on: bool, reason?}` → status. A legal hold keeps the case past its retention period, keeps watching it, and blocks deleting. Audited (`legal hold`); the report's disclaimers mention it |
+| POST | `/api/cases/{slug}/delete` | `{confirm: <slug>, reason?}` → `{deleted, to: "Trash"}`. Moves the whole case folder to the Trash (Finder's Put Back restores it). 409 under a legal hold or while a job runs. Audited in the case (`case deleted`, which goes to the Trash with it) and in `~/Hunt/deleted-cases.log` |
 | POST | `/api/cases/{slug}/details` | Any of `{reference, injury_date, limits, look_for, client, adjuster, file_number, assignment_date, subject_dob, recommendations}`; `""` clears a field → `{details}`. Audited. Dates are `YYYY-MM-DD` |
 | POST | `/api/cases/{slug}/seeds` | `{seeds: [str]}` → `{seeds}` |
 | GET | `/api/cases/{slug}/case.json` | The full `search.build()` dict (candidates, methodology, audit…) |
@@ -69,6 +73,18 @@ Event `data` is JSON with a `type`:
 - **hit:** `{id, post_id, media_id, category, what, t0, t1, verdict, p, timing: "before"|"after", days_after, status: "new"|"kept"|"not relevant"|"in report", who: "unknown"|"him"|"other", file, source, posted_at, url, caption}`
 
 Machine verdicts never exceed "likely". Only the investigator's Keep raises an item's status, never the verdict wording.
+
+**Case lifecycle.** `status.closed` and `status.legal_hold` are the times they were set, or null. Retention runs 90
+days from opening (`RETENTION_DAYS` in `hunt/case.py`); `retention_ends` is null under a hold. `hunt/watch.py` stops
+watching on the same two rules.
+
+**Hunt Browser rows on the startup page.** Once a `hunt/browser.py` exists, `/api/startup` calls its `status()` (sync or
+async). It should return `[{id, label, ok, detail}]`, e.g. one row per site the investigator is signed in to in Hunt
+Browser, and appends them after `sources`. Until then there are no rows.
+
+**Every source run is in the case log.** `Case.add_run` also writes a `source run` audit entry, and the run keeps its
+row id, so the report cites a run as `M-a<id>`, which is in the evidence bundle's `audit-log.csv`. Runs recorded before
+this keep citing `M-<run rowid>`.
 
 **Report header fields** (case details; all optional, all audited): `client` (carrier, TPA or law firm), `adjuster`,
 `file_number` (the investigator's own file number; the report falls back to the case slug), `assignment_date`,

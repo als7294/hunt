@@ -38,11 +38,11 @@ from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Re
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import report, search, vlm
+from . import report, search, sources, vlm
 from . import bundle, inbox, notes, recheck, watch  # docs/qol.md
-from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, Case, all_cases
+from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, RETENTION_DAYS, Case, all_cases  # watch.py reads RETENTION_DAYS here
 from .match import ICD203
-from .seed import detect
+from .seed import detect, now
 
 STATIC = Path(__file__).parent / "static"
 COOKIE = "hunt"
@@ -52,7 +52,6 @@ KINDS = ("insurance", "background", "diligence", "journalism")
 HIT_STATUSES = ("kept", "not relevant", "in report")
 HEARTBEAT = 15  # seconds between SSE comments on a quiet job
 THROTTLE = 0.25  # seconds between `scan` progress events (~4/s); the latest one wins
-RETENTION_DAYS = 90
 NAMESAKE = 0.2
 VERDICTS = [label for _, label in ICD203]
 
@@ -182,6 +181,8 @@ def _job(req: Request) -> Job:
 def _new_job(req: Request, slug: str, kind: str, work) -> JSONResponse:
     if _active(req, slug):
         raise HTTPException(409, "this case already has a job running")
+    if Case.open(slug).meta("closed"):
+        raise HTTPException(409, "this case is closed; reopen it first")
     job = Job(slug, kind)
     req.app.state.jobs[job.id] = job
     job.start(work)
@@ -318,9 +319,10 @@ async def _accounts(c: Case) -> int:
 
 async def startup(req: Request):
     checks = []
+    health = asyncio.create_task(sources.health())  # one HEAD per source; runs while the rest are checked
 
-    def check(id, label, ok, detail):
-        checks.append({"id": id, "label": label, "ok": bool(ok), "detail": detail})
+    def check(id, label, ok, detail, items=None):
+        checks.append({"id": id, "label": label, "ok": bool(ok), "detail": detail, **({"items": items} if items else {})})
 
     slugs = all_cases()
     root = HOME / "cases"
@@ -353,11 +355,36 @@ async def startup(req: Request):
           else "no connection" + (" through the proxy" if proxy else ""))
     check("proxy", "Proxy", proxy and online, ("in use; sites see the proxy, not you" if online else "set but not working")
           if proxy else "not set: sites see this computer's address")
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).isoformat()
-    old = [s for s in slugs if (c := Case.open(s)).meta("created") < cutoff and not c.meta("legal_hold")]
-    check("retention", f"Cases older than {RETENTION_DAYS} days", not old,
-          f"{len(old)} to review or delete: {', '.join(old[:5])}" if old else "none")
+    try:
+        rows = await health
+        ready = [r for r in rows if r["ready"]]
+        keys = [r for r in rows if r["key"]]
+        missing = [r["source"] for r in rows if r["key_required"] and not r["key_set"]]
+        check("sources", "Search sources", len(ready) == len(rows),
+              f"{len(ready)} of {len(rows)} ready; {sum(r['key_set'] for r in keys)} of {len(keys)} keys set"
+              + (f"; needs a key: {', '.join(missing)}" if missing else ""),
+              [{k: r[k] for k in ("source", "ready", "reachable", "key", "key_set", "key_required", "detail")} for r in rows])
+    except Exception as e:  # a broken probe mustn't hide the other checks
+        check("sources", "Search sources", False, f"couldn't check: {type(e).__name__}: {e}")
+    checks += await _browser_checks()
+    due = [(s, c) for s in slugs if (c := Case.open(s)).status()["retention_due"]]
+    check("retention", f"Cases past {RETENTION_DAYS} days", not due,
+          f"{len(due)} past retention: delete them to the Trash, or put them on legal hold" if due else "none",
+          [{"slug": s, "label": c.details()["label"], "created": c.meta("created")} for s, c in due])
     return JSONResponse({"version": version("hunt-osint"), "proxy": bool(proxy), "checks": checks})
+
+
+async def _browser_checks() -> list[dict]:
+    """Hunt Browser sign-in rows, once that module exists: hunt.browser.status() (sync or async) returns
+    [{id, label, ok, detail}], e.g. one per site the investigator signed in to."""
+    fn = getattr(_module("browser"), "status", None)
+    if not fn:
+        return []
+    try:
+        rows = await _call(fn)
+    except Exception as e:
+        return [{"id": "browser", "label": "Hunt Browser", "ok": False, "detail": f"status unavailable: {e}"}]
+    return [r for r in rows if isinstance(r, dict) and {"id", "label", "ok", "detail"} <= r.keys()]
 
 
 async def list_cases(req: Request):
@@ -365,9 +392,11 @@ async def list_cases(req: Request):
     for s in all_cases():
         c = Case.open(s)
         d = c.details()
+        st = c.status()
         out.append({"slug": s, "label": d["label"], "kind": d["kind"], "reference": d["reference"], "tool": d["tool"],
                     "created": d["created"], "updated": c.db.execute("select max(ts) from audit").fetchone()[0],
-                    "headline": await _headline(c)})
+                    "headline": await _headline(c), "closed": bool(st["closed"]), "legal_hold": bool(st["legal_hold"]),
+                    "retention_due": st["retention_due"]})
     return JSONResponse(sorted(out, key=lambda x: x["created"] or "", reverse=True))
 
 
@@ -458,6 +487,7 @@ async def get_case(req: Request):
                   "identity": "done" if c.decisions() else "todo",
                   "posts": "running" if running("scan") else "done" if _audited(c, "scan") else "todo",
                   "report": "done" if _audited(c, "report exported") else "todo"},
+        "status": c.status(),
         "active_job": {"id": job.id, "kind": job.kind} if job else None,
         "counts": {"accounts": await _accounts(c), "flagged": len(_flagged(hits)),
                    "evidence": sum(1 for f in (c.dir / "evidence").iterdir() if EVIDENCE_NAME.match(f.name))},
@@ -659,6 +689,65 @@ async def set_hit(req: Request):
     except ValueError:
         raise HTTPException(404, "no such hit")
     return JSONResponse(await _call(scan.set_status, c, hit_id, status))  # it audits the change
+
+
+# --- case lifecycle: close, reopen, legal hold, delete --------------------------------------------------
+
+def _reason(b: dict) -> str | None:
+    r = b.get("reason")
+    if r is not None and (not isinstance(r, str) or len(r) > 2000):
+        raise HTTPException(400, "reason must be text of at most 2,000 characters")
+    return (r or "").strip() or None
+
+
+async def close_case(req: Request):
+    c = _case(req)
+    if _active(req, c.name):
+        raise HTTPException(409, "wait for the running job to finish, or cancel it")
+    if not c.meta("closed"):
+        c.close(_reason(await _body(req)))
+        watch.stop(c, "the case is closed")
+    return JSONResponse(c.status())
+
+
+async def reopen_case(req: Request):
+    c = _case(req)
+    if c.meta("closed"):
+        c.reopen()  # watching doesn't restart by itself: turn it on again if it's still wanted
+    return JSONResponse(c.status())
+
+
+async def hold_case(req: Request):
+    c = _case(req)
+    b = await _body(req)
+    if not isinstance(b.get("on"), bool):
+        raise HTTPException(400, "send {on: true} or {on: false}")
+    if bool(c.meta("legal_hold")) != b["on"]:
+        c.set_hold(b["on"], _reason(b))
+    return JSONResponse(c.status())
+
+
+async def delete_case(req: Request):
+    """Move the whole case folder to the Trash (Finder's Put Back restores it). Never under a legal hold."""
+    c = _case(req)
+    b = await _body(req)
+    if b.get("confirm") != c.name:
+        raise HTTPException(400, f"to delete, send confirm: {c.name!r}")
+    if c.meta("legal_hold"):
+        raise HTTPException(409, "this case is on legal hold; lift the hold first")
+    if _active(req, c.name):
+        raise HTTPException(409, "wait for the running job to finish, or cancel it")
+    d, st = c.details(), c.status()
+    rid = c.audit("case deleted", {"reason": _reason(b), "to": "Trash", "retention_due": st["retention_due"]})
+    c.db.close()
+    try:
+        await asyncio.to_thread(inbox._trash, c.dir)
+    except OSError as e:
+        raise HTTPException(500, f"couldn't move the case to the Trash: {e}")
+    with open(HOME / "deleted-cases.log", "a") as f:  # the case's own log went to the Trash with it
+        f.write(json.dumps({"ts": now(), "slug": c.name, "label": d["label"], "purpose": d["purpose"],
+                            "created": d["created"], "reason": _reason(b), "audit_rowid": rid}) + "\n")
+    return JSONResponse({"deleted": c.name, "to": "Trash"})
 
 
 # --- the investigator's report settings -------------------------------------------------------------
@@ -1004,6 +1093,10 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/cases/{slug}/posts", get_posts),
         Route("/api/cases/{slug}/hits/{id}", set_hit, methods=["POST"]),
         Route("/api/cases/{slug}/details", update_details, methods=["POST"]),
+        Route("/api/cases/{slug}/close", close_case, methods=["POST"]),
+        Route("/api/cases/{slug}/reopen", reopen_case, methods=["POST"]),
+        Route("/api/cases/{slug}/hold", hold_case, methods=["POST"]),
+        Route("/api/cases/{slug}/delete", delete_case, methods=["POST"]),
         Route("/api/settings", get_settings),
         Route("/api/settings", post_settings, methods=["POST"]),
         Route("/api/settings/logo", get_logo),
