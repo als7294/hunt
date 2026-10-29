@@ -29,7 +29,7 @@ Ranked by how often each comes up × how much it helps this investigator:
 
 ## What was built
 
-Sections 1–3 and 5 run offline. Check again (4) makes the same logged-out requests a search and a scan already make, through `HUNT_PROXY`. Nothing is ever downloaded from Instagram, TikTok or Facebook for the investigator.
+Sections 1–3 and 5 run offline. Check again (4) and watching (6) make the same logged-out requests a search and a scan already make, through `HUNT_PROXY`; watching's notifications are local. Nothing is ever downloaded from Instagram, TikTok or Facebook for the investigator.
 
 ### 1. The Downloads inbox (`hunt/inbox.py`, `hunt inbox`)
 
@@ -121,9 +121,64 @@ Each change is an audit entry and a `change` event on the job, and the summary i
 
 **In the evidence bundle:** `notes.csv`.
 
+### 6. Watch this subject (`hunt/watch.py`, `hunt watch`, `/api/cases/{slug}/watch`)
+
+Hunt finds the accounts, then keeps looking for fraud clues without the investigator doing the legwork. Watching is opt-in per case: every 1, 3 or 7 days.
+
+**A run:**
+1. **Check again:** profiles, posts and screenshots.
+2. **The media scan, on new media only.**
+3. **Alerts** when the scan flags something new, a post disappears, an account shows no posts any more (made private, or emptied), or an account can't be found.
+   - Each alert is an audit entry and a row in the case's alerts list.
+   - One **local macOS notification** sums the run up, e.g. "Vance claim: 2 new flagged posts; 3 posts gone from Bluesky". It goes through `osascript` and never touches the network. It carries counts only, never post text or handles, because macOS can show it on the lock screen.
+   - The text is passed as an argument, never spliced into the script.
+
+**When it runs:**
+- **While Hunt is open:** the app looks for due cases every 10 minutes (`_watch_loop`, started from `serve()`'s lifespan). It runs them one at a time, as jobs of kind `"watch"`, so the UI shows them like a scan, and a case with another job running waits.
+- **While Hunt is closed (optional):** "Keep watching when Hunt is closed" installs one per-user LaunchAgent, `~/Library/LaunchAgents/io.github.als7294.hunt.watch.plist`. It runs `hunt watch` hourly.
+  - It's off by default.
+  - It's removed with one click: unloaded with `launchctl bootout`, and the plist moved to the Trash.
+  - Installing and removing are both audited in every watched case.
+  - The agent carries `HUNT_HOME`, `HUNT_PROXY` and `HUNT_VLM` from when it was installed, so background checks leave the machine the same way the app does. Turn it off and on again after changing the proxy or reinstalling Hunt.
+  - It logs to `~/Hunt/watch.log`.
+- **One run at a time across processes:** the open app holds `~/Hunt/.watch.lock`, and `hunt watch` leaves the work to it.
+
+**Not making the Mac lag** (the calibration constants are at the top of `watch.py`):
+- A due check **waits** while the Mac is:
+  - on battery (`pmset`),
+  - busy (1-minute load average above 0.5 per core),
+  - or in use (keyboard or mouse input in the last 5 minutes, from `ioreg`'s `HIDIdleTime`).
+- "In use" stops counting once a check is a day overdue, so a Mac that's used all day still gets checked. Battery and load always count.
+- **The background agent runs at low priority:** launchd `ProcessType: Background` (Apple's background QoS: throttled CPU and I/O), `LowPriorityIO`, and `nice 10`. ffmpeg inherits that.
+- **In the app,** the scan takes the heavy lock like every heavy job.
+- **The vision model's own load can't be lowered:** Ollama is a separate process. Waiting for an idle Mac is what protects the investigator from it.
+
+**When watching stops by itself:** when the case is closed (meta `closed`), or when its retention period ends (`app.RETENTION_DAYS` after it was opened, unless meta `legal_hold`). Either way it's audited as `watch off` with the reason. Nothing sets `closed` or `legal_hold` yet (integration point 9).
+
+**CLI:**
+
+```
+hunt watch --case vance-claim --every 3   # watch it
+hunt watch --case vance-claim             # status: next check, last result
+hunt watch --case vance-claim --off
+hunt watch --background on                # keep watching when Hunt is closed (off: remove)
+hunt watch                                # check what's due now (what the agent runs)
+```
+
 ### Self-checks
 
-All offline, using temp folders only. `test_inbox.py`, `test_bundle.py`, `test_recheck.py`, `test_notes.py` and `test_qol.py` each print `ok`.
+All offline, using temp folders only. `test_inbox.py`, `test_bundle.py`, `test_recheck.py`, `test_notes.py`, `test_watch.py` and `test_qol.py` each print `ok`.
+
+`test_watch.py` stubs battery, load, idle time, `launchctl`, notifications, the re-check and the scan. It never installs a real LaunchAgent, notifies, or touches `~/Library` or the Trash. It covers:
+- waiting on battery, when busy, and when in use
+- the overdue override
+- a full run's alerts and its single notification
+- the retry after a failure
+- the agent's plist (low priority, the proxy carried over), its audit, and its removal to the Trash
+- the cross-process lock
+- stopping on retention and on closing, and continuing under a legal hold
+
+`test_qol.py` runs one watch round as a real app job, inside the server's event loop.
 
 `test_recheck.py` simulates four looks against a stubbed network that changes between them:
 1. A new name, a new photo, a deleted post, a vanished account, and a site that can't be read.
@@ -143,7 +198,6 @@ The real Trash call was checked once by hand, on a scratch file.
 |---|---|
 | **"Went private" on Instagram, TikTok, Facebook and X** | Telling private from public needs the logged-in or scraped page. Hunt takes a new dated screenshot instead. Bluesky has no private accounts, and Mastodon's "locked" only gates followers. An account whose posts all vanish is flagged `none_left` ("made private, or emptied"). |
 | **YouTube profile changes** | The channel's RSS feed carries only its title. Posts gone from the latest 15 are still detected. |
-| **Scheduled re-checks** | A timer that re-checks a case every N days needs the app running in the background, which `hunt app` isn't. The investigator presses "Check again" (and the startup check could remind them; see integration point 7). |
 | **EXIF panel** (rank 9) | Platforms strip EXIF, so downloaded social media rarely has any. `posts.add_files` already reads `DateTimeOriginal`, and `photo.py` reads device, time and GPS. "Where from" was the more useful metadata. |
 | **Instagram shortcode → time** | The shortcode decodes to a media ID whose top bits look like milliseconds since a 2011 epoch. That's unverified for current IDs, so it isn't used. |
 | **The subject's local time** | Times are stored in UTC. Showing the subject's local time needs the case's location and is a UI decision. |
@@ -246,6 +300,31 @@ The real Trash call was checked once by hand, on a scratch file.
 - **No delete:** a line under the drawer says "Notes can't be deleted; correct one instead. They're part of the case record."
 - **Errors:** show `error` as is (empty text, more than 20,000 characters, a subject that doesn't exist).
 
+### G. "Watch this subject" on the case overview
+
+- **A card under Check again:**
+  - **☐ Watch this subject**, with a **Every day · Every 3 days · Every week** selector (`every_days` 1/3/7).
+  - Helper: "Hunt checks the subject's accounts again, scans what's new and tells you when something changes."
+  - Toggling sends `POST /api/cases/{slug}/watch` `{on, every_days}`. A 409 is shown as is (e.g. "mark at least one account as him first", "its 90-day retention period has ended").
+- **Status line** (`GET …/watch`):
+  - "Last checked 2 Nov, 03:10 · Next 5 Nov" (`last`, `next`, local time).
+  - The `status` in words:
+    - `waiting: on battery` → "Waiting until the Mac is plugged in"
+    - `waiting: the Mac is busy` → "Waiting until the Mac is less busy"
+    - `waiting: the Mac is in use` → "Waiting until you step away"
+    - `failed: …` → "The last check failed; trying again within the hour", with the detail on hover
+  - When stopped by itself: "Stopped: the case is closed" / "Stopped: the retention period ended" (`why`).
+  - While a run is going, the case's `active_job` has kind `"watch"`. Stream it like a scan, labelled "Checking again (watching)".
+- **The background switch,** below it: **☐ Keep watching when Hunt is closed** (`GET/POST /api/watch/background`).
+  - Helper: "Runs hourly in the background at low priority, only when the Mac is plugged in and idle. Applies to every watched case. Turn off to remove it completely."
+  - On error, show `error`.
+- **Alerts list** (`GET …/alerts`), with a badge for `unseen_alerts` on the case card in the case list too. Each row shows:
+  - local time and `text`,
+  - an icon by `kind`: `flagged`, `posts gone`, `no posts` and `account gone` (warning style),
+  - a link to what it's about: for `flagged`, the Posts step filtered to new hits; for the others, the Check again change list (section E).
+  - Opening the list sends `POST …/alerts/seen`.
+- **Lock-screen note** near the switch: "Notifications show counts only, never what was posted. To hide them on the lock screen: System Settings → Notifications → Show previews: When unlocked."
+
 ## Audit actions for the report (to pass to the report owner)
 
 Every row below is an audit entry, so its citation is `M-a<rowid>`, except notes, which are `N-<id>`. The sentences are suggestions in the report's neutral wording. Dates are the audit `ts`.
@@ -260,6 +339,10 @@ Every row below is an audit entry, so its citation is `M-a<rowid>`, except notes
 | `account gone` | `account, last_seen` | "On {date}, the {site} account at {account} could no longer be found; it was last seen on {last_seen}." | What we found; also What we couldn't see (later posts can't be read) |
 | `account back` | `account, missing_on` | "On {date}, the {site} account at {account} could be found again; it couldn't be on {missing_on}." | What we found |
 | `note` | `note: "N-<id>", about, ref, text, replaces` | An "Investigator's notes" list: "N-4 ({date}): {text}". Omit replaced notes, or mark them "corrected by N-x". Notes about an account, post or hit can sit beside that item. | Its own section, after What we found |
+| `watch on` / `watch off` | `every_days, next` / `why` | "From {date}, the subject's accounts were watched every {every_days} days." / "Watching stopped on {date}: {why}." | How we searched |
+| `watch run` | `new_posts, changes, new_flagged, alerts` | Usually folded into one sentence: "The accounts were checked {n} times between {first} and {last} while watched; {sum new_flagged} posts were newly flagged." | How we searched |
+| `alert` | `kind, text, hits` or `change` | Not a report sentence in itself: the hits and changes it points to are already cited. Useful as "first noticed on {date}". | (none) |
+| `background watching` | `on, agent` | Methodology detail: "Checks also ran in the background while Hunt was closed, from {date}." | How we searched |
 | `inbox import` | `name, folder, sha256, exhibit, platform, handle, url, posted_at, from, where_from, result, trashed` | "{exhibit} was saved by the investigator as {name} and filed on {date} (SHA-256 {sha256:8})." | Evidence |
 | `evidence exported` | `file, sha256, exhibits, changed` | "An evidence bundle of {exhibits} files was made on {date} (SHA-256 {sha256})." | Appendix |
 
@@ -284,3 +367,7 @@ In screening mode, run notes and changed bios through the same protected-traits 
 6. **`report.py`: `N-<id>` citations.** Notes are a fourth citation kind beside `A-`, `E-` and `M-`. `notes.list_notes(case)` gives them with `cite`, `replaced_by` and `ref`.
 7. **The startup checks** could also remind about Check again: "2 cases not checked again in 30 days", from the latest `recheck` audit `ts` per case. Optional.
 8. **`search.screenshot`** only captures accounts that have no screenshot yet. `recheck._recapture` repeats its loop (about 10 lines) to capture again. An `again=True` flag there would let both share it.
+9. **Closing a case, and legal hold.** `watch.py` stops watching when `case.meta("closed")` is set, and when the retention period ends unless `case.meta("legal_hold")` is set. Nothing writes either key yet: `Case.set_details` doesn't accept them. A "Close case" action, and a legal-hold toggle, belong in `case.py`/`app.py`. When they arrive, watching follows them with no change here.
+10. **`serve()`** got one hook (`app.app.router.lifespan_context = _watching(app.app)`) to start the watch loop in the server's own event loop. That loop is where `search.HEAVY` lives. Tests that build the app with `make_app` never start it.
+11. **New post collectors** (TikTok, Instagram, Facebook, from data-sources) reach Check again and watching with no change here, as long as they're registered in `posts.FETCHERS`/`posts._site`. "Posts gone" and `none_left` then cover those platforms too.
+

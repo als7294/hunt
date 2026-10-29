@@ -140,7 +140,7 @@ scan.set_status(case, hit_id: int, status: str) -> dict
 - `driving`: driving
 - `injury`: mentions of the injury
 
-## Quality of life: the Downloads inbox, the evidence bundle, links, Check again, notes
+## Quality of life: the Downloads inbox, the evidence bundle, links, Check again, notes, watching
 See [qol.md](qol.md) for the screens that use these.
 
 | Method | Path | Body / response |
@@ -151,6 +151,12 @@ See [qol.md](qol.md) for the screens that use these.
 | GET | `/api/unfurl?url=` | `{platform, handle, post_id, posted_at, url}`. Works offline. `url` comes back without tracking parameters. `posted_at` is read from TikTok and X post ids |
 | POST | `/api/cases/{slug}/recheck` | `{}` → `{job}`. **Check again:** the accounts marked `him` (not email hits) are looked at again. Returns 409 if none are marked, or if the case already has an active job. Takes the heavy lock only while capturing screenshots |
 | GET | `/api/cases/{slug}/changes` | `{checks: [{cite, ts, change: "recheck", accounts, new_posts, changes, captured}], changes: [change]}`, newest first. `cite` is the report's `M-a<audit rowid>` |
+| GET | `/api/cases/{slug}/watch` | `{on, every_days, started, last, next, status, stopped, why, unseen_alerts, background}`. `status`: `ok`, `waiting: on battery`, `waiting: the Mac is busy`, `waiting: the Mac is in use`, or `failed: …`. `why` is why watching stopped: `turned off`, `the case is closed`, or the retention period ended. `background` is whether the LaunchAgent is installed |
+| POST | `/api/cases/{slug}/watch` | `{on: bool, every_days?: 1\|3\|7}` (default 7) → the same state. The first check is one interval away; changing `every_days` while on counts from the last check. Returns 409 if no account is marked `him`, or the case can't be watched any more. Audited as `watch on` / `watch off` |
+| GET | `/api/cases/{slug}/alerts` | `{alerts: [{id, ts, kind: "flagged"\|"posts gone"\|"no posts"\|"account gone", text, audit, cite: "M-a<audit>", seen: bool}]}`, newest first |
+| POST | `/api/cases/{slug}/alerts/seen` | `{}` → `{marked: n}` |
+| GET | `/api/watch/background` | `{on}`: whether "Keep watching when Hunt is closed" is installed (one per-user LaunchAgent, for every watched case) |
+| POST | `/api/watch/background` | `{on: bool}` → `{on}`. Installs `~/Library/LaunchAgents/io.github.als7294.hunt.watch.plist` and loads it with `launchctl`, or unloads it and moves the plist to the Trash. Audited as `background watching` in every watched case. Returns 409 if `launchctl` refuses |
 | GET | `/api/cases/{slug}/notes?about=&ref=` | `{notes: [note]}`, oldest first, optionally only the notes about one thing. Returns 400 for an unknown `about` or a bad `ref` |
 | POST | `/api/cases/{slug}/notes` | `{text, about?: "case"\|"account"\|"post"\|"hit", ref?, replaces?: note id}` → `201 note`. A correction (`replaces`) keeps the old note's subject; a note can only be replaced once. Returns 400 for empty text (or more than 20,000 characters), an unknown subject, or a note that's already replaced. Audited as `note`, with its text |
 
@@ -186,3 +192,13 @@ See [qol.md](qol.md) for the screens that use these.
 - **note:** `{id, cite: "N-<id>", ts, about, ref, text, replaces: id|null, replaced_by: id|null}`.
   - `ref` is `null` for the case, the account's normalised URL, or the post's or hit's id, as a string.
   - Notes are never edited or deleted. A replaced note stays, with `replaced_by` set.
+
+### Watching: runs and jobs
+- **While Hunt is open:** due cases are checked every 10 minutes, one at a time. Each run is a job of kind `"watch"`, so `GET /api/cases/{slug}` shows it in `active_job`, and its events stream like a scan's.
+- **Event stages, in order:** `rechecking`, `collecting`, `capturing` (from Check again), then `scanning` (new media only), then `done`. Check again's own `done` is held back.
+- **What a run does:** `change` events as in Check again, then `scan` and `hit` events as in a scan.
+- **When it waits:** a case with another job running waits for the next round. So does every due case while the Mac is on battery, busy (1-minute load average above 0.5 per core), or in use (input in the last 5 minutes). "In use" stops counting once a check is a day overdue.
+- **After a run:** it's audited as `watch run` `{new_posts, changes, new_flagged, alerts}`.
+  - Each alert is audited as `alert` `{kind, text, hits | change}`, where `change` is the rowid of the Check again audit entry it came from.
+  - One local macOS notification sums up the run's alerts.
+  - A failed run is tried again an hour later.

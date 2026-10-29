@@ -2,6 +2,7 @@
 hunt photo IMAGE... --case NAME [--purpose TEXT]
 hunt inbox --case NAME [--folder DIR] [--days N] [--import all|ID[=URL]...] [--keep]
 hunt export --case NAME [--out DIR]
+hunt watch [--case NAME (--every 1|3|7 | --off)] [--background on|off]
 hunt app
 
 search fans each seed out to every source that handles its kind, scores every
@@ -10,7 +11,8 @@ likely ones. photo estimates where each image was taken, on this machine.
 Both write <case>/case.json (also printed to stdout). inbox lists the photos and videos you saved
 lately (~/Downloads by default) with clean names, and with --import files them into the case and
 moves the originals to the Trash. export zips every evidence file under a readable name with a
-SHA-256 manifest, for handing over. app opens the Hunt app in
+SHA-256 manifest, for handing over. watch checks the watched cases that are due (what the background
+agent runs), or turns watching on and off. app opens the Hunt app in
 your browser, served only to this machine.
 """
 
@@ -22,10 +24,10 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from . import bundle, inbox, photo, search
+from . import bundle, inbox, photo, recheck, search, watch
 from .case import HOME, Case
 from .search import build  # noqa: F401  (re-exported: tests and older callers import it from here)
-from .seed import detect
+from .seed import detect, now
 
 
 def main():
@@ -58,6 +60,12 @@ def main():
     i.add_argument("--keep", action="store_true", help="leave the originals where they are")
     e = sub.add_parser("export", parents=[common], help="zip every evidence file with a hash manifest, for handing over")
     e.add_argument("--out", type=Path, default=HOME / "exports", help="where to write the zip (default ~/Hunt/exports)")
+    w = sub.add_parser("watch", parents=[proxy], help="check the watched cases that are due, or set watching up")
+    w.add_argument("--case", help="the case to watch, or stop watching")
+    w.add_argument("--every", type=int, choices=watch.EVERY, help="check --case again every N days")
+    w.add_argument("--off", action="store_true", help="stop watching --case")
+    w.add_argument("--background", choices=("on", "off"),
+                   help="keep watching when Hunt is closed: installs (or removes) a per-user LaunchAgent")
     sub.add_parser("app", parents=[proxy], help="open the Hunt app in your browser (this machine only)")
     args = ap.parse_args()
 
@@ -66,6 +74,8 @@ def main():
     if args.cmd == "app":
         from .app import serve
         return serve()
+    if args.cmd == "watch":
+        return watch_cmd(args)
     try:
         case = Case(args.case, args.purpose)
     except ValueError as e:
@@ -133,3 +143,37 @@ def file_inbox(case: Case, args):
     for it in inbox.take(case, chosen, keep=args.keep):
         what = f"added as {it['exhibit']}" if it["result"] == "added" else it["result"]
         print(f"  {it['id']}  {what}; {'original moved to the Trash' if it['trashed'] is True else it['trashed']}")
+
+
+def watch_cmd(args):
+    if args.background:
+        on = watch.keep_watching(args.background == "on")
+        print("Watching goes on while Hunt is closed: hourly, at low priority." if on else
+              "Watching happens only while Hunt is open.")
+        return
+    if args.case:
+        try:
+            case = Case(args.case, create=False)
+        except LookupError as e:
+            raise SystemExit(str(e))
+        if args.off:
+            watch.stop(case, "turned off")
+        elif args.every:
+            if not asyncio.run(recheck.confirmed(case)):
+                raise SystemExit("mark at least one account as the subject's first (hunt app, Is it them?)")
+            try:
+                watch.start(case, args.every)
+            except ValueError as e:
+                raise SystemExit(str(e))
+        s = watch.state(case)
+        print(f"{case.name}: " + (f"checked every {s['every_days']} days; next {s['next'][:16].replace('T', ' ')} UTC"
+                                  f"{'; ' + s['status'] if s['status'] else ''}" if s["on"] else
+                                  f"not watched{' (' + s['why'] + ')' if s['why'] else ''}"))
+        return
+    lock = watch.take_lock()  # held until this process exits
+    if not lock:
+        print("Hunt is open and watches from there, or another `hunt watch` is running.", file=sys.stderr)
+        return
+    os.nice(10)
+    for line in asyncio.run(watch.tick(lambda c: watch.run(c, search.printer(sys.stderr)))):
+        print(f"{now()[:16].replace('T', ' ')} {line}")
