@@ -153,7 +153,7 @@ Hunt finds the accounts, then keeps looking for fraud clues without the investig
 - **In the app,** the scan takes the heavy lock like every heavy job.
 - **The vision model's own load can't be lowered:** Ollama is a separate process. Waiting for an idle Mac is what protects the investigator from it.
 
-**When watching stops by itself:** when the case is closed (meta `closed`), or when its retention period ends (`app.RETENTION_DAYS` after it was opened, unless meta `legal_hold`). Either way it's audited as `watch off` with the reason. Nothing sets `closed` or `legal_hold` yet (integration point 9).
+**When watching stops by itself:** when the case is closed (meta `closed`), or when its retention period ends (`app.RETENTION_DAYS` after it was opened, unless meta `legal_hold`). Either way it's audited as `watch off` with the reason. `POST /api/cases/{slug}/close` and `/hold` set them (and close stops watching at once); see `docs/api.md`.
 
 **CLI:**
 
@@ -367,7 +367,7 @@ In screening mode, run notes and changed bios through the same protected-traits 
 6. **`report.py`: `N-<id>` citations.** Notes are a fourth citation kind beside `A-`, `E-` and `M-`. `notes.list_notes(case)` gives them with `cite`, `replaced_by` and `ref`.
 7. **The startup checks** could also remind about Check again: "2 cases not checked again in 30 days", from the latest `recheck` audit `ts` per case. Optional.
 8. **`search.screenshot`** only captures accounts that have no screenshot yet. `recheck._recapture` repeats its loop (about 10 lines) to capture again. An `again=True` flag there would let both share it.
-9. **Closing a case, and legal hold.** `watch.py` stops watching when `case.meta("closed")` is set, and when the retention period ends unless `case.meta("legal_hold")` is set. Nothing writes either key yet: `Case.set_details` doesn't accept them. A "Close case" action, and a legal-hold toggle, belong in `case.py`/`app.py`. When they arrive, watching follows them with no change here.
+9. **Closing a case, and legal hold.** Done (hunt-server): `Case.close()`, `reopen()`, `set_hold()` and `status()`, and the routes `POST /api/cases/{slug}/close`, `/reopen`, `/hold` and `/delete` (to the Trash). Closing also calls `watch.stop(case, "the case is closed")` at once. `RETENTION_DAYS` now lives in `hunt/case.py`, and `app.RETENTION_DAYS` re-exports it. `watch._ended` could call `case.status()["retention_due"]` instead of repeating the rule.
 10. **`serve()`** got one hook (`app.app.router.lifespan_context = _watching(app.app)`) to start the watch loop in the server's own event loop. That loop is where `search.HEAVY` lives. Tests that build the app with `make_app` never start it.
 11. **New post collectors** (TikTok, Instagram, Facebook, from data-sources) reach Check again and watching with no change here, as long as they're registered in `posts.FETCHERS`/`posts._site`. "Posts gone" and `none_left` then cover those platforms too.
 

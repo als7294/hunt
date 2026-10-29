@@ -144,7 +144,8 @@ assert (case.dir / top["evidence"][0]["file"]).read_bytes() == b"<html>A</html>"
 assert any("taken on 2 of 600 sites checked" in r for r in top["reasons"]), top["reasons"]
 assert report["pivots"] == ["vane_alt"], report["pivots"]  # not the known handle, not the namesake's
 assert other["probability"] < top["probability"]
-assert [a["action"] for a in report["audit"]] == ["case opened"]
+assert [a["action"] for a in report["audit"]] == ["case opened", "source run"]  # every run is in the case log
+assert report["methodology"][0]["audit"] == report["audit"][1]["rowid"]
 assert top["tags"][0] == "username" and len(top["tags"]) == len(top["reasons"])
 
 # Opening never creates; creating never merges; details round-trip
