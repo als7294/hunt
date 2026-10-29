@@ -576,7 +576,8 @@ def _agreeing(c: dict) -> set[str]:
 async def get_person(req: Request):
     c = _case(req)
     snap = await search.snapshot(c)
-    people = [x for x in snap["candidates"] if search.in_person(x)]
+    found = [x for x in snap["candidates"] if search.in_person(x)]
+    people = [x for x in found if not report._record(x)]  # accounts they run; public records about them are listed apart
     counts = Counter(t for x in people for t in _agreeing(x))
     namesakes = [x for x in snap["candidates"] if not search.in_person(x) and x["probability"] < NAMESAKE
                  and "name" in _agreeing(x)]
@@ -590,6 +591,14 @@ async def get_person(req: Request):
         "namesakes": [{"url": x["url"], "site": x["site"], "label": x["attrs"].get("fullname") or x["attrs"].get("name")
                        or _handle(x), "why": [_plain(r) for r in x["reasons"]], "decision": x["decision"]}
                       for x in namesakes],
+        "records": [{"url": x["url"], "site": x["site"], "source": report._record(x), "summary": report._summary(x),
+                     "attrs": x["attrs"], "verdict": x["verdict"], "probability": x["probability"],
+                     "reasons": [_plain(r) for r in x["reasons"]], "name_only": _agreeing(x) <= {"name"},
+                     "decision": x["decision"], "fetched": min((e["at"] for e in x["evidence"]), default=None)}
+                    for x in found if report._record(x)],
+        "coverage": [{"source": r["source"], "status": r["status"], "found": r["found"], "note": r["note"]}
+                     for r in c.rows("select source, status, found, note from runs where source in "
+                                     f"({', '.join('?' * len(report.RECORDS))}) order by rowid", *report.RECORDS)],
         "decision": snap["decision"],
     })
 

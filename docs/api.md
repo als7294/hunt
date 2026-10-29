@@ -59,7 +59,7 @@ Event `data` is JSON with a `type`:
 ## Is it him?
 | Method | Path | Body / response |
 |---|---|---|
-| GET | `/api/cases/{slug}/person` | `{accounts: [{url, site, handle, verdict, probability, reasons: [str], decision, avatar: url\|null}], summary: [{tag, text, count}], weakest_verdict, namesakes: [{url, site, label, why: [str], decision}], decision: "him"\|"not him"\|"unsure"\|null}`. **The person** = candidates at "likely" or better, minus `not him`, plus `him`. **Namesakes** = name matches below 0.2 |
+| GET | `/api/cases/{slug}/person` | `{accounts: [{url, site, handle, verdict, probability, reasons: [str], decision, avatar: url\|null}], summary: [{tag, text, count}], weakest_verdict, namesakes: [{url, site, label, why: [str], decision}], records: [{url, site, source, summary, attrs, verdict, probability, reasons, name_only, decision, fetched}], coverage: [{source, status, found, note}], decision: "him"\|"not him"\|"unsure"\|null}`. **The person** = candidates at "likely" or better, minus `not him`, plus `him`. Public records in the person (`fec`, `edgar`, `npi`, `courtlistener`, `licences`, `businesses`, `fmcsa`) are in `records`, not `accounts`; `name_only` is true when only the name agrees. `coverage` is every records run, with its note on what was searched. **Namesakes** = name matches below 0.2 |
 | POST | `/api/cases/{slug}/decisions` | `{url?, decision: "him"\|"not him"\|"unsure", note?}`. Without `url`, the decision applies to every account in the person. Append-only; the latest wins; audited |
 
 ## Posts and media scan

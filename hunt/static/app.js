@@ -227,6 +227,7 @@ function drawWizard() {
           <span id="seed-pills" style="display:contents">${w.seeds.map(s => seedPill(s, seedKind(s), true))}</span>
           <input id="seed-in" class="input" style="flex:1;min-width:220px;background:none;padding:6px 4px" placeholder="${w.seeds.length ? 'Add another…' : 'Paste anything… a name, email, phone, username or profile link'}" aria-label="Who are you looking into">
         </label>
+        <span id="seed-hint" class="muted" style="font-size:14px;margin-top:-12px">${placeHint()}</span>
         <div style="display:flex;flex-direction:column;gap:12px">
           <span class="t2">What’s it for?</span>
           <div style="display:flex;gap:10px;flex-wrap:wrap">${KIND_CHOICES.map(([k, label, ic, col, bg]) => html`<button type="button" class="choice ${w.kind === k ? 'on' : ''}" data-act="wiz-kind" data-kind="${k}"><span class="ic" style="background:${bg};color:${col}">${ic}</span>${label}</button>`)}</div>
@@ -250,7 +251,7 @@ function drawWizard() {
         <div style="padding:22px;border-radius:22px;background:linear-gradient(160deg,#232C47,#1B1D23 70%);box-shadow:inset 0 0 0 2px var(--ac),0 24px 50px -26px #A3B5F288;display:flex;flex-direction:column;gap:12px">
           <div style="display:flex;align-items:center;justify-content:space-between"><span style="width:48px;height:48px;border-radius:14.4px;background:var(--ac);color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:21.6px;font-weight:600">⌕</span><span style="width:24px;height:24px;border-radius:50%;background:var(--ac);color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">✓</span></div>
           <div class="h3">Find a person</div><div style="font-size:15px;color:var(--t2);line-height:1.45">Find their accounts, check it’s really them, and pull out the posts that matter.</div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px">${['Social accounts', 'Posts', 'Same-name check'].map(t => html`<span style="padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.05);font-size:13px;color:var(--t2)">${t}</span>`)}<span style="padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.03);font-size:13px;color:var(--dim)">Records · coming soon</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">${['Social accounts', 'Posts', 'Same-name check'].map(t => html`<span style="padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.05);font-size:13px;color:var(--t2)">${t}</span>`)}<span style="padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.05);font-size:13px;color:var(--t2)">Public records</span></div>
         </div>
         <div style="position:relative;padding:22px;border-radius:22px;background:var(--panel);box-shadow:inset 0 0 0 1px var(--edge)">
           <div class="soon" style="display:flex;flex-direction:column;gap:12px">
@@ -291,8 +292,11 @@ function addSeeds(text) {
   const input = $('#seed-in'); if (input) input.value = '';
   refreshSeeds();
 }
+// A name alone matches namesakes in public records; the place they live tells them apart
+const placeHint = () => wiz.seeds.some(x => seedKind(x) === 'name') && !wiz.seeds.some(x => ['location', 'address'].includes(seedKind(x)))
+  ? 'Add the city or state they live in, e.g. location: Springfield, IL. It tells them apart from others with the same name in public records.' : '';
 function refreshSeeds() {
-  wizSeen();
+  wizSeen(); $('#seed-hint').textContent = placeHint();
   $('#seed-pills').innerHTML = fmt(wiz.seeds.map(s => seedPill(s, seedKind(s), true)));
   $('#seed-in').placeholder = wiz.seeds.length ? 'Add another…' : 'Paste anything… a name, email, phone, username or profile link';
   refreshStart();
@@ -395,6 +399,7 @@ screens.identity = async slug => {
         ${p.decision ? html`<span class="muted" style="align-self:center;margin-left:8px">You said: ${p.decision === 'him' ? 'yes' : p.decision === 'not him' ? 'no' : 'not sure'}</span>` : ''}
       </div>
     </div>` : ''}
+    ${recordsPanel(p)}
     ${p.namesakes.length ? html`<div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:600;font-size:19px">Others with the same name</span><span class="muted" style="font-size:14.5px">We’ll mention these in the report</span></div>
       ${p.namesakes.map(ns => html`<div class="row"><span class="tile-ic" style="background:var(--raise);color:var(--mu)">${(ns.label || '?').slice(0, 2).toUpperCase()}</span>
@@ -408,6 +413,42 @@ screens.identity = async slug => {
     .then(([cl, fb]) => { if ($('#person-browse')) $('#person-browse').innerHTML = html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:18px">${checklistPanel(slug, cl)}${fb ? facebookTile(slug, fb.links, accts.find(a => a.site === 'Facebook')?.reasons?.find(r => /login|logged/i.test(r))) : ''}</div>`.s; }).catch(() => {});
   api(`/api/cases/${encodeURIComponent(slug)}/seen-before`).then(r => { if ($('#seen-here')) $('#seen-here').innerHTML = seenBox(r, slug).s; }).catch(() => {});
 };
+
+/* Public records on Is it them? (docs/research/tools.md, "Records in the app"): grouped by what they show */
+const RECORD_GROUPS = [['Working', ['licences', 'businesses', 'npi'], 'Licensed, trading or employed somewhere?'], ['Driving', ['fmcsa'], 'Runs or drives for a carrier?'],
+  ['Courts', ['courtlistener'], 'Earlier federal suits or claims?'], ['Money and politics', ['fec', 'edgar'], 'Where were they, and with whom, when they donated or filed?']];
+const RECORD_NAME = { fec: 'FEC', edgar: 'SEC EDGAR', npi: 'NPI registry', courtlistener: 'CourtListener', licences: 'Licences', businesses: 'Business registries', fmcsa: 'FMCSA' };
+const ID_KEYS = [['licence_number', 'licence'], ['npi', 'NPI'], ['usdot', 'USDOT'], ['cik', 'CIK'], ['dos_id', 'NY DOS'], ['ubi', 'UBI'], ['docket_number', 'docket'], ['year_of_birth', 'born']];
+const WHEN_KEYS = ['issued', 'expires', 'registered', 'formed', 'last_update', 'filed', 'terminated'];
+const activeNow = a => { const st = String(a.status || '').toLowerCase();
+  if (a.expires && asDate(a.expires) < new Date()) return ['expired', 'warn'];
+  return /^(active|current|clear|valid)/.test(st) ? ['active now', 'ok'] : st ? [st, ''] : null; };
+function recordCard(x) {
+  const a = x.attrs, badge = activeNow(a), said = x.summary.toLowerCase();
+  const facts = [a.county && `${a.county} County`, ...ID_KEYS.filter(([k]) => a[k]).map(([k, l]) => `${l} ${a[k]}`), ...WHEN_KEYS.filter(k => a[k]).map(k => `${k.replace('_', ' ')} ${a[k]}`)]
+    .filter(f => f && !said.includes(String(f).toLowerCase()));
+  const onFile = ['address', 'phone', 'email'].filter(k => a[k]).map(k => a[k]);
+  return html`<div class="card" style="padding:12px 14px;background:var(--panel-2);display:flex;flex-direction:column;gap:4px">
+    <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b title="The name as the record writes it">${a.fullname || a.name || x.site}</b>${a.roles?.length ? html`<span class="muted" style="font-size:13.5px">${a.roles.join(', ')}</span>` : ''}
+      ${badge ? html`<span class="tag ${badge[1] === 'warn' ? 'warn' : ''}" style="${badge[1] === 'ok' ? 'background:var(--gr-bg);color:var(--gr)' : ''}">${badge[0]}</span>` : ''}
+      <span style="margin-left:auto;font-size:13px;color:${x.name_only ? 'var(--am)' : VERDICT_COLOR[x.verdict] || 'var(--t2)'}" title="${x.reasons.join(' · ')}">${x.name_only ? 'name only: could be someone else' : capped(x.verdict)}</span></div>
+    <div class="t2" style="font-size:14px">${x.summary}</div>
+    ${facts.length ? html`<div class="muted" style="font-size:13px">${facts.join(' · ')}</div>` : ''}
+    <div class="muted" style="font-size:13px">${x.site} · <a href="${/^https?:\/\//.test(x.url) ? x.url : '#'}" target="_blank" rel="noopener noreferrer" style="color:var(--ac)">record page ↗</a>${x.fetched ? ` · fetched ${when(x.fetched)}` : ''}</div>
+    ${onFile.length ? html`<details><summary class="dim" style="cursor:pointer;font-size:12.5px">Street address and contact on file</summary><div class="muted" style="font-size:13px">${onFile.join(' · ')}</div></details>` : ''}
+    <div style="display:flex;gap:6px;margin-top:4px;align-items:center"><button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="him">${x.decision === 'him' ? '✓ Theirs' : 'Theirs'}</button>
+      <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="not him">${x.decision === 'not him' ? '✓ Not them' : 'Not them'}</button>
+      <button class="btn ghost sm" data-act="note-open" data-about="account" data-ref="${x.url}" data-title="Notes on this record">Note</button></div></div>`;
+}
+function recordsPanel(p) {
+  if (!p.records?.length && !p.coverage?.length) return '';
+  return html`<div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap"><span style="font-weight:600;font-size:19px">Public records</span><span class="muted" style="font-size:14.5px">Check each name as the record writes it</span></div>
+    ${RECORD_GROUPS.map(([title, srcs, q]) => { const rs = p.records.filter(r => srcs.includes(r.source)), cov = p.coverage.filter(r => srcs.includes(r.source));
+      return rs.length || cov.length ? html`<div class="panel" style="padding:16px 18px;display:flex;flex-direction:column;gap:8px"><div><b>${title}</b> <span class="muted" style="font-size:13.5px">· ${q}</span></div>
+        ${rs.length ? rs.map(recordCard) : html`<div class="muted" style="font-size:14px">Nothing found that looks like them in what was searched:</div>`}
+        ${cov.map(r => html`<div class="dim" style="font-size:12.5px">${RECORD_NAME[r.source] || r.source}: ${r.note || r.status}</div>`)}</div>` : ''; })}</div>`;
+}
 
 /* Find a person, 3a: analysing photos and videos. Starts by itself once the investigator confirms it's them */
 let queuedScan = null; // a case whose new files arrived while its scan was running

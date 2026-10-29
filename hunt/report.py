@@ -52,7 +52,9 @@ PROTECTED = re.compile(r"\b(age|aged|born|birth\w*|gender|sex|pronouns?|racial|e
 READ_AUTOMATICALLY = re.compile(r"bsky|bluesky|mastodon|youtube", re.I)  # what posts.collect reads
 # Sources whose findings are records about a person, not accounts they run (hunt/sources: public records)
 RECORDS = {"fec": "FEC itemized political contributions", "edgar": "SEC EDGAR filings",
-           "npi": "the NPI healthcare provider registry", "courtlistener": "federal court dockets in CourtListener's RECAP archive"}
+           "npi": "the NPI healthcare provider registry", "courtlistener": "federal court dockets in CourtListener's RECAP archive",
+           "licences": "state occupational and professional licences", "businesses": "state business registries",
+           "fmcsa": "the FMCSA motor-carrier census"}
 # Screening (employment) mode leaves these sources out entirely: what they reveal is protected in several states
 SCREENED = {"fec": "political affiliation", "npi": "health"}
 # …and court dockets whose subject is health or politics
@@ -637,6 +639,22 @@ def _summary(c: dict) -> str:
                  f"address of record {a['location']}" if a.get("location") else None] if a.get("cik") else
                 [f"named in {a.get('filings') or 'some'} filings by {a.get('filer')}",
                  f"filer located in {a['filer_location']}" if a.get("filer_location") else None])
+    elif src == "licences":
+        bits = [a.get("licence"), f"licence {a['licence_number']}" if a.get("licence_number") else None, a.get("business"),
+                f"status {a['status']}" if a.get("status") else None, f"issued {a['issued']}" if a.get("issued") else None,
+                f"expires {a['expires']}" if a.get("expires") else None, a.get("location"),
+                f"under {a['sponsor']}" if a.get("sponsor") else None]
+    elif src == "businesses":
+        bits = [" and ".join(a["roles"]) + " of " + a["business"] if a.get("roles") and a.get("business") else a.get("business"),
+                a.get("entity_type"), f"formed {a['formed']}" if a.get("formed") else None,
+                f"listing {a['location']}" if a.get("location") else None,
+                f"business in {a['business_location']}" if a.get("business_location") not in (None, a.get("location")) else None]
+    elif src == "fmcsa":
+        bits = [" and ".join(a["roles"]) if a.get("roles") else None,
+                a["carrier"] + (f" (trading as {a['dba']})" if a.get("dba") else "") if a.get("carrier") else None,
+                f"USDOT {a['usdot']}" if a.get("usdot") else None, a.get("status"), a.get("operation"),
+                f"{a['power_units']} power units, {a.get('drivers') or 0} drivers" if a.get("power_units") else None,
+                a.get("location"), f"registration updated {a['last_update']}" if a.get("last_update") else None]
     elif src == "courtlistener":
         bits = [a.get("case"), f"{a['court']}, docket {a.get('docket_number')}" if a.get("court") else None,
                 f"filed {a['filed']}" if a.get("filed") else None, f"terminated {a['terminated']}" if a.get("terminated") else None,

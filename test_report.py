@@ -214,6 +214,14 @@ for leak in ("FEC", "fec ", "itemized", "Committee To Elect", "NPI", "npi ", "Nu
 assert {r["source"] for r in rep["records"]} == {"edgar"} and "1 other record under the same name was judged" in text(rep)
 assert "This screening version leaves out protected characteristics" in text(rep)  # its own words name them; it stays
 assert report.PROTECTED.search(" ".join(x["text"] for x in rep["sentences"] if "screening version" not in x["text"])) is None
+# Licences, business registries and FMCSA carriers are records too (hunt/sources), never accounts
+case.add_run("licences", name, "found", 1, 1, "")
+case.add_finding(Finding("licences", name, "Texas TDLR licence", "https://data.texas.gov/resource/7358-krk7.json?license_number=TX-1",
+                         {"fullname": "Robert Vance", "licence": "Electrician", "licence_number": "TX-1", "expires": "2027-01-01"}))
+rep = compose()
+lic = next(r for r in rep["records"] if r["source"] == "licences")
+assert lic["summary"] == "Electrician, licence TX-1, expires 2027-01-01", lic
+assert "Texas TDLR licence" not in {p["platform"] for p in rep["presence"]}, rep["presence"]
 assert all(x["cites"] for x in rep["sentences"])
 log_ids = {x["audit_log_id"] for x in compose()["log"] if x["audit_log_id"]}
 assert log_ids and all(isinstance(i, int) for i in log_ids)  # matches audit-log.csv in the evidence bundle
