@@ -91,13 +91,16 @@ assert not __import__("re").search(r"[+-]\d+\.\d\b|\bbits\b", t), t  # never wei
 assert any(c.startswith("A-") for s in rep["sentences"] if s["section"] == "identity" for c in s["cites"])
 assert any(c.startswith("M-") for s in rep["sentences"] if s["section"] == "method" for c in s["cites"])
 assert "Fictional Mutual" in t and "claim CLM-123" in t and "No lifting over 5 kg" in t, t
-assert "on 2026-" in t and ("EDT" in t or "EST" in t), t  # search times in the investigator's zone
+assert "on Thu 2026-" in t and ("EDT" in t or "EST" in t), t  # search times in the investigator's zone, with the day
+assert "Jo Example ran the searches" in t and "with Hunt " in t, t  # who collected, with what
 gaps = " ".join(rep["couldnt_see"])
 assert "phone details" in gaps and "whatsmyname failed" in gaps and "Posts on Instagram weren't read" in gaps, gaps
 assert "login-only" in gaps and "Bluesky weren't read" not in gaps and "ruled not relevant" in gaps, gaps
 assert "no date" in gaps and "Court and other public records" in gaps, gaps
 disclaim = " ".join(s["text"] for s in rep["sentences"] if s["section"] == "disclaimers")
 assert "no pretext" in disclaim and "SHA-256" in disclaim and report.CONFIDENTIAL in disclaim, disclaim
+assert report.NOT_CONSUMER in disclaim and report.FCRA not in disclaim, disclaim  # a claim, not employment screening
+assert all(x.get("platform") == "Bluesky" for x in rep["sentences"] if x["section"] == "found"), rep["sentences"]
 
 # Header block, presence table, exhibits
 h = rep["header"]
@@ -140,6 +143,8 @@ rep = compose()
 t = text(rep)
 assert "Robert Vance's" in t and "a person matching" not in t, t
 assert [x["id"] for x in rep["exhibits"]][:1] == [f"A-{bsky_id}"] and rep["exhibits"][0]["kind"] == "account screenshot"
+assert rep["exhibits"][0]["page_source"].endswith(".html") and "_rendered-page_" in rep["exhibits"][0]["page_source"]
+assert "personally conducted or supervised" in rep["certification"]["text"]
 marked = next(x for x in rep["sentences"] if x["text"].startswith("The investigator confirmed the Bluesky"))
 assert len([c for c in marked["cites"] if c.startswith("M-a")]) == 2 and " on 2026-" in marked["text"], marked
 assert "investigator confirmed this account" not in t, t
@@ -177,6 +182,7 @@ assert page.count("data:image/png;base64,") == 2 and "data:image/jpeg;base64," i
 assert '@bottom-right{content:"Page " counter(page) " of " counter(pages)' in page and "File vance-claim" in page
 assert "Appendix A: Exhibits" in page and "Appendix B: Search and case log" in page and "PI-000000" in page
 assert "[Ex. 1" in page and "Log 1" in page, page[:2000]  # citations read as exhibits and log lines
+assert "<h3>Bluesky</h3>" in page and "Page source" in page and "Z)</td>" in page  # platform heads; UTC in exhibits
 assert "@bottom-right" not in report.to_html(case, rep, pdf=True)  # Chromium prints the PDF's own
 data = report.to_json(case, rep)
 assert all(m["ok"] for m in data["manifest"]) and any(m["exhibit_name"] for m in data["manifest"])

@@ -9,7 +9,7 @@ opens `/login?t=<token>`, which sets an HttpOnly, SameSite=Strict cookie and red
 - **Non-GET requests:**
   - `Origin` must be `http://127.0.0.1:<port>` (or the `localhost` form).
   - JSON bodies need `Content-Type: application/json`.
-  - Uploads are `multipart/form-data` with the same Origin check.
+  - Uploads (`/api/cases/{slug}/media`, `/api/settings/logo`) are `multipart/form-data` with the same Origin check; nothing else accepts multipart.
 - **`Sec-Fetch-Site`:** if present, must be `same-origin` or `none`.
 - **CORS:** no CORS headers, ever. GET requests never change state.
 - **Content-Security-Policy:**
@@ -27,8 +27,9 @@ Errors are `{"error": "message"}` with a 4xx or 5xx status.
 |---|---|---|
 | GET | `/api/startup` | `{version, proxy: bool, checks: [{id, label, ok, detail}]}`. Check ids: `cases`, `evidence` (re-hash), `ai` (Ollama `/api/tags` lists `HUNT_VLM`; the model isn't loaded), `network`, `proxy`, `retention` (cases older than 90 days with no legal hold) |
 | GET | `/api/cases` | `[{slug, label, kind, reference, tool, created, updated, headline}]`, newest first. `headline` reads like "9 flagged posts" or "Confirmed · report ready" |
-| POST | `/api/cases` | `{label, seeds: [str], kind: "insurance"\|"background"\|"diligence"\|"journalism", reference?, purpose (required: who asked and why it's lawful), injury_date?: "YYYY-MM-DD", limits?: str, look_for: [category key or custom text], tool: "person"}` → `201 {slug}`. A label that's already taken gets a `-2` suffix; nothing is ever merged |
-| GET | `/api/cases/{slug}` | `{slug, details: {label, kind, reference, purpose, injury_date, limits, look_for, tool, created}, seeds: [{kind, value}], steps: {search, identity, posts, report}` (each `"todo"`, `"running"` or `"done"`), `active_job: {id, kind} \| null, counts: {accounts, flagged, evidence}}` |
+| POST | `/api/cases` | `{label, seeds: [str], kind: "insurance"\|"background"\|"diligence"\|"journalism", reference?, purpose (required: who asked and why it's lawful), injury_date?: "YYYY-MM-DD", limits?: str, look_for: [category key or custom text], tool: "person"}` plus any **report header fields** (below) → `201 {slug}`. A label that's already taken gets a `-2` suffix; nothing is ever merged |
+| GET | `/api/cases/{slug}` | `{slug, details: {label, kind, reference, purpose, injury_date, limits, look_for, tool, created, client, adjuster, file_number, assignment_date, subject_dob, recommendations}, seeds: [{kind, value}], steps: {search, identity, posts, report}` (each `"todo"`, `"running"` or `"done"`), `active_job: {id, kind} \| null, counts: {accounts, flagged, evidence}}` |
+| POST | `/api/cases/{slug}/details` | Any of `{reference, injury_date, limits, look_for, client, adjuster, file_number, assignment_date, subject_dob, recommendations}`; `""` clears a field → `{details}`. Audited. Dates are `YYYY-MM-DD` |
 | POST | `/api/cases/{slug}/seeds` | `{seeds: [str]}` → `{seeds}` |
 | GET | `/api/cases/{slug}/case.json` | The full `search.build()` dict (candidates, methodology, audit…) |
 
@@ -68,14 +69,46 @@ Event `data` is JSON with a `type`:
 
 Machine verdicts never exceed "likely". Only the investigator's Keep raises an item's status, never the verdict wording.
 
-## Report
+**Report header fields** (case details; all optional, all audited): `client` (carrier, TPA or law firm), `adjuster`,
+`file_number` (the investigator's own file number; the report falls back to the case slug), `assignment_date`,
+`subject_dob` (dropped in screening mode), `recommendations` (the investigator's own words, printed under
+"Conclusion and recommendations" and cited to the log entry that set them). `reference` is the client's claim or
+reference number; `injury_date` is the date of injury or loss.
+
+## Report settings (one per investigator, under `HUNT_HOME`)
 | Method | Path | Body / response |
 |---|---|---|
-| GET | `/api/cases/{slug}/report?screening=0\|1` | `{sections: [{id, title, done}], sentences: [{section, text, cites: [id]}], evidence: [{id, date, what, source, verdict, file}], couldnt_see: [str], checks: {every_sentence_cited, files_checked, tampered: [file]}}` |
-| GET | `/api/cases/{slug}/report.html` \| `.pdf` \| `.json` `?screening=1` | Downloads. Hashes are re-verified at export |
+| GET | `/api/settings` | `{firm, investigator, licence, contact, timezone, confidentiality, logo: bool}`. `timezone` defaults to this computer's (an IANA name); `confidentiality` to a standard line |
+| POST | `/api/settings` | Any of the fields above as strings (≤ 500 characters; `""` clears one; `timezone` must be an IANA zone name); `{logo: null}` removes the logo → the settings |
+| POST | `/api/settings/logo` | `multipart/form-data` with one `file`: PNG or JPEG under 2 MB (SVG and everything else get 415) → the settings |
+| GET | `/api/settings/logo` | The logo image, or 404 |
+
+## Report
+Laid out like an insurance / online-activity investigation report (`docs/research/report-format.md`).
+
+| Method | Path | Body / response |
+|---|---|---|
+| GET | `/api/cases/{slug}/report?screening=0\|1` | The report dict (below) |
+| GET | `/api/cases/{slug}/report.html` \| `.pdf` \| `.json` `?screening=1` | Downloads. Every evidence hash is re-verified at export (views use the quick check). HTML prints on US Letter with a running header and "Page X of Y" footer; the PDF has the same from Chromium |
 | GET | `/evidence/{slug}/{sha256}.{ext}` | Evidence file (security rules above) |
 
-Citation ids: `E-<post or hit id>` (evidence), `A-<finding id>` (accounts), `M-<run rowid>` (method).
+The report dict:
+- `screening: bool`
+- `header: {title, firm, investigator, licence, contact, logo, client, adjuster, reference, file_number, subject, subject_dob, injury_date, assignment_date, report_date, timezone, confidentiality}` (`subject_dob` and `injury_date` are null in screening mode)
+- `sections: [{id, title, done}]`, in order: `summary` Synopsis, `scope` Assignment and scope, `method` Search methodology, `presence` Online presence, `identity` Identity confirmation, `found` Findings, `conclusion` Conclusion and recommendations, `couldnt_see` Limitations: what we couldn't see, `disclaimers` Disclaimers
+- `sentences: [{section, text, cites: [id], platform?}]`: every one cited. Findings sentences carry `platform`, so they can be grouped under platform headings. `couldnt_see` sentences aren't here; they're the bullets below
+- `presence: [{row, id, platform, url, username, visibility: "public"|"private"|"registered; no public profile seen", last_activity, relevant: "yes"|"no"|"not reviewed", status: "confirmed"|<verdict, at most likely>, exhibit}]`: the online presence table
+- `exhibits: [{no, id, kind, file, name, sha256, captured, platform, url, account?, posted_at, description, relevance?, page_source?}]`: numbered in the order the report refers to them (confirmed accounts' screenshots, then kept items by platform and date). `name` is the file's name in the evidence bundle (`hunt export`), e.g. `2026-04-04_bluesky_kestrel-vane88_image_1765f69b.jpg`
+- `evidence: [{id, exhibit, date, what, source, verdict, file}]`: the kept items
+- `accounts: [{id, site, url, verdict, decision, screenshot, captured}]`
+- `couldnt_see: [str]`, `couldnt_see_cites: [[id]]`: the limitations, as bullets, with their citations in the same order
+- `log: [{id, when, what}]`: Appendix B, every `M-` id cited, in order; exports print `M-` citations as "Log n"
+- `certification: {text, investigator, licence, firm, date}`: the signature block
+- `checks: {every_sentence_cited, files_checked, tampered: [file], missing: [header field]}`. `missing` lists what the header still needs (client, reference, assignment_date, investigator, licence)
+
+Citation ids: `E-<hit id>` (a kept item), `A-<finding id>` (an account), `M-<run rowid>` (a source run), `M-a<audit rowid>`
+(a case-log entry: purpose, decisions, captures, the scan). The exports print them as "Ex. n" (an exhibit), "Acct. n" (a
+row of the presence table) or "Log n" (Appendix B).
 
 ## Python interface between the server and the scan modules
 `hunt/posts.py` and `hunt/scan.py` own their tables (`posts`, `media`, `hits`) and create them on first use. `emit(event: dict)` is a plain, non-blocking callable.

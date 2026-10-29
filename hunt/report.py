@@ -52,8 +52,13 @@ READ_AUTOMATICALLY = re.compile(r"bsky|bluesky|mastodon|youtube", re.I)  # what 
 KEPT = ("kept", "in report")
 MAX_EMBED = 8 << 20  # images larger than this stay out of the HTML export
 WEEKDAYS = ("Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays")
-CERTIFY = ("I certify that I gathered the information in this report as described above, from publicly available "
-           "sources, and that it is true and accurate to the best of my knowledge.")
+CERTIFY = ("I personally conducted or supervised the work described in this report, using only publicly available "
+           "sources. After diligent inquiry, I believe the facts stated in it are true and correct.")
+# Claims and diligence work is not a consumer report; employment screening may be one (FCRA), so say so.
+NOT_CONSUMER = ("This report is not a consumer report and must not be used to decide credit, insurance underwriting, "
+                "employment or housing.")
+FCRA = ("If this report is used to make an employment decision, it may be a consumer report under the Fair Credit "
+        "Reporting Act, with disclosure, consent and adverse-action duties; use the screening version.")
 
 # --- the investigator's report settings (one per machine, under HUNT_HOME) ----------------------------
 
@@ -158,11 +163,22 @@ def _when(ts: str | None, tz: str, with_time: bool = True) -> str:
     if len(str(ts)) <= 10 or not with_time:
         return f"{t:%Y-%m-%d}"
     t = (t if t.tzinfo else t.replace(tzinfo=UTC)).astimezone(ZoneInfo(tz))
-    return f"{t:%Y-%m-%d %H:%M} {t.tzname()}"
+    return f"{t:%a %Y-%m-%d %H:%M} {t.tzname()}"
+
+
+def _utc(ts: str | None) -> str:
+    """The same instant as ISO 8601 UTC, for exhibit metadata."""
+    try:
+        t = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return ""
+    return (t if t.tzinfo else t.replace(tzinfo=UTC)).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _handle(c: dict) -> str:
-    return c["seed"]["value"] if c["seed"]["kind"] == "username" else c["url"].rstrip("/").rsplit("/", 1)[-1]
+    if c["seed"]["kind"] in ("username", "email"):  # an email registration has no handle of its own
+        return c["seed"]["value"]
+    return c["url"].rstrip("/").rsplit("/", 1)[-1]
 
 
 def _visibility(c: dict) -> str:
@@ -249,8 +265,10 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     for c in people:
         if not screening and (s := [e for e in c["evidence"] if e["kind"] == "screenshot"]):
             shots[acc(c)] = s[-1]
+            page = [e for e in c["evidence"] if e["kind"] == "rendered page"]
             exhibit(acc(c), s[-1]["file"], kind="account screenshot", platform=c["site"], url=c["url"],
-                    posted_at=None, description=f"{c['site']} profile page as captured, logged out")
+                    posted_at=None, description=f"{c['site']} profile page as captured, logged out",
+                    page_source=files.get(Path(page[-1]["file"]).stem, {}).get("name") if page else None)
     for h in kept:
         post = by_post.get(h.get("post_id"), {})
         exhibit(f"E-{h['id']}", h.get("file"), kind="post" if not h.get("file") else "post media",
@@ -319,7 +337,8 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         times = sorted(r["ts"] for r in snap["methodology"])
         first, last_run = _when(times[0], tz), _when(times[-1], tz)
         span = f"on {first}" if first == last_run else f"from {first} to {last_run}"
-        doc.say("method", f"Searches ran {span}, logged out, from this computer"
+        doc.say("method", f"{prefs['investigator'] or 'The investigator'} ran the searches {span} with Hunt "
+                          f"{_version()}, logged out, from this computer"
                           + (" through a proxy" if os.environ.get("HUNT_PROXY") else "") + ".", runs)
     latest = {}
     for r in snap["methodology"]:  # in time order
@@ -383,6 +402,10 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         one = len(namesakes) == 1
         doc.say("identity", f"{_many(len(namesakes), 'other account')} {'shares' if one else 'share'} the name but "
                             f"{'was' if one else 'were'} judged unlikely to be {who}'s.", [acc(c) for c in namesakes])
+    if snap["pivots"] and not screening:
+        listing = [c for c in people if set(c["attrs"].get("other_usernames", [])) & set(snap["pivots"])]
+        doc.say("identity", "Other usernames seen on these accounts, not supplied by the client: "
+                            f"{', '.join(snap['pivots'])}.", [acc(c) for c in listing] or [acc(c) for c in people])
     single = [c for c in people if c["decision"] != "him" and any("no second identifier" in r for r in c["reasons"])]
     if single:
         doc.say("identity", f"{_many(len(single), 'account')} rest on a single identifier and should not be relied on "
@@ -399,6 +422,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
                          f"shows {h.get('what') or 'a flagged item'} ({labels.get(h.get('category'), h.get('category'))}). "
                          f"Machine reading: {reading}; reviewed and "
                          f"{'placed in the report' if h['status'] == 'in report' else 'kept'} by the investigator.", [cid])
+        doc.sentences[-1]["platform"] = h.get("source") or "Other"
     if not kept:
         doc.say("found", "No posts or media were kept for this report.", log.get("scan finished", log.get("scan", opened)))
 
@@ -423,6 +447,10 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         doc.say("conclusion", f"The investigator recommends: {d['recommendations']}", set_by[-1:])
     doc.say("conclusion", f"Machine readings in this report are worded no stronger than '{CEILING}'; only the "
                           "investigator's own review goes further.", log.get("decision", opened))
+    if exhibits:
+        doc.say("conclusion", "The original captures, their page sources and a SHA-256 manifest are kept in the case file "
+                              "and can be supplied as an evidence bundle.",
+                log.get("evidence exported", []) + log.get("capture", [])[:1] + log.get("posts collected", [])[:1] or opened)
 
     # Limitations: what we couldn't see (automatic)
     for r in snap["methodology"]:
@@ -432,7 +460,10 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         elif r["status"] == "failed":
             doc.say("couldnt_see", f"{r['source']} failed for '{r['seed']}': {r['note']}.", [f"M-{r['rowid']}"])
     for c in people:
-        if not READ_AUTOMATICALLY.search(c["url"]):
+        if c["seed"]["kind"] == "email":
+            doc.say("couldnt_see", f"{c['site']}: the email is registered there, but no public profile was seen, so nothing "
+                                   "there was reviewed.", [acc(c)])
+        elif not READ_AUTOMATICALLY.search(c["url"]):
             doc.say("couldnt_see", f"Posts on {c['site']} weren't read: Hunt reads Bluesky, Mastodon and YouTube, and never "
                                    "logs in anywhere, so login-only or private content there wasn't seen.", [acc(c)])
     if ruled := [h for h in hits if h.get("status") == "not relevant"]:
@@ -455,6 +486,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
             log.get("capture", [])[:1] + log.get("file added", [])[:1] + log.get("posts collected", [])[:1] or opened)
     doc.say("disclaimers", "Online content can be edited, deleted, misdated or posted by someone else; dates are as each "
                            "platform displayed them, and times are given in " + tz + ".", runs[:1] or opened)
+    doc.say("disclaimers", FCRA if d["kind"] == "background" else NOT_CONSUMER, opened)
     if screening:
         doc.say("disclaimers", "This screening version leaves out protected characteristics (such as age, health, "
                                "religion and family status) and profile screenshots.", opened)
@@ -498,6 +530,11 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         "checks": {"every_sentence_cited": all(s["cites"] for s in doc.sentences),  # the bullets too
                    "files_checked": checks["checked"], "tampered": checks["tampered"], "missing": missing},
     }
+
+
+def _version() -> str:
+    from importlib.metadata import version
+    return version("hunt-osint")
 
 
 def _relevance(h: dict, labels: dict, screening: bool) -> str:
@@ -621,7 +658,12 @@ def to_html(case: Case, rep: dict, pdf: bool = False) -> str:
             continue
         n += 1
         out.append(f"<h2>{n}. {e(title)}</h2>")
-        out += [f"<p>{e(s['text'])}{cites(s['cites'])}</p>" for s in lines]
+        group = None
+        for s_ in lines:
+            if s_.get("platform") and s_["platform"] != group:
+                group = s_["platform"]
+                out.append(f"<h3>{e(group)}</h3>")
+            out.append(f"<p>{e(s_['text'])}{cites(s_['cites'])}</p>")
         if bullets:
             out.append("<ul>" + "".join(f"<li>{e(t)}{cites(c)}</li>" for t, c in bullets) + "</ul>")
         if sid == "presence" and rep["presence"]:
@@ -641,9 +683,11 @@ def to_html(case: Case, rep: dict, pdf: bool = False) -> str:
                    "<p class=mute>File names match the evidence bundle; each SHA-256 was re-checked when this report "
                    "was produced.</p>")
         for x in rep["exhibits"]:
-            facts = [("File", x["name"]), ("SHA-256", x["sha256"]), ("URL", x.get("url")), ("Account", x.get("account")),
-                     ("Posted", _when(x["posted_at"], h["timezone"]) if x.get("posted_at") else None),
-                     ("Captured", _when(x["captured"], h["timezone"]) if x.get("captured") else None),
+            stamp = lambda ts: f"{_when(ts, h['timezone'])} ({_utc(ts)})" if _utc(ts) and len(str(ts)) > 10 else _when(ts, h["timezone"])
+            facts = [("File", x["name"]), ("SHA-256", x["sha256"]), ("Page source", x.get("page_source")),
+                     ("URL", x.get("url")), ("Account", x.get("account")),
+                     ("Posted", stamp(x["posted_at"]) if x.get("posted_at") else None),
+                     ("Captured", stamp(x["captured"]) if x.get("captured") else None),
                      ("Relevance", x.get("relevance"))]
             out.append(f"<div class=ex><h3>Exhibit {x['no']}: {e(x.get('platform') or '')} {e(x['kind'])}</h3>"
                        f"<p>{e(x.get('description') or '')}</p><table>"
