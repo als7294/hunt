@@ -39,7 +39,7 @@ Hunt runs entirely on the investigator's own computer. This page says what it de
 
 ## Reporting a problem
 
-Open a private security advisory on the GitHub repository, or email the maintainer listed in `pyproject.toml`. Please include the version (`hunt --version`), what you did, and what you saw. There is no bounty programme; credit is given in the changelog if you want it.
+Open a private security advisory on the GitHub repository, or email the maintainer listed in `pyproject.toml`. Please include the version shown on the startup screen, what you did, and what you saw. There is no bounty programme; credit is given in the changelog if you want it.
 
 ## Keeping it this way
 
