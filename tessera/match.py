@@ -43,18 +43,16 @@ PLACE_TIERS = {
     "different country": (bits(0.9, 0.5, agree=False), "is in a different country from"),
 }
 CORROBORATES = 2.0  # bits a non-handle reason needs to count as a second identifier
-# Non-answers people type into a location box. Real villages are called "Unknown" and
-# "Earth", so these must never reach the geocoder.
-# ponytail: fixed list. Upgrade: also drop one-word hits that geocode to a low-importance hamlet.
-NOT_A_PLACE = {"unknown", "n a", "na", "none", "null", "nil", "earth", "planet earth", "world", "worldwide",
-               "global", "everywhere", "anywhere", "nowhere", "somewhere", "internet", "the internet",
-               "online", "web", "home", "here", "there", "localhost", "your mom", "ur mom"}
 
 
 def place_text(attrs: dict) -> str:
-    """The profile's location as one geocodable string ('Washington, United States'), placeholders dropped."""
-    parts = [str(attrs[k]) for k in ("location", "city", "country") if attrs.get(k)]
-    return ", ".join(p for p in parts if " ".join(re.findall(r"[a-z]+", p.lower())) not in NOT_A_PLACE | {""})
+    """The profile's location as one geocodable string ('Washington, United States').
+
+    Placeholder fields are dropped first ('N/A' + country 'US' → 'US'); geo.locate only
+    sees whole strings, so it can't strip a joke part from a real one.
+    """
+    parts = [str(attrs[k]).strip() for k in ("location", "city", "country") if attrs.get(k)]
+    return ", ".join(p for p in parts if " ".join(p.lower().split()) not in geo.NOT_PLACES | {""})
 
 
 def username_u(handle: str, taken: tuple[int, int] | None = None) -> tuple[float, str]:
@@ -144,7 +142,8 @@ def score(seed, url: str, attrs: dict, subject: list,
         if pairs:  # closest of the subject's known places wins
             (tier, km), k = max(pairs, key=lambda p: PLACE_TIERS[p[0][0]][0])
             weight, phrase = PLACE_TIERS[tier]
-            add(weight, f"location '{profile_place}' {phrase} '{k}' ({km:,.0f} km; read as {_short(here)})")
+            dist = f"{km:,.0f} km; " if _local(here) and _local(places[k]) else ""  # meaningless for a country or state
+            add(weight, f"location '{profile_place}' {phrase} '{k}' ({dist}read as {_short(here)})")
         else:
             missing = profile_place if not here else " / ".join(known_places)
             add(0.0, f"couldn't place '{missing}', so location isn't counted")
@@ -192,7 +191,12 @@ def _alnum(text: str) -> str:
 
 
 def _short(place: "geo.Place") -> str:
-    return ", ".join(place.label.split(", ")[:2])
+    """'Phoenix, Maricopa County'; an ambiguous place keeps every reading ('… or …')."""
+    return " or ".join(", ".join(alt.split(", ")[:2]) for alt in place.label.split(" or "))
+
+
+def _local(place: "geo.Place") -> bool:
+    return place.rank >= geo.CITY or place.size_km <= geo.LOCAL_KM
 
 
 def norm_url(url: str) -> str:

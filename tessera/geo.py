@@ -78,7 +78,8 @@ NOT_PLACES = {
     "nowhere", "here", "home", "internet", "the internet", "online", "cyberspace", "metaverse", "mars", "moon",
     "the moon", "space", "outer space", "universe", "the universe", "heaven", "hell", "paradise", "narnia",
     "hogwarts", "gotham", "gotham city", "mordor", "wonderland", "neverland", "atlantis", "utopia", "your heart",
-    "in your heart", "behind you", "the void", "n/a", "none", "unknown",
+    "in your heart", "behind you", "the void", "n/a", "na", "none", "null", "nil", "unknown", "web", "there",
+    "localhost", "your mom", "ur mom",
 }
 
 _cache: dict | None = None  # normalised query → Nominatim's raw hits ([] for "no such place")

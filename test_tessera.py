@@ -38,7 +38,10 @@ PLACES = {"Tucson, AZ": TUCSON, "Tucson, Arizona": TUCSON, "Tucson": TUCSON,
           "Leeds": Place("Leeds", 53.797, -1.544, "gb", "GB-ENG", 16, "Leeds, West Yorkshire, England, United Kingdom"),
           "Phoenix": Place("Phoenix", 33.448, -112.074, "us", "US-AZ", 16, "Phoenix, Maricopa County, Arizona, United States", 85),
           "USA": Place("USA", 39.784, -100.446, "us", None, 4, "United States", 9602),
-          "Pale Blue Dot": None}
+          "Pale Blue Dot": None,
+          # geo.locate's shape for an ambiguous name: country kept, every reading in the label
+          "Washington": Place("Washington", 38.895, -77.036, "us", None, 4,
+                              "Washington, District of Columbia, United States or Washington, United States")}
 
 # Rare handle + matching name (via nickname) + matching city: the subject
 p, v, why = score(rare, "https://site.test/kestrel_vane88", {"fullname": "Bob Vance", "location": "Tucson, Arizona"}, subject,
@@ -97,6 +100,11 @@ _, v, why = score(rare, "https://s.test/k", {"location": "Pale Blue Dot"}, subje
 assert any("couldn't place 'Pale Blue Dot'" in r for r in why) and v == "roughly even chance", why
 _, v, why = score(rare, "https://s.test/k", {"location": "USA"}, subject, places=PLACES)
 assert any("same country" in r for r in why) and v == "roughly even chance", why  # too weak to corroborate
+assert not any(" km;" in r for r in why), why  # no distance quoted against a whole country
+_, _, why = score(rare, "https://s.test/k", {"location": "Washington"}, subject, places=PLACES)
+assert any("read as Washington, District of Columbia or Washington, United States" in r for r in why), why
+_, _, why = score(rare, "https://s.test/k", {"location": "Phoenix"}, subject, places=PLACES)
+assert any("(171 km; read as Phoenix" in r for r in why), why  # two cities: distance shown
 _, _, why = score(rare, "https://s.test/k", {"location": "Tucson"}, subject)  # offline: nothing placed
 assert any("isn't counted" in r for r in why), why
 # Placeholders never reach the geocoder (a real village is called "Unknown")

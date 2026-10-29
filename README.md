@@ -30,7 +30,7 @@ Seeds can be a username, email, phone, name, address or profile URL. Tessera det
 **OPSEC:** `--proxy socks5h://127.0.0.1:9050` (or the `TESSERA_PROXY` env var) routes every request through a proxy or VPN. That covers site checks, screenshots and geocoding.
 
 **What leaves your machine:**
-- Requests to the sites being checked. Email checks that could notify the subject (password resets, login codes) are never run.
+- Requests to the sites being checked. Email checks that could notify the subject (password resets, login codes, sign-ups, login attempts) are never run; every module was read and classified.
 - Location strings only (never names or handles), sent to OpenStreetMap's Nominatim to compare places. This happens only when the case has a known location, and each string is sent once and then cached.
 
 Phone lookups and all scoring run offline.

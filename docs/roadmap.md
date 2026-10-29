@@ -23,12 +23,27 @@
 - ✅ **Locations** are geocoded (`tessera/geo.py`, Nominatim, cached) and compared by distance tier. Placeholders like "Unknown" and "Earth" are dropped first: there is a real village called Unknown in India.
 - ✅ **Proxy routing** (`--proxy` / `TESSERA_PROXY`) covers every network call.
 - ✅ **Self-check** covers the case store end to end (purpose gate, evidence hashes, engine merging, pivots).
-- user-scanner email checks: audit each module that might notify the subject.
-- WhatsMyName checker: validate it against each site's known test accounts.
+- ✅ **Email checks audited.** All 220 user-scanner modules have been read and classified (`NOTIFIES` / `AUDITED_SILENT` in `tessera/sources/user_scanner.py`, one reason per module):
+  - 51 flagged loud upstream
+  - 42 more never run: password login attempts, sign-ups that only a captcha stops, reset and recovery flows
+  - 127 audited silent
+
+  `uv run python -m tessera.sources.user_scanner` re-checks coverage after an upgrade, and the silent list is only trusted for the audited release. The proxy also now reaches the 172 modules that open their own connections.
+- ✅ **WhatsMyName validated** against each site's known account and a nonsense handle (`scripts/validate_wmn.py`). Redirects are now handled the way WMN's own checker does:
+  - known accounts found: 424 → 447
+  - both checks right: 335 → 348
+  - false "found" on nonsense: 0
+- ✅ **Geocoding hardened:**
+  - US state codes and metro nicknames ("AZ" was Azerbaijan)
+  - falls back to the part after the last comma
+  - a joke-location stoplist
+  - a street or shop hit only counts if the string has a number
+  - ambiguous names ("Washington", "Portland") keep only the country; "Georgia" stays unplaced
 
 **Still open**
 - Recognise acronyms, so "NASA" matches "National Aeronautics and Space Administration".
-- Geocoding takes the top hit only. Ambiguous names like "Washington" (the state or DC) resolve to the more prominent one.
+- Five email modules (Facebook, Amazon, Patreon, Vedantu, HackTheBox) are off only because a notification couldn't be ruled out. Testing each against an account the investigator owns could bring them back.
+- About 100 WhatsMyName sites block automated checks (Cloudflare etc.), and some entries are stale (Mastodon titles, Fiverr status codes). Report those fixes upstream to WMN.
 
 ## M2: app UI
 - Local FastAPI server, results streamed live; frontend built from the chosen design prototype.
