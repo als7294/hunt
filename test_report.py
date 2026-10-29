@@ -78,8 +78,8 @@ assert report.settings()["logo"] and report.logo_path().suffix == ".png"
 
 # Before the investigator confirms: neutral wording, machine readings no stronger than "likely"
 rep = compose()
-assert [x["id"] for x in rep["sections"]] == ["summary", "scope", "method", "presence", "identity", "found", "conclusion",
-                                             "couldnt_see", "disclaimers"]
+assert [x["id"] for x in rep["sections"]] == ["summary", "scope", "method", "presence", "identity", "records", "found",
+                                             "conclusion", "couldnt_see", "disclaimers"]
 assert all(s["cites"] for s in rep["sentences"]) and rep["checks"]["every_sentence_cited"], rep["sentences"]
 assert len(rep["couldnt_see"]) == len(rep["couldnt_see_cites"]) and all(rep["couldnt_see_cites"])
 assert not any(x["section"] == "couldnt_see" for x in rep["sentences"])  # the app shows them as bullets, once
@@ -165,7 +165,7 @@ assert names and names <= in_zip, (names, in_zip)
 
 # Screening: protected traits, the date of birth, the injury and screenshots all stay out
 rep = compose(screening=True)
-t = text(rep)
+t = " ".join(x["text"] for x in rep["sentences"] if "screening version" not in x["text"])  # that one names the categories
 assert report.PROTECTED.search(t) is None, report.PROTECTED.search(t)
 assert "2026-03-01" not in t and "1990-05-05" not in t and {e["id"] for e in rep["evidence"]} == {"E-1"}, rep["evidence"]
 assert "Assigned 2026-03-20 by Fictional Mutual (adjuster: A. Adjuster)." in t and "Purpose on record" not in t, t
@@ -174,6 +174,49 @@ assert all(x["screenshot"] is None for x in rep["accounts"]) and all(x["kind"] !
 assert all(s["cites"] for s in rep["sentences"])
 page = report.to_html(case, rep)
 assert "Screening version" in page and "1990-05-05" not in page and "account screenshot" not in page
+
+# Public records are records, not accounts; screening leaves out political and health ones entirely
+name = Seed("name", "Robert Vance")
+for src, n in (("fec", 3), ("npi", 1), ("edgar", 1), ("courtlistener", 2)):
+    case.add_run(src, name, "found", n, 1, "")
+case.add_run("courtlistener", Seed("name", "Bob Vance"), "nothing found", 0, 0,
+             "not run: CourtListener needs a free account token in HUNT_COURTLISTENER_TOKEN")
+records = [("fec", "FEC contributions", "https://www.fec.gov/data/receipts/individual-contributions/?contributor_name=vance",
+            {"fullname": "Robert Vance", "contributions": 3, "total_usd": 450, "first_date": "2024-02-01",
+             "last_date": "2024-10-01", "recipients": ["Committee To Elect Example"], "occupation": "Engineer"}),
+           ("npi", "NPI Registry", "https://npiregistry.cms.hhs.gov/provider-view/1234567890",
+            {"fullname": "Robert Vance", "npi": "1234567890", "credential": "RN", "specialty": "Registered Nurse"}),
+           ("edgar", "SEC EDGAR (filer)", "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001234567",
+            {"fullname": "Robert Vance", "cik": 1234567, "filings": 2}),
+           ("courtlistener", "CourtListener (RECAP)", "https://www.courtlistener.com/docket/1/vance-v-example-health-plan/",
+            {"case": "Vance v. Example Health Plan", "nature_of_suit": "ERISA", "court": "azd"}),
+           ("courtlistener", "CourtListener (RECAP)", "https://www.courtlistener.com/docket/2/vance-v-example-builders/",
+            {"case": "Vance v. Example Builders", "nature_of_suit": "Contract: Other", "court": "azd"})]
+for src, site, url, attrs in records:
+    case.add_finding(Finding(src, name, site, url, attrs))
+rep = compose()
+t, gaps = text(rep), " ".join(rep["couldnt_see"])
+assert {r["source"] for r in rep["records"]} == {"fec", "npi", "edgar"}, rep["records"]  # dockets carry no name to match
+assert "[Rec. 1]" in report.to_html(case, rep)  # record citations read as table rows
+assert not {"FEC contributions", "NPI Registry"} & {p["platform"] for p in rep["presence"]}, rep["presence"]
+assert "3 itemized contributions totalling $450" in t and "NPI 1234567890, RN, Registered Nurse" in t, t
+assert "2 other records under the same name were judged unlikely" in t and "SEC filer CIK 1234567" in t, t
+assert "Public records were limited to FEC itemized political contributions" in gaps, gaps
+assert "Posts on FEC" not in gaps and "Posts on NPI" not in gaps and "1 flagged item was ruled" in gaps, gaps
+assert "courtlistener wasn't run: CourtListener needs a free account token" in gaps, gaps
+assert not any("courtlistener" in x["text"] and "Bob Vance" in x["text"] for x in rep["sentences"]), rep["sentences"]
+assert all(x["cites"] for x in rep["sentences"])
+rep = compose(screening=True)
+everything = " ".join([text(rep), *rep["couldnt_see"], str(rep["records"]), str(rep["presence"]), str(rep["exhibits"]),
+                       str(rep["log"]), report.to_html(case, rep)])
+for leak in ("FEC", "fec ", "itemized", "Committee To Elect", "NPI", "npi ", "Nurse", "Health Plan", "ERISA"):
+    assert leak not in everything, leak
+assert {r["source"] for r in rep["records"]} == {"edgar"} and "1 other record under the same name was judged" in text(rep)
+assert "This screening version leaves out protected characteristics" in text(rep)  # its own words name them; it stays
+assert report.PROTECTED.search(" ".join(x["text"] for x in rep["sentences"] if "screening version" not in x["text"])) is None
+assert all(x["cites"] for x in rep["sentences"])
+log_ids = {x["audit_log_id"] for x in compose()["log"] if x["audit_log_id"]}
+assert log_ids and all(isinstance(i, int) for i in log_ids)  # matches audit-log.csv in the evidence bundle
 
 # Exports: escaped HTML with images inlined, a running header and page numbers when printed
 rep = compose()

@@ -121,6 +121,12 @@ no friending, following or contact [S3, S4, S10].
   - Each exhibit gets its own page with its evidence-bundle file name, SHA-256, page source, URL, account, posted and
     captured times (local and UTC), relevance, and the image.
   - The log lists every method citation.
+- **Public records** (FEC, SEC EDGAR, NPI, CourtListener) get their own section and table, separate from the online
+  presence. Each has a one-line summary of what the record says and how it was tied to the subject. Limitations say
+  which record sets were searched, that state, county, criminal and property records weren't, and which sources
+  didn't run (CourtListener without a token).
+  - Screening mode drops FEC records (political affiliation is protected in several states), NPI records (health) and
+    court dockets about health or politics, along with their source runs.
 - **Kept guarantees:** every sentence is cited; machine readings stay at "likely" or below; neutral "a person matching
   the details supplied" until an account is confirmed; exports re-hash every evidence file. Screening mode drops
   protected characteristics, the date of birth, the date of loss, injury items and screenshots.
@@ -150,11 +156,13 @@ Surface `checks.missing` as to-dos that open this form, or the case details.
 
 **Report screen:**
 - **Sections:** render `sections` in order. The ids changed: `summary`, `scope`, `method`, `presence`, `identity`,
-  `found`, `conclusion`, `couldnt_see`, `disclaimers`. The old `confidence` id is gone; its content is now in
+  `records`, `found`, `conclusion`, `couldnt_see`, `disclaimers`. The old `confidence` id is gone; its content is now in
   `identity` and `conclusion`.
 - **Findings:** sentences carry `platform`; head each group.
 - **Header:** show `header` as a two-column block at the top. Hide null fields (screening nulls `subject_dob` and
   `injury_date`).
+- **Public records:** under the `records` section, render `records` as a table: Record, What it says, URL, Status,
+  Exhibit.
 - **Online presence:** under that section, render `presence` as a table: #, Platform, Username, URL, Public/private,
   Last activity, Relevant, Status, Exhibit.
 - **Exhibits:** `exhibits` replaces the evidence list. Show "Exhibit n", the bundle file name, platform, the posted and
@@ -162,6 +170,10 @@ Surface `checks.missing` as to-dos that open this form, or the case details.
 - **Citation chips:** print `E-`/`A-` ids that have an exhibit as "Ex. n" (look the id up in `exhibits`), other `A-`
   ids as "Acct. n" (`presence[].row`), and `M-` ids as "Log n" (the position in `log`, 1-based).
 - **Certification:** render `certification` as a block with a signature line.
+- **Appendix B:** show `log[].audit_log_id` beside each line, so it can be matched to `audit-log.csv` in the evidence
+  bundle. Exhibit `name`s are the files under `exhibits/` in the same zip.
+- **Is it them? screen:** `/person` still lists public records (FEC, EDGAR, NPI) among the accounts, because
+  `search.in_person` doesn't tell them apart. They may be worth showing separately there too.
 
 ## Sources
 

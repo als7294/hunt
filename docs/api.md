@@ -96,20 +96,26 @@ Laid out like an insurance / online-activity investigation report (`docs/researc
 The report dict:
 - `screening: bool`
 - `header: {title, firm, investigator, licence, contact, logo, client, adjuster, reference, file_number, subject, subject_dob, injury_date, assignment_date, report_date, timezone, confidentiality}` (`subject_dob` and `injury_date` are null in screening mode)
-- `sections: [{id, title, done}]`, in order: `summary` Synopsis, `scope` Assignment and scope, `method` Search methodology, `presence` Online presence, `identity` Identity confirmation, `found` Findings, `conclusion` Conclusion and recommendations, `couldnt_see` Limitations: what we couldn't see, `disclaimers` Disclaimers
+- `sections: [{id, title, done}]`, in order: `summary` Synopsis, `scope` Assignment and scope, `method` Search methodology, `presence` Online presence, `identity` Identity confirmation, `records` Public records, `found` Findings, `conclusion` Conclusion and recommendations, `couldnt_see` Limitations: what we couldn't see, `disclaimers` Disclaimers
 - `sentences: [{section, text, cites: [id], platform?}]`: every one cited. Findings sentences carry `platform`, so they can be grouped under platform headings. `couldnt_see` sentences aren't here; they're the bullets below
-- `presence: [{row, id, platform, url, username, visibility: "public"|"private"|"registered; no public profile seen", last_activity, relevant: "yes"|"no"|"not reviewed", status: "confirmed"|<verdict, at most likely>, exhibit}]`: the online presence table
+- `presence: [{row, id, platform, url, username, visibility: "public"|"private"|"registered; no public profile seen", last_activity, relevant: "yes"|"no"|"not reviewed", status: "confirmed"|<verdict, at most likely>, exhibit}]`: the online presence table (accounts only)
+- `records: [{row, id, source: "fec"|"edgar"|"npi"|"courtlistener", site, url, summary, status, exhibit}]`: public records likely or confirmed to concern the subject, each with a one-line summary. They're records about the person, so they never appear in `presence` or as unread posts
 - `exhibits: [{no, id, kind, file, name, sha256, captured, platform, url, account?, posted_at, description, relevance?, page_source?}]`: numbered in the order the report refers to them (confirmed accounts' screenshots, then kept items by platform and date). `name` is the file's name in the evidence bundle (`hunt export`), e.g. `2026-04-04_bluesky_kestrel-vane88_image_1765f69b.jpg`
 - `evidence: [{id, exhibit, date, what, source, verdict, file}]`: the kept items
 - `accounts: [{id, site, url, verdict, decision, screenshot, captured}]`
 - `couldnt_see: [str]`, `couldnt_see_cites: [[id]]`: the limitations, as bullets, with their citations in the same order
-- `log: [{id, when, what}]`: Appendix B, every `M-` id cited, in order; exports print `M-` citations as "Log n"
+- `log: [{id, when, what, audit_log_id}]`: Appendix B, every `M-` id cited, in order; exports print `M-` citations as "Log n". `audit_log_id` is the entry's `id` in the evidence bundle's `audit-log.csv` (null for source runs)
 - `certification: {text, investigator, licence, firm, date}`: the signature block
 - `checks: {every_sentence_cited, files_checked, tampered: [file], missing: [header field]}`. `missing` lists what the header still needs (client, reference, assignment_date, investigator, licence)
 
+**Screening mode** (`?screening=1`, for employment use) leaves out: protected characteristics in any sentence; the date
+of birth and date of loss; injury items; profile and record screenshots; FEC contribution records and their source
+runs (political affiliation); NPI registry records and runs (health); and court dockets whose case, cause or nature of
+suit is about health or politics. It says so in its disclaimers.
+
 Citation ids: `E-<hit id>` (a kept item), `A-<finding id>` (an account), `M-<run rowid>` (a source run), `M-a<audit rowid>`
 (a case-log entry: purpose, decisions, captures, the scan). The exports print them as "Ex. n" (an exhibit), "Acct. n" (a
-row of the presence table) or "Log n" (Appendix B).
+row of the presence table), "Rec. n" (a row of the public records table) or "Log n" (Appendix B).
 
 ## Python interface between the server and the scan modules
 `hunt/posts.py` and `hunt/scan.py` own their tables (`posts`, `media`, `hits`) and create them on first use. `emit(event: dict)` is a plain, non-blocking callable.
