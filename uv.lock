@@ -792,18 +792,6 @@ wheels = [
 ]
 
 [[package]]
-name = "gallery-dl"
-version = "1.32.16"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/86/65/9fb8b494ea145a7148e64ab6a577adca0413b0f9e90b422e8349cdb95a2f/gallery_dl-1.32.16.tar.gz", hash = "sha256:bacd7d63423ad45db98704fedafa1302343db6f250f9e9f69a9e142754ed9e37", size = 760621, upload-time = "2026-10-09T09:36:29.887Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/02/4e/a2f286aaba7fc3c95757a2c0b45f66f6ac6561e507cdb808e64412a63534/gallery_dl-1.32.16-py3-none-any.whl", hash = "sha256:2b7f548a9643bd78441a702efccea9165b81837c9be03494ba7f41051bcbb40f", size = 942219, upload-time = "2026-10-09T09:36:25.911Z" },
-]
-
-[[package]]
 name = "geoclip"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1047,7 +1035,6 @@ name = "hunt-osint"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "gallery-dl" },
     { name = "geoclip" },
     { name = "imageio-ffmpeg" },
     { name = "maigret" },
@@ -1066,7 +1053,6 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "gallery-dl", specifier = "==1.32.16" },
     { name = "geoclip", specifier = ">=1.3.0" },
     { name = "imageio-ffmpeg", specifier = ">=0.7.0" },
     { name = "maigret", specifier = ">=0.6.6" },
