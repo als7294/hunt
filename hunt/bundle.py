@@ -6,6 +6,7 @@
                       SHA-256 it was saved under
       SHA256SUMS      the same hashes in the standard format: `shasum -a 256 -c SHA256SUMS`
       audit-log.csv   the case log (searches, decisions, imports, exports), oldest first
+      notes.csv       the investigator's notes, corrections included (the report cites them as N-<id>)
       README.txt      the case, its purpose, and how to check the bundle
 
 Files are re-hashed as they are written. One that no longer matches the hash it was saved under is
@@ -26,7 +27,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from . import inbox
+from . import inbox, notes
 from .case import EVIDENCE_NAME, _sha256
 
 COLUMNS = ("exhibit", "sha256", "bytes", "hash_ok", "what", "source", "url", "account", "posted_at", "saved_at",
@@ -39,6 +40,7 @@ Made by Hunt {version} at {made} UTC from {count} evidence files.
   manifest.csv    what each exhibit is, where it came from, and the SHA-256 it was saved under
   SHA256SUMS      the same hashes, in the standard format
   audit-log.csv   the case log: every search, decision, import and export, with UTC times
+  notes.csv       the investigator's notes; a correction replaces a note but never removes it
 
 To check that every exhibit is unchanged, in this folder:
   macOS:    shasum -a 256 -c SHA256SUMS
@@ -130,7 +132,11 @@ def make(case, out_dir: Path) -> dict:
         text = {"manifest.csv": _csv(COLUMNS, rows), "README.txt": readme,
                 "SHA256SUMS": "".join(f"{r['sha256']}  exhibits/{r['exhibit']}\n" for r in rows),
                 "audit-log.csv": _csv(("id", "ts", "action", "detail"),
-                                      case.rows("select rowid as id, ts, action, detail from audit order by rowid"))}
+                                      case.rows("select rowid as id, ts, action, detail from audit order by rowid")),
+                "notes.csv": _csv(("cite", "ts", "about", "ref", "text", "replaces", "replaced_by"),
+                                  [{**n, "replaces": n["replaces"] and f"N-{n['replaces']}",
+                                    "replaced_by": n["replaced_by"] and f"N-{n['replaced_by']}"}
+                                   for n in notes.list_notes(case)])}
         for name, body in text.items():
             z.writestr(name, body, zipfile.ZIP_DEFLATED)
     os.replace(part, path)
