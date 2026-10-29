@@ -111,7 +111,7 @@ JUDGE_SCHEMA = {
 JUDGE_PROMPT = """You help an investigator check a person's own photos and video frames against one question. \
 Describe what is visible first, then answer.
 
-shows: one sentence on what the frames show.
+shows: one sentence describing what is visible, like "A person lifting a kayak overhead"
 person_visible: true if any person is visible.
 child_visible: true if a child or baby is visible.
 object: the main thing a person is holding, carrying or using, or "none".

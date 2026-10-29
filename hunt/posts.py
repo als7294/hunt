@@ -9,8 +9,9 @@ Reddit answers 403 logged out, so it isn't read. Media are hashed as they stream
 evidence locker, so a multi-GB video is never held in memory.
 
 Tables, created here on first use:
-  posts(id, source, account_url, url, posted_at, text, origin 'fetched'|'added', fetched_at)
-  media(id, post_id, kind 'image'|'video'|'screenshot', file '<sha256>.<ext>', sha256, duration, source_url)
+  posts(id, source (shown as is: 'Bluesky', 'Instagram'...), account_url, url, posted_at, text,
+        origin 'fetched'|'added', fetched_at)
+  media(id, post_id, kind 'image'|'video'|'screenshot', file 'evidence/<sha256>.<ext>', sha256, duration, source_url)
 """
 
 import hashlib
@@ -32,6 +33,8 @@ from .seed import Seed, now
 UA = "Hunt/0.1 (+https://github.com/als7294/hunt)"
 BSKY = "https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed"
 YT_RSS = "https://www.youtube.com/feeds/videos.xml"
+NAMES = {"bluesky": "Bluesky", "mastodon": "Mastodon", "youtube": "YouTube"}  # how each source is shown
+ADDED = "Added by you"  # the source of files dropped in without a platform
 MAX_POSTS = 1000  # per account; older posts are rarely the point and paging costs requests
 MAX_BYTES = 4 << 30  # one media file; bigger is stopped and not kept
 VIDEO = {"mp4", "mov", "m4v", "webm", "mkv", "avi", "ts", "3gp"}
@@ -48,17 +51,18 @@ create table if not exists media (id integer primary key, post_id int, kind text
 async def collect(case, accounts: list[dict], since: str | None, emit) -> int:
     """Read each account's public posts (newest first, back to `since`) into the case. Returns posts added."""
     case.db.executescript(SCHEMA)
+    emit({"type": "stage", "stage": "collecting"})
     added = 0
     async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers={"User-Agent": UA},
                                  proxy=os.environ.get("HUNT_PROXY")) as client:
         for account in accounts:
             url, site = account["url"], _site(account)
             if not site:
-                emit({"type": "source", "source": (account.get("site") or urlparse(url).netloc).lower(), "seed": url,
+                emit({"type": "source", "source": account.get("site") or urlparse(url).netloc, "seed": url,
                       "status": "failed", "found": 0, "checked": 0,
                       "note": "this site's posts can't be read logged out (Reddit answers 403)"})
                 continue
-            emit({"type": "source", "source": site, "seed": url, "status": "running", "found": 0, "checked": 0,
+            emit({"type": "source", "source": NAMES[site], "seed": url, "status": "running", "found": 0, "checked": 0,
                   "note": ""})
             found, items = 0, []
             try:
@@ -69,7 +73,7 @@ async def collect(case, accounts: list[dict], since: str | None, emit) -> int:
             except (httpx.HTTPError, ValueError, KeyError, ET.ParseError) as e:
                 status, note = "failed", f"{type(e).__name__}: {str(e)[:200]}"
             case.add_run(site, Seed("url", url), status, found, len(items), note)
-            emit({"type": "source", "source": site, "seed": url, "status": status, "found": found,
+            emit({"type": "source", "source": NAMES[site], "seed": url, "status": status, "found": found,
                   "checked": len(items), "note": note})
             added += found
     case.audit("posts collected", {"accounts": [a["url"] for a in accounts], "since": since, "added": added})
@@ -88,19 +92,18 @@ def add_files(case, paths: list[Path], platform: str | None, posted_at: str | No
     for p in paths:
         ext = _ext(p)
         file, sha = _store_file(case, p, ext)
-        shown, kind = file, "video" if ext in VIDEO else "screenshot" if ext == "png" else "image"
+        (shown, shown_sha), kind = (file, sha), "video" if ext in VIDEO else "screenshot" if ext == "png" else "image"
         if ext in ("heic", "heif"):
             with tempfile.TemporaryDirectory() as tmp:
                 jpg = Path(tmp) / "converted.jpg"
                 subprocess.run(["sips", "-s", "format", "jpeg", str(p), "--out", str(jpg)], check=True,
                                capture_output=True, timeout=120)
-                shown, _ = _store_file(case, jpg, "jpg")
+                shown, shown_sha = _store_file(case, jpg, "jpg")
         when = posted_at or (_taken(p) if kind != "video" else None)
         post = case.db.execute("insert into posts values (null, ?, null, null, ?, '', 'added', ?)",
-                               (platform or "added", when, now())).lastrowid
+                               (platform or ADDED, when, now())).lastrowid
         case.db.execute("insert into media values (null, ?, ?, ?, ?, ?, null)",
-                        (post, kind, shown, shown.split(".")[0],
-                         duration(case.dir / "evidence" / shown) if kind == "video" else None))
+                        (post, kind, shown, shown_sha, duration(case.dir / shown) if kind == "video" else None))
         case.audit("file added", {"name": p.name, "sha256": sha, "kind": kind, "platform": platform,
                                   "posted_at": when, "shown_as": shown})
         ids.append(post)
@@ -225,7 +228,7 @@ def _note(source, items, since):
 async def _save(case, client, site, account_url, item) -> int:
     """Store one post and download its media. 0 if this post was already read."""
     cur = case.db.execute("insert or ignore into posts values (null, ?, ?, ?, ?, ?, 'fetched', ?)",
-                          (site, account_url, item["url"], item["posted_at"], item["text"], now()))
+                          (NAMES[site], account_url, item["url"], item["posted_at"], item["text"], now()))
     if not cur.rowcount:
         return 0
     for kind, src in item["media"]:
@@ -236,7 +239,7 @@ async def _save(case, client, site, account_url, item) -> int:
             continue
         case.db.execute("insert into media values (null, ?, ?, ?, ?, ?, ?)",
                         (cur.lastrowid, kind, file, sha,
-                         duration(case.dir / "evidence" / file) if kind == "video" else None, src))
+                         duration(case.dir / file) if kind == "video" else None, src))
     return 1
 
 
@@ -300,10 +303,10 @@ def _store_file(case, path: Path, ext: str) -> tuple[str, str]:
 
 
 def _settle(case, tmp, sha, ext) -> tuple[str, str]:
-    file = f"{sha}.{ext}"
-    target = case.dir / "evidence" / file
-    if not target.exists():
-        os.replace(tmp, target)
+    """Name the finished download by its hash: ('evidence/<sha>.<ext>', sha), as Case._store does."""
+    file = f"evidence/{sha}.{ext}"
+    if not (case.dir / file).exists():
+        os.replace(tmp, case.dir / file)
     return file, sha
 
 

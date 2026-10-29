@@ -50,6 +50,8 @@ assert scan.ranges([(10.0, "a"), (12.0, "b"), (14.0, "c"), (30.0, "d")], video=T
 assert scan.ranges([(None, "p")], video=False) == [(None, None, [(None, "p")])]
 assert scan.pick([(t, str(t)) for t in range(7)]) == [(0, "0"), (3, "3"), (6, "6")]
 assert scan.capped(0.95) == (0.79, "likely") and scan.capped(scan.P_YES_MANY)[1] == "likely"  # never above likely
+assert scan._unweighed("A person lifting about 25.5 kg of bricks") == "A person lifting bricks"
+assert scan._unweighed("Carrying a 40lb sack, 2 kids") == "Carrying a sack, 2 kids"
 assert scan.capped(scan.P_YES_ONCE)[1] == "roughly even chance" and scan.capped(scan.P_UNCLEAR)[1] == "unlikely"
 assert scan.timing("2026-05-01T10:00:00Z", "2026-03-01") == ("after", 61)
 assert scan.timing("2026-02-27", "2026-03-01") == ("before", -2) and scan.timing("2026-03-01", "2026-03-01") == ("after", 0)
@@ -71,7 +73,7 @@ case.db.executescript(posts.SCHEMA)
 
 
 def post(text, when):
-    return case.db.execute("insert into posts values (null, 'bluesky', 'https://bsky.app/profile/x', ?, ?, ?, 'fetched', ?)",
+    return case.db.execute("insert into posts values (null, 'Bluesky', 'https://bsky.app/profile/x', ?, ?, ?, 'fetched', ?)",
                            (f"https://bsky.app/profile/x/post/{when}", when, text, now())).lastrowid
 
 
@@ -87,7 +89,7 @@ file_of = {p["id"]: p["media"][0]["file"] for p in posts.list_posts(case) if p["
 async def fake_clip(frames, cats, pause, progress):
     """lifting at 0:10, 0:12, 0:14 and 0:30 of the video, and in the carrying photo; nothing elsewhere."""
     def score(t, f):
-        hit = t in (10.0, 12.0, 14.0, 30.0) if t is not None else Path(f).name == file_of[carry]
+        hit = t in (10.0, 12.0, 14.0, 30.0) if t is not None else f.endswith(file_of[carry])
         return {c: 0.9 if hit and c == "lifting" else 0.0 for c in cats}
     return {mid: [score(t, f) for t, f in shots] for mid, shots in frames.items()}
 
@@ -97,7 +99,7 @@ calls = []
 
 async def fake_judge(frames, question, limits=""):
     calls.append((frames, question, limits))
-    return {"shows": "a person carrying a box", "person_visible": True, "object": "box", "answer": "yes",
+    return {"shows": "A person carrying a 20 kg box", "person_visible": True, "object": "box", "answer": "yes",
             "child_visible": any(file_of[carry] in f for f in frames), "why": "a person lifts a large box"}
 
 
@@ -125,16 +127,17 @@ assert set(found) == {(deadlift, "lifting", None, None), (hike, "walks", None, N
 
 # Keyword hits, with timing either side of the injury
 d = found[(deadlift, "lifting", None, None)]
-assert d["what"] == "caption: “Deadlifted 140kg today, new PB”" and (d["timing"], d["days_after"]) == ("after", 61)
+assert d["what"] == "Caption: “Deadlifted 140kg today, new PB”" and (d["timing"], d["days_after"]) == ("after", 61)
 assert d["verdict"] == "roughly even chance" and d["who"] == "unknown" and d["status"] == "new"
-assert d["caption"] == "Deadlifted 140kg today, new PB" and d["source"] == "bluesky" and d["url"].endswith("2026-05-01T10:00:00Z")
+assert d["caption"] == "Deadlifted 140kg today, new PB" and d["source"] == "Bluesky" and d["url"].endswith("2026-05-01T10:00:00Z")
 h = found[(hike, "walks", None, None)]
 assert (h["timing"], h["days_after"]) == ("before", -45)
-assert found[(shot, "kayak", None, None)]["what"].startswith("screenshot text:")  # OCR, custom item
+assert found[(shot, "kayak", None, None)]["what"].startswith("Screenshot text:")  # OCR, custom item
 # Video: 0:10, 0:12, 0:14 merged into one stretch seen in 3 frames ("likely"); 0:30 alone, seen once
 long, single = found[(vid, "lifting", 10.0, 14.0)], found[(vid, "lifting", 30.0, 30.0)]
 assert (long["verdict"], long["p"]) == ("likely", 0.7) and (single["verdict"], single["p"]) == ("roughly even chance", 0.5)
-assert long["file"].endswith(".jpg") and (case.dir / "evidence" / long["file"]).exists()  # the frame, kept as evidence
+assert long["file"].startswith("evidence/") and long["file"].endswith(".jpg") and (case.dir / long["file"]).exists()
+assert long["what"] == "A person carrying a box"  # what the vision model saw, its guessed weight removed
 # A child in the frame: the app blurs it
 assert found[(carry, "lifting", None, None)]["blur"] is True and long["blur"] is False
 # The vision model saw only candidates (not the food photo), ≤3 frames each, in order: newest after-injury first
@@ -142,6 +145,7 @@ assert len(calls) == 3 and all(len(f) <= 3 for f, _, _ in calls), calls
 assert file_of[carry] in calls[0][0][0] and len(calls[1][0]) == 3 and len(calls[2][0]) == 1
 assert calls[0][1] == scan.CATEGORIES["lifting"]["question"] and calls[0][2] == "can't lift more than 5 kg"
 # Progress: scan events up to checked == total, a hit event per hit
+assert {"type": "stage", "stage": "scanning"} in events
 progress = [e for e in events if e["type"] == "scan"]
 assert progress[-1]["checked"] == progress[-1]["total"] == 6 and progress[-1]["found"] == 7 and progress[-1]["eta_s"] == 0
 assert (progress[0]["photos"], progress[0]["videos"]) == (3, 1)

@@ -138,6 +138,7 @@ async def run(case, look_for: list[str], limits: str, injury_date: str | None, e
     """Scan every collected post for the categories and custom items in look_for, emitting
     `scan` progress and a `hit` per finding. Waits on `pause` between items."""
     case.db.executescript(SCHEMA)
+    emit({"type": "stage", "stage": "scanning"})
     cats = categories(look_for)
     todo = order(posts.list_posts(case), injury_date)
     seen = {(r["media_id"], r["category"]) for r in case.rows("select media_id, category from scanned")}
@@ -153,7 +154,7 @@ async def run(case, look_for: list[str], limits: str, injury_date: str | None, e
         for c, spec in cats.items():
             if found := _keywords(p["text"], spec):
                 first = p["media"][0]["file"] if p["media"] else None
-                progress.found += _hit(case, emit, p, None, c, f"caption: “{found}”", None, None, P_TEXT,
+                progress.found += _hit(case, emit, p, None, c, f"Caption: “{found}”", None, None, P_TEXT,
                                        injury_date, first)
         if not p["media"]:
             progress.done(1)
@@ -163,7 +164,7 @@ async def run(case, look_for: list[str], limits: str, injury_date: str | None, e
         frames = {}
         for p, m in media:
             await pause.wait()
-            path = case.dir / "evidence" / m["file"]
+            path = case.dir / m["file"]
             if m["kind"] == "video":
                 frames[m["id"]] = await asyncio.to_thread(video_frames, path, Path(tmp) / str(m["id"]),
                                                           m["duration"])
@@ -173,7 +174,7 @@ async def run(case, look_for: list[str], limits: str, injury_date: str | None, e
                 text = " ".join(await asyncio.to_thread(photo.read_text, str(path)))
                 for c, spec in cats.items():
                     if found := _keywords(text, spec):
-                        progress.found += _hit(case, emit, p, m, c, f"screenshot text: “{found}”", None, None, P_TEXT,
+                        progress.found += _hit(case, emit, p, m, c, f"Screenshot text: “{found}”", None, None, P_TEXT,
                                                injury_date, m["file"])
         await vlm.unload()
         scores = await _clip_scores(frames, cats, pause, progress)
@@ -206,13 +207,14 @@ async def run(case, look_for: list[str], limits: str, injury_date: str | None, e
                         progress.judged(time.monotonic() - started)
                         answer = answer or {"answer": "unclear", "why": "the vision model gave no usable answer"}
                 if unavailable is not None:
-                    answer = {"answer": "unclear", "why": "found by the image search; not checked by the vision model"}
+                    answer = {"answer": "unclear", "shows": f"Possibly {cats[c]['label']}: found by the image search, "
+                                                            "not checked by the vision model"}
                 if answer.get("answer") in ("yes", "unclear"):
                     p_hit = P_UNCLEAR if answer["answer"] == "unclear" else P_YES_MANY if len(shots) > 1 else P_YES_ONCE
                     frame = shots[len(shots) // 2][1]  # a video hit shows its middle frame, kept as evidence
-                    file = m["file"] if m["kind"] != "video" else Path(case._store(Path(frame).read_bytes(), "jpg")[1]).name
-                    progress.found += _hit(case, emit, p, m, c, answer.get("why") or answer.get("shows") or
-                                           cats[c]["label"], t0, t1, p_hit, injury_date, file,
+                    file = m["file"] if m["kind"] != "video" else case._store(Path(frame).read_bytes(), "jpg")[1]
+                    what = _unweighed(answer.get("shows") or answer.get("why") or cats[c]["label"])
+                    progress.found += _hit(case, emit, p, m, c, what, t0, t1, p_hit, injury_date, file,
                                            blur=answer.get("child_visible", False))
                 progress.step(m)
         finally:
@@ -331,6 +333,15 @@ def video_frames(path, out: Path, seconds: float | None) -> list[tuple[float, st
             kept.append((t, f))
             last = h
     return kept
+
+
+WEIGHT = re.compile(r"\s*\b(?:about |around |roughly )?\d+(?:[.,]\d+)?\s?(?:kg|kgs|kilo(?:gram)?s?|lbs?|pounds?)\b(?: of\b)?",
+                    re.I)
+
+
+def _unweighed(text: str) -> str:
+    """The vision model's description without any weight it guessed despite being told not to."""
+    return WEIGHT.sub("", text).strip()
 
 
 def _keywords(text: str, spec: dict) -> str | None:

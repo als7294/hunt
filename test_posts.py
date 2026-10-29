@@ -112,10 +112,10 @@ assert [p["posted_at"][:10] for p in got] == ["2026-06-04", "2026-06-03", "2026-
                                               "2026-03-01"]
 by_url = {p["url"]: p for p in got}
 moving = by_url["https://bsky.app/profile/alice.example.social/post/3kaaa"]
-assert moving["text"] == "Moving day!" and moving["origin"] == "fetched" and moving["source"] == "bluesky"
+assert moving["text"] == "Moving day!" and moving["origin"] == "fetched" and moving["source"] == "Bluesky"
 assert [m["kind"] for m in moving["media"]] == ["image"]
 gym = by_url["https://bsky.app/profile/alice.example.social/post/3kccc"]
-video = case.dir / "evidence" / gym["media"][0]["file"]
+video = case.dir / gym["media"][0]["file"]
 assert gym["media"][0]["kind"] == "video" and video.read_bytes() == b"TS-0TS-1"  # best variant, segments joined
 hiking = by_url["https://mastodon.example/@bob/9"]
 assert hiking["text"] == "Hiking today\nGreat views & sun", hiking["text"]  # HTML stripped, lines kept
@@ -125,17 +125,18 @@ ridge = by_url["https://www.youtube.com/watch?v=v1"]
 assert ridge["text"] == "Hiking the ridge\n12 km with a full pack" and ridge["media"][0]["kind"] == "image"
 for p in got:  # every media file is named by the hash of its bytes
     for m in p["media"]:
-        assert m["file"] == hashlib.sha256((case.dir / "evidence" / m["file"]).read_bytes()).hexdigest() + "." + m["file"].split(".")[1]
+        assert m["file"] == f"evidence/{hashlib.sha256((case.dir / m['file']).read_bytes()).hexdigest()}.{m['file'].split('.')[1]}"
 assert not list((case.dir / "evidence").glob("*.part"))  # no half-written downloads left behind
 
 # Methodology and progress
 runs = {r["seed"]: r for r in case.rows("select * from runs")}
 assert "latest 15" in runs["https://www.youtube.com/@carol"]["note"]
 assert runs["https://mastodon.example/@nobody"]["status"] == "failed" and "404" in runs["https://mastodon.example/@nobody"]["note"]
-done = [e for e in events if e["status"] != "running"]
+assert events[0] == {"type": "stage", "stage": "collecting"}
+done = [e for e in events if e["type"] == "source" and e["status"] != "running"]
 assert [(e["source"], e["status"], e["found"]) for e in done] == [
-    ("bluesky", "found", 2), ("mastodon", "found", 2), ("youtube", "found", 2), ("reddit", "failed", 0),
-    ("mastodon", "failed", 0)], done
+    ("Bluesky", "found", 2), ("Mastodon", "found", 2), ("YouTube", "found", 2), ("Reddit", "failed", 0),
+    ("Mastodon", "failed", 0)], done
 assert all(kw["proxy"] == "socks5h://127.0.0.1:9050" for kw in clients)  # everything through HUNT_PROXY
 
 # Reading again adds nothing
@@ -155,17 +156,19 @@ try:
     raise AssertionError("SVG should be refused")
 except ValueError:
     assert len(posts.list_posts(case)) == 6  # refused before anything was added
-ids = posts.add_files(case, [tmp / "a.jpg", tmp / "shot.png", tmp / "clip.mp4", tmp / "b.heic"], "instagram",
+ids = posts.add_files(case, [tmp / "a.jpg", tmp / "shot.png", tmp / "clip.mp4", tmp / "b.heic"], "Instagram",
                       "2026-06-10T12:00:00")
 mine = {p["id"]: p for p in posts.list_posts(case) if p["origin"] == "added"}
-assert sorted(mine) == ids and all(p["source"] == "instagram" and p["posted_at"] == "2026-06-10T12:00:00" for p in mine.values())
+assert sorted(mine) == ids and all(p["source"] == "Instagram" and p["posted_at"] == "2026-06-10T12:00:00" for p in mine.values())
 kinds = [mine[i]["media"][0] for i in ids]
 assert [m["kind"] for m in kinds] == ["image", "screenshot", "video", "image"]
 assert abs(kinds[2]["duration"] - 2.0) < 0.2, kinds[2]
-assert kinds[0]["file"] == hashlib.sha256((tmp / "a.jpg").read_bytes()).hexdigest() + ".jpg"
+assert kinds[0]["file"] == f"evidence/{hashlib.sha256((tmp / 'a.jpg').read_bytes()).hexdigest()}.jpg"
 assert kinds[3]["file"].endswith(".jpg")  # HEIC shown as a JPEG...
 heic_sha = hashlib.sha256((tmp / "b.heic").read_bytes()).hexdigest()
 assert (case.dir / "evidence" / f"{heic_sha}.heic").exists()  # ...with the original kept beside it
 audited = [r["detail"] for r in case.rows("select detail from audit where action = 'file added'")]
 assert len(audited) == 4 and heic_sha in audited[3]
+[plain] = posts.add_files(case, [tmp / "a.jpg"], None, None)
+assert next(p for p in posts.list_posts(case) if p["id"] == plain)["source"] == "Added by you"
 print("ok")
