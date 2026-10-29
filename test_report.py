@@ -60,6 +60,11 @@ assert "Court and other public records" in gaps, gaps
 assert {e["id"] for e in rep["evidence"]} == {"E-1", "E-2"}  # kept or in report only
 assert "40 days after the injury" in texts
 
+# A source run again shows once, citing every run
+case.add_run("maigret", handle, "found", 2, 610, "")
+again = [x for x in compose()["sentences"] if x["text"].startswith("maigret looked up")]
+assert len(again) == 1 and len(again[0]["cites"]) == 2 and "610 sites" in again[0]["text"], again
+
 # An uncited sentence can't be written
 try:
     report._Doc(False).say("summary", "Trust me.", [])
@@ -70,6 +75,13 @@ except AssertionError as e:
 # Namesakes are accounts whose name matches but nothing else does; a clashing name isn't one
 assert "shares the name" not in texts  # Instagram's name matches and it's in the person
 
+# A captured account screenshot shows in the export once the account is confirmed (never in screening)
+png = __import__("io").BytesIO()
+__import__("PIL.Image").Image.new("RGB", (40, 30), "white").save(png, "PNG")
+bsky_id = case.rows("select id from findings where site = 'Bluesky'")[0]["id"]
+case.add_capture(bsky_id, png.getvalue(), "<html>rendered</html>")
+assert "Confirmed accounts as captured" not in report.to_html(case, compose())
+
 # Once confirmed, the report names the subject
 case.decide("", "him")
 case.decide("https://bsky.app/profile/kestrel_vane88", "him")
@@ -79,6 +91,10 @@ assert "Robert Vance's" in texts and "a person matching" not in texts, texts
 marked = next(x for x in rep["sentences"] if x["text"].startswith("The investigator marked Bluesky"))
 assert len([c for c in marked["cites"] if c.startswith("M-a")]) == 2, marked  # its own decision + the person's
 assert "investigator confirmed this account" not in texts, texts
+page = report.to_html(case, rep)
+assert "Confirmed accounts as captured" in page and page.count("data:image/png;base64,") == 1, page[-600:]
+assert all(x["screenshot"] is None for x in compose(screening=True)["accounts"])
+assert "Confirmed accounts as captured" not in report.to_html(case, compose(screening=True))
 
 # Screening: protected traits (here, health) leave the report entirely
 rep = compose(screening=True)

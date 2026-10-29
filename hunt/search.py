@@ -54,6 +54,7 @@ async def run(case: Case, seeds: list[Seed], emit, capture: bool = True, pause: 
         async with HEAVY:
             await screenshot(case, build(case, places), emit)
     report = build(case, places)
+    case.audit("search finished", {"accounts": len(report["candidates"])})
     emit({"type": "stage", "stage": "done"})
     return report
 

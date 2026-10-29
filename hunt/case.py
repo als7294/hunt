@@ -154,15 +154,27 @@ class Case:
             latest[r["url"]] = {"ts": r["ts"], "decision": r["decision"], "note": r["note"]}
         return latest
 
-    def verify(self) -> dict:
-        """Re-hash every evidence file against its name. {checked, tampered: [file]}."""
-        checked, tampered = 0, []
+    def verify(self, quick: bool = False) -> dict:
+        """Re-hash every evidence file against its name. {checked, tampered: [file]}.
+
+        quick: skip files that already verified and haven't changed size or modification time
+        since (for the startup check and report views: GBs of video would otherwise be re-read
+        each time). Exports always re-hash everything, since a careful editor can reset a
+        file's modification time."""
+        seen = self.dir / "verified.json"  # name -> [size, mtime_ns] of files that last verified
+        known = json.loads(seen.read_text()) if quick and seen.exists() else {}
+        ok, checked, tampered = {}, 0, []
         for f in sorted((self.dir / "evidence").iterdir()):
             if not EVIDENCE_NAME.match(f.name):
                 continue
             checked += 1
-            if _sha256(f) != f.name.split(".")[0]:
+            st = f.stat()
+            stamp = [st.st_size, st.st_mtime_ns]
+            if known.get(f.name) == stamp or _sha256(f) == f.name.split(".")[0]:
+                ok[f.name] = stamp
+            else:
                 tampered.append(f"evidence/{f.name}")
+        seen.write_text(json.dumps(ok))
         return {"checked": checked, "tampered": tampered}
 
     def rows(self, sql: str, *args) -> list[dict]:

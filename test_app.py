@@ -6,6 +6,8 @@ Offline: search and the posts/scan modules are stubbed; all subjects are fiction
 import asyncio
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -135,11 +137,14 @@ async def slow_search(case, seeds, emit, capture=True, pause=None):
 
 server.search.run = slow_search
 job = c.post("/api/cases/vance-claim/search", content="{}", headers=JSON).json()["job"]
+Case.open("vance-claim").audit("search", {})  # as search.run logs on starting; cancelled before it finishes
 assert c.post(f"/api/jobs/{job}/pause", content="{}", headers=JSON).json() == {"state": "paused"}
 assert c.post(f"/api/jobs/{job}/resume", content="{}", headers=JSON).json() == {"state": "running"}
 assert c.post(f"/api/jobs/{job}/cancel", content="{}", headers=JSON).json() == {"state": "cancelled"}
 wait_done(c, job)
 assert events(c, job)[-1][1] == {"type": "error", "message": "cancelled"}
+assert c.get("/api/cases/vance-claim").json()["steps"]["search"] == "todo"  # interrupted: search again
+Case.open("vance-claim").audit("search finished", {})
 
 # --- Is it him? ---------------------------------------------------------------------------------
 handle = Seed("username", "kestrel_vane88")
@@ -171,7 +176,8 @@ posts = types.ModuleType("hunt.posts")
 scan = types.ModuleType("hunt.scan")
 
 
-async def collect(case, accounts, since, emit):
+async def collect(case, accounts, since, emit):  # like hunt.posts: announces its own stage
+    emit({"type": "stage", "stage": "collecting"})
     store["posts"].append({"id": 1, "source": "bluesky", "account_url": accounts[0]["url"], "url": "https://bsky.test/p/1",
                            "posted_at": "2026-04-10T10:00:00+00:00", "text": "5k run", "origin": "fetched", "media": []})
     return 1
@@ -187,6 +193,7 @@ def add_files(case, paths, platform, posted_at):
 
 async def run(case, look_for, limits, injury_date, emit, pause, check_everything=False):
     assert look_for == ["sport"] and injury_date == "2026-03-01"
+    emit({"type": "stage", "stage": "scanning"})
     store["hits"].append({"id": 7, "post_id": 1, "category": "sport", "what": "running a race", "verdict": "likely",
                           "status": "new", "posted_at": "2026-04-10T10:00:00+00:00", "timing": "after", "days_after": 40})
     emit({"type": "hit", **store["hits"][0]})
@@ -215,6 +222,16 @@ r = c.post("/api/cases/vance-claim/media", files=[("files[]", ("x.svg", b"<svg o
            headers={"origin": BASE})
 assert r.status_code == 415, r.text
 assert c.post("/api/cases/vance-claim/media", files=files, headers={"origin": "http://evil.test"}).status_code == 403
+if shutil.which("sips"):  # macOS: a HEIC photo arrives as a JPEG
+    jpg, heic = os.path.join(tempfile.mkdtemp(), "p.jpg"), os.path.join(tempfile.mkdtemp(), "p.heic")
+    __import__("PIL.Image").Image.new("RGB", (64, 48), "red").save(jpg)
+    subprocess.run(["sips", "-s", "format", "heic", jpg, "--out", heic], capture_output=True, check=True)
+    got = []
+    posts.add_files = lambda case, paths, platform, posted_at: got.extend(p.suffix for p in paths) or [1]
+    r = c.post("/api/cases/vance-claim/media", files=[("files[]", ("IMG_1.HEIC", open(heic, "rb").read(), "image/heic"))],
+               headers={"origin": BASE})
+    assert r.json() == {"added": 1} and got == [".jpg"], (r.text, got)
+    posts.add_files = add_files
 assert not list(Case.open("vance-claim").dir.glob(".upload-*"))  # temporary copies cleaned up
 r = c.get("/api/cases/vance-claim/posts").json()
 assert r["counts"] == {"read_automatically": 1, "added_by_you": 2, "flagged": 1, "by_category": {"sport": 1}}, r["counts"]

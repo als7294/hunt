@@ -123,21 +123,25 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         doc.say("identity", f"{_many(len(namesakes), 'other account')} {'shares' if one else 'share'} the name but "
                             f"{'was' if one else 'were'} judged unlikely to be {who}.", [acc(c) for c in namesakes])
 
-    # How we searched
-    for r in snap["methodology"]:
-        if r["source"] == "-":
-            continue  # reported under what we couldn't see
+    # How we searched: the latest run of each source for each seed, citing every run of it
+    latest = {}
+    for r in snap["methodology"]:  # in time order
+        if r["source"] != "-":  # those are reported under what we couldn't see
+            key = (r["source"], r["seed_kind"], r["seed"])
+            latest[key] = {**r, "cites": latest.get(key, {}).get("cites", []) + [f"M-{r['rowid']}"]}
+    for r in latest.values():
+        again = f"; run {len(r['cites'])} times, latest shown" if len(r["cites"]) > 1 else ""
         doc.say("method", f"{r['source']} looked up '{r['seed']}' ({r['seed_kind']}): {_many(r['checked'], 'site')} "
-                          f"answered, {r['found']} found ({r['status']}).", [f"M-{r['rowid']}"])
+                          f"answered, {r['found']} found ({r['status']}{again}).", r["cites"])
     if "geocode" in log:
         doc.say("method", "Locations were placed with OpenStreetMap's Nominatim, sending only place names.", log["geocode"])
     if "capture" in log:
         doc.say("method", "Screenshots of the likely accounts were saved as evidence, logged out.", log["capture"])
     if "scan" in log:
         doc.say("method", "Posts from the accounts marked as the subject's were collected and scanned on this "
-                          "computer.", log["scan"])
-    if "media added" in log:
-        doc.say("method", "The investigator added media by hand.", log["media added"])
+                          "computer.", log["scan"] + log.get("posts collected", []) + log.get("scan finished", []))
+    if "file added" in log:  # one entry per file, written by hunt.posts
+        doc.say("method", f"The investigator added {_many(len(log['file added']), 'file')} by hand.", log["file added"])
 
     # What we found: only what the investigator kept
     for h in sorted(kept, key=lambda h: h.get("posted_at") or ""):
@@ -193,6 +197,8 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         "screening": screening,
         "sections": [{"id": k, "title": t, "done": done[k] and k in said} for k, t in SECTIONS],
         "sentences": [s for s in doc.sentences if s["section"] != "couldnt_see"],
+        "accounts": [{"id": acc(c), "site": c["site"], "url": c["url"], "verdict": cap(c["verdict"]),
+                      "decision": c["decision"], **_screenshot(c, screening)} for c in people],
         "evidence": [{"id": f"E-{h['id']}", "date": h.get("posted_at"), "what": h.get("what"), "source": h.get("source"),
                       "verdict": cap(h["verdict"]) if h.get("verdict") in VERDICTS else h.get("verdict"),
                       "file": h.get("file")} for h in kept],
@@ -202,6 +208,22 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         "checks": {"every_sentence_cited": all(s["cites"] for s in doc.sentences),  # the bullets too
                    "files_checked": checks["checked"], "tampered": checks["tampered"]},
     }
+
+
+def _screenshot(c: dict, screening: bool) -> dict:
+    """The account's latest screenshot. None in screening mode: a profile page can show anything."""
+    shots = [e for e in c["evidence"] if e["kind"] == "screenshot"]
+    return {"screenshot": None if screening or not shots else shots[-1]["file"],
+            "captured": None if screening or not shots else shots[-1]["at"]}
+
+
+def _embed(case: Case, file: str | None, alt: str) -> str:
+    """An evidence image as an <img> with a data URI, or '' if it isn't a small enough image."""
+    path = _evidence_path(case, file)
+    mime = mimetypes.guess_type(path.name)[0] if path else None
+    if not (path and path.is_file() and (mime or "").startswith("image/") and path.stat().st_size <= MAX_EMBED):
+        return ""
+    return f'<img alt="{html.escape(alt)}" src="data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}">'
 
 
 def _evidence_path(case: Case, file: str | None) -> Path | None:
@@ -233,12 +255,14 @@ def to_html(case: Case, rep: dict) -> str:
         out.append("<h2>Evidence</h2>")
         for item in rep["evidence"]:
             out.append(f"<h3>{e(item['id'])} · {e(str(item['date'] or 'undated'))} · {e(str(item['source'] or ''))}</h3>"
-                       f"<p>{e(str(item['what'] or ''))}</p>")
-            path = _evidence_path(case, item["file"])
-            mime = mimetypes.guess_type(path.name)[0] if path else None
-            if path and path.is_file() and (mime or "").startswith("image/") and path.stat().st_size <= MAX_EMBED:
-                out.append(f'<img alt="{e(item["id"])}" src="data:{mime};base64,'
-                           f'{base64.b64encode(path.read_bytes()).decode()}">')
+                       f"<p>{e(str(item['what'] or ''))}</p>" + _embed(case, item["file"], item["id"]))
+    confirmed = [a for a in rep.get("accounts", []) if a["decision"] == "him" and a["screenshot"]]
+    if confirmed:
+        out.append("<h2>Confirmed accounts as captured</h2>")
+        for a in confirmed:
+            out.append(f"<h3>{e(a['id'])} · {e(a['site'])}</h3><p>{e(a['url'])}, captured logged out "
+                       f"{e(a['captured'][:16].replace('T', ' '))} UTC; SHA-256 {e(Path(a['screenshot']).stem)}</p>"
+                       + _embed(case, a["screenshot"], a["id"]))
     out.append(f"<p>{rep['checks']['files_checked']} evidence files re-hashed at export.</p>")
     return "\n".join(out)
 
