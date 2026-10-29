@@ -100,6 +100,7 @@ function caseMenu(c) {
       <div class="life" style="display:flex;flex-direction:column;gap:2px">
         ${st.closed ? item('life-do', 'reopen', 'Reopen the case') : item('life-ask', 'close', 'Close the case…')}
         ${st.legal_hold ? item('life-do', 'unhold', 'Lift the legal hold') : item('life-ask', 'hold', 'Put on legal hold…')}
+        ${st.retention_due ? item('mini-ask', '', 'Remove unused media…') : ''}
         ${item('life-ask', 'pack', 'Move to another computer…')}
         ${st.legal_hold ? '' : item('life-ask', 'delete', 'Move to the Trash…', 'bad')}</div></div></details>`;
 }
@@ -162,7 +163,8 @@ function bootRow(c, keys = []) {
         <div id="dl-${x.id}">${x.installable ? html`<button class="btn sm" data-act="setup-get" data-id="${x.id}" data-size="${x.size}">Download ${size(x.size)}</button>` : ''}</div></div>`)}</div>`
     : c.id === 'retention' && c.items?.length ? html`<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${c.items.map(x => html`<div class="card" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><a href="#/case/${x.slug}/report" style="font-weight:500">${x.label || x.slug}</a><span class="muted" style="font-size:13px">opened ${longDay(x.created)}</span></div>
-        <div class="life" id="life-${x.slug}" style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" data-act="life-ask" data-mode="hold" data-slug="${x.slug}">Keep: legal hold</button><button class="btn ghost sm" data-act="life-ask" data-mode="delete" data-slug="${x.slug}">Move to Trash</button></div></div>`)}</div>` : '';
+        <div class="life" id="life-${x.slug}" style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" data-act="life-ask" data-mode="hold" data-slug="${x.slug}">Keep: legal hold</button><button class="btn ghost sm" data-act="life-ask" data-mode="delete" data-slug="${x.slug}">Move to Trash</button>
+          <button class="btn ghost sm" data-act="mini-ask" data-slug="${x.slug}">Remove unused media</button></div></div>`)}</div>` : '';
   return html`<div style="display:flex;align-items:flex-start;gap:13px">
     <span style="width:24px;height:24px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:${c.ok ? 'var(--gr-bg)' : 'var(--am-bg)'};color:${c.ok ? 'var(--gr)' : 'var(--am)'}">${c.ok ? '✓' : '!'}</span>
     <div style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1"><span style="font-size:16px">${c.label}</span><span style="font-size:13.5px;color:${c.ok ? 'var(--gr)' : 'var(--am)'}">${c.detail || ''}</span>${extra}</div></div>`;
@@ -329,7 +331,9 @@ function refreshStart() {
   if (b) b.disabled = step < 3;
   $('#wiz-steps').innerHTML = fmt(wizPills(step)); $('#wiz-hint').textContent = wizHint(step);
 }
+const keepOpen = new Set(); // sections she opened stay open when the screen redraws after a decision
 document.addEventListener('toggle', e => {
+  if (['acct-details', 'rej-details'].includes(e.target.id)) keepOpen[e.target.open ? 'add' : 'delete'](e.target.id);
   if (e.target.id === 'wiz-header' && wiz) wiz.headerOpen = e.target.open;
   if (e.target.id === 'alerts' && e.target.open) api(`/api/cases/${encodeURIComponent(e.target.dataset.slug)}/alerts/seen`, { method: 'POST', body: {} }).catch(() => {});
 }, true);
@@ -408,7 +412,7 @@ screens.identity = async slug => {
         <div class="ring" style="--p:${Math.round(low * 100)}"><div><span style="font-weight:600;font-size:30px">${n}</span><span class="verdict">each ${capped(weakest) || 'likely'}<br>or better</span></div></div>
       </div>
       <div style="display:flex;flex-direction:column;gap:8px">${p.summary.map(s => html`<div class="reason"><span class="ic">✓</span><span>${s.text}</span></div>`)}</div>
-      <details style="border-radius:14px;background:rgba(255,255,255,.02);padding:4px 12px"><summary class="muted" style="cursor:pointer;padding:8px 4px">Each account, with its own reasons</summary>
+      <details id="acct-details" ${keepOpen.has('acct-details') ? 'open' : ''} style="border-radius:14px;background:rgba(255,255,255,.02);padding:4px 12px"><summary class="muted" style="cursor:pointer;padding:8px 4px">Each account, with its own reasons</summary>
         <div style="display:flex;flex-direction:column;gap:6px;padding:6px 0 10px">${accts.map(a => html`<div style="display:flex;gap:12px;align-items:flex-start;padding:10px;border-radius:12px;background:var(--panel)">
           <span class="dot" style="margin-top:7px;background:${siteColor(a.site)}"></span>
           <div style="flex:1;min-width:0"><div><b>${a.site}</b> <span class="muted">${a.handle || handleOf(a.url)}</span> · <span style="color:${VERDICT_COLOR[a.verdict] || 'var(--t2)'}">${pct(a.probability)} ${capped(a.verdict)}</span>${a.decision ? html` · <span class="muted">you said: ${a.decision === 'him' ? 'them' : a.decision === 'not him' ? 'not them' : 'unsure'}</span>` : ''}</div>
@@ -429,12 +433,20 @@ screens.identity = async slug => {
         <div style="flex:1;min-width:0"><div style="font-weight:500">${ns.label}</div><div class="muted" style="font-size:14px">${[ns.site, ...(ns.why || [])].filter(Boolean).join(' · ')}</div></div>
         <button class="btn ghost sm" data-act="decide" data-url="${ns.url}" data-decision="not him">${ns.decision === 'not him' ? '✓ Not them' : 'Not them'}</button></div>`)}
     </div>` : ''}
+    <div id="rejected" style="width:min(880px,100%)"></div>
     <div id="person-browse" style="width:min(880px,100%)"></div>
     <div id="seen-here" style="width:min(880px,100%)"></div>
   </main>`);
   if (p.decision === 'him' || accts.some(a => a.decision === 'him')) api(`/api/cases/${encodeURIComponent(slug)}/checklist`).then(cl => {
     if ($('#person-browse') && cl.accounts.length) $('#person-browse').innerHTML = html`<a class="panel row" href="#/case/${slug}/worklist" style="padding:18px;gap:16px"><span class="tile-ic">▤</span>
       <div style="flex:1"><b>Next: the worklist</b><div class="muted" style="font-size:14px">${cl.accounts.map(a => a.platform).join(', ')}: open each in the Hunt Browser and scroll; Hunt records and scans what loads.</div></div><span style="color:var(--ac)">Open →</span></a>`.s; }).catch(() => {});
+  api(`/api/cases/${encodeURIComponent(slug)}/case.json`).then(cj => { // what she ruled out stays visible, and can be taken back
+    const out = cj.candidates.filter(x => x.decision === 'not him' && !p.namesakes.some(n => n.url === x.url));
+    if (out.length && $('#rejected')) $('#rejected').innerHTML = html`<details id="rej-details" ${keepOpen.has('rej-details') ? 'open' : ''} class="panel" style="padding:4px 16px"><summary class="muted" style="cursor:pointer;padding:12px 0">You said not them (${out.length})</summary>
+      <div style="display:flex;flex-direction:column;gap:6px;padding-bottom:12px">${out.map(x => html`<div class="row" style="padding:10px 12px;background:var(--panel-2)"><span class="dot" style="background:${siteColor(x.site)}"></span>
+        <div style="flex:1;min-width:0"><b style="font-weight:500">${x.site}</b> <span class="muted">${handleOf(x.url)}</span></div>
+        <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="unsure" title="Takes back “not them”: logged as unsure">Undo</button></div>`)}</div></details>`.s;
+  }).catch(() => {});
   api(`/api/cases/${encodeURIComponent(slug)}/seen-before`).then(r => { if ($('#seen-here')) $("#seen-here").innerHTML = fmt(seenBox(r, slug)); }).catch(() => {});
 };
 
@@ -776,12 +788,14 @@ const todoOf = (a, mine) => a.todo || mine.hits.filter(h => h.status === 'new' &
 const fromGrid = (h, post) => !!(h.from_grid || post?.extra?.from === 'grid' || post?.extra?.grid);
 const previews = {}; // account → what Read public preview said, kept across refreshes
 let wlSig = '';
-function worklistCard(slug, a, mine, changes) {
-  const todo = todoOf(a, mine), seen = a.sections.filter(x => x.seen).length;
+function worklistCard(slug, a, mine, changes, w) { // w: the account's row in GET /worklist (login-walled platforms)
+  const todo = todoOf(a, mine), seen = a.sections.filter(x => x.seen).length, last = w?.last_opened || mine.last;
   return html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="dot" style="background:${siteColor(a.platform)}"></span><b style="font-size:17px">${a.platform}</b><span class="muted">${handleOf(a.account)}</span>
-      <span class="muted" style="font-size:13px;margin-left:auto">${mine.last ? `last opened ${when(mine.last)}` : 'not opened yet'}</span></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary sm" data-act="browser-open" data-url="${a.account}" data-case="${slug}">Open in Hunt Browser</button>
+      <span class="muted" style="font-size:13px;margin-left:auto">${last ? `last opened ${when(last)}` : 'not opened yet'}</span></div>
+    ${w?.warning ? html`<div class="reason warn" style="font-size:14px"><span class="ic">!</span><span>${w.warning}</span></div>` : ''}
+    <div class="life" style="display:flex;gap:8px;flex-wrap:wrap">${w ? html`<button class="btn primary sm" data-act="wl-open" data-account="${a.account}" data-slug="${slug}">Open in Hunt Browser</button>`
+      : html`<button class="btn primary sm" data-act="browser-open" data-url="${a.account}" data-case="${slug}">Open in Hunt Browser</button>`}
       ${PREVIEWABLE.includes(a.platform) ? html`<button class="btn ghost sm" data-act="preview" data-url="${a.account}" data-slug="${slug}" title="What the account shows logged out, read once">Read public preview</button>` : ''}</div>
     ${previews[a.account] ? html`<div class="t2" style="font-size:14px">${previews[a.account]}</div>` : ''}
     <div class="t2" style="font-size:14px">${progressLine(a, mine)}</div>
@@ -811,17 +825,20 @@ screens.worklist = async slug => {
 };
 async function drawWorklist(slug) {
   const base = `/api/cases/${encodeURIComponent(slug)}`;
-  const [cl, d, caps, ch] = await Promise.all([api(`${base}/checklist`).catch(() => ({ accounts: [] })), api(`${base}/posts`).catch(() => ({ hits: [], posts: [] })),
-    api(`${base}/captures`).catch(() => ({ captures: [] })), api(`${base}/changes`).catch(() => ({ changes: [] }))]);
-  const sig = JSON.stringify([cl, d.hits, d.posts.length, caps.captures.length, ch.changes.length, previews]);
+  const [cl, d, caps, ch, wl] = await Promise.all([api(`${base}/checklist`).catch(() => ({ accounts: [] })), api(`${base}/posts`).catch(() => ({ hits: [], posts: [] })),
+    api(`${base}/captures`).catch(() => ({ captures: [] })), api(`${base}/changes`).catch(() => ({ changes: [] })), api(`${base}/worklist`).catch(() => ({ worklist: [], uncompared_captures: 0 }))]);
+  const sig = JSON.stringify([cl, d.hits, d.posts.length, caps.captures.length, ch.changes.length, wl, previews]);
   if (!$('#wl-cards') || sig === wlSig) return; // redraw only when something changed: open sections and scroll stay put
   wlSig = sig;
   const open = new Set([...document.querySelectorAll('#wl-cards details[open]')].map(x => x.dataset.account)), postOf = new Map(d.posts.map(p => [p.id, p]));
   $('#wl-cards').innerHTML = fmt(cl.accounts.length ? cl.accounts.map(a => {
     const key = pathKey(a.account), posts = d.posts.filter(p => pathKey(p.account_url || '') === key), ids = new Set(posts.map(p => p.id));
     const last = [...caps.captures.filter(x => pathKey(x.url || '').startsWith(key)).map(x => x.viewed_at || x.ts), ...a.sections.map(x => x.seen_at)].filter(Boolean).sort().at(-1);
-    return worklistCard(slug, a, { posts: posts.length, hits: d.hits.filter(h => ids.has(h.post_id)), last }, ch.changes.filter(x => pathKey(x.account || '') === key));
+    return worklistCard(slug, a, { posts: posts.length, hits: d.hits.filter(h => ids.has(h.post_id)), last }, ch.changes.filter(x => pathKey(x.account || '') === key),
+      wl.worklist.find(w => pathKey(w.account) === key));
   }) : html`<div class="empty">Confirm the subject’s accounts on <a href="#/case/${slug}/identity" style="color:var(--ac)">Is it them?</a> to build the worklist.</div>`);
+  if (wl.uncompared_captures) $('#wl-cards').insertAdjacentHTML('afterbegin', html`<div class="reason" style="justify-content:space-between"><span>${wl.uncompared_captures} capture${wl.uncompared_captures === 1 ? '' : 's'} not yet compared with the last visit</span>
+    <button class="btn sm" data-act="wl-compare" data-slug="${slug}">Compare now</button></div>`.s);
   document.querySelectorAll('#wl-cards details').forEach(x => { if (open.has(x.dataset.account)) x.open = true; });
   $('#wl-found').innerHTML = fmt(d.hits.length ? [...d.hits].sort((x, y) => y.id - x.id).slice(0, 40).map(h => html`<div style="display:flex;flex-direction:column;gap:4px">
       ${fromGrid(h, postOf.get(h.post_id)) && h.status === 'new' ? html`<div style="display:flex;gap:8px;align-items:center;font-size:13px"><span class="tag warn">from a grid thumbnail; open the post to confirm</span>${/^https?:\/\//.test(h.url || '') ? html`<button data-act="browser-open" data-url="${h.url}" data-case="${slug}" style="color:var(--ac)">Open</button>` : ''}</div>` : ''}
@@ -1234,6 +1251,31 @@ const actions = {
       $('#bring-out').innerHTML = html`Unpacked as <a href="#/case/${r.slug}/search" style="color:var(--ac)">${r.slug}</a>: ${r.files} files, each matching the manifest${r.replaced ? '; the case that was here is in the Trash' : ''}. Watching is off on this computer. Turn it on here if this is where the case will be watched.`.s;
     } catch (e) { el.disabled = false; $('#bring-out').textContent = ''; fail(e); }
   },
+  'mini-ask': async el => { // after retention: the photos and videos nobody kept, reported or noted go to the Trash; the case stays
+    const box = el.closest('.life'), slug = el.dataset.slug; box.dataset.was = box.innerHTML;
+    try { const m = await api(`/api/cases/${encodeURIComponent(slug)}/minimise`);
+      box.innerHTML = (m.ready && m.count ? html`<div style="display:flex;flex-direction:column;gap:8px;width:100%"><span class="t2" style="font-size:14px">${m.count} photo${m.count === 1 ? '' : 's'} and video${m.count === 1 ? '' : 's'} (${size(m.bytes)}) that nobody kept, reported or noted go to the Trash. The case, its report and everything kept stay. Empty the Trash to finish removing them.</span>
+        <div style="display:flex;gap:6px"><button class="btn sm" data-act="mini-do" data-slug="${slug}" data-count="${m.count}" data-bytes="${m.bytes}">Move ${m.count} to the Trash</button><button class="btn ghost sm" data-act="life-cancel">Cancel</button></div></div>`
+        : html`<span class="muted" style="font-size:13.5px">${m.why || 'Nothing unused to remove.'}</span> <button class="btn ghost sm" data-act="life-cancel">OK</button>`).s;
+    } catch (e) { fail(e); }
+  },
+  'mini-do': async el => { el.disabled = true;
+    try { const r = await api(`/api/cases/${encodeURIComponent(el.dataset.slug)}/minimise`, { method: 'POST', body: { count: +el.dataset.count, bytes: +el.dataset.bytes } });
+      el.closest('.life').innerHTML = html`<span class="muted" style="font-size:13.5px">Moved ${r.count} file${r.count === 1 ? '' : 's'} (${size(r.bytes)}) to the Trash. It’s in the case log.</span>`.s; }
+    catch (e) { el.disabled = false; fail(e); } },
+  'wl-open': async el => { // her click, audited; a pacing warning (LinkedIn) asks first
+    const { slug, account } = el.dataset, confirmed = !!el.dataset.confirmed;
+    try { const r = await api(`/api/cases/${encodeURIComponent(slug)}/worklist/open`, { method: 'POST', body: { account, confirmed } });
+      toast(r.started ? 'Opening the Hunt Browser…' : 'Opened in the Hunt Browser. Turn on Hunt Capture there to record.'); wlSig = ''; drawWorklist(slug); }
+    catch (e) {
+      if (e.status === 409 && !confirmed && !/browser|install|playwright/i.test(e.message)) el.closest('.life').innerHTML = html`<span class="t2" style="font-size:14px">${e.message}</span>
+        <button class="btn sm" data-act="wl-open" data-account="${account}" data-slug="${slug}" data-confirmed="1">Open anyway</button>`.s;
+      else fail(e);
+    }
+  },
+  'wl-compare': async el => { el.disabled = true;
+    try { const r = await api(`/api/cases/${encodeURIComponent(el.dataset.slug)}/captures/compare`, { method: 'POST', body: {} }); toast(`${r.changes.length} change${r.changes.length === 1 ? '' : 's'} found`); wlSig = ''; drawWorklist(el.dataset.slug); }
+    catch (e) { el.disabled = false; fail(e); } },
   preview: async el => {
     const url = el.dataset.url, slug = el.dataset.slug; el.disabled = true; el.textContent = 'Reading…';
     try { const r = await api(`/api/cases/${encodeURIComponent(slug)}/preview`, { method: 'POST', body: { url } });
