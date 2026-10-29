@@ -566,7 +566,7 @@ function drawInbox(results) {
     ${files.length ? files.map(f => { const r = done[f.id]; return html`<div class="row" style="align-items:flex-start;gap:12px;${f.in_case && !r ? 'opacity:.55' : ''}">
       ${results ? '' : html`<input type="checkbox" class="inbox-pick" data-id="${f.id}" checked aria-label="File ${f.name}" style="margin-top:3px;width:16px;height:16px;accent-color:var(--ac)">`}
       <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
-        <div><span style="font-weight:500;overflow-wrap:anywhere">${f.name}</span> <span class="muted" style="font-size:13px">${(f.size / 1e6).toFixed(1)} MB · saved ${new Date(f.saved).toLocaleString()}</span></div>
+        <div><span style="font-weight:500;overflow-wrap:anywhere">${f.name}</span> <span class="muted" style="font-size:13px">${size(f.size)} · saved ${when(f.saved)}</span></div>
         <div style="font-size:14px">${r ? html`${r.result === 'added' ? html`Added as <span class="mono">${r.exhibit}</span>` : r.result}${r.trashed === true ? ' · original in the Trash' : r.trashed ? ` · ${r.trashed}` : ''}`
           : f.in_case ? 'Already in this case' : html`→ <span class="mono">${f.exhibit}</span>`}</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap" id="chips-${f.id}">${chips(r || f)}</div>
