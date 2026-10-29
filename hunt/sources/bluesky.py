@@ -12,6 +12,7 @@ from ._api import client, fetch, tidy
 NAME = "bluesky"
 KINDS = {"username", "name"}
 API = "https://public.api.bsky.app/xrpc/"
+HEALTH = API + "_health"
 RESULTS = 25
 
 

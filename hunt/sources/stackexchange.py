@@ -18,6 +18,7 @@ from ._api import Limited, client, tidy
 NAME = "stackexchange"
 KINDS = {"name", "username"}
 API = "https://api.stackexchange.com/2.3/users"
+HEALTH = "https://api.stackexchange.com/docs"  # the docs page spends none of the daily quota
 GRAVATAR = re.compile(r"gravatar\.com/avatar/([0-9a-f]{32})")
 _resume = 0.0  # monotonic time before which the API told us not to call again
 

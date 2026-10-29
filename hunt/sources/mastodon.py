@@ -19,6 +19,7 @@ from ._api import client, fetch, handles, tidy
 NAME = "mastodon"
 KINDS = {"username", "name"}
 INSTANCE = "https://mastodon.social"
+HEALTH = INSTANCE + "/health"
 PLACE_FIELD = re.compile(r"(location|where|based|city|home|lives?)\b", re.I)
 HREF = re.compile(r'href="([^"]+)"')
 
