@@ -13,6 +13,8 @@ from urllib.parse import urlparse
 from nicknames import NickNamer
 from rapidfuzz import fuzz
 
+from . import geo
+
 # ponytail: m/u values are hand-set, not learned. Swap to Splink (EM-trained weights)
 # once analysts' confirm/reject decisions give us labelled data.
 PRIOR = 0.1  # chance a raw hit is the subject before weighing any evidence
@@ -29,6 +31,30 @@ def bits(m: float, u: float, agree: bool = True) -> float:
 
 def verdict(p: float) -> str:
     return next(label for ceiling, label in ICD203 if p < ceiling)
+
+
+# geo.compare tier → (weight, phrase). People move, so a different region costs less
+# than a shared area earns; "same country" barely helps in a big country.
+PLACE_TIERS = {
+    "same area": (bits(0.7, 0.02), "is in the same area as"),
+    "same region": (bits(0.8, 0.1), "is in the same region as"),
+    "same country": (bits(0.9, 0.5), "is in the same country as"),
+    "different region": (bits(0.7, 0.1, agree=False), "is in a different region from"),
+    "different country": (bits(0.9, 0.5, agree=False), "is in a different country from"),
+}
+CORROBORATES = 2.0  # bits a non-handle reason needs to count as a second identifier
+# Non-answers people type into a location box. Real villages are called "Unknown" and
+# "Earth", so these must never reach the geocoder.
+# ponytail: fixed list. Upgrade: also drop one-word hits that geocode to a low-importance hamlet.
+NOT_A_PLACE = {"unknown", "n a", "na", "none", "null", "nil", "earth", "planet earth", "world", "worldwide",
+               "global", "everywhere", "anywhere", "nowhere", "somewhere", "internet", "the internet",
+               "online", "web", "home", "here", "there", "localhost", "your mom", "ur mom"}
+
+
+def place_text(attrs: dict) -> str:
+    """The profile's location as one geocodable string ('Washington, United States'), placeholders dropped."""
+    parts = [str(attrs[k]) for k in ("location", "city", "country") if attrs.get(k)]
+    return ", ".join(p for p in parts if " ".join(re.findall(r"[a-z]+", p.lower())) not in NOT_A_PLACE | {""})
 
 
 def username_u(handle: str, taken: tuple[int, int] | None = None) -> tuple[float, str]:
@@ -70,13 +96,15 @@ def compare_names(profile: str, known: str, handle: str = "") -> tuple[float, st
 
 
 def score(seed, url: str, attrs: dict, subject: list,
-          taken: dict[str, tuple[int, int]] | None = None) -> tuple[float, str, list[str]]:
+          taken: dict[str, tuple[int, int]] | None = None,
+          places: dict[str, "geo.Place | None"] | None = None) -> tuple[float, str, list[str]]:
     """(probability, ICD 203 verdict, reasons) that this finding belongs to the subject.
 
     `taken` maps lowercase handle → (sites taken, sites checked), from the case's runs.
+    `places` maps place strings (subject's and profile's) → geocoded Place, from geo.locate.
     """
     of = lambda *kinds: [s.value for s in subject if s.kind in kinds]
-    names, places, emails, handles = of("name"), of("address", "location"), of("email"), of("username")
+    names, known_places, emails, handles = of("name"), of("address", "location"), of("email"), of("username")
     known_urls = [norm_url(u) for u in of("url")]
     reasons = []
     add = lambda weight, why: reasons.append((weight, why))
@@ -108,13 +136,18 @@ def score(seed, url: str, attrs: dict, subject: list,
         elif e in flat:
             add(bits(0.99, 0.0001), f"profile lists {e}")
 
-    # ponytail: word overlap, no geocoding. Upgrade: geocode both (Nominatim) and compare distance.
-    profile_place = " ".join(str(attrs[k]) for k in ("location", "city") if attrs.get(k))
-    if places and profile_place:
-        if _words(profile_place) & _words(" ".join(places)):
-            add(bits(0.7, 0.05), f"location '{profile_place}' is consistent with {places}")
+    profile_place = place_text(attrs)
+    if known_places and profile_place:
+        places = places or {}
+        here = places.get(profile_place)
+        pairs = [(geo.compare(here, there), k) for k in known_places if here and (there := places.get(k))]
+        if pairs:  # closest of the subject's known places wins
+            (tier, km), k = max(pairs, key=lambda p: PLACE_TIERS[p[0][0]][0])
+            weight, phrase = PLACE_TIERS[tier]
+            add(weight, f"location '{profile_place}' {phrase} '{k}' ({km:,.0f} km; read as {_short(here)})")
         else:
-            add(bits(0.7, 0.05, agree=False), f"location '{profile_place}' differs from {places}")
+            missing = profile_place if not here else " / ".join(known_places)
+            add(0.0, f"couldn't place '{missing}', so location isn't counted")
 
     own = urlparse(norm_url(url)).netloc if url else ""
     links = [l for l in URLISH.findall(" ".join(str(attrs.get(k, "")) for k in LINK_KEYS))
@@ -126,11 +159,14 @@ def score(seed, url: str, attrs: dict, subject: list,
     elif shared:
         add(bits(0.5, 0.05), f"links to {shared}, which carries the subject's username")
 
-    # Tradecraft: one identifier is never enough. If nothing but the handle agrees, cap its
-    # weight so the profile can't rise above "roughly even chance" on the handle alone.
+    # Tradecraft: one identifier is never enough. If nothing but the handle agrees strongly,
+    # the evidence for can't lift the profile above "roughly even chance" (the handle's
+    # weight absorbs the cut); evidence against still counts in full.
     prior = math.log2(PRIOR / (1 - PRIOR))
-    if seed.kind == "username" and not any(w > 0 for w, _ in reasons[1:]) and reasons[0][0] > -prior:
-        reasons[0] = (-prior, reasons[0][1] + "; capped, no second identifier agrees")
+    over = prior + sum(w for w, _ in reasons if w > 0)
+    if seed.kind == "username" and over > 0 and not any(w >= CORROBORATES for w, _ in reasons[1:]):
+        w, why = reasons[0]
+        reasons[0] = (max(w - over, 0.0), why + "; capped, no second identifier agrees")
     logit = prior + sum(w for w, _ in reasons)
     p = 1 / (1 + 2 ** -logit)
     return p, verdict(p), [f"{w:+.1f} {why}" for w, why in sorted(reasons, key=lambda r: -abs(r[0]))]
@@ -155,8 +191,8 @@ def _alnum(text: str) -> str:
     return re.sub(r"[\W_]", "", text.lower())
 
 
-def _words(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z]{3,}", text.lower())}
+def _short(place: "geo.Place") -> str:
+    return ", ".join(place.label.split(", ")[:2])
 
 
 def norm_url(url: str) -> str:

@@ -11,7 +11,8 @@ os.environ["TESSERA_HOME"] = tempfile.mkdtemp()  # before tessera.case reads it
 
 from tessera.cli import build
 from tessera.case import Case
-from tessera.match import compare_names, score, username_u, verdict
+from tessera.geo import Place
+from tessera.match import compare_names, place_text, score, username_u, verdict
 from tessera.seed import Finding, Seed, detect
 
 # Seed detection
@@ -31,14 +32,23 @@ assert verdict(0.03) == "almost no chance" and verdict(0.5) == "roughly even cha
 subject = [Seed("username", "kestrel_vane88"), Seed("name", "Robert Vance"), Seed("location", "Tucson, AZ"),
            Seed("email", "rv@example.com")]
 rare = Seed("username", "kestrel_vane88")
+# Geocoded places as geo.locate would return them (hand-made: tests stay offline)
+TUCSON = Place("Tucson, AZ", 32.223, -110.975, "us", "US-AZ", 16, "Tucson, Pima County, Arizona, United States", 49)
+PLACES = {"Tucson, AZ": TUCSON, "Tucson, Arizona": TUCSON, "Tucson": TUCSON,
+          "Leeds": Place("Leeds", 53.797, -1.544, "gb", "GB-ENG", 16, "Leeds, West Yorkshire, England, United Kingdom"),
+          "Phoenix": Place("Phoenix", 33.448, -112.074, "us", "US-AZ", 16, "Phoenix, Maricopa County, Arizona, United States", 85),
+          "USA": Place("USA", 39.784, -100.446, "us", None, 4, "United States", 9602),
+          "Pale Blue Dot": None}
 
 # Rare handle + matching name (via nickname) + matching city: the subject
-p, v, why = score(rare, "https://site.test/kestrel_vane88", {"fullname": "Bob Vance", "location": "Tucson, Arizona"}, subject)
+p, v, why = score(rare, "https://site.test/kestrel_vane88", {"fullname": "Bob Vance", "location": "Tucson, Arizona"}, subject,
+                  places=PLACES)
 assert v == "almost certain", (p, why)
 assert any("name 'Bob Vance' matches" in r for r in why), why
 
 # Common handle, someone else's name, another city: a namesake
-p, v, why = score(Seed("username", "kv"), "https://site.test/kv", {"fullname": "Dana Holt", "location": "Leeds"}, subject)
+p, v, why = score(Seed("username", "kv"), "https://site.test/kv", {"fullname": "Dana Holt", "location": "Leeds"}, subject, places=PLACES)
+assert any("different country" in r for r in why), why
 assert p < 0.05, (p, why)
 
 # A display name that just echoes a common handle is not a name match (namesakes default to it)
@@ -77,8 +87,21 @@ alone, v, why = score(rare, "https://s.test/kestrel_vane88", {}, subject, {"kest
 assert v == "roughly even chance" and "capped" in why[0], (alone, why)
 clash, _, _ = score(rare, "https://s.test/kestrel_vane88", {"fullname": "Dana Holt"}, subject, {"kestrel_vane88": (3, 700)})
 assert clash < 0.2, clash
-backed, v, _ = score(rare, "https://s.test/kestrel_vane88", {"location": "Tucson"}, subject, {"kestrel_vane88": (3, 700)})
+backed, v, _ = score(rare, "https://s.test/kestrel_vane88", {"location": "Tucson"}, subject, {"kestrel_vane88": (3, 700)}, PLACES)
 assert v in ("very likely", "almost certain"), (backed, v)
+
+# Location tiers from geocoding: nearby city corroborates, a joke location and a bare country don't
+_, _, why = score(rare, "https://s.test/k", {"location": "Phoenix"}, subject, places=PLACES)
+assert any("same region as 'Tucson, AZ'" in r and "read as Phoenix, Maricopa County" in r for r in why), why
+_, v, why = score(rare, "https://s.test/k", {"location": "Pale Blue Dot"}, subject, places=PLACES)
+assert any("couldn't place 'Pale Blue Dot'" in r for r in why) and v == "roughly even chance", why
+_, v, why = score(rare, "https://s.test/k", {"location": "USA"}, subject, places=PLACES)
+assert any("same country" in r for r in why) and v == "roughly even chance", why  # too weak to corroborate
+_, _, why = score(rare, "https://s.test/k", {"location": "Tucson"}, subject)  # offline: nothing placed
+assert any("isn't counted" in r for r in why), why
+# Placeholders never reach the geocoder (a real village is called "Unknown")
+assert place_text({"location": "Unknown"}) == "" and place_text({"location": "N/A", "country": "US"}) == "US"
+assert place_text({"city": "Washington", "country": "United States"}) == "Washington, United States"
 
 # Name tiers: full match, extra middle name, first name only, short name inside a long one, conflict
 assert "matches" in compare_names("Marisol Vance", "Marisol Vance")[1]

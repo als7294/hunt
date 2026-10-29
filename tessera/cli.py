@@ -13,7 +13,7 @@ import sys
 from collections import Counter, defaultdict
 from dataclasses import asdict
 
-from . import match
+from . import geo, match
 from .capture import screenshots
 from .case import Case
 from .seed import Seed, detect, now
@@ -42,10 +42,11 @@ def main():
     case.add_seeds(seeds)
     case.audit("search", {"seeds": [asdict(s) for s in seeds]})
     asyncio.run(fan_out(case, seeds))
+    places = asyncio.run(geocode(case))
     if not args.no_capture:
-        asyncio.run(capture(case, build(case)))
+        asyncio.run(capture(case, build(case, places)))
 
-    out = json.dumps(build(case), indent=2, ensure_ascii=False)
+    out = json.dumps(build(case, places), indent=2, ensure_ascii=False)
     (case.dir / "case.json").write_text(out)
     print(out)
     print(f"\nwrote {case.dir / 'case.json'}", file=sys.stderr)
@@ -71,7 +72,20 @@ async def fan_out(case: Case, seeds: list[Seed]):
     await asyncio.gather(*jobs)
 
 
-def build(case: Case) -> dict:
+async def geocode(case: Case) -> dict:
+    """Place every location string in the case, if the subject has a known place to compare with."""
+    texts = {s.value for s in case.seeds() if s.kind in ("address", "location")}
+    if not texts:
+        return {}
+    texts |= {t for r in case.rows("select attrs from findings") if (t := match.place_text(json.loads(r["attrs"])))}
+    print(f"placing {len(texts)} locations (OpenStreetMap Nominatim, 1/s, cached)...", file=sys.stderr)
+    places = await geo.locate(sorted(texts))
+    case.audit("geocode", {"strings": len(texts), "placed": sum(p is not None for p in places.values()),
+                           "service": "nominatim.openstreetmap.org (uncached strings only)"})
+    return places
+
+
+def build(case: Case, places: dict | None = None) -> dict:
     subject = case.seeds()
     shots = defaultdict(list)
     for c in case.rows("select * from captures"):
@@ -94,7 +108,7 @@ def build(case: Case) -> dict:
     for fs in profiles.values():
         first, attrs = fs[0], {k: v for f in fs for k, v in f["attrs"].items()}
         seed = Seed(first["seed_kind"], first["seed"])
-        p, verdict, reasons = match.score(seed, first["url"], attrs, subject, taken)
+        p, verdict, reasons = match.score(seed, first["url"], attrs, subject, taken, places)
         candidates.append({
             "site": first["site"], "url": first["url"], "verdict": verdict, "probability": round(p, 3),
             "reasons": reasons, "found_by": sorted({f["source"] for f in fs}), "seed": asdict(seed),
