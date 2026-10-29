@@ -1,6 +1,7 @@
 """hunt search SEED... --case NAME [--purpose TEXT] [--no-capture]
 hunt photo IMAGE... --case NAME [--purpose TEXT]
 hunt inbox --case NAME [--folder DIR] [--days N] [--import all|ID[=URL]...] [--keep]
+hunt export --case NAME [--out DIR]
 hunt app
 
 search fans each seed out to every source that handles its kind, scores every
@@ -8,7 +9,8 @@ hit against everything the case knows about the subject, and screenshots the
 likely ones. photo estimates where each image was taken, on this machine.
 Both write <case>/case.json (also printed to stdout). inbox lists the photos and videos you saved
 lately (~/Downloads by default) with clean names, and with --import files them into the case and
-moves the originals to the Trash. app opens the Hunt app in
+moves the originals to the Trash. export zips every evidence file under a readable name with a
+SHA-256 manifest, for handing over. app opens the Hunt app in
 your browser, served only to this machine.
 """
 
@@ -20,8 +22,8 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from . import inbox, photo, search
-from .case import Case
+from . import bundle, inbox, photo, search
+from .case import HOME, Case
 from .search import build  # noqa: F401  (re-exported: tests and older callers import it from here)
 from .seed import detect
 
@@ -54,6 +56,8 @@ def main():
     i.add_argument("--handle", help="the account they came from")
     i.add_argument("--posted", type=date.fromisoformat, help="when they were posted, YYYY-MM-DD")
     i.add_argument("--keep", action="store_true", help="leave the originals where they are")
+    e = sub.add_parser("export", parents=[common], help="zip every evidence file with a hash manifest, for handing over")
+    e.add_argument("--out", type=Path, default=HOME / "exports", help="where to write the zip (default ~/Hunt/exports)")
     sub.add_parser("app", parents=[proxy], help="open the Hunt app in your browser (this machine only)")
     args = ap.parse_args()
 
@@ -68,6 +72,11 @@ def main():
         raise SystemExit(str(e).replace("a purpose is required", "--purpose is required"))
     if args.cmd == "inbox":
         return file_inbox(case, args)
+    if args.cmd == "export":
+        made = bundle.make(case, args.out)
+        print(f"{made['path']}\n  {made['exhibits']} exhibits; SHA-256 of the zip {made['sha256']}"
+              + "".join(f"\n  changed since saved: {x}" for x in made["changed"]))
+        return
     emit = search.printer(sys.stderr)
     if args.cmd == "photo":
         asyncio.run(photos(case, args.images, args.verify))
