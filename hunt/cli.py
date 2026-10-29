@@ -41,7 +41,25 @@ from .search import build  # noqa: F401  (re-exported: tests and older callers i
 from .seed import detect, now
 
 
+def load_keys(path: Path = HOME / "keys.env") -> list[str]:
+    """Optional keys from ~/Hunt/keys.env, one KEY=value per line. Set env vars win. Returns the names set."""
+    names = []
+    if not path.is_file():
+        return names
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k, v = k.strip(), v.strip().strip("'\"")
+        if k.startswith("HUNT_") and v and k not in os.environ:
+            os.environ[k] = v
+            names.append(k)
+    return names
+
+
 def main():
+    load_keys()
     ap = argparse.ArgumentParser(prog="hunt", description="Local-first OSINT: one search, every source, the right person, with proof.")
     ap.add_argument("--version", action="version", version=f"hunt {version('hunt-osint')}")
     proxy = argparse.ArgumentParser(add_help=False)
