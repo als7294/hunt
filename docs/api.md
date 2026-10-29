@@ -25,7 +25,7 @@ Errors are `{"error": "message"}` with a 4xx or 5xx status.
 ## Cases
 | Method | Path | Body / response |
 |---|---|---|
-| GET | `/api/startup` | `{version, proxy: bool, checks: [{id, label, ok, detail, items?}]}`. Check ids, in order: `cases`, `evidence` (re-hash; quick for unchanged files), `ai` (Ollama `/api/tags` lists `HUNT_VLM`; the model isn't loaded), `network`, `proxy`, `sources` (`hunt.sources.health()`: "N of M ready; K of L keys set"; `items: [{source, ready, reachable, key, key_set, key_required, detail}]`), any **Hunt Browser rows**, then `retention` (cases past 90 days without a legal hold; `items: [{slug, label, created}]`, each to be deleted or held) |
+| GET | `/api/startup` | `{version, proxy: bool, checks: [{id, label, ok, detail, items?}]}`. Check ids, in order: `cases`, `evidence` (re-hash; quick for unchanged files), `ai` (Ollama `/api/tags` lists `HUNT_VLM`; the model isn't loaded), `network`, `proxy`, `sources` (`hunt.sources.health()`: "N of M ready; K of L keys set"; `items: [{source, ready, reachable, key, key_set, key_required, detail}]`), `browser` (the Hunt Browser and its sign-ins; below), then `retention` (cases past 90 days without a legal hold; `items: [{slug, label, created}]`, each to be deleted or held) |
 | GET | `/api/cases` | `[{slug, label, kind, reference, tool, created, updated, headline, closed, legal_hold, retention_due}]`, newest first. `headline` reads like "9 flagged posts" or "Confirmed · report ready" |
 | POST | `/api/cases` | `{label, seeds: [str], kind: "insurance"\|"background"\|"diligence"\|"journalism", reference?, purpose (required: who asked and why it's lawful), injury_date?: "YYYY-MM-DD", limits?: str, look_for: [category key or custom text], tool: "person"}` plus any **report header fields** (below) → `201 {slug}`. A label that's already taken gets a `-2` suffix; nothing is ever merged |
 | GET | `/api/cases/{slug}` | `{slug, details: {label, kind, reference, purpose, injury_date, limits, look_for, tool, created, client, adjuster, file_number, assignment_date, subject_dob, recommendations}, seeds: [{kind, value}], steps: {search, identity, posts, report}` (each `"todo"`, `"running"` or `"done"`), `status: {closed, legal_hold, retention_ends, retention_due}, active_job: {id, kind} \| null, counts: {accounts, flagged, evidence}}` |
@@ -60,7 +60,7 @@ Event `data` is JSON with a `type`:
 ## Is it him?
 | Method | Path | Body / response |
 |---|---|---|
-| GET | `/api/cases/{slug}/person` | `{accounts: [{url, site, handle, verdict, probability, reasons: [str], decision, avatar: url\|null}], summary: [{tag, text, count}], weakest_verdict, namesakes: [{url, site, label, why: [str], decision}], decision: "him"\|"not him"\|"unsure"\|null}`. **The person** = candidates at "likely" or better, minus `not him`, plus `him`. **Namesakes** = name matches below 0.2 |
+| GET | `/api/cases/{slug}/person` | `{accounts: [{url, site, handle, verdict, probability, reasons: [str], decision, avatar: url\|null}], summary: [{tag, text, count}], weakest_verdict, namesakes: [{url, site, label, why: [str], decision}], records: [{url, site, source, summary, attrs, verdict, probability, reasons, name_only, decision, fetched}], coverage: [{source, status, found, note}], decision: "him"\|"not him"\|"unsure"\|null}`. **The person** = candidates at "likely" or better, minus `not him`, plus `him`. Public records in the person (`fec`, `edgar`, `npi`, `courtlistener`, `licences`, `businesses`, `fmcsa`) are in `records`, not `accounts`; `name_only` is true when only the name agrees. `coverage` is every records run, with its note on what was searched. **Namesakes** = name matches below 0.2 |
 | POST | `/api/cases/{slug}/decisions` | `{url?, decision: "him"\|"not him"\|"unsure", note?}`. Without `url`, the decision applies to every account in the person. Append-only; the latest wins; audited |
 
 ## Posts and media scan
@@ -68,6 +68,7 @@ Event `data` is JSON with a `type`:
 |---|---|---|
 | POST | `/api/cases/{slug}/media` | `multipart/form-data`: `files[]`, `platform?`, `posted_at?` → `{added: n}`. Uploads are streamed and hashed. HEIC is converted with `sips`; SVG is rejected |
 | POST | `/api/cases/{slug}/facebook` | `multipart/form-data`: `files[]`, `saved_at?` (ISO) → `{added, posts, pages, screenshots, skipped: [name]}`. Details below |
+| POST | `/api/cases/{slug}/preview` | `{url}` (a confirmed account's https address) → whatever `hunt.public.preview(case, url)` returns, at least `{note}` (e.g. "12 posts shown logged out; the rest need the Hunt Browser"). Read public preview, on her click, one account at a time. 501 until `hunt/public.py` exists; 409 on a closed case |
 | GET | `/api/cases/{slug}/facebook/links` | `{links: [{label, url}]}`: Facebook search and `site:facebook.com` search-engine links for the case's seeds. For the investigator to open in their own browser; Hunt never requests them |
 | GET | `/api/cases/{slug}/posts` | `{counts: {read_automatically, added_by_you, captured, flagged, by_category: {}}, weekly: [{week: "YYYY-Www", posts, flagged}], hits: [hit], posts: [post]}` |
 | POST | `/api/cases/{slug}/hits/{id}` | `{status: "kept"\|"not relevant"\|"in report"}` → hit |
@@ -83,9 +84,10 @@ Machine verdicts never exceed "likely". Only the investigator's Keep raises an i
 days from opening (`RETENTION_DAYS` in `hunt/case.py`); `retention_ends` is null under a hold. `hunt/watch.py` stops
 watching on the same two rules.
 
-**Hunt Browser rows on the startup page.** Once a `hunt/browser.py` exists, `/api/startup` calls its `status()` (sync or
-async). It should return `[{id, label, ok, detail}]`, e.g. one row per site the investigator is signed in to in Hunt
-Browser, and appends them after `sources`. Until then there are no rows.
+**The Hunt Browser row on the startup page.** `/api/startup` turns `hunt.browser.status()` into one check after
+`sources`: `{id: "browser", label: "Hunt Browser <version>", ok, detail, items: [{platform, label, url, state:
+"signed_in"|"signed_out"|"unknown"}], checked_at}`. Being signed out isn't a failure (each platform is optional);
+`ok` is false only when the browser isn't installed or its status can't be read.
 
 **Every source run is in the case log.** `Case.add_run` also writes a `source run` audit entry, and the run keeps its
 row id, so the report cites a run as `M-a<id>`, which is in the evidence bundle's `audit-log.csv`. Runs recorded before
@@ -116,6 +118,17 @@ reference number; `injury_date` is the date of injury or loss.
 | POST | `/api/settings` | Any of the fields above as strings (≤ 500 characters; `""` clears one; `timezone` must be an IANA zone name); `{logo: null}` removes the logo → the settings |
 | POST | `/api/settings/logo` | `multipart/form-data` with one `file`: PNG or JPEG under 2 MB (SVG and everything else get 415) → the settings |
 | GET | `/api/settings/logo` | The logo image, or 404 |
+
+## Free keys (one set per investigator, under `HUNT_HOME`)
+| Method | Path | Body / response |
+|---|---|---|
+| GET | `/api/keys` | `{keys: [{key, label, sources: [source], required, url, free, set, where: "saved"\|"environment"\|null}]}`, one row per env var (the state portals share `HUNT_SOCRATA_TOKEN`). Never a value |
+| POST | `/api/keys` | `{<env var>: value}`; `""` removes one → as GET. 400 for a key Hunt doesn't use, a value over 500 characters, or a key set in the shell that started Hunt (the shell wins; change it there) |
+
+`hunt/keys.py` keeps them in `HUNT_HOME/keys.json` (mode 0600) and puts them into the server's environment, where the
+sources read them. Which keys exist comes from the source modules' `KEY`, `KEY_REQUIRED`, `KEY_URL` and `KEY_FREE`; a
+key read elsewhere in Hunt (not by a source) is added to `keys.EXTRA = {env var: {label, url, free}}`. Every key is
+optional except CourtListener's, and Hunt works fully without any.
 
 ## Report
 Laid out like an insurance / online-activity investigation report (`docs/research/report-format.md`).

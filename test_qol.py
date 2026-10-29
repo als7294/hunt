@@ -85,7 +85,7 @@ assert not list(case.dir.glob(".bundle-*"))
 
 # Check again: a job over the accounts marked as the subject's; its changes listed with citations
 r = c.post(f"/api/cases/{case.name}/recheck", json={}, headers=JSON)
-assert r.status_code == 409 and "as him" in r.json()["error"]
+assert r.status_code == 409 and "as the subject’s" in r.json()["error"]
 bsky = "https://bsky.app/profile/kestrel_vane88"
 case.add_finding(Finding("maigret", Seed("username", "kestrel_vane88"), "Bluesky", bsky, {}))
 case.decide(bsky, "him")

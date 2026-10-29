@@ -11,6 +11,7 @@
   --am: #EDBE62; --am-bg: #33291A; --am-ink: #1A1405;
   --gr: #86D3A4; --gr-bg: #1A3326; --rd: #E89383; --rd-bg: #3A2320;
   --r-sm: 10px; --r: 12px; --r-lg: 16px; --r-xl: 22px;
+  color-scheme: dark; /* native date pickers and selects match */
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--tx); font: 16px/1.4 Geist, system-ui, sans-serif;
@@ -148,7 +149,31 @@ img.thumb.blur, .blur { filter: blur(10px) saturate(.6); }
 .tile { position: relative; aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: var(--panel-3); box-shadow: inset 0 0 0 1.5px transparent; transition: box-shadow .2s; }
 .tile img, .tile video { width: 100%; height: 100%; object-fit: cover; display: block; filter: blur(6px) saturate(.5); opacity: .45; transition: opacity .2s; }
 .tile.on { box-shadow: 0 0 0 2px var(--ac); }
+.tile.clear img { filter: none; opacity: 1; } .tile.clear img.blur { filter: blur(10px) saturate(.6); } /* flagged items: shown, unless they may show a child */
+button.tile:hover { box-shadow: 0 0 0 2px var(--ac); }
 .tile.on img, .tile.on video { opacity: .9; }
 .tile.done::after { content: "✓"; position: absolute; top: 5px; right: 7px; font-size: 12px; color: var(--gr); }
 .tile .play { position: absolute; left: 7px; bottom: 5px; font-size: 11px; color: var(--tx); }
 .pop { position: sticky; bottom: 0; margin-top: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px; border-radius: var(--r-lg); background: var(--panel-2); box-shadow: 0 0 0 1.5px var(--am), 0 12px 32px rgba(0,0,0,.4); }
+
+/* Report: the header block and the presence, records and log tables */
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr); gap: 6px 16px; margin: 0; font-size: 14.5px; }
+.kv dt { color: var(--mu); } .kv dd { margin: 0; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tbl th { text-align: left; font-weight: 500; font-size: 13px; color: var(--mu); padding: 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.tbl td { padding: 9px 8px; border-bottom: 1px solid var(--edge); vertical-align: top; }
+.tbl a { color: var(--ac); display: inline-block; max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top; }
+@media (max-width: 900px) { .kv { grid-template-columns: max-content minmax(0, 1fr); } }
+
+/* Case menu (the case pill) and small status tags */
+.menu { position: relative; }
+.menu > summary { list-style: none; cursor: pointer; } .menu > summary::-webkit-details-marker { display: none; }
+.menu-pop { position: absolute; right: 0; top: calc(100% + 6px); width: 320px; padding: 10px; display: flex; flex-direction: column; gap: 2px; z-index: 20; box-shadow: inset 0 0 0 1px var(--edge), 0 20px 40px rgba(0, 0, 0, .45); }
+.menu-item { display: block; width: 100%; text-align: left; padding: 9px 10px; border-radius: var(--r-sm); font-size: 14.5px; color: var(--t2); }
+.menu-item:hover { background: var(--raise); color: var(--tx); } .menu-item.bad { color: var(--rd); }
+.menu-pop .life > div { padding: 6px 4px; }
+.tag { display: inline-flex; padding: 2px 8px; border-radius: 999px; background: var(--raise); color: var(--t2); font-size: 12px; font-weight: 600; }
+.tag.hold { background: var(--violet-bg); color: var(--violet); } .tag.warn { background: var(--am-bg); color: var(--am); }
+
+/* Notes drawer */
+.drawer { position: fixed; right: 16px; top: 76px; bottom: 16px; width: min(400px, calc(100% - 32px)); z-index: 30; padding: 18px; display: flex; flex-direction: column; gap: 12px; box-shadow: inset 0 0 0 1px var(--edge), 0 30px 60px rgba(0, 0, 0, .5); }

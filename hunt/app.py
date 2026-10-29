@@ -38,7 +38,7 @@ from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Re
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import report, search, sources, vlm
+from . import keys, report, search, sources, vlm
 from . import bundle, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
@@ -379,16 +379,27 @@ async def startup(req: Request):
 
 
 async def _browser_checks() -> list[dict]:
-    """Hunt Browser sign-in rows, once that module exists: hunt.browser.status() (sync or async) returns
-    [{id, label, ok, detail}], e.g. one per site the investigator signed in to."""
+    """The Hunt Browser row: hunt.browser.status() (docs/capture.md) as one check, with a sign-in state per
+    platform in `items` [{platform, label, url, state}] and `checked_at`."""
     fn = getattr(_module("browser"), "status", None)
     if not fn:
         return []
     try:
-        rows = await _call(fn)
+        st = await _call(fn)
     except Exception as e:
         return [{"id": "browser", "label": "Hunt Browser", "ok": False, "detail": f"status unavailable: {e}"}]
-    return [r for r in rows if isinstance(r, dict) and {"id", "label", "ok", "detail"} <= r.keys()]
+    b = st.get("browser") or {}
+    if not b.get("available"):
+        return [{"id": "browser", "label": "Hunt Browser", "ok": False,
+                 "detail": "not installed (for logged-in platforms): uv run playwright install chromium"}]
+    items = [{**{k: x[k] for k in ("platform", "label", "url")}, "state": st.get(x["platform"], "unknown")}
+             for x in st.get("logins", [])]
+    said = {state: [x["label"] for x in items if x["state"] == state] for state in ("signed_in", "signed_out", "unknown")}
+    detail = "; ".join(f"{words}: {', '.join(said[state])}" for state, words in
+                       (("signed_in", "signed in"), ("signed_out", "not signed in"), ("unknown", "not checked yet"))
+                       if said[state])
+    return [{"id": "browser", "label": f"Hunt Browser {b.get('version') or ''}".strip(), "ok": True, "detail": detail,
+             "items": items, "checked_at": st.get("checked_at")}]
 
 
 async def list_cases(req: Request):
@@ -532,7 +543,7 @@ async def start_scan(req: Request):
     accounts = [{"url": x["url"], "site": x["site"]} for x in (await search.snapshot(c))["candidates"]
                 if x["decision"] == "him"]
     if not accounts:
-        raise HTTPException(409, "mark at least one account as him first")
+        raise HTTPException(409, "mark at least one account as the subject’s on Is it them? first")
     d = c.details()
 
     async def work(job):
@@ -565,7 +576,8 @@ def _agreeing(c: dict) -> set[str]:
 async def get_person(req: Request):
     c = _case(req)
     snap = await search.snapshot(c)
-    people = [x for x in snap["candidates"] if search.in_person(x)]
+    found = [x for x in snap["candidates"] if search.in_person(x)]
+    people = [x for x in found if not report._record(x)]  # accounts they run; public records about them are listed apart
     counts = Counter(t for x in people for t in _agreeing(x))
     namesakes = [x for x in snap["candidates"] if not search.in_person(x) and x["probability"] < NAMESAKE
                  and "name" in _agreeing(x)]
@@ -579,6 +591,14 @@ async def get_person(req: Request):
         "namesakes": [{"url": x["url"], "site": x["site"], "label": x["attrs"].get("fullname") or x["attrs"].get("name")
                        or _handle(x), "why": [_plain(r) for r in x["reasons"]], "decision": x["decision"]}
                       for x in namesakes],
+        "records": [{"url": x["url"], "site": x["site"], "source": report._record(x), "summary": report._summary(x),
+                     "attrs": x["attrs"], "verdict": x["verdict"], "probability": x["probability"],
+                     "reasons": [_plain(r) for r in x["reasons"]], "name_only": _agreeing(x) <= {"name"},
+                     "decision": x["decision"], "fetched": min((e["at"] for e in x["evidence"]), default=None)}
+                    for x in found if report._record(x)],
+        "coverage": [{"source": r["source"], "status": r["status"], "found": r["found"], "note": r["note"]}
+                     for r in c.rows("select source, status, found, note from runs where source in "
+                                     f"({', '.join('?' * len(report.RECORDS))}) order by rowid", *report.RECORDS)],
         "decision": snap["decision"],
     })
 
@@ -761,6 +781,36 @@ async def get_settings(req: Request):
     return JSONResponse(report.settings())
 
 
+async def get_keys(req: Request):
+    """The free keys: which are set and where from, never a value (hunt/keys.py)."""
+    return JSONResponse({"keys": keys.status()})
+
+
+async def post_keys(req: Request):
+    try:
+        return JSONResponse({"keys": keys.save(await _body(req))})
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+async def public_preview(req: Request):
+    """Read public preview, on her click, for one confirmed account (docs/research/automation-legal.md §4.4):
+    hunt.public.preview(case, url), sync or async, returning at least {note}. 501 until that module exists."""
+    c, b = _case(req), await _body(req)
+    url = b.get("url")
+    if not (isinstance(url, str) and url.startswith("https://")):
+        raise HTTPException(400, "url must be the account's https address")
+    fn = getattr(_module("public"), "preview", None)
+    if not fn:
+        raise HTTPException(501, "the public preview reader isn't installed yet")
+    if c.meta("closed"):
+        raise HTTPException(409, "this case is closed; reopen it first")
+    try:
+        return JSONResponse(await _call(fn, c, url))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 async def post_settings(req: Request):
     b = await _body(req)
     if "logo" in b:  # {"logo": null} removes it; a new one comes through /api/settings/logo
@@ -936,7 +986,7 @@ async def start_recheck(req: Request):
     c = _case(req)
     accounts = await recheck.confirmed(c)
     if not accounts:
-        raise HTTPException(409, "mark at least one account as him first")
+        raise HTTPException(409, "mark at least one account as the subject’s on Is it them? first")
 
     async def work(job):
         await recheck.run(c, accounts, job.emit, job.pause)
@@ -984,7 +1034,7 @@ async def post_watch(req: Request):
     if not b["on"]:
         return JSONResponse(watch.stop(c, "turned off"))
     if not await recheck.confirmed(c):
-        raise HTTPException(409, "mark at least one account as him first")
+        raise HTTPException(409, "mark at least one account as the subject’s on Is it them? first")
     try:
         return JSONResponse(watch.start(c, every))
     except ValueError as e:
@@ -1473,6 +1523,7 @@ async def _server_error(req, exc: Exception):
 
 
 def make_app(token: str, port: int) -> Guard:
+    keys.load()  # free keys saved in Hunt go into the environment the sources read
     routes = [
         Route("/login", login),
         Route("/api/startup", startup),
@@ -1498,6 +1549,9 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/settings", get_settings),
         Route("/api/settings", post_settings, methods=["POST"]),
         Route("/api/settings/logo", get_logo),
+        Route("/api/keys", get_keys),
+        Route("/api/keys", post_keys, methods=["POST"]),
+        Route("/api/cases/{slug}/preview", public_preview, methods=["POST"]),
         Route("/api/settings/logo", post_logo, methods=["POST"]),
         Route("/api/cases/{slug}/report", get_report),
         Route("/api/cases/{slug}/report.{fmt:str}", export_report),
@@ -1513,7 +1567,7 @@ def serve():
     import uvicorn
     token = secrets.token_urlsafe(32)
     sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
+    sock.bind(("127.0.0.1", int(os.environ.get("HUNT_PORT") or 0)))  # HUNT_PORT: a fixed port, for development
     port = sock.getsockname()[1]
     url = f"http://127.0.0.1:{port}/login?t={token}"
     app = make_app(token, port)

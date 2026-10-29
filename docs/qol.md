@@ -491,7 +491,7 @@ The real Trash call was checked once by hand, on a scratch file.
 - **A card under Check again:**
   - **☐ Watch this subject**, with a **Every day · Every 3 days · Every week** selector (`every_days` 1/3/7).
   - Helper: "Hunt checks the subject's accounts again, scans what's new and tells you when something changes."
-  - Toggling sends `POST /api/cases/{slug}/watch` `{on, every_days}`. A 409 is shown as is (e.g. "mark at least one account as him first", "its 90-day retention period has ended").
+  - Toggling sends `POST /api/cases/{slug}/watch` `{on, every_days}`. A 409 is shown as is (e.g. "mark at least one account as the subject’s on Is it them? first", "its 90-day retention period has ended").
 - **Status line** (`GET …/watch`):
   - "Last checked 2 Nov, 03:10 · Next 5 Nov" (`last`, `next`, local time).
   - The `status` in words:
