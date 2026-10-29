@@ -13,8 +13,8 @@ background agent runs at low priority (launchd Background, low-priority I/O, nic
 runs take search.HEAVY like every heavy job. One run at a time across processes: the app holds
 ~/Hunt/.watch.lock while it's open, and `hunt watch` leaves the work to it.
 
-Watching stops by itself when the case is closed (meta 'closed') or its retention period ends
-(app.RETENTION_DAYS after it was opened, unless meta 'legal_hold').
+Watching stops by itself when the case is closed or its retention period ends (Case.status():
+case.RETENTION_DAYS after it was opened, unless it's on legal hold).
 
 Tables, created here: watch (one row: every_days, started, last, next, status, stopped, why) and
 alerts (id, ts, kind, text, audit, seen).
@@ -32,7 +32,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from . import inbox, recheck, search
-from .case import HOME, Case, all_cases
+from .case import HOME, RETENTION_DAYS, Case, all_cases
 from .seed import now
 
 SCHEMA = """
@@ -283,11 +283,10 @@ def _idle_s() -> float:
 
 def _ended(case) -> str | None:
     """Why the case may not be watched any more, or None."""
-    from .app import RETENTION_DAYS  # here: app imports this module
-    if case.meta("closed"):
+    status = case.status()
+    if status["closed"]:
         return "the case is closed"
-    created = case.meta("created")
-    if created and not case.meta("legal_hold") and _dt(created) + timedelta(days=RETENTION_DAYS) < datetime.now(UTC):
+    if status["retention_due"]:
         return f"its {RETENTION_DAYS}-day retention period has ended"
     return None
 
