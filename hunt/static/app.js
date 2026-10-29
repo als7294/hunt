@@ -18,8 +18,15 @@ async function api(path, { method = 'GET', body, form } = {}) {
   else if (body !== undefined) { opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
   const r = await fetch(path, opts);
   const data = (r.headers.get('content-type') || '').includes('json') ? await r.json() : await r.text();
+  if (r.status === 403 && /not signed in/.test(data?.error || '')) signedOut();
   if (!r.ok) throw Object.assign(new Error(data?.error || `${r.status} ${r.statusText}`), { status: r.status });
   return data;
+}
+function signedOut() { // usually Hunt restarted: each start has its own sign-in link
+  if (document.getElementById('signed-out')) return;
+  const d = document.createElement('div'); d.id = 'signed-out'; d.className = 'toast err'; d.style.bottom = 'auto'; d.style.top = '16px';
+  d.textContent = 'This tab lost its sign-in to Hunt, usually because Hunt restarted. Open Hunt again from the Dock, or from the link “hunt app” printed.';
+  document.body.appendChild(d);
 }
 function follow(job, onEvent) {
   const es = new EventSource(`/api/jobs/${encodeURIComponent(job)}/events`);
@@ -111,7 +118,7 @@ screens.startup = async () => {
     <div style="position:relative;flex:1;min-width:0"><fetch-hound mode="sit" pins="true" angle="-40" color="#CDD6F6" accent="#EDBE62" style="position:absolute;inset:0;display:block"></fetch-hound></div>
     <div style="position:relative;width:440px;padding:56px 52px 40px 0;display:flex;flex-direction:column;gap:26px">
       <div class="brand" style="font-size:30px;gap:12px"><span class="logo lg"></span>Hunt</div>
-      <div><div class="h2">Getting things ready</div><div class="muted" style="font-size:15.5px;margin-top:8px">Hang tight — this takes a few seconds.</div></div>
+      <div><div class="h2">Getting things ready</div><div class="muted" style="font-size:15.5px;margin-top:8px">Hang tight — this takes a few seconds. <span id="boot-version" class="dim"></span></div></div>
       <div id="boot" style="display:flex;flex-direction:column;gap:12px"></div>
       <div style="margin-top:auto;display:flex;flex-direction:column;gap:10px">
         <div class="bar"><i id="boot-bar"></i></div>
@@ -119,8 +126,10 @@ screens.startup = async () => {
       </div>
     </div></div>`);
   if (!customElements.get('fetch-hound')) { const s = document.createElement('script'); s.src = 'hound.js'; document.head.appendChild(s); }
-  let checks, keys = [];
-  try { const [r, k] = await Promise.all([api('/api/startup'), api('/api/keys').catch(() => ({ keys: [] }))]); status = { proxy: r.proxy, checked: true }; checks = r.checks; keys = k.keys; }
+  let checks, keys = [], setup = null;
+  try { const [r, k, su] = await Promise.all([api('/api/startup'), api('/api/keys').catch(() => ({ keys: [] })), api('/api/setup').catch(() => null)]);
+    status = { proxy: r.proxy, checked: true }; checks = r.checks; keys = k.keys; setup = su; $('#boot-version').textContent = `Hunt ${r.version}`;
+    checks.splice(checks.findIndex(c => c.id === 'retention'), 0, ...setupRows(su)); }
   catch (e) { checks = [{ id: 'server', label: 'Starting Hunt', ok: false, detail: e.message }]; }
   const box = $('#boot');
   for (let i = 0; i < checks.length; i++) {
@@ -132,17 +141,25 @@ screens.startup = async () => {
   const firstBoot = (() => { try { return !localStorage.getItem('hunt-connect-seen'); } catch { return false; } })();
   const next = () => { if (['', '#/', '#/startup'].includes(location.hash)) { const to = firstBoot ? '#/connect' : '#/'; if (location.hash === to) render(); else location.hash = to; } };
   // Cases past retention wait for a decision; otherwise carry on by itself
-  if (checks.some(c => c.id === 'retention' && c.items?.length)) box.insertAdjacentHTML('beforeend', html`<a class="btn primary sm" href="#/" style="align-self:flex-start;margin-top:6px">Continue →</a>`.s);
+  if (checks.some(c => (c.id === 'retention' || c.id === 'downloads') && c.items?.length)) box.insertAdjacentHTML('beforeend', html`<a class="btn primary sm" href="#/" style="align-self:flex-start;margin-top:6px">Continue →</a>`.s);
   else setTimeout(next, checks.every(c => c.ok) ? 500 : 2500);
 };
 
 const SIGNIN = { signed_in: 'signed in', signed_out: 'not signed in', unknown: 'not checked yet' };
+// `hunt doctor`'s findings the other rows don't already cover, and the downloads still missing (GET /api/setup)
+const COVERED = ['ollama', 'model', 'chromium', 'python', 'uv', 'hunt'];
+const setupRows = su => !su ? [] : [...su.doctor.filter(d => !d.ok && !COVERED.includes(d.id)).map(d => ({ id: `doctor-${d.id}`, label: d.label, ok: false, detail: [d.detail, d.fix && `To fix: ${d.fix}`].filter(Boolean).join(' · ') })),
+  ...(su.items.length ? [{ id: 'downloads', label: 'Downloads', ok: false, detail: 'Hunt needs these; nothing downloads until you say so', items: su.items }] : [])];
 const skipped = () => { try { return JSON.parse(localStorage.getItem('hunt-skipped') || '[]'); } catch { return []; } }; // platforms skipped on Connect your accounts
 function bootRow(c, keys = []) {
   const extra = c.id === 'sources' ? html`${(c.items || []).filter(x => x.reachable === false).map(x => html`<span class="muted" style="font-size:13px">${x.source}: can’t be reached (${x.detail})</span>`)}
       ${keys.length ? html`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${keys.map(k => html`<a class="acct" href="#/keys" style="font-size:13px;${k.set ? '' : k.required ? 'color:var(--am)' : 'color:var(--mu)'}">${k.set ? html`${k.label} <span style="color:var(--gr)">✓</span>` : `${k.label} · ${k.required ? 'key needed' : k.url ? 'free key available' : 'not set'}`}</a>`)}</div>` : ''}`
     : c.id === 'browser' && c.items ? html`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${c.items.map(x => html`<span class="acct" style="font-size:13px" title="${x.label}: ${SIGNIN[x.state]}">${x.label}${x.state === 'signed_in' ? html` <span style="color:var(--gr)">✓</span>` : skipped().includes(x.platform) ? html` <span class="dim">skipped</span>` : html` <button data-act="browser-open" data-url="${x.url}" style="color:var(--ac)">Sign in</button>`}</span>`)}</div>
       ${c.checked_at ? html`<span class="dim" style="font-size:12.5px">checked ${ago(c.checked_at).toLowerCase()}</span>` : ''}`
+    : c.id === 'downloads' ? html`<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">${c.items.map(x => html`<div class="card" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;gap:8px"><b style="font-weight:500">${x.label}</b><span class="muted" style="font-size:13px">${x.size ? size(x.size) : ''}</span></div>
+        ${x.detail ? html`<span class="muted" style="font-size:13px">${x.detail}</span>` : ''}
+        <div id="dl-${x.id}">${x.installable ? html`<button class="btn sm" data-act="setup-get" data-id="${x.id}" data-size="${x.size}">Download ${size(x.size)}</button>` : ''}</div></div>`)}</div>`
     : c.id === 'retention' && c.items?.length ? html`<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${c.items.map(x => html`<div class="card" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><a href="#/case/${x.slug}/report" style="font-weight:500">${x.label || x.slug}</a><span class="muted" style="font-size:13px">opened ${longDay(x.created)}</span></div>
         <div class="life" id="life-${x.slug}" style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" data-act="life-ask" data-mode="hold" data-slug="${x.slug}">Keep: legal hold</button><button class="btn ghost sm" data-act="life-ask" data-mode="delete" data-slug="${x.slug}">Move to Trash</button></div></div>`)}</div>` : '';
@@ -1223,6 +1240,17 @@ const actions = {
       previews[url] = r.note || 'Read.'; if (r.added) await startScan(slug); }
     catch (e) { previews[url] = e.status === 501 ? 'Not available yet: the public preview reader is still being built.' : e.message; }
     drawWorklist(slug);
+  },
+  'setup-get': async el => {
+    const id = el.dataset.id, box = $(`#dl-${id}`); el.disabled = true;
+    try { const { job } = await api(`/api/setup/${encodeURIComponent(id)}`, { method: 'POST', body: { size: +el.dataset.size } });
+      box.innerHTML = html`<div class="bar"><i></i></div><span class="muted" style="font-size:13px">Starting…</span>`.s;
+      const es = follow(job, ev => {
+        if (ev.type === 'progress') { box.querySelector('i').style.transform = `scaleX(${ev.total ? ev.done / ev.total : 0})`; box.querySelector('span').textContent = ev.total ? `${size(ev.done)} of ${size(ev.total)}` : ev.message || ''; }
+        if (ev.type === 'error') { es.close(); box.innerHTML = html`<span style="color:var(--rd);font-size:13px">${ev.message}</span>`.s; }
+        if (ev.type === 'done') { es.close(); box.innerHTML = html`<span style="color:var(--gr);font-size:13px">Done.</span>`.s; }
+      });
+    } catch (e) { el.disabled = false; fail(e); }
   },
   'key-save': async el => {
     const key = el.dataset.key, input = document.querySelector(`.key-in[data-key="${key}"]`), value = el.dataset.clear ? '' : input.value.trim();
