@@ -331,7 +331,7 @@ async def startup(req: Request):
     slugs = all_cases()
     root = HOME / "cases"
     root.mkdir(parents=True, exist_ok=True)
-    check("cases", "Case folder", os.access(root, os.W_OK), f"{len(slugs)} cases in {root}")
+    check("cases", "Case folder", os.access(root, os.W_OK), f"{len(slugs)} case{'s' * (len(slugs) != 1)} in {root}")
     checked, tampered = 0, []
     for s in slugs:
         v = await asyncio.to_thread(Case.open(s).verify, True)  # unchanged files aren't re-read
@@ -362,7 +362,7 @@ async def startup(req: Request):
     try:
         rows = await health
         ready = [r for r in rows if r["ready"]]
-        keys = [r for r in rows if r["key"]]
+        keys = {r["key"]: r for r in rows if r["key"]}.values()  # one per key: the state portals share HUNT_SOCRATA_TOKEN
         missing = [r["source"] for r in rows if r["key_required"] and not r["key_set"]]
         check("sources", "Search sources", len(ready) == len(rows),
               f"{len(ready)} of {len(rows)} ready; {sum(r['key_set'] for r in keys)} of {len(keys)} keys set"
