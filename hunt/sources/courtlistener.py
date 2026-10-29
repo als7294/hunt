@@ -16,6 +16,8 @@ KINDS = {"name"}
 API = "https://www.courtlistener.com/api/rest/v4/search/"
 SITE = "https://www.courtlistener.com"
 KEY, KEY_REQUIRED = "HUNT_COURTLISTENER_TOKEN", True
+KEY_URL = "https://www.courtlistener.com/profile/api-token/"  # after a free sign-up
+KEY_FREE = "the source runs at all; free accounts reportedly 5 a minute, 50 an hour, 125 a day"
 HEALTH = SITE + "/api/rest/v4/"
 
 
