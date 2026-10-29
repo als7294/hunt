@@ -297,6 +297,14 @@ def _audited(c: Case, action: str) -> list[dict]:
     return c.rows("select rowid, ts from audit where action = ? order by ts", action)
 
 
+def _search_step(c: Case) -> str:
+    """'done' once the latest search finished; 'todo' if none ran or the app closed mid-search."""
+    last = c.rows("select action from audit where action in ('search', 'search finished') order by ts desc, rowid desc limit 1")
+    if last:
+        return "done" if last[0]["action"] == "search finished" else "todo"
+    return "done" if c.rows("select 1 from runs limit 1") else "todo"  # searched before this was logged
+
+
 def _accounts(c: Case) -> int:
     return len({norm_url(r["url"]) for r in c.rows("select url from findings where url is not null")})
 
@@ -407,7 +415,7 @@ async def get_case(req: Request):
         "details": {k: d[k] for k in ("label", "kind", "reference", "purpose", "injury_date", "limits", "look_for",
                                       "tool", "created")},
         "seeds": [{"kind": s.kind, "value": s.value} for s in c.seeds()],
-        "steps": {"search": "running" if running("search") else "done" if c.rows("select 1 from runs limit 1") else "todo",
+        "steps": {"search": "running" if running("search") else _search_step(c),
                   "identity": "done" if c.decisions() else "todo",
                   "posts": "running" if running("scan") else "done" if _audited(c, "scan") else "todo",
                   "report": "done" if _audited(c, "report exported") else "todo"},

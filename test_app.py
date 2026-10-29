@@ -137,11 +137,14 @@ async def slow_search(case, seeds, emit, capture=True, pause=None):
 
 server.search.run = slow_search
 job = c.post("/api/cases/vance-claim/search", content="{}", headers=JSON).json()["job"]
+Case.open("vance-claim").audit("search", {})  # as search.run logs on starting; cancelled before it finishes
 assert c.post(f"/api/jobs/{job}/pause", content="{}", headers=JSON).json() == {"state": "paused"}
 assert c.post(f"/api/jobs/{job}/resume", content="{}", headers=JSON).json() == {"state": "running"}
 assert c.post(f"/api/jobs/{job}/cancel", content="{}", headers=JSON).json() == {"state": "cancelled"}
 wait_done(c, job)
 assert events(c, job)[-1][1] == {"type": "error", "message": "cancelled"}
+assert c.get("/api/cases/vance-claim").json()["steps"]["search"] == "todo"  # interrupted: search again
+Case.open("vance-claim").audit("search finished", {})
 
 # --- Is it him? ---------------------------------------------------------------------------------
 handle = Seed("username", "kestrel_vane88")
