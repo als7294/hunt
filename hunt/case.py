@@ -1,21 +1,29 @@
 """A case: purpose, seeds, audit log, findings and evidence, all in one local folder.
 
     ~/Hunt/cases/<case>/case.db       SQLite: everything below
-    ~/Hunt/cases/<case>/evidence/     raw pages and screenshots, named by SHA-256
+    ~/Hunt/cases/<case>/evidence/     raw pages, screenshots and media, named by SHA-256
 """
 
+import contextlib
 import hashlib
 import json
 import os
 import re
 import sqlite3
+import tempfile
 from pathlib import Path
+from typing import BinaryIO
 
 from .seed import Finding, Seed, now
 
 HOME = Path(os.environ.get("HUNT_HOME", Path.home() / "Hunt"))
+DETAILS = ("label", "kind", "reference", "injury_date", "limits", "look_for", "tool")
+DECISIONS = ("him", "not him", "unsure")
+EVIDENCE_NAME = re.compile(r"^[0-9a-f]{64}\.\w{2,5}$")
 
 SCHEMA = """
+pragma journal_mode = wal;
+pragma busy_timeout = 5000;
 create table if not exists meta (key text primary key, value text);
 create table if not exists audit (ts text, action text, detail text);
 create table if not exists seeds (kind text, value text, added text, primary key (kind, value));
@@ -26,30 +34,76 @@ create table if not exists findings (
 create table if not exists captures (finding_id int, ts text, kind text, sha256 text, evidence text);
 create table if not exists photos (id integer primary key, ts text, name text, sha256 text, evidence text, analysis text);
 create table if not exists avatars (url text primary key, ts text, sha256 text, evidence text, dhash text);
+create table if not exists decisions (ts text, url text, decision text, note text);
 """
 
 
+def slugify(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
 class Case:
-    def __init__(self, name: str, purpose: str | None = None):
-        self.name = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    def __init__(self, name: str, purpose: str | None = None, *, create: bool = True):
+        """Open the case called `name`, creating it (with `purpose`) if `create` and it's new."""
+        self.name = slugify(name)
         self.dir = HOME / "cases" / self.name
         new = not (self.dir / "case.db").exists()
-        if new and not purpose:
-            raise SystemExit(f"'{self.name}' is a new case: --purpose is required "
+        if new and (not create or not self.name):
+            raise LookupError(f"no case '{name}'")
+        if new and not (purpose or "").strip():
+            raise ValueError(f"'{self.name}' is a new case: a purpose is required "
                              "(who asked, why, and why it's lawful). It's recorded in the audit log.")
         (self.dir / "evidence").mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.dir / "case.db", isolation_level=None)
+        # One connection per Case; the app may touch it from a worker thread, sqlite serialises.
+        self.db = sqlite3.connect(self.dir / "case.db", isolation_level=None, check_same_thread=False)
         self.db.executescript(SCHEMA)
         if new:
             self.db.executemany("insert into meta values (?, ?)", [("purpose", purpose), ("created", now())])
             self.audit("case opened", {"purpose": purpose})
 
+    @classmethod
+    def open(cls, slug: str) -> "Case":
+        """An existing case only: never creates one. LookupError for an unknown slug."""
+        if slugify(slug) != slug:
+            raise LookupError(f"no case '{slug}'")
+        return cls(slug, create=False)
+
+    @classmethod
+    def create(cls, label: str, purpose: str, **details) -> "Case":
+        """A new case named after `label`; a taken name gets -2, -3… (cases are never merged)."""
+        base = slugify(label) or "case"
+        slug, n = base, 1
+        while (HOME / "cases" / slug / "case.db").exists():
+            n += 1
+            slug = f"{base}-{n}"
+        case = cls(slug, purpose)
+        case.set_details(label=label, **details)
+        return case
+
     @property
     def purpose(self) -> str:
-        return self.db.execute("select value from meta where key = 'purpose'").fetchone()[0]
+        return self.meta("purpose")
 
-    def audit(self, action: str, detail: dict):
-        self.db.execute("insert into audit values (?, ?, ?)", (now(), action, json.dumps(detail)))
+    def meta(self, key: str) -> str | None:
+        row = self.db.execute("select value from meta where key = ?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def set_details(self, **details):
+        """label, kind, reference, injury_date, limits, look_for (a list), tool."""
+        unknown = set(details) - set(DETAILS)
+        if unknown:
+            raise ValueError(f"unknown case details: {sorted(unknown)}")
+        self.db.executemany("insert or replace into meta values (?, ?)",
+                            [(k, json.dumps(v) if k == "look_for" else v) for k, v in details.items() if v is not None])
+
+    def details(self) -> dict:
+        d = {k: self.meta(k) for k in (*DETAILS, "purpose", "created")}
+        d["look_for"] = json.loads(d["look_for"]) if d["look_for"] else []
+        d["label"] = d["label"] or self.name
+        return d
+
+    def audit(self, action: str, detail: dict) -> int:
+        return self.db.execute("insert into audit values (?, ?, ?)", (now(), action, json.dumps(detail))).lastrowid
 
     def add_seeds(self, seeds: list[Seed]):
         self.db.executemany("insert or ignore into seeds values (?, ?, ?)", [(s.kind, s.value, now()) for s in seeds])
@@ -75,7 +129,7 @@ class Case:
 
     def add_photo(self, path: str, analysis: dict):
         """Keep the image itself as evidence, beside what was concluded from it."""
-        sha, evidence = self._store(Path(path).read_bytes(), Path(path).suffix.lstrip(".").lower() or "img")
+        sha, evidence = self._store(Path(path), Path(path).suffix.lstrip(".").lower() or "img")
         self.db.execute("insert into photos values (null, ?, ?, ?, ?, ?)",
                         (now(), Path(path).name, sha, evidence, json.dumps(analysis, ensure_ascii=False)))
 
@@ -83,12 +137,64 @@ class Case:
         sha, evidence = self._store(data, "img")
         self.db.execute("insert or replace into avatars values (?, ?, ?, ?, ?)", (url, now(), sha, evidence, dhash))
 
+    def decide(self, url: str, decision: str, note: str | None = None) -> int:
+        """Record the investigator's call on a profile ('' = the whole person). Append-only; the
+        latest per URL wins. Returns the audit row id, for citing."""
+        from .match import norm_url  # here: match → geo → case.HOME would be circular at import time
+        if decision not in DECISIONS:
+            raise ValueError(f"decision must be one of {DECISIONS}")
+        key = norm_url(url) if url else ""
+        self.db.execute("insert into decisions values (?, ?, ?, ?)", (now(), key, decision, note))
+        return self.audit("decision", {"url": key or None, "decision": decision, "note": note})
+
+    def decisions(self) -> dict[str, dict]:
+        """norm_url ('' for the person) → the latest {ts, decision, note}."""
+        latest = {}
+        for r in self.rows("select rowid, * from decisions order by ts, rowid"):
+            latest[r["url"]] = {"ts": r["ts"], "decision": r["decision"], "note": r["note"]}
+        return latest
+
+    def verify(self) -> dict:
+        """Re-hash every evidence file against its name. {checked, tampered: [file]}."""
+        checked, tampered = 0, []
+        for f in sorted((self.dir / "evidence").iterdir()):
+            if not EVIDENCE_NAME.match(f.name):
+                continue
+            checked += 1
+            if _sha256(f) != f.name.split(".")[0]:
+                tampered.append(f"evidence/{f.name}")
+        return {"checked": checked, "tampered": tampered}
+
     def rows(self, sql: str, *args) -> list[dict]:
         cur = self.db.execute(sql, args)
         return [dict(zip([c[0] for c in cur.description], row)) for row in cur]
 
-    def _store(self, data: bytes, ext: str) -> tuple[str, str]:
-        sha = hashlib.sha256(data).hexdigest()
-        path = self.dir / "evidence" / f"{sha}.{ext}"
-        path.write_bytes(data)
-        return sha, str(path.relative_to(self.dir))
+    def _store(self, data: bytes | Path | BinaryIO, ext: str) -> tuple[str, str]:
+        """Write evidence under its SHA-256. Files and streams are copied in chunks, never read whole."""
+        evidence = self.dir / "evidence"
+        if isinstance(data, bytes):
+            sha = hashlib.sha256(data).hexdigest()
+            (evidence / f"{sha}.{ext}").write_bytes(data)
+        else:
+            h = hashlib.sha256()
+            with (open(data, "rb") if isinstance(data, Path) else contextlib.nullcontext(data)) as src, \
+                    tempfile.NamedTemporaryFile(dir=evidence, prefix=".incoming-", delete=False) as tmp:
+                while chunk := src.read(1 << 20):
+                    h.update(chunk)
+                    tmp.write(chunk)
+            sha = h.hexdigest()
+            os.replace(tmp.name, evidence / f"{sha}.{ext}")
+        return sha, f"evidence/{sha}.{ext}"
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(1 << 20):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def all_cases() -> list[str]:
+    root = HOME / "cases"
+    return sorted(p.name for p in root.iterdir() if (p / "case.db").exists()) if root.exists() else []

@@ -1041,9 +1041,12 @@ dependencies = [
     { name = "phonenumbers" },
     { name = "playwright" },
     { name = "pyobjc-framework-vision", marker = "sys_platform == 'darwin'" },
+    { name = "python-multipart" },
     { name = "rapidfuzz" },
     { name = "reverse-geocoder" },
+    { name = "starlette" },
     { name = "user-scanner" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
@@ -1054,9 +1057,12 @@ requires-dist = [
     { name = "phonenumbers", specifier = ">=9.0.42" },
     { name = "playwright", specifier = ">=1.64.1" },
     { name = "pyobjc-framework-vision", marker = "sys_platform == 'darwin'", specifier = ">=12.2.2" },
+    { name = "python-multipart", specifier = ">=0.0.32" },
     { name = "rapidfuzz", specifier = ">=3.14.6" },
     { name = "reverse-geocoder", specifier = ">=1.5.1" },
+    { name = "starlette", specifier = ">=1.10.0" },
     { name = "user-scanner", specifier = ">=1.5.2.3" },
+    { name = "uvicorn", specifier = ">=0.54.0" },
 ]
 
 [[package]]
@@ -2459,6 +2465,15 @@ wheels = [
 ]
 
 [[package]]
+name = "python-multipart"
+version = "0.0.32"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5b/42/55c32bb9b12693c092ad250a0e82edb5b31ddeda6eb772de5f308b3804ad/python_multipart-0.0.32.tar.gz", hash = "sha256:be54b7f3fa167bb83e4fcd936b887b708f4e57fe75911c02aebf53efaf8d938e", size = 46881, upload-time = "2026-06-04T16:18:58.647Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/04/e8135ebd1ad02c56ec633277529b2602ff99ff634be76cdba5744cf554fd/python_multipart-0.0.32-py3-none-any.whl", hash = "sha256:ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23", size = 30042, upload-time = "2026-06-04T16:18:57.319Z" },
+]
+
+[[package]]
 name = "python-socks"
 version = "3.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2941,6 +2956,19 @@ wheels = [
 ]
 
 [[package]]
+name = "starlette"
+version = "1.10.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/48/bb/3d8757f21e9a53d9035c9eb039a777047139a16bfdbedfc7a58241c3d914/starlette-1.10.0.tar.gz", hash = "sha256:b8399098d4c1e3522734f7235dc79b1fc967f96cf139c81e0fa30479e0685f9b", size = 2734356, upload-time = "2026-10-24T15:04:12.342Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl", hash = "sha256:478c0ab3b4ced6e82719849c118fa406f0278a3499c1a898cd15cd31bdc38ce4", size = 80571, upload-time = "2026-10-24T15:04:10.371Z" },
+]
+
+[[package]]
 name = "sympy"
 version = "1.14.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3159,6 +3187,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a4/b7/6c7c89e1eb63cb1113aaae4d3b02fbe9e97c33abdeb3328e8581de8b2457/user_scanner-1.5.2.3.tar.gz", hash = "sha256:360fca93c3bc64ed7d04113e69ec7b5d5a3304a992123191a8c68a4ecf2d3def", size = 612493, upload-time = "2026-10-18T02:05:13.032Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c1/3b/d58dcd93a4b89e20c0b1061c27e51855121076516661508d0bd0cb47780e/user_scanner-1.5.2.3-py3-none-any.whl", hash = "sha256:3bcd3c0460ef5f325465fb7df82f60731ed860d96fb86b29e13a10fc17e02229", size = 3018692, upload-time = "2026-10-18T02:05:08.638Z" },
+]
+
+[[package]]
+name = "uvicorn"
+version = "0.54.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click" },
+    { name = "h11" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/da/34/30e9280707135d2cfc589dfff3cb796bd07a3aeb1a3e415ba09dd89d7bb4/uvicorn-0.54.0.tar.gz", hash = "sha256:a2e33cbfaa0306f8e6b0c13e0cb89d7d7a2da3e62b90c66e18c33d9807b28620", size = 112283, upload-time = "2026-09-25T06:52:37.601Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/0c/b54a4fdd7f90a3af8b02ebc9ce6712c2c208b7926a2f7bad95c33ebbe943/uvicorn-0.54.0-py3-none-any.whl", hash = "sha256:505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf", size = 87427, upload-time = "2026-09-25T06:52:35.829Z" },
 ]
 
 [[package]]

@@ -96,45 +96,51 @@ def compare_names(profile: str, known: str, handle: str = "") -> tuple[float, st
 def score(seed, url: str, attrs: dict, subject: list,
           taken: dict[str, tuple[int, int]] | None = None,
           places: dict[str, "geo.Place | None"] | None = None,
-          extra: list[tuple[float, str]] | None = None) -> tuple[float, str, list[str]]:
-    """(probability, ICD 203 verdict, reasons) that this finding belongs to the subject.
+          extra: list[tuple[float, str, str]] | None = None,
+          confirmed: set[str] | None = None) -> tuple[float, str, list[str], list[str]]:
+    """(probability, ICD 203 verdict, reasons, tags) that this finding belongs to the subject.
 
     `taken` maps lowercase handle → (sites taken, sites checked), from the case's runs.
     `places` maps place strings (subject's and profile's) → geocoded Place, from geo.locate.
-    `extra` is (bits, reason) evidence found across candidates, e.g. a shared profile photo.
+    `extra` is (bits, tag, reason) evidence found across candidates, e.g. a shared profile photo.
+    `confirmed` holds norm_url()s the investigator marked as the subject: known profiles from then on.
+    Each reason has a tag (username, name, place, email, link, photo, confirmed), in the same order.
     """
     of = lambda *kinds: [s.value for s in subject if s.kind in kinds]
     names, known_places, emails, handles = of("name"), of("address", "location"), of("email"), of("username")
-    known_urls = [norm_url(u) for u in of("url")]
-    reasons = []
-    add = lambda weight, why: reasons.append((weight, why))
+    confirmed = confirmed or set()
+    known_urls = [norm_url(u) for u in of("url")] + sorted(confirmed)
+    reasons = []  # (bits, tag, why)
+    add = lambda tag, weight, why: reasons.append((weight, tag, why))
 
     if seed.kind == "username":  # stays reasons[0]: the corroboration cap below relies on it
         u, basis = username_u(seed.value, (taken or {}).get(seed.value.lower()))
         how = "common" if u >= 0.2 else "fairly distinctive" if u >= 0.05 else "rare"
-        add(bits(0.9, u), f"username '{seed.value}' is {how} ({basis})")
-    if url and norm_url(url) in known_urls:
-        add(bits(0.99, 0.0001), "is a profile the investigator supplied")
+        add("username", bits(0.9, u), f"username '{seed.value}' is {how} ({basis})")
+    if url and norm_url(url) in confirmed:
+        add("confirmed", bits(0.99, 0.0001), "the investigator confirmed this account is the subject's")
+    elif url and norm_url(url) in known_urls:
+        add("link", bits(0.99, 0.0001), "is a profile the investigator supplied")
     if seed.kind == "email":
-        add(bits(0.99, 0.001), f"registered to the subject's email {seed.value}")
+        add("email", bits(0.99, 0.001), f"registered to the subject's email {seed.value}")
 
     profile_names = [str(attrs[k]) for k in ("fullname", "name") if attrs.get(k)]
     # A display name that just repeats the handle is the site's default, not independent evidence.
     echoes = [n for n in profile_names if seed.kind == "username" and _alnum(n) == _alnum(seed.value)]
     profile_names = [n for n in profile_names if n not in echoes]
     if names and echoes and not profile_names:
-        add(0.0, f"display name '{echoes[0]}' only repeats the username, so it isn't counted")
+        add("name", 0.0, f"display name '{echoes[0]}' only repeats the username, so it isn't counted")
     # Best pair wins: one alias matching outweighs another known name not matching.
     handle = seed.value if seed.kind == "username" else ""
     if pairs := [c for p in profile_names for s in names if (c := compare_names(p, s, handle))]:
-        add(*max(pairs))
+        add("name", *max(pairs))
 
     flat = str(attrs).lower()
     for e in emails:
         if attrs.get("gravatar_email_md5_hash") == hashlib.md5(e.encode()).hexdigest():
-            add(bits(0.99, 0.0001), f"Gravatar hash matches {e}")
+            add("email", bits(0.99, 0.0001), f"Gravatar hash matches {e}")
         elif e in flat:
-            add(bits(0.99, 0.0001), f"profile lists {e}")
+            add("email", bits(0.99, 0.0001), f"profile lists {e}")
 
     profile_place = place_text(attrs)
     if known_places and profile_place:
@@ -145,10 +151,10 @@ def score(seed, url: str, attrs: dict, subject: list,
             (tier, km), k = max(pairs, key=lambda p: PLACE_TIERS[p[0][0]][0])
             weight, phrase = PLACE_TIERS[tier]
             dist = f"{km:,.0f} km; " if _local(here) and _local(places[k]) else ""  # meaningless for a country or state
-            add(weight, f"location '{profile_place}' {phrase} '{k}' ({dist}read as {_short(here)})")
+            add("place", weight, f"location '{profile_place}' {phrase} '{k}' ({dist}read as {_short(here)})")
         else:
             missing = profile_place if not here else " / ".join(known_places)
-            add(0.0, f"couldn't place '{missing}', so location isn't counted")
+            add("place", 0.0, f"couldn't place '{missing}', so location isn't counted")
 
     own = urlparse(norm_url(url)).netloc if url else ""
     links = [l for l in URLISH.findall(" ".join(str(attrs.get(k, "")) for k in LINK_KEYS))
@@ -156,9 +162,9 @@ def score(seed, url: str, attrs: dict, subject: list,
     known = next((l for l in links if norm_url(l) in known_urls), None)
     shared = next((l for l in links for h in handles if re.search(rf"\b{re.escape(h.lower())}\b", l.lower())), None)
     if known:
-        add(bits(0.9, 0.001), f"links to the subject's known profile {known}")
+        add("link", bits(0.9, 0.001), f"links to the subject's known profile {known}")
     elif shared:
-        add(bits(0.5, 0.05), f"links to {shared}, which carries the subject's username")
+        add("link", bits(0.5, 0.05), f"links to {shared}, which carries the subject's username")
 
     reasons += extra or []
 
@@ -166,13 +172,14 @@ def score(seed, url: str, attrs: dict, subject: list,
     # the evidence for can't lift the profile above "roughly even chance" (the handle's
     # weight absorbs the cut); evidence against still counts in full.
     prior = math.log2(PRIOR / (1 - PRIOR))
-    over = prior + sum(w for w, _ in reasons if w > 0)
-    if seed.kind == "username" and over > 0 and not any(w >= CORROBORATES for w, _ in reasons[1:]):
-        w, why = reasons[0]
-        reasons[0] = (max(w - over, 0.0), why + "; capped, no second identifier agrees")
-    logit = prior + sum(w for w, _ in reasons)
+    over = prior + sum(w for w, *_ in reasons if w > 0)
+    if seed.kind == "username" and over > 0 and not any(w >= CORROBORATES for w, *_ in reasons[1:]):
+        w, tag, why = reasons[0]
+        reasons[0] = (max(w - over, 0.0), tag, why + "; capped, no second identifier agrees")
+    logit = prior + sum(w for w, *_ in reasons)
     p = 1 / (1 + 2 ** -logit)
-    return p, verdict(p), [f"{w:+.1f} {why}" for w, why in sorted(reasons, key=lambda r: -abs(r[0]))]
+    ranked = sorted(reasons, key=lambda r: -abs(r[0]))
+    return p, verdict(p), [f"{w:+.1f} {why}" for w, _, why in ranked], [tag for _, tag, _ in ranked]
 
 
 def _clean(name: str) -> str:
