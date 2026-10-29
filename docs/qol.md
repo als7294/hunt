@@ -22,13 +22,14 @@ Ranked by how often each comes up × how much it helps this investigator:
 | 4 | **Hash manifest and chain of custody for the hand-over.** Plain screenshots get discounted at hearings, and the other side wants hashes it can check offline. | Very common, in vendor and legal sources | [S] ([ProofSnap](https://getproofsnap.com/workers-comp-social-media-evidence.html)). Re-encoding or a media player writing metadata back breaks the hash [S] ([Forensic OSINT](https://www.forensicosint.com/support/how-to-download-videos-manually)) | **Built:** the evidence bundle |
 | 5 | **Paste a link, get the platform, handle and post time.** `igsh`, `si`, `fbclid` and similar parameters in shared links identify who shared them. | Occasional as a complaint; the tools for it are widely used | Unfurl decodes these links [S]. Add-ons exist just to strip `igsh` [S] ([Mozilla add-ons](https://addons.mozilla.org/sv-SE/firefox/addon/remove-instagram-tracker-param)) | **Built:** link reading, offline |
 | 6 | **A timeline of what was done, and when.** It's needed for the methodology section and for testimony. | Common | In R v Hamdan, the officer couldn't say which laptop she captured on [S] ([Forensic OSINT](https://www.forensicosint.com/silly-questions-in-court)). A timeline of steps with reasons makes work retraceable [S] ([r/OSINT via mirror](https://reddit.sentinel-team.org/posts/1sc53ej/snapshots/2026-04-10T22%3A17%3A37.090119Z)) | **Mostly there already:** the audit log. Now it's in the bundle too; the UI view is described below |
-| 7 | **Deleted or changed content; re-checking a profile over the life of a claim.** | Common in insurance sources | Posts get deleted and privacy settings change during a claim [S] ([Claims Journal, sponsored](https://www.claimsjournal.com/sponsored/hodsonpi/2026/08/10/339321.htm)) | Skipped (see below) |
+| 7 | **Deleted or changed content; re-checking a profile over the life of a claim.** | Common in insurance sources | Posts get deleted and privacy settings change during a claim [S] ([Claims Journal, sponsored](https://www.claimsjournal.com/sponsored/hodsonpi/2026/08/10/339321.htm)) | **Built:** Check again |
 | 8 | **Bulk import.** | Occasional | Bellingcat's Auto Archiver is popular for batch processing [S] ([Bellingcat](https://www.bellingcat.com/resources/2025/08/13/the-open-source-tool-that-has-preserved-150000-pieces-of-online-evidence/)) | **Covered by the inbox:** any folder, all at once |
 | 9 | **EXIF panel.** | Common in tutorials, rarely decisive | Platforms strip EXIF on upload [S] ([Forensic OSINT](https://www.forensicosint.com/guides/what-is-exif-data-and-why-it-matters)) | Skipped (see below) |
+| 10 | **Notes live outside the case.** Investigators keep them in Notepad, Obsidian or OneNote. What was seen gets mixed with what was concluded. | Common | Text-file notes don't scale as a case grows [S] ([DEF CON 26 Recon Village](https://media.defcon.org/DEF%20CON%2026/DEF%20CON%2026%20villages/DEF%20CON%2026%20villages%20captions/DEF%20CON%2026%20-%20RECON%20VILLAGE%20-%20WebBreacher%20-%20Core%20OSINT%20Keeping%20Track%20of%20and%20Reporting%20All%20the%20Things.eng.txt)). Hunchly's cost pushes people to OneNote [S] ([r/OSINT via mirror](https://reddit.sentinel-team.org/posts/1t620fn/snapshots/2026-05-16T13%3A28%3A16.416319Z)). Keep what was observed separate from what was inferred [S] ([r/OSINT via mirror](https://reddit.sentinel-team.org/posts/1sc53ej/snapshots/2026-04-10T22%3A17%3A37.090119Z)) | **Built:** notes |
 
 ## What was built
 
-Everything below runs offline. Nothing leaves the machine, and nothing is ever downloaded for the investigator.
+Sections 1–3 and 5 run offline. Check again (4) makes the same logged-out requests a search and a scan already make, through `HUNT_PROXY`. Nothing is ever downloaded from Instagram, TikTok or Facebook for the investigator.
 
 ### 1. The Downloads inbox (`hunt/inbox.py`, `hunt inbox`)
 
@@ -92,9 +93,45 @@ The zip's own SHA-256 is printed, sent as the `x-bundle-sha256` header, and logg
 
 `hunt export` writes to `~/Hunt/exports/` by default. The app builds the zip in a temporary folder inside the case, streams it, then removes that temporary copy.
 
+### 4. Check again (`hunt/recheck.py`, `POST /api/cases/{slug}/recheck`)
+
+Insurance cases run for months, and posts vanish or accounts change. A job looks again at every account marked as the subject's (not email hits):
+
+1. **Profiles** (Bluesky and Mastodon). They're read through the same logged-out sources the search uses, so each look is compared with an earlier read by the same parser. Two parsers' different wording is never reported as a change.
+   - **Name and bio** are compared as text.
+   - **The profile photo** is compared by SHA-256. The new picture is kept as evidence.
+   - **A profile that can't be found** at its address any more is `account gone`. One that returns is `account back`.
+2. **Posts:** `posts.collect` again. `posts.py` now stamps every post it reads in `post_seen(post_id, last)`, to the microsecond.
+   - A post that wasn't seen this time is `posts gone`, with when it was last seen. It's judged only if it's at least as new as the oldest post this read returned (YouTube's feed lists only the latest 15).
+   - An account that now shows no posts at all is flagged `none_left`.
+   - A post that reappears is `post back`.
+   - A failed read judges nothing.
+3. **Screenshots:** a fresh, dated capture of every account (`recapture`). For Instagram, TikTok, Facebook and X, which Hunt can't read logged out, this is the only way to see a change: compare the dated screenshots by eye.
+
+Each change is an audit entry and a `change` event on the job, and the summary is audited as `recheck`. `GET /api/cases/{slug}/changes` lists them all with their `M-a` citations. The posts that went missing stay in the case, with their media, as evidence.
+
+### 5. Investigator notes (`hunt/notes.py`, `/api/cases/{slug}/notes`)
+
+**What a note can be about:** the case, one account (normalised URL, as decisions are), one post or one hit. A note is timestamped and audited with its text, and cited as `N-<id>`.
+
+**Never edited or deleted:**
+- A correction is a new note that `replaces` the old one. It keeps the old note's subject.
+- The old note stays, marked `replaced_by`, because what the investigator thought at the time is part of the record.
+- A note can be corrected only once; correct the correction after that.
+
+**In the evidence bundle:** `notes.csv`.
+
 ### Self-checks
 
-All offline, using temp folders only. `test_inbox.py`, `test_bundle.py` and `test_qol.py` each print `ok`.
+All offline, using temp folders only. `test_inbox.py`, `test_bundle.py`, `test_recheck.py`, `test_notes.py` and `test_qol.py` each print `ok`.
+
+`test_recheck.py` simulates four looks against a stubbed network that changes between them:
+1. A new name, a new photo, a deleted post, a vanished account, and a site that can't be read.
+2. The deleted post and the vanished account come back.
+3. The account shows no posts.
+4. Nothing changes.
+
+Its two coverage guards (posts older than the read reached, and failed reads) are mutation-checked.
 
 They never touch the real `~/Downloads` or the real Trash: `inbox._trash` is swapped for a move into a temp folder. `test_bundle.py` runs the real `shasum -c` on the unzipped bundle.
 
@@ -104,7 +141,9 @@ The real Trash call was checked once by hand, on a scratch file.
 
 | What | Why |
 |---|---|
-| **Re-checking a profile over time** (rank 7) | High value for insurance work. But it needs repeated collection and a diff in `posts.py`/`sources/`, which are owned elsewhere, and it's a feature, not a quality-of-life fix. **Suggested shape:** `posts.collect` already skips posts it has seen. A "Check again" job could also record which earlier posts are now missing and when, as `posts gone` audit entries. The report's "What we couldn't see" section would cite them. |
+| **"Went private" on Instagram, TikTok, Facebook and X** | Telling private from public needs the logged-in or scraped page. Hunt takes a new dated screenshot instead. Bluesky has no private accounts, and Mastodon's "locked" only gates followers. An account whose posts all vanish is flagged `none_left` ("made private, or emptied"). |
+| **YouTube profile changes** | The channel's RSS feed carries only its title. Posts gone from the latest 15 are still detected. |
+| **Scheduled re-checks** | A timer that re-checks a case every N days needs the app running in the background, which `hunt app` isn't. The investigator presses "Check again" (and the startup check could remind them; see integration point 7). |
 | **EXIF panel** (rank 9) | Platforms strip EXIF, so downloaded social media rarely has any. `posts.add_files` already reads `DateTimeOriginal`, and `photo.py` reads device, time and GPS. "Where from" was the more useful metadata. |
 | **Instagram shortcode → time** | The shortcode decodes to a media ID whose top bits look like milliseconds since a 2011 epoch. That's unverified for current IDs, so it isn't used. |
 | **The subject's local time** | Times are stored in UTC. Showing the subject's local time needs the case's location and is a UI decision. |
@@ -171,8 +210,60 @@ The real Trash call was checked once by hand, on a scratch file.
   - `inbox import` → "Filed `<name>` from Downloads as `<exhibit>`"
   - `evidence exported` → "Evidence bundle made (SHA-256 …)"
   - `decision` → "Marked … as him"
+  - `note` → "Note N-3: …"
+  - `recheck` → "Checked the subject's accounts again: 2 changes"
   - …
 - Each entry's `M-a<rowid>` matches the report's citations.
+
+### E. "Check again" on the case overview and the Posts step
+
+- **Button:** **Check again**. Helper: "Look at the subject's confirmed accounts again: new posts, deleted posts, profile changes." Below it, "Last checked 3 Oct" (`GET /api/cases/{slug}/changes` → `checks[0].ts`), or "Not checked again yet".
+- **Disabled state:** 409 means no accounts are marked as theirs yet: "Mark the subject's accounts on *Is it them?* first."
+- **Starting:** `POST /api/cases/{slug}/recheck` `{}` → `{job}`, then stream it like a scan.
+- **Stage labels:** `rechecking` "Looking at profiles again", `collecting` "Reading posts again", `capturing` "Taking new screenshots", `done`.
+- **A "Since last time" list** fills from `change` events, then from `GET …/changes`. One line each:
+  - `posts gone`: "3 posts on Bluesky are gone, last seen 1 Oct". It expands to each post's date and link, and opens the stored post (it's still in the case).
+  - `posts gone` with `none_left`: "Bluesky shows no posts any more: made private, or emptied", in the warning style.
+  - `profile changed`:
+    - "Name on Bluesky changed: 'Alice Example' → 'Alice E.'", with `before_seen` as "was 'Alice Example' on 1 Oct".
+    - For the photo, show both side by side from `/evidence/{slug}/{before_sha256}.img` and `/evidence/{slug}/{after_sha256}.img` (avatars are stored as `.img`).
+  - `account gone`: "The Mastodon account can't be found at its address any more (last seen 1 Oct)", in the warning style.
+  - `account back` and `post back`: neutral.
+  - Each line has **Add note** (section F), with `about: "account", ref: account`.
+- **Footnote:** "Instagram, TikTok, Facebook and X can't be read logged out. Hunt took a new dated screenshot of each to compare." Link it to the account's captures.
+- **Empty state:** "Nothing changed since 1 Oct."
+- **Afterwards:** refresh `GET …/posts`, since new posts may need a scan, and offer **Scan new posts**.
+
+### F. Notes, everywhere the investigator decides something
+
+- **Case notes:** a **Notes** drawer on every case screen. Textarea placeholder: "What you saw, did or decided, and why. Keep what you saw apart from what you think it means." **Save** (⌘↩) → `POST /api/cases/{slug}/notes` `{text}`.
+- **Notes on one thing:** a small **Note** button on each account card (*Is it them?*), each post, each hit, and each Check again change. It opens the same composer with `about` and `ref` (account URL, post id, hit id), and shows a count badge ("2 notes") from `GET …/notes?about=&ref=`.
+- **Each note shows:** `N-3`, local time, and the text.
+- **Correcting:**
+  - **Correct** pre-fills the composer and sends `{text, replaces: id}`.
+  - The replaced note collapses under its correction as "Earlier version", struck through.
+  - A 400 "already replaced by N-x" means correct N-x instead.
+- **No delete:** a line under the drawer says "Notes can't be deleted; correct one instead. They're part of the case record."
+- **Errors:** show `error` as is (empty text, more than 20,000 characters, a subject that doesn't exist).
+
+## Audit actions for the report (to pass to the report owner)
+
+Every row below is an audit entry, so its citation is `M-a<rowid>`, except notes, which are `N-<id>`. The sentences are suggestions in the report's neutral wording. Dates are the audit `ts`.
+
+| Action | Detail | Suggested sentence | Section |
+|---|---|---|---|
+| `recheck` | `accounts, new_posts, changes, captured` | "The subject's {accounts} confirmed accounts were looked at again on {date}: {new_posts} new posts and {changes} changes." | How we searched |
+| `recapture` | `attempted, saved` | "Pages of {saved} of {attempted} accounts were captured again on {date}." | How we searched |
+| `posts gone` | `account, none_left, posts: [{id, url, posted_at, last_seen}]` | "On {date}, {n} posts on {site}, posted between {first} and {last}, were no longer visible. Each was last seen on {last_seen}; copies are kept as evidence." With `none_left`: "On {date}, the {site} account showed no posts; {n} had been seen before, last on {latest last_seen}." | What we found (cite the posts' `E-` ids too, if they were kept) |
+| `post back` | `account, post, url, gone_since` | "A {site} post not visible on {gone_since} was visible again on {date}." | What we found |
+| `profile changed` | `account, field, before, after, before_seen` (+ `before_sha256, after_sha256` for the photo) | "Between {before_seen} and {date}, the {site} account's {field} changed from '{before}' to '{after}'." Photo: "…changed its profile photo (SHA-256 {before:8} → {after:8})." | What we found |
+| `account gone` | `account, last_seen` | "On {date}, the {site} account at {account} could no longer be found; it was last seen on {last_seen}." | What we found; also What we couldn't see (later posts can't be read) |
+| `account back` | `account, missing_on` | "On {date}, the {site} account at {account} could be found again; it couldn't be on {missing_on}." | What we found |
+| `note` | `note: "N-<id>", about, ref, text, replaces` | An "Investigator's notes" list: "N-4 ({date}): {text}". Omit replaced notes, or mark them "corrected by N-x". Notes about an account, post or hit can sit beside that item. | Its own section, after What we found |
+| `inbox import` | `name, folder, sha256, exhibit, platform, handle, url, posted_at, from, where_from, result, trashed` | "{exhibit} was saved by the investigator as {name} and filed on {date} (SHA-256 {sha256:8})." | Evidence |
+| `evidence exported` | `file, sha256, exhibits, changed` | "An evidence bundle of {exhibits} files was made on {date} (SHA-256 {sha256})." | Appendix |
+
+In screening mode, run notes and changed bios through the same protected-traits filter as every other sentence.
 
 ## Integration points in modules this session doesn't own
 
@@ -190,3 +281,6 @@ The real Trash call was checked once by hand, on a scratch file.
    - mention the last bundle's SHA-256 in an appendix.
 4. **`case._sha256`** is used by `inbox.py` and `bundle.py`. Make it public (`sha256_file`) if you'd rather not import a private name.
 5. **The startup checks** could add "N photos or videos waiting in Downloads", using `inbox.scan` with no case. Optional.
+6. **`report.py`: `N-<id>` citations.** Notes are a fourth citation kind beside `A-`, `E-` and `M-`. `notes.list_notes(case)` gives them with `cite`, `replaced_by` and `ref`.
+7. **The startup checks** could also remind about Check again: "2 cases not checked again in 30 days", from the latest `recheck` audit `ts` per case. Optional.
+8. **`search.screenshot`** only captures accounts that have no screenshot yet. `recheck._recapture` repeats its loop (about 10 lines) to capture again. An `again=True` flag there would let both share it.

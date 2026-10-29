@@ -12,6 +12,7 @@ import inspect
 import json
 import mimetypes
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -37,7 +38,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from . import report, search, vlm
-from . import bundle, inbox  # docs/qol.md
+from . import bundle, inbox, notes, recheck  # docs/qol.md
 from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, Case, all_cases
 from .match import ICD203
 from .seed import detect
@@ -590,7 +591,10 @@ async def add_media(req: Request):
             await f.seek(0)
             if ext == ".svg" or b"<svg" in head:
                 raise HTTPException(415, "SVG files aren't accepted")
-            dest = tmp / f"{len(paths)}{ext if ext[1:].isalnum() else ''}"
+            # the investigator's own file name, made safe: posts audits it and the evidence bundle shows it
+            name = re.sub(r"[^\w.\- ]+", "_", Path(f.filename or "").name).strip(" .")[:120]
+            (tmp / str(len(paths))).mkdir()
+            dest = tmp / str(len(paths)) / (name if ext[1:].isalnum() and name else f"file{ext if ext[1:].isalnum() else ''}")
             with open(dest, "wb") as out:  # streamed: Starlette spools the upload to disk, we copy in chunks
                 while chunk := await f.read(1 << 20):
                     out.write(chunk)
@@ -833,11 +837,56 @@ async def unfurl(req: Request):
     return JSONResponse(inbox.from_url(url))
 
 
+async def start_recheck(req: Request):
+    c = _case(req)
+    accounts = [{"url": x["url"], "site": x["site"], "finding_id": x["finding_ids"][0]}
+                for x in (await search.snapshot(c))["candidates"]
+                if x["decision"] == "him" and x["seed"]["kind"] != "email"]  # email hits are site homepages
+    if not accounts:
+        raise HTTPException(409, "mark at least one account as him first")
+
+    async def work(job):
+        await recheck.run(c, accounts, job.emit, job.pause)
+    return _new_job(req, c.name, "recheck", work)
+
+
+async def get_changes(req: Request):
+    c = _case(req)
+    rows = c.rows(f"select rowid, ts, action, detail from audit where action in "
+                  f"({', '.join('?' * len(recheck.CHANGES))}, 'recheck') order by rowid desc", *recheck.CHANGES)
+    shaped = [{"cite": f"M-a{r['rowid']}", "ts": r["ts"], "change": r["action"], **json.loads(r["detail"])} for r in rows]
+    return JSONResponse({"checks": [x for x in shaped if x["change"] == "recheck"],
+                         "changes": [x for x in shaped if x["change"] != "recheck"]})
+
+
+async def get_notes(req: Request):
+    c, q = _case(req), req.query_params
+    try:
+        return JSONResponse({"notes": notes.list_notes(c, q.get("about") or None, q.get("ref"))})
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+async def post_note(req: Request):
+    c = _case(req)
+    b = await _body(req)
+    if not isinstance(b.get("text"), str) or (b.get("replaces") is not None and type(b["replaces"]) is not int):
+        raise HTTPException(400, "text must be a string, and replaces a note's number")
+    try:
+        return JSONResponse(notes.add(c, b["text"], b.get("about") or "case", b.get("ref"), b.get("replaces")), 201)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 QOL_ROUTES = [
     Route("/api/cases/{slug}/inbox", get_inbox),
     Route("/api/cases/{slug}/inbox", post_inbox, methods=["POST"]),
     Route("/api/cases/{slug}/evidence.zip", evidence_zip),
     Route("/api/unfurl", unfurl),
+    Route("/api/cases/{slug}/recheck", start_recheck, methods=["POST"]),
+    Route("/api/cases/{slug}/changes", get_changes),
+    Route("/api/cases/{slug}/notes", get_notes),
+    Route("/api/cases/{slug}/notes", post_note, methods=["POST"]),
 ]
 
 

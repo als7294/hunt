@@ -386,12 +386,53 @@ const scanStats = s => html`<span><b style="font-size:28px;font-weight:600">${s.
   ${s.eta_s != null ? html`<span><span class="muted">about</span> <b style="font-size:22px">${Math.max(1, Math.round(s.eta_s / 60))}</b> <span class="muted">min left</span></span>` : ''}
   <span><b style="font-size:22px">${s.photos ?? 0}</b> <span class="muted">photos</span></span><span><b style="font-size:22px">${s.videos ?? 0}</b> <span class="muted">videos</span></span>
   <span><b style="font-size:22px;color:var(--am)">${s.found ?? 0}</b> <span class="muted">found</span></span>`;
-const dropZone = slug => html`<label class="drop" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:28px;border-radius:18px;border:1.5px dashed var(--line);text-align:center;cursor:pointer">
-  <span style="font-size:22px;color:var(--ac)">⤓</span><span style="font-weight:500">Drop saved posts, photos or videos here</span><span class="muted" style="font-size:14px">or choose files · JPG, PNG, HEIC, MP4, MOV</span>
-  <span style="display:flex;gap:8px;margin-top:6px">
-    <select class="input" id="up-platform" style="width:auto"><option value="">Platform…</option>${['Instagram', 'Facebook', 'TikTok', 'Strava', 'Other'].map(p => html`<option>${p}</option>`)}</select>
-    <input class="input" id="up-date" type="date" style="width:auto" aria-label="Posted on"></span>
-  <input type="file" id="up-files" multiple accept="image/*,video/*,.heic" hidden data-slug="${slug}"></label>`;
+const dropZone = slug => html`<label class="drop" for="up-files" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:28px;border-radius:18px;border:1.5px dashed var(--line);text-align:center;cursor:pointer">
+  <span style="font-size:22px;color:var(--ac)">⤓</span><span style="font-weight:500">Drop saved posts, photos or videos here</span><span class="muted" style="font-size:14px">or choose files · JPG, PNG, HEIC, MP4, MOV</span></label>
+  <input type="file" id="up-files" multiple accept="image/*,video/*,.heic" hidden data-slug="${slug}">
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <input class="input" id="up-link" placeholder="Post link (optional)" aria-label="Post link" style="flex:1;min-width:220px">
+    <select class="input" id="up-platform" style="width:auto" aria-label="Platform"><option value="">Platform…</option>${['Instagram', 'Facebook', 'TikTok', 'Strava', 'Other'].map(p => html`<option>${p}</option>`)}</select>
+    <input class="input" id="up-date" type="date" style="width:auto" aria-label="Posted on"></div>
+  <div class="muted" id="up-note" style="font-size:13px"></div>`;
+const utc = iso => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + ' UTC';
+const unfurl = url => /^https?:\/\//.test(url) ? api(`/api/unfurl?url=${encodeURIComponent(url)}`).catch(() => null) : Promise.resolve(null);
+
+/* From Downloads (docs/qol.md): files the investigator saved, filed into the case under clean names */
+const SAID = { 'file name': 'from the file name', 'where from': 'from your browser’s download record', 'post id': 'read from the post’s ID', link: 'from the link' };
+let inbox = null; // the listing on screen: {slug, folder, days, files, links: {id: post link}}
+async function openInbox(slug, folder, days = 7) {
+  $('#add-posts').classList.add('hidden'); const box = $('#inbox'); box.classList.remove('hidden');
+  box.innerHTML = html`<div class="panel muted" style="padding:18px">Looking in ${folder || 'Downloads'}…</div>`.s;
+  try { const q = new URLSearchParams({ days }); if (folder) q.set('folder', folder);
+    inbox = { slug, links: {}, ...(await api(`/api/cases/${encodeURIComponent(slug)}/inbox?${q}`)) }; drawInbox();
+  } catch (e) { box.classList.add('hidden'); fail(e); }
+}
+const chips = f => [['platform', f.platform], ['handle', f.handle && '@' + f.handle], ['posted_at', f.posted_at && 'Posted ' + utc(f.posted_at)]].filter(([, v]) => v).map(([k, v]) => {
+  const guess = f.from?.[k] === 'case';
+  return html`<span class="seed" style="font-size:13.5px;${guess ? 'background:var(--am-bg)' : ''}">${v} <span style="font-size:12px;color:${guess ? 'var(--am)' : 'var(--mu)'}">${guess ? `guess: the subject’s ${f.platform || ''} account. Check it’s theirs` : SAID[f.from?.[k]] || ''}</span></span>`; });
+function drawInbox(results) {
+  const { slug, folder, days, files, links } = inbox, done = Object.fromEntries((results || []).map(r => [r.id, r]));
+  $('#inbox').innerHTML = html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b>From Downloads</b>
+      <input class="input mono" id="inbox-folder" value="${folder}" aria-label="Folder" style="flex:1;min-width:220px;font-size:13px">
+      <select class="input" id="inbox-days" aria-label="Saved in" style="width:auto">${[[1, 'Last day'], [7, 'Last 7 days'], [30, 'Last 30 days']].map(([d, l]) => html`<option value="${d}" ${+days === d ? 'selected' : ''}>${l}</option>`)}</select></div>
+    ${files.length ? files.map(f => { const r = done[f.id]; return html`<div class="row" style="align-items:flex-start;gap:12px;${f.in_case && !r ? 'opacity:.55' : ''}">
+      ${results ? '' : html`<input type="checkbox" class="inbox-pick" data-id="${f.id}" checked aria-label="File ${f.name}" style="margin-top:3px;width:16px;height:16px;accent-color:var(--ac)">`}
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+        <div><span style="font-weight:500;overflow-wrap:anywhere">${f.name}</span> <span class="muted" style="font-size:13px">${(f.size / 1e6).toFixed(1)} MB · saved ${new Date(f.saved).toLocaleString()}</span></div>
+        <div style="font-size:14px">${r ? html`${r.result === 'added' ? html`Added as <span class="mono">${r.exhibit}</span>` : r.result}${r.trashed === true ? ' · original in the Trash' : r.trashed ? ` · ${r.trashed}` : ''}`
+          : f.in_case ? 'Already in this case' : html`→ <span class="mono">${f.exhibit}</span>`}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap" id="chips-${f.id}">${chips(r || f)}</div>
+        ${results || f.in_case ? '' : html`<input class="input inbox-link" data-id="${f.id}" value="${links[f.id] || ''}" placeholder="Post link (optional): fills in the platform, account and date" aria-label="Post link for ${f.name}" style="font-size:14px">`}
+      </div></div>`; })
+    : html`<div class="empty">Nothing saved here in the ${+days === 1 ? 'last day' : `last ${days} days`}. Save the post’s video or screenshot first; Hunt never downloads from Instagram, TikTok or Facebook for you.</div>`}
+    ${results ? html`<div class="muted" style="font-size:14px">${results.some(r => r.result === 'added') ? html`Checking them now · <a href="#/case/${slug}/scan" style="color:var(--ac)">see the scan →</a>` : 'Nothing new to check.'}</div>`
+      : files.length ? html`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <label style="display:flex;gap:8px;align-items:center;flex:1;min-width:240px"><input type="checkbox" id="inbox-trash" checked style="width:16px;height:16px;accent-color:var(--ac)"><span>Move the originals to the Trash afterwards <span class="muted" style="font-size:13px">· you can put them back from the Trash</span></span></label>
+      <button class="btn primary" data-act="inbox-take">File ${files.length} into this case</button></div>` : ''}
+  </div>`.s;
+}
+
 function hitCard(slug, h) {
   const flagged = h.status !== 'not relevant', src = evidenceUrl(slug, h.file), blur = h.blur || h.child_visible;
   const range = h.t0 == null ? '' : h.t1 != null && h.t1 !== h.t0 ? `${mmss(h.t0)}–${mmss(h.t1)}` : `at ${mmss(h.t0)}`;
@@ -433,10 +474,11 @@ screens.posts = async slug => {
       <div style="display:flex;gap:28px;align-items:baseline">
         <span><b style="font-size:26px">${d.counts.read_automatically ?? 0}</b> <span class="muted">read automatically</span></span>
         <span><b style="font-size:26px">${d.counts.added_by_you ?? 0}</b> <span class="muted">added by you</span></span>
-        <button class="btn ghost sm" data-act="add-posts">Add saved posts</button></div>
+        <button class="btn ghost sm" data-act="add-posts">Add saved posts</button><button class="btn ghost sm" data-act="inbox-open" data-slug="${slug}">From Downloads</button></div>
     </div>
     <div id="add-posts" class="hidden"><div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px">${dropZone(slug)}
       <div class="muted" style="font-size:14px">Instagram, Facebook, TikTok and Strava only show posts to logged-in users, and Hunt never logs in. Save the posts you need there (screenshots, photos, videos) and add them here; Hunt checks them straight away.</div></div></div>
+    <div id="inbox" class="hidden"></div>
     ${weeklyChart(d.weekly || [], c.details.injury_date)}
     <div class="split" style="--side:460px">
       <div style="display:flex;flex-direction:column;gap:8px;overflow:auto">${hits.length ? hits.map(h => html`<button class="row" data-act="pick-hit" data-id="${h.id}" style="text-align:left;${sel && h.id === sel.id ? 'box-shadow:inset 0 0 0 1.5px var(--ac)' : ''}">
@@ -506,7 +548,9 @@ screens.report = async slug => {
         <label class="panel" style="padding:16px 18px;display:flex;gap:12px;align-items:center;cursor:pointer"><input type="checkbox" data-act="screening" ${screening ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--ac)">
           <span><b>Job screening mode</b><br><span class="muted" style="font-size:13.5px">Hides protected details (age, health, religion, family…)</span></span></label>
         <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px">
-          <a class="btn primary" href="${base}.pdf${q}">Export PDF</a><a class="btn" href="${base}.html${q}" target="_blank" rel="noopener">Web page</a><a class="btn ghost" href="${base}.json${q}">Data file</a></div>
+          <a class="btn primary" href="${base}.pdf${q}">Export PDF</a><a class="btn" href="${base}.html${q}" target="_blank" rel="noopener">Web page</a><a class="btn ghost" href="${base}.json${q}">Data file</a>
+          <a class="btn ghost" href="/api/cases/${encodeURIComponent(slug)}/evidence.zip" download>Evidence bundle (.zip)</a>
+          <div class="muted" style="font-size:13px">Every evidence file under a readable name, with a SHA-256 manifest anyone can check with <span class="mono">shasum -c</span>.</div></div>
       </aside>
     </div></main>`);
 };
@@ -540,7 +584,16 @@ const actions = {
       if (el.dataset.decision === 'him') location.hash = `#/case/${slug}/scan`; else render(); // the scan screen starts the scan
     } catch (e) { fail(e); }
   },
-  'add-posts': () => $('#add-posts').classList.toggle('hidden'),
+  'add-posts': () => { $('#inbox').classList.add('hidden'); $('#add-posts').classList.toggle('hidden'); },
+  'inbox-open': el => $('#inbox').classList.contains('hidden') ? openInbox(el.dataset.slug) : $('#inbox').classList.add('hidden'),
+  'inbox-take': async el => {
+    const ids = [...document.querySelectorAll('.inbox-pick:checked')].map(c => c.dataset.id); if (!ids.length) return;
+    el.disabled = true;
+    try { const r = await api(`/api/cases/${encodeURIComponent(inbox.slug)}/inbox`, { method: 'POST', body: { folder: inbox.folder, days: +inbox.days, keep: !$('#inbox-trash').checked,
+        take: ids.map(id => inbox.links[id] ? { id, url: inbox.links[id] } : { id }) } });
+      drawInbox(r.files); if (r.files.some(f => f.result === 'added')) await startScan(inbox.slug);
+    } catch (e) { el.disabled = false; if (e.status === 409) { toast('Some files moved or changed since this list was made. Listing again.', true); openInbox(inbox.slug, inbox.folder, inbox.days); } else fail(e); }
+  },
   'scan-pause': async el => {
     const job = el.dataset.job, paused = el.dataset.paused === '1';
     try { await api(`/api/jobs/${encodeURIComponent(job)}/${paused ? 'resume' : 'pause'}`, { method: 'POST', body: {} }); el.dataset.paused = paused ? '0' : '1'; el.textContent = paused ? 'Pause' : 'Resume'; } catch (e) { fail(e); }
@@ -561,6 +614,24 @@ document.addEventListener('click', e => {
 document.addEventListener('change', async e => {
   if (e.target.dataset.act === 'screening') { sessionStorage.setItem('hunt-screening', e.target.checked ? '1' : '0'); render(); }
   if (e.target.id === 'up-files') upload(e.target.dataset.slug, e.target.files);
+  if (e.target.id === 'inbox-days' || e.target.id === 'inbox-folder') openInbox(inbox.slug, $('#inbox-folder').value.trim(), +$('#inbox-days').value);
+  if (e.target.classList.contains('inbox-pick')) { const b = $('[data-act="inbox-take"]'), n = document.querySelectorAll('.inbox-pick:checked').length; b.textContent = `File ${n} into this case`; b.disabled = !n; }
+});
+let unfurling; // the latest link typed or pasted, read once typing pauses
+document.addEventListener('input', e => {
+  const el = e.target; if (el.id !== 'up-link' && !el.classList.contains('inbox-link')) return;
+  clearTimeout(unfurling); unfurling = setTimeout(async () => {
+    const url = el.value.trim(), u = await unfurl(url);
+    if (el.id === 'up-link') {
+      if (u?.platform) { const o = [...$('#up-platform').options].find(o => o.text.toLowerCase() === u.platform.toLowerCase()); $('#up-platform').value = o ? o.text : 'Other'; }
+      if (u?.posted_at) $('#up-date').value = u.posted_at.slice(0, 10);
+      $('#up-note').textContent = u ? [u.platform, u.handle && '@' + u.handle, u.posted_at && `posted ${utc(u.posted_at)}, read from the post’s ID`].filter(Boolean).join(' · ') + '. The link fills in the platform and date; Hunt doesn’t open it.' : '';
+      return;
+    }
+    const id = el.dataset.id, f = inbox.files.find(x => x.id === id);
+    inbox.links[id] = u ? url : undefined;
+    $(`#chips-${id}`).innerHTML = (u ? chips({ ...u, from: { platform: 'link', handle: 'link', posted_at: 'post id' } }) : chips(f)).map(c => c.s).join('');
+  }, 350);
 });
 document.addEventListener('dragover', e => { if (e.target.closest('.drop')) { e.preventDefault(); e.target.closest('.drop').style.borderColor = 'var(--ac)'; } });
 document.addEventListener('dragleave', e => { const d = e.target.closest('.drop'); if (d) d.style.borderColor = ''; });

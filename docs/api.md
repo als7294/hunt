@@ -42,11 +42,12 @@ Errors are `{"error": "message"}` with a 4xx or 5xx status.
 | POST | `/api/jobs/{id}/pause`, `/resume`, `/cancel` | `{}` → `{state}` |
 
 Event `data` is JSON with a `type`:
-- **`stage`:** `{stage: "asking"|"finding"|"checking"|"collecting"|"scanning"|"done"}`
+- **`stage`:** `{stage: "asking"|"finding"|"checking"|"collecting"|"scanning"|"rechecking"|"capturing"|"done"}`
 - **`source`:** `{source, seed, status: "running"|"found"|"nothing found"|"failed", found, checked, note}`
 - **`account`:** `{url, site, verdict, probability}`, sent as candidates are scored
 - **`scan`:** `{checked, total, photos, videos, found, eta_s, media_id}` (`eta_s` is from the measured rate, null until known; `media_id` is the file just checked, null on other updates)
 - **`hit`:** a hit object (below)
+- **`change`:** `{change, account, …, audit}`, from a re-check (see "Check again" below)
 - **`log`:** `{message}`
 - **`done`:** `{ok: true}`
 - **`error`:** `{message}`
@@ -133,15 +134,19 @@ scan.set_status(case, hit_id: int, status: str) -> dict
 - `driving`: driving
 - `injury`: mentions of the injury
 
-## Quality of life: the Downloads inbox, the evidence bundle, links
+## Quality of life: the Downloads inbox, the evidence bundle, links, Check again, notes
 See [qol.md](qol.md) for the screens that use these.
 
 | Method | Path | Body / response |
 |---|---|---|
 | GET | `/api/cases/{slug}/inbox?folder=&days=7` | `{folder, days, files: [inbox file]}`, newest first. `folder` defaults to `~/Downloads` and must be an absolute path to a folder; `days` is 0–365. Only photos and videos directly in the folder are listed. Nothing changes on disk |
 | POST | `/api/cases/{slug}/inbox` | `{folder?, days?, take: [{id, url?, platform?, handle?, posted_at?}], keep?: false}` → `{files: [inbox file + result, trashed]}`. Re-lists the folder and files the chosen ids through `posts.add_files`. The client never sends paths. An id that's gone returns 409. Each original goes to the Trash once its bytes are in the evidence, unless `keep`. Audited as `inbox import` |
-| GET | `/api/cases/{slug}/evidence.zip` | Download: `exhibits/`, `manifest.csv`, `SHA256SUMS`, `audit-log.csv`, `README.txt`. Header `x-bundle-sha256` carries the zip's hash, which is also audited as `evidence exported` |
+| GET | `/api/cases/{slug}/evidence.zip` | Download: `exhibits/`, `manifest.csv`, `SHA256SUMS`, `audit-log.csv`, `notes.csv`, `README.txt`. Header `x-bundle-sha256` carries the zip's hash, which is also audited as `evidence exported` |
 | GET | `/api/unfurl?url=` | `{platform, handle, post_id, posted_at, url}`. Works offline. `url` comes back without tracking parameters. `posted_at` is read from TikTok and X post ids |
+| POST | `/api/cases/{slug}/recheck` | `{}` → `{job}`. **Check again:** the accounts marked `him` (not email hits) are looked at again. Returns 409 if none are marked, or if the case already has an active job. Takes the heavy lock only while capturing screenshots |
+| GET | `/api/cases/{slug}/changes` | `{checks: [{cite, ts, change: "recheck", accounts, new_posts, changes, captured}], changes: [change]}`, newest first. `cite` is the report's `M-a<audit rowid>` |
+| GET | `/api/cases/{slug}/notes?about=&ref=` | `{notes: [note]}`, oldest first, optionally only the notes about one thing. Returns 400 for an unknown `about` or a bad `ref` |
+| POST | `/api/cases/{slug}/notes` | `{text, about?: "case"\|"account"\|"post"\|"hit", ref?, replaces?: note id}` → `201 note`. A correction (`replaces`) keeps the old note's subject; a note can only be replaced once. Returns 400 for empty text (or more than 20,000 characters), an unknown subject, or a note that's already replaced. Audited as `note`, with its text |
 
 - **inbox file:** `{id (first 8 hex of sha256), sha256, name, folder, size, saved, in_case: bool, named_by, platform, handle, post_id, posted_at, url, where_from: [url], from: {platform|handle|posted_at: "file name"|"where from"|"case"|"link"|"post id"|"you"}, exhibit}`
   - `named_by` is the downloader site whose naming the file follows (`ssstik`, `snaptik`…, or `Facebook or Instagram` for files saved from their servers).
@@ -149,3 +154,29 @@ See [qol.md](qol.md) for the screens that use these.
   - A handle `from: "case"` is a guess from the subject's only confirmed account on that platform. Show it as one.
 - **result:** `"added"`, `"already in the case"` or `"changed since listed"`.
 - **trashed:** `true`, or a sentence saying why the original was left (`"kept, as asked"`, `"left: …"`).
+
+### Check again: events and changes
+**Stages, in order:**
+- `rechecking`: profiles are read again.
+- `collecting`: from `posts.collect`, with its usual `source` events.
+- `capturing`: screenshots are taken again.
+- `done`.
+
+`log` events say which profiles can't be read logged out, and which captures failed.
+
+**`change` events** (also each an audit entry, `audit` = its rowid):
+| change | fields |
+|---|---|
+| `account gone` / `account back` | `account, last_seen` / `account, missing_on`: the profile can't be found at its address any more, or can be again. Bluesky and Mastodon only |
+| `profile changed` | `account, field: "name"\|"bio"\|"profile photo", before, after, before_seen`, plus `before_sha256, after_sha256` for the photo |
+| `posts gone` | `account, none_left: bool, posts: [{id, url, posted_at, last_seen}]`. Only posts at least as new as the oldest one this read returned are judged. `none_left` means the account showed no posts at all |
+| `post back` | `account, post, url, gone_since` |
+
+**How changes are judged:**
+- A failed read judges nothing.
+- A profile is compared only with an earlier read by the same source (an earlier re-check, or the search's own Bluesky or Mastodon finding).
+- The end-of-run summary is audited as `recheck`, and new screenshots as `recapture`.
+
+- **note:** `{id, cite: "N-<id>", ts, about, ref, text, replaces: id|null, replaced_by: id|null}`.
+  - `ref` is `null` for the case, the account's normalised URL, or the post's or hit's id, as a string.
+  - Notes are never edited or deleted. A replaced note stays, with `replaced_by` set.
