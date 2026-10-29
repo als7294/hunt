@@ -1,29 +1,28 @@
 """Free API keys the investigator pastes into Hunt (docs/research/tools.md, "Free keys").
 
 Every key is optional except CourtListener's, and Hunt works fully without any of them. They are kept in
-HUNT_HOME/keys.json (mode 0600) and put into this process's environment, where the sources already read
-them (`os.environ.get(KEY)` at call time). A key set in the shell wins and can't be changed here. No
-function or route ever returns a key's value: only whether it's set, and where from.
+HUNT_HOME/keys.env (mode 0600), one KEY=value per line, the file `hunt/cli.py:load_keys` reads at start, and
+put into this process's environment, where the sources already read them (`os.environ.get(KEY)` at call
+time). A key set in the shell wins and can't be changed here. No function or route ever returns a key's
+value: only whether it's set, and where from.
 
 Which keys exist comes from the sources' KEY / KEY_REQUIRED / KEY_URL / KEY_FREE attributes. A key no
 source module declares (a reader elsewhere in Hunt) goes in EXTRA: {env var: {label, url, free}}.
 """
 
 import importlib
-import json
 import os
 
 from . import sources
 from .case import HOME
 
-PATH = HOME / "keys.json"
+PATH = HOME / "keys.env"
 MAX_CHARS = 500
 LABEL = {"github": "GitHub", "gravatar": "Gravatar", "fec": "OpenFEC", "courtlistener": "CourtListener",
          "licences": "State open-data portals", "businesses": "State open-data portals", "fmcsa": "State open-data portals",
          "edgar": "SEC EDGAR"}
 EXTRA: dict[str, dict] = {}
 READERS = ("public", "vendor")  # Hunt modules outside sources/ that add their key to EXTRA when imported
-_shell = {k for k in os.environ if k.startswith("HUNT_")}  # set before Hunt started: the shell's, not ours
 
 
 def known() -> dict[str, dict]:
@@ -43,11 +42,25 @@ def known() -> dict[str, dict]:
     return out | {key: {"sources": [], "required": False, **x} for key, x in EXTRA.items()}
 
 
-def _saved() -> dict:
+def _lines() -> list[str]:
     try:
-        return json.loads(PATH.read_text())
-    except (OSError, ValueError):
-        return {}
+        return PATH.read_text().splitlines()
+    except OSError:
+        return []
+
+
+def _saved() -> dict:
+    """keys.env as {KEY: value}, read as load_keys reads it: blank lines and # comments skipped, quotes stripped."""
+    out = {}
+    for line in _lines():
+        k, eq, v = line.strip().partition("=")
+        if eq and k.strip().startswith("HUNT_") and not k.startswith("#") and v.strip().strip("'\""):
+            out[k.strip()] = v.strip().strip("'\"")
+    return out
+
+
+# Set before Hunt started, and not from keys.env (load_keys may already have copied that file in): the shell's
+_shell = {k for k, v in os.environ.items() if k.startswith("HUNT_") and v != _saved().get(k)}
 
 
 def load():
@@ -68,7 +81,7 @@ def status() -> list[dict]:
 def save(updates: dict) -> list[dict]:
     """{env var: value}; "" removes one. ValueError for an unknown key, a non-string or overlong value, or a key
     set in the shell."""
-    names, saved = known(), _saved()
+    names = known()
     for key, value in updates.items():
         if key not in names:
             raise ValueError(f"{key} isn't a key Hunt uses")
@@ -76,16 +89,27 @@ def save(updates: dict) -> list[dict]:
             raise ValueError(f"{key} must be text of at most {MAX_CHARS} characters")
         if key in _shell:
             raise ValueError(f"{key} is set in the shell that started Hunt; change it there")
+    if any("\n" in v or "\r" in v for v in updates.values()):
+        raise ValueError("a key is one line")
+    lines, done = [], set()
+    for line in _lines():  # rewritten in place: comments and other settings stay where they were
+        k = line.strip().partition("=")[0].strip()
+        if k in updates:
+            if updates[k].strip() and k not in done:
+                lines.append(f"{k}={updates[k].strip()}")
+            done.add(k)
+        else:
+            lines.append(line)
+    lines += [f"{k}={v.strip()}" for k, v in updates.items() if v.strip() and k not in done]
     for key, value in updates.items():
         if value.strip():
-            saved[key] = os.environ[key] = value.strip()
+            os.environ[key] = value.strip()
         else:
-            saved.pop(key, None)
             os.environ.pop(key, None)
     PATH.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
-        json.dump(saved, f)
+        f.write("\n".join(lines) + "\n")
     os.chmod(PATH, 0o600)  # an older file keeps its mode through O_TRUNC
     return status()
 
@@ -93,21 +117,24 @@ def save(updates: dict) -> list[dict]:
 if __name__ == "__main__":  # self-check: python -m hunt.keys (uses a throwaway HUNT_HOME)
     import tempfile
     from pathlib import Path
-    PATH = Path(tempfile.mkdtemp()) / "keys.json"
+    PATH = Path(tempfile.mkdtemp()) / "keys.env"
+    PATH.write_text("# my keys\nHUNT_FEC_KEY='fec-example'\n")
     _shell = {"HUNT_SEC_UA"}
     os.environ.pop("HUNT_GITHUB_TOKEN", None)
     rows = {r["key"]: r for r in save({"HUNT_GITHUB_TOKEN": " ghp_example "})}
     assert rows["HUNT_GITHUB_TOKEN"] == {**rows["HUNT_GITHUB_TOKEN"], "set": True, "where": "saved"}
     assert os.environ["HUNT_GITHUB_TOKEN"] == "ghp_example" and oct(PATH.stat().st_mode)[-3:] == "600"
-    assert "ghp_example" not in json.dumps(status())
+    assert "ghp_example" not in str(status()) and _saved()["HUNT_FEC_KEY"] == "fec-example"
+    assert PATH.read_text() == "# my keys\nHUNT_FEC_KEY='fec-example'\nHUNT_GITHUB_TOKEN=ghp_example\n", PATH.read_text()
     assert rows["HUNT_SOCRATA_TOKEN"]["sources"] == ["licences", "businesses", "fmcsa"]
     assert rows["HUNT_COURTLISTENER_TOKEN"]["required"] and not rows["HUNT_GITHUB_TOKEN"]["required"]
-    for bad in ({"HUNT_NOPE": "x"}, {"HUNT_SEC_UA": "x"}, {"HUNT_FEC_KEY": 3}):
+    for bad in ({"HUNT_NOPE": "x"}, {"HUNT_SEC_UA": "x"}, {"HUNT_FEC_KEY": 3}, {"HUNT_FEC_KEY": "a\nHUNT_X=b"}):
         try:
             save(bad)
             raise AssertionError(bad)
         except ValueError:
             pass
     save({"HUNT_GITHUB_TOKEN": ""})
-    assert "HUNT_GITHUB_TOKEN" not in os.environ and _saved() == {}
+    assert "HUNT_GITHUB_TOKEN" not in os.environ and _saved() == {"HUNT_FEC_KEY": "fec-example"}
+    assert PATH.read_text() == "# my keys\nHUNT_FEC_KEY='fec-example'\n"
     print("ok")
