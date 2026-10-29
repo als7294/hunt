@@ -35,10 +35,11 @@ _Research date: 2026-10-29. This is engineering research, not legal advice. **[S
 - **Meta v. Bright Data (2024):** logged-off scraping of public data didn't breach Meta's terms. Meta dropped the case [S] ([TechCrunch](https://techcrunch.com/2024/02/26/meta-drops-lawsuit-against-web-scraping-firm-bright-data-that-sold-millions-of-instagram-records)).
 - **X v. Bright Data:** partially revived in Nov 2024 on server-access and fraud theories; current status unknown [S] ([Bloomberg Law](https://news.bloomberglaw.com/ip-law/x-partially-revives-lawsuit-against-israeli-data-scraping-firm)).
 - **[I] Rule for Hunt:** logged-out collection of public data only. Logged-in automation through sock puppets is the hiQ loss pattern, so it's never automated by Hunt.
+- **Sharpened 2026-10-29** by [automation-legal.md](automation-legal.md): no software-caused request to a login-walled platform, even on her own real account. The current wording is in [Hunt's rules](#hunts-rules).
 
 ## Human-driven capture: Hunt Capture (browser extension)
 
-_Added 2026-10-29. The design is in [capture.md](../capture.md)._
+_Added 2026-10-29. The design is in [capture.md](../capture.md). Since then, [automation-legal.md](automation-legal.md) set capture off on LinkedIn (rule C9 in [Hunt's rules](#hunts-rules)), whose terms name browser extensions; the extension still covers it until that's built._
 
 **What it is.** The investigator browses Facebook, Instagram, TikTok, X, LinkedIn and YouTube herself, logged in as herself. While she turns capture on, the extension records what she views into the case, on her own computer:
 - a screenshot of the screen
@@ -149,17 +150,61 @@ Firms whose counsel prefers that should not use guided mode. This trade-off shou
 - The public website is a landing page plus a demo on fictional data only.
 - Precedent: GeoSpy's public geolocation tool was pulled after stalking misuse (see `geolocation.md`).
 
-## Guardrails Hunt ships
+## Hunt's rules
 
-Disclaimers alone are not enough: the FTC has said so, and OpenOSINT was criticised for shipping a disclaimer without guardrails. These guardrails are real features:
+_The single current statement, as of 2026-10-29. It replaces the earlier "Guardrails Hunt ships" list and folds in the guardrail changes from [automation-legal.md §5](automation-legal.md#5-guardrail-changes). The sections above, and the linked research, keep the reasoning behind each rule._
 
-- **Case purpose attestation** before any search, modelled on GLBA/DPPA permissible-use selectors [S].
-- **Audit log** of target, scope, justification and every query [S] ([Knogin](https://knogin.com/api/docs/modules/analyst-driven-osint)).
-- **Passive-only collection:** no follow, like, message or contact ([Trace Labs rules](https://tracelabs.org/about/search-party-rules)). No bundled sock-puppet automation.
-- **Minors flag** that halts or limits collection [I; no published standard found].
-- **Per-source rate limits.**
-- **Retention and purge** per case [S].
-- **FCRA mode:** consent record, redaction, no scores [S, Ferretly].
+Disclaimers alone are not enough: the FTC has said so, and OpenOSINT was criticised for shipping a disclaimer without guardrails. These rules are real features, or are being built as real features (see "Not yet enforced" below).
+
+"Login-walled platform" means Facebook, Instagram, Threads, X, LinkedIn, Reddit, Strava, Snapchat, and TikTok whenever she is signed in.
+
+### Collection
+
+| # | Rule | Why | Reasoned in |
+|---|---|---|---|
+| C1 | **No software-caused request to a login-walled platform.** Every page load, scroll, click and "See more" there comes from her own input in the Hunt Browser. Hunt and Hunt Capture only record what has already loaded. No auto-scroll (not even one she starts and watches), auto-expand, auto-advance or "open all" | Passive recording isn't CFAA "access"; active requests from inside a session are the *BrandTotal* line. Every platform's terms ban automated access, with no own-account or human-pace exception. A bot is the surest way to lose her account | [automation-legal.md Q1](automation-legal.md#q1-automating-her-own-logged-in-account), [Q2](automation-legal.md#q2-grey-zones) |
+| C2 | **Hunt's code never logs in or uses her session.** The Hunt Browser holds her sessions for her own browsing only: no automation driver, no remote-debugging port, no automation flags. Hunt never reads her cookies, only whether she is signed in | No program can drive her account through Hunt, and nothing marks her browser as automated | [Human-driven capture](#human-driven-capture-hunt-capture-browser-extension), [capture.md](../capture.md#the-hunt-browser) |
+| C3 | **Her own real account only.** No fake, shared, bought or borrowed account, and no second account after a ban | Fake accounts drove hiQ's $500k judgment and the *Voyager* settlement. After revocation, another account is "the back door" (*Nosal*). Online impersonation is a crime in CA (Penal Code §528.5) and TX (§33.07) | [CFAA, scraping, platform ToS](#cfaa-scraping-platform-tos), [automation-legal.md Q1](automation-legal.md#q1-automating-her-own-logged-in-account) |
+| C4 | **Never contact the subject or their associates.** No follow, friend, connection request, like, comment, message or story reaction. No email or username check that could notify anyone. Treat every claimant as represented by counsel | Ethics Rules 4.2 and 4.3 bind Ethos's work through counsel (NJ codified it in 2024). FCRA §1681d covers interviews "by electronic means" | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules), [user-scanner audit](../../hunt/sources/user_scanner.py) |
+| C5 | **No pretexting.** Never a false identity or a false purpose, with anyone | Pretext-interview bans (NAIC Model 670; Cal. Ins. Code §791.03), PI licence "fraud or deceit" grounds, Rule 8.4(c) | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
+| C6 | **Logged-out reads follow robots.txt.** Automatic reads only where robots.txt allows: TikTok profile and video pages, Bluesky, Mastodon and the public APIs. Hosts that deny unnamed agents (Facebook, Instagram, Threads, LinkedIn, X, Reddit) get one page on her click: never in batch, never on a schedule, never as headless screenshots. Honest User-Agent and a polite gap | robots.txt isn't access authorisation (RFC 9309), but Meta, YouTube and Reddit write it into their terms. *Bright Data* protects logged-off reads less for an account holder | [automation-legal.md Q5](automation-legal.md#q5-logged-out-automation-per-platform-robotstxt-rate-limits-captchas) |
+| C7 | **Never get around a limit.** No CAPTCHA solving. No proxies, IP rotation, or header, User-Agent or fingerprint spoofing to get past a block. No randomised "human-like" pacing. Stop at the first 429, CAPTCHA or login wall. (`HUNT_PROXY` is one fixed proxy she chooses for her own privacy. It is never switched to get past a block.) | CAPTCHA circumvention supported a DMCA §1201 injunction (*Ticketmaster v. RMG*). Proxies after a block were "without authorization" (*3Taps*). TikTok and Meta terms ban "tricks" and circumvention | [automation-legal.md Q2](automation-legal.md#q2-grey-zones), [Q5](automation-legal.md#q5-logged-out-automation-per-platform-robotstxt-rate-limits-captchas) |
+| C8 | **Hard stop on revocation.** A ban, disabled account, checkpoint, "automated behaviour" warning, action block, CAPTCHA, IP block, or a platform letter to Laura, Ethos or Aaron stops capture and automatic reads on that platform. It is audited, and she tells Ethos. Never fall back to another account, browser profile, proxy or vendor | After revocation, continued access is a CFAA and Cal. Penal Code §502 violation (*Power Ventures*), and a PI licence ground in FL (§493.6118(1)(k)) | [automation-legal.md Hard stops](automation-legal.md#hard-stops), [Appendix B](automation-legal.md#appendix-b-hard-stop-message) |
+| C9 | **Capture off on LinkedIn, Strava and Snapchat.** There she saves pages or screenshots by hand and imports them | Their terms name browser extensions or "semi-automated" tools, and LinkedIn scans for extensions | [automation-legal.md Q2](automation-legal.md#q2-grey-zones) |
+| C10 | **Warn before a view the subject can see.** Before an Instagram or Facebook Story while signed in; on LinkedIn, browse logged out or in private mode, with a warning on repeat views of one profile | New York ethics guidance treats a "who viewed you" notice to a represented person as a possible communication. Colorado flags repeated viewing | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
+| C11 | **No official API where its terms bar this work.** No Meta, TikTok, LinkedIn, Reddit or Strava API connectors for claimant work. YouTube through the Data API on her own key. X only with X's written approval | Meta Platform Terms §3.a.ii bar "eligibility determinations … including for … insurance". LinkedIn API Terms §3.1(17), (19); X Developer Agreement §XIV.B(a) | [automation-legal.md Q4](automation-legal.md#q4-official-apis-and-licensed-vendors) |
+| C12 | **Vendor connectors** are optional and off by default. Her own key only, never a bundled one. Provenance on every record; the vendor's permitted-use terms on file | With her key, Ethos is the licensee and the project isn't. A "public data" label isn't proof of lawful collection (*Voyager*) | [automation-legal.md Q4](automation-legal.md#q4-official-apis-and-licensed-vendors) |
+
+### The case
+
+| # | Rule | Why | Reasoned in |
+|---|---|---|---|
+| K1 | **A purpose on record before any search,** and the case's kind: claim, or employment and eligibility. Background cases carry the FCRA disclaimer. The report's screening version drops protected traits and the sources that reveal them. She confirms the subject's identity before anything reaches an employment report | Claims reports aren't consumer reports; anything used "in whole or in part" for eligibility is | [FCRA](#fcra), [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
+| K2 | **Audit log** of every query, capture, import, worklist open, hard stop and export | Retraceable method; GLBA/DPPA-style accountability | [Knogin](https://knogin.com/api/docs/modules/analyst-driven-osint) [S] |
+| K3 | **Audience flag.** Anything not shown as Public is flagged and kept out of the report unless counsel approves | The CCPA, Virginia and Texas "publicly available" exclusions stop at content "restricted … to a specific audience" | [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
+| K4 | **Scan everything, report what's material.** Scan hits are leads that she confirms, never findings on their own | Insurers may not seek information "not reasonably required" (10 CCR §2695.7(d)); FCRA accuracy (§1681e(b)) | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
+| K5 | **A capture record and separate attribution.** Hash at capture, URL, UTC time, the account it was viewed from, the audience shown and the tool version. Who runs the account is shown separately from what it posted | FRE 902(13) and (14); *Vayner* and *Browne* on authorship | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules), [Appendix A](automation-legal.md#appendix-a-evidence-bundle-readme-paragraph) |
+| K6 | **Retention:** 90 days from opening, unless she sets a legal hold. Deleting moves the case to the Trash | Minimisation | [api.md](../api.md) |
+| K7 | **Minors:** children in pictures are blurred in the scan | No published standard; our own rule [I] | — |
+| K8 | **Per-source rate limits;** stop on 429 (C7) | Courtesy, and the terms | — |
+
+### Faces, health and subjects abroad
+
+| # | Rule | Why | Reasoned in |
+|---|---|---|---|
+| F1 | **No face search.** A face check, if offered, is 1:1 against her own reference photo, with no template written to disk | A face scan is never "publicly available" under the CCPA; the EU AI Act bans untargeted face scraping | [Biometrics](#biometrics-relevant-to-photo-features), [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
+| F2 | **The face check is gated on where the subject lives;** unknown means blocked. Blocked: IL, TX, WA, CO, the EU, the UK and Canada, and CA unless Ethos's counsel accepts the legal-claims exemption | BIPA has no investigator exemption. Texas's TRAIGA fraud exclusion is untested | [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
+| F3 | **Washington subjects:** record the My Health My Data fraud basis per case. Word findings as observed activity, not physical condition | Health inferences from non-health data are "consumer health data"; the firm bears the burden of the exemption | [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
+| F4 | **EU, UK and Canadian subjects:** a per-case legal basis and a record of why the subject wasn't notified | GDPR Art. 3(2)(b), 6(1)(f), 14(5)(b); DPA 2018 Sch. 2 para 2; PIPEDA s.7(1)(b) | [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
+
+### Not yet enforced (main at `099144c`, 2026-10-29)
+
+These rules are designed, and the brief is out to the build sessions. Until they land, the code does this:
+- **C6:** `sources/facebook.py` runs in every batch search. `recheck._recapture` takes headless screenshots of every confirmed account, Instagram, Facebook, X and LinkedIn included. `watch.py` runs that recheck on a schedule, unattended. Search's own evidence screenshots (`capture.screenshots`) don't check robots.txt.
+- **C6, C11:** `posts.YT_RSS` reads `/feeds/videos.xml`, which YouTube's robots.txt disallows.
+- **C8:** no revocation watcher.
+- **C9:** Hunt Capture still covers linkedin.com.
+- **C10, K3, F2–F4:** not built. K5 is partly built: hash, URL, time and title, but not the account or the audience.
 
 ## FBI / IC portfolio relevance
 

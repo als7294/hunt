@@ -25,6 +25,8 @@ CACHE = HOME / "cache" / "github"
 PROFILES = 10  # profiles read per search; each spends one of the hour's 60
 LOGIN = re.compile(r"[A-Za-z0-9](?:-?[A-Za-z0-9]){0,38}")  # GitHub's own username rule
 KEY = "HUNT_GITHUB_TOKEN"
+KEY_URL = "https://github.com/settings/personal-access-tokens/new"  # no permissions needed
+KEY_FREE = "5,000 profile reads an hour (logged out: 60) and 30 searches a minute (10)"
 HEALTH = API + "/rate_limit"  # doesn't count against the quota
 
 

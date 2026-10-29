@@ -8,7 +8,8 @@ shared plumbing, not sources.
 
 For `health()`, a source may also set HEALTH (a URL, or a list of them, that answers a
 HEAD cheaply), HEALTH_NOTE (why there is nothing to probe), KEY (the env var holding its
-key or setting), KEY_REQUIRED, and `headers()` (headers its requests need, e.g. EDGAR's
+key or setting), KEY_REQUIRED, KEY_URL (where to get a free key), KEY_FREE (what it unlocks),
+and `headers()` (headers its requests need, e.g. EDGAR's
 User-Agent).
 """
 
@@ -27,14 +28,26 @@ SOURCES = [maigret, wmn, user_scanner, phone,
            licences, businesses, fmcsa]  # name → work and driving records
 
 
+def _key_status(src, is_set: bool) -> str:
+    if not getattr(src, "KEY", None):
+        return "none needed"
+    if is_set:
+        return "set"
+    if getattr(src, "KEY_REQUIRED", False):
+        return "not set (required)"
+    return "not set (free key available)" if getattr(src, "KEY_URL", None) else "not set (optional)"
+
+
 async def health(timeout: float = 8) -> list[dict]:  # the CDX server can take 5 s
     """Per source, in registry order: can Hunt reach it right now (one HEAD per URL, through
     HUNT_PROXY), and is its key set? `ready` = reachable (or nothing to reach) and no missing key."""
     async def one(src):
         key = getattr(src, "KEY", None)
         need = getattr(src, "KEY_REQUIRED", False)
-        row = {"source": src.NAME, "kinds": sorted(src.KINDS), "key": key,
-               "key_set": bool(key and os.environ.get(key)), "key_required": need}
+        is_set = bool(key and os.environ.get(key))
+        row = {"source": src.NAME, "kinds": sorted(src.KINDS), "key": key, "key_set": is_set, "key_required": need,
+               "key_status": _key_status(src, is_set), "key_url": getattr(src, "KEY_URL", None),
+               "key_free": getattr(src, "KEY_FREE", None)}
         urls = getattr(src, "HEALTH", None)
         if not urls:
             reach = {"reachable": None, "detail": getattr(src, "HEALTH_NOTE", "nothing to probe"), "checks": []}

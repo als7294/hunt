@@ -136,8 +136,11 @@ async def read_profile(url):
 recheck._read = read_profile
 TRASH = Path(tempfile.mkdtemp())
 inbox._trash = lambda path: shutil.move(str(path), TRASH / path.name)  # never the real Trash
-sys.modules["hunt.browser"] = types.SimpleNamespace(status=lambda: [
-    {"id": "browser-facebook", "label": "Hunt Browser: Facebook", "ok": False, "detail": "not signed in"}])
+sys.modules["hunt.browser"] = types.SimpleNamespace(status=lambda: {  # as hunt.browser.status() answers
+    "facebook": "signed_in", "x": "signed_out", "checked_at": "2026-10-29T12:00:00+00:00",
+    "browser": {"available": True, "running": False, "version": "131.0", "profile": True},
+    "logins": [{"platform": "facebook", "label": "Facebook", "url": "https://www.facebook.com/login"},
+               {"platform": "x", "label": "X", "url": "https://x.com/login"}]})
 
 
 async def health():
@@ -171,7 +174,9 @@ c = TestClient(server.make_app("e2e-token", PORT), base_url=BASE, follow_redirec
 assert c.get("/login?t=e2e-token").status_code == 303
 
 rows = {x["id"]: x for x in c.get("/api/startup").json()["checks"]}
-assert {"cases", "evidence", "ai", "network", "proxy", "sources", "browser-facebook", "retention"} <= set(rows), rows
+assert {"cases", "evidence", "ai", "network", "proxy", "sources", "browser", "retention"} <= set(rows), rows
+assert rows["browser"]["detail"] == "signed in: Facebook; not signed in: X" and rows["browser"]["label"] == "Hunt Browser 131.0"
+assert [x["state"] for x in rows["browser"]["items"]] == ["signed_in", "signed_out"], rows["browser"]
 assert rows["sources"]["ok"] and len(rows["sources"]["items"]) == 3 and rows["ai"]["ok"], rows["sources"]
 assert c.post("/api/settings", content=json.dumps({"firm": "Example Investigations", "investigator": "Jo Example",
                                                     "licence": "PI-000000", "timezone": "America/New_York"}),
