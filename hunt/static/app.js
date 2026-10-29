@@ -641,7 +641,8 @@ function recheckCard(slug, ch) {
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><b>Check again</b><div class="muted" style="font-size:13.5px;margin-top:2px">Look at the subject’s confirmed accounts again: new posts, deleted posts, profile changes.</div></div>
       <button class="btn sm" data-act="recheck" data-slug="${slug}">Check again</button></div>
     <div id="recheck-state" class="t2" style="font-size:14px">${last ? html`Last checked ${when(last.ts)}: ${last.new_posts} new post${last.new_posts === 1 ? '' : 's'}, ${last.changes} change${last.changes === 1 ? '' : 's'}` : html`<span class="muted">Not checked again yet</span>`}
-      ${rescan === slug ? html` · <button data-act="scan-new" data-slug="${slug}" style="color:var(--ac)">Scan new posts →</button>` : ''}</div>
+      ${rescan === slug ? html` · <button data-act="scan-new" data-slug="${slug}" style="color:var(--ac)">Scan new posts →</button>` : ''}
+      ${last?.worklist ? html`<div style="margin-top:4px"><a href="#/case/${slug}/worklist" style="color:var(--ac)">${last.worklist} account${last.worklist === 1 ? '' : 's'} on Instagram, Facebook, TikTok, X or LinkedIn ${last.worklist === 1 ? 'is' : 'are'} yours to open: the worklist →</a></div>` : ''}</div>
     <div id="recheck-bar" class="bar hidden"><i></i></div>
     <div id="changes" style="display:flex;flex-direction:column;gap:6px">${ch.changes.slice(0, 4).map(x => changeLine(slug, x))}
       ${ch.changes.length > 4 ? html`<details><summary class="muted" style="cursor:pointer;font-size:13.5px">${ch.changes.length - 4} earlier changes</summary><div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">${ch.changes.slice(4).map(x => changeLine(slug, x))}</div></details>` : ''}
