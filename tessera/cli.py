@@ -85,11 +85,16 @@ def build(case: Case) -> dict:
         else:
             attributes.append({"source": f["source"], "seed": f["seed"], "facts": f["attrs"]})
 
+    taken = defaultdict(lambda: (0, 0))  # handle → (sites taken, sites answered), for rarity
+    for r in case.rows("select seed, found, checked from runs where seed_kind = 'username' and status != 'failed'"):
+        t = taken[r["seed"].lower()]
+        taken[r["seed"].lower()] = (t[0] + r["found"], t[1] + r["checked"])
+
     candidates = []
     for fs in profiles.values():
         first, attrs = fs[0], {k: v for f in fs for k, v in f["attrs"].items()}
         seed = Seed(first["seed_kind"], first["seed"])
-        p, verdict, reasons = match.score(seed, first["url"], attrs, subject)
+        p, verdict, reasons = match.score(seed, first["url"], attrs, subject, taken)
         candidates.append({
             "site": first["site"], "url": first["url"], "verdict": verdict, "probability": round(p, 3),
             "reasons": reasons, "found_by": sorted({f["source"] for f in fs}), "seed": asdict(seed),

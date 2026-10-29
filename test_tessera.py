@@ -1,12 +1,18 @@
-"""Self-check for seed detection and identity scoring. Run: uv run python test_tessera.py
+"""Self-check for seed detection, identity scoring and the case store. Run: uv run python test_tessera.py
 
-All subjects here are fictional.
+Offline; all subjects here are fictional.
 """
 
 import hashlib
+import os
+import tempfile
 
-from tessera.match import score, verdict
-from tessera.seed import Seed, detect
+os.environ["TESSERA_HOME"] = tempfile.mkdtemp()  # before tessera.case reads it
+
+from tessera.cli import build
+from tessera.case import Case
+from tessera.match import compare_names, score, username_u, verdict
+from tessera.seed import Finding, Seed, detect
 
 # Seed detection
 assert detect("marisol.vance@example.com") == [Seed("email", "marisol.vance@example.com")]
@@ -54,5 +60,59 @@ assert linked > base == self_link, (base, linked, self_link)
 # Email registrations are the subject's by construction
 p, v, _ = score(Seed("email", "rv@example.com"), "https://shop.test", {}, subject)
 assert v == "almost certain", p
+
+# Rarity comes from the measured hit rate when enough sites answered, else from length
+assert username_u("nasa", (243, 409))[0] > 0.5
+assert username_u("kestrel_vane88", (9, 700))[0] < 0.02
+assert username_u("kestrel_vane88", (9, 20))[1] == "judged by length"  # too few answers to trust
+_, _, why = score(Seed("username", "jdoe"), "https://s.test/jdoe", {}, subject, {"jdoe": (450, 800)})
+assert any("common (taken on 450 of 800 sites checked)" in r for r in why), why
+short_common, _, _ = score(Seed("username", "zqxv"), "https://s.test/zqxv", {}, subject, {"zqxv": (450, 800)})
+short_rare, _, _ = score(Seed("username", "zqxv"), "https://s.test/zqxv", {}, subject, {"zqxv": (6, 800)})
+assert short_rare > 0.45 > short_common, (short_rare, short_common)  # same length, opposite evidence
+
+# One identifier is never enough: a rare handle alone tops out at "roughly even chance",
+# a rare handle with a conflicting name falls below it, and corroboration lifts the cap
+alone, v, why = score(rare, "https://s.test/kestrel_vane88", {}, subject, {"kestrel_vane88": (3, 700)})
+assert v == "roughly even chance" and "capped" in why[0], (alone, why)
+clash, _, _ = score(rare, "https://s.test/kestrel_vane88", {"fullname": "Dana Holt"}, subject, {"kestrel_vane88": (3, 700)})
+assert clash < 0.2, clash
+backed, v, _ = score(rare, "https://s.test/kestrel_vane88", {"location": "Tucson"}, subject, {"kestrel_vane88": (3, 700)})
+assert v in ("very likely", "almost certain"), (backed, v)
+
+# Name tiers: full match, extra middle name, first name only, short name inside a long one, conflict
+assert "matches" in compare_names("Marisol Vance", "Marisol Vance")[1]
+assert "similar" in compare_names("Marisol Elena Vance", "Marisol Vance")[1]
+assert "part of" in compare_names("Marisol", "Marisol Vance")[1]
+assert "part of" in compare_names("NASA - National Aeronautics and Space Administration", "NASA")[1]
+assert "conflicts" in compare_names("Dana Holt", "Marisol Vance")[1]
+assert compare_names("Bob", "Robert Vance")[0] > 0  # nickname of the first name
+assert compare_names("Nasa Nguyen", "NASA", handle="nasa") is None  # shared word is just the handle
+assert "part of" in compare_names("Marisol", "Marisol Vance", handle="kestrel_vane88")[1]
+
+# Case store: purpose gate, evidence hashing, rarity from saved runs, pivots from likely matches only
+try:
+    Case("no-purpose")
+    raise AssertionError("a new case must require a purpose")
+except SystemExit:
+    pass
+case = Case("Vance Screen", purpose="test")
+handle = Seed("username", "kestrel_vane88")
+case.add_seeds([handle, Seed("name", "Robert Vance")])
+case.add_run("maigret", handle, "found", 2, 600, "")
+case.add_finding(Finding("maigret", handle, "SiteA", "https://a.test/kestrel_vane88",
+                         {"fullname": "Bob Vance", "other_usernames": ["vane_alt", "kestrel_vane88"]}, body="<html>A</html>"))
+case.add_finding(Finding("whatsmyname", handle, "SiteA", "https://www.a.test/kestrel_vane88/", {}, body="<html>A2</html>"))
+case.add_finding(Finding("maigret", handle, "SiteB", "https://b.test/kestrel_vane88",
+                         {"fullname": "Dana Holt", "other_usernames": ["holt_d"]}))
+report = build(case)
+top, other = report["candidates"]
+assert top["site"] == "SiteA" and top["found_by"] == ["maigret", "whatsmyname"], top  # two engines, one profile
+assert top["evidence"][0]["sha256"] == hashlib.sha256(b"<html>A</html>").hexdigest()
+assert (case.dir / top["evidence"][0]["file"]).read_bytes() == b"<html>A</html>"
+assert any("taken on 2 of 600 sites checked" in r for r in top["reasons"]), top["reasons"]
+assert report["pivots"] == ["vane_alt"], report["pivots"]  # not the known handle, not the namesake's
+assert other["probability"] < top["probability"]
+assert [a["action"] for a in report["audit"]] == ["case opened"]
 
 print("ok")
