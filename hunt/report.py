@@ -309,7 +309,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
 
     # Synopsis
     doc.say("summary", f"{prefs['firm'] or 'The investigator'} was asked by {d['client'] or 'the client'} to review the "
-                       f"public online presence of the subject, {subject}"
+                       "public online presence of the subject" + (f", {subject}" if names else "")
                        + (f", in connection with {'claim' if d['kind'] == 'insurance' else 'reference'} {d['reference']}"
                           if d["reference"] else "") + ".", scope)
     if confirmed:
@@ -424,7 +424,8 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
                     [acc(c)] + own(c))
     if ruled_out:
         doc.say("identity", f"The investigator ruled out {_many(len(ruled_out), 'other account')}: "
-                            f"{', '.join(c['site'] for c in ruled_out)}.", [acc(c) for c in ruled_out] + log.get("decision", []))
+                            f"{', '.join(c['site'] for c in ruled_out)}.",  # cited to her decisions: the accounts are in no table
+                [x for c in ruled_out for x in decided.get(norm_url(c["url"]), [])] or log.get("decision", []))
     namesakes = [c for c in cands if not search.in_person(c) and c["probability"] < 0.2 and c not in ruled_out
                  and not _record(c)
                  and any(t == "name" and r.startswith("+") and not r.startswith("+0.0")
@@ -565,7 +566,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     header = {"title": TITLES.get(d["kind"], "Online Investigation Report"), "firm": prefs["firm"],
               "investigator": prefs["investigator"], "licence": prefs["licence"], "contact": prefs["contact"],
               "logo": prefs["logo"], "client": d["client"], "adjuster": d["adjuster"], "reference": d["reference"],
-              "file_number": d["file_number"] or case.name, "subject": subject,
+              "file_number": d["file_number"] or case.name, "subject": names[0] if names else d["label"] or subject,
               "subject_dob": None if screening else d["subject_dob"],
               "injury_date": None if screening else d["injury_date"], "assignment_date": d["assignment_date"],
               "report_date": _when(now(), tz, False), "timezone": tz, "confidentiality": prefs["confidentiality"]}

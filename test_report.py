@@ -257,6 +257,19 @@ assert rep["checks"]["tampered"] == [img], rep["checks"]
 assert not next(m for m in report.to_json(case, rep)["manifest"] if m["file"] == img)["ok"]
 assert "Changed since saved" in report.to_html(case, rep)
 
+# A case known only by a username: no "the subject, the subject", the header names the case, and accounts she
+# ruled out are cited to her decisions (they're in no table, so an account id couldn't be looked up)
+handle = Case.create("example handle", "Test: a public organisation's handle", kind="background", tool="person")
+seed = Seed("username", "examplehandle")
+handle.add_seeds([seed])
+for site, url in (("GitHub", "https://github.com/examplehandle"), ("Mastodon", "https://mastodon.example/@examplehandle")):
+    handle.add_finding(Finding("maigret", seed, site, url, {}))
+handle.decide("https://mastodon.example/@examplehandle", "not him")
+rep2 = report.compose(handle, build(handle), [], [], handle.verify(), screening=False, labels={})
+assert "the subject, the subject" not in text(rep2) and rep2["header"]["subject"] == "example handle", rep2["header"]
+out = [x for x in rep2["sentences"] if "ruled out" in x["text"] and "other account" in x["text"]]
+assert out and all(c.startswith("M-a") for c in out[0]["cites"]), out
+
 if os.environ.get("HUNT_TEST_PDF"):  # needs Chromium: uv run playwright install chromium
     assert asyncio.run(report.to_pdf(report.to_html(case, rep, pdf=True), rep)).startswith(b"%PDF")
 
