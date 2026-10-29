@@ -5,9 +5,11 @@ Offline; temp folders stand in for ~/Downloads and the Trash. Every account and 
 
 import hashlib
 import io
+import json
 import os
 import shutil
 import tempfile
+import time
 import warnings
 import zipfile
 from pathlib import Path
@@ -19,8 +21,9 @@ warnings.filterwarnings("ignore", message="Using `httpx` with")  # Starlette pre
 from starlette.testclient import TestClient  # noqa: E402
 
 from hunt import app as server
-from hunt import inbox
+from hunt import inbox, recheck
 from hunt.case import Case
+from hunt.seed import Finding, Seed
 
 TOKEN, PORT = "test-token", 8124
 BASE = f"http://127.0.0.1:{PORT}"
@@ -78,4 +81,50 @@ assert r.headers["x-bundle-sha256"] == hashlib.sha256(r.content).hexdigest()
 with zipfile.ZipFile(io.BytesIO(r.content)) as z:
     assert f"exhibits/{done['exhibit']}" in z.namelist() and "SHA256SUMS" in z.namelist()
 assert not list(case.dir.glob(".bundle-*"))
+
+# Check again: a job over the accounts marked as the subject's; its changes listed with citations
+r = c.post(f"/api/cases/{case.name}/recheck", json={}, headers=JSON)
+assert r.status_code == 409 and "as him" in r.json()["error"]
+bsky = "https://bsky.app/profile/kestrel_vane88"
+case.add_finding(Finding("maigret", Seed("username", "kestrel_vane88"), "Bluesky", bsky, {}))
+case.decide(bsky, "him")
+given = []
+
+
+async def fake_run(case, accounts, emit, pause=None):
+    given.append(accounts)
+    detail = {"account": accounts[0]["url"], "none_left": True, "posts": []}
+    emit({"type": "change", "change": "posts gone", **detail, "audit": case.audit("posts gone", detail)})
+    case.audit("recheck", {"accounts": 1, "new_posts": 0, "changes": 1, "captured": 0})
+
+
+recheck.run = fake_run
+job = c.post(f"/api/cases/{case.name}/recheck", json={}, headers=JSON).json()["job"]
+for _ in range(100):
+    with c.stream("GET", f"/api/jobs/{job}/events") as r:
+        sent = [json.loads(line[6:]) for line in r.read().decode().splitlines() if line.startswith("data: ")]
+    if sent and sent[-1]["type"] in ("done", "error"):
+        break
+    time.sleep(0.05)
+assert [e["type"] for e in sent] == ["change", "done"], sent
+assert given == [[{"url": bsky, "site": "Bluesky", "finding_id": 1}]]
+changes = c.get(f"/api/cases/{case.name}/changes").json()
+assert [x["change"] for x in changes["changes"]] == ["posts gone"] and changes["changes"][0]["cite"].startswith("M-a")
+assert changes["checks"][0]["changes"] == 1
+
+# Notes
+notes_api = f"/api/cases/{case.name}/notes"
+r = c.post(notes_api, json={"text": "Client confirmed the claim number by phone."}, headers=JSON)
+assert r.status_code == 201 and r.json()["cite"] == "N-1", r.text
+r = c.post(notes_api, json={"text": "Gym matches the 2024 photos", "about": "account", "ref": bsky}, headers=JSON)
+assert r.status_code == 201 and r.json()["ref"] == bsky
+assert c.post(notes_api, json={"text": "x", "about": "hit", "ref": 1}, headers=JSON).status_code == 400
+assert c.post(notes_api, json={"text": "x", "replaces": "1"}, headers=JSON).status_code == 400
+assert c.post(notes_api, json={"text": 5}, headers=JSON).status_code == 400
+r = c.post(notes_api, json={"text": "Confirmed by email, not phone.", "replaces": 1}, headers=JSON)
+assert r.status_code == 201 and r.json()["replaces"] == 1
+listed = c.get(notes_api).json()["notes"]
+assert [(n["cite"], n["replaced_by"]) for n in listed] == [("N-1", 3), ("N-2", None), ("N-3", None)]
+assert [n["cite"] for n in c.get(f"{notes_api}?about=account&ref={quote(bsky)}").json()["notes"]] == ["N-2"]
+assert c.get(f"{notes_api}?about=account&ref=kestrel").status_code == 400
 print("ok")

@@ -185,7 +185,7 @@ async def collect(case, accounts, since, emit):  # like hunt.posts: announces it
 
 def add_files(case, paths, platform, posted_at):
     for p in paths:
-        assert p.exists() and p.read_bytes() == b"\xff\xd8\xffjpegdata"
+        assert p.exists() and p.read_bytes() == b"\xff\xd8\xffjpegdata" and p.name in ("a.jpg", "b.jpg"), p  # names kept
         store["posts"].append({"id": len(store["posts"]) + 1, "source": platform, "origin": "added",
                                "posted_at": posted_at, "media": []})
     return list(range(len(paths)))

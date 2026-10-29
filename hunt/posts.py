@@ -13,6 +13,7 @@ Tables, created here on first use:
         origin 'fetched'|'added', fetched_at)
   media(id, post_id, kind 'image'|'video'|'screenshot', file 'evidence/<sha256>.<ext>', sha256, duration, source_url)
   post_extra(post_id, extra JSON): what an imported Facebook post says beyond those columns (add_posts)
+  post_seen(post_id, last): when each fetched post was last seen where it was posted (recheck.py finds the gone ones)
 """
 
 import hashlib
@@ -23,7 +24,7 @@ import re
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
@@ -47,6 +48,7 @@ create table if not exists posts (id integer primary key, source text, account_u
     text text, origin text, fetched_at text, unique (source, url));
 create table if not exists media (id integer primary key, post_id int, kind text, file text, sha256 text,
     duration real, source_url text);
+create table if not exists post_seen (post_id integer primary key, last text);
 """
 # What an imported post says beyond the posts columns (date precision, place, activity, life event, IDs,
 # counts), kept apart so the posts table's shape, and every insert into it, stays as it is.
@@ -74,6 +76,7 @@ async def collect(case, accounts: list[dict], since: str | None, emit) -> int:
                 items, note = await FETCHERS[site](client, url, since)
                 for item in items:
                     found += await _save(case, client, site, url, item)
+                _seen(case, NAMES[site], items)
                 status = "found" if found else "nothing found"
             except (httpx.HTTPError, ValueError, KeyError, ET.ParseError) as e:
                 status, note = "failed", f"{type(e).__name__}: {str(e)[:200]}"
@@ -276,6 +279,12 @@ def _site(account: dict) -> str | None:
 
 def _note(source, items, since):
     return f"{source}, logged out: {len(items)} posts" + (f" since {since}" if since else "")
+
+
+def _seen(case, source, items):
+    ts = datetime.now(UTC).isoformat(timespec="microseconds")  # a re-check right after a read tells them apart
+    case.db.executemany("insert or replace into post_seen select id, ? from posts where source = ? and url = ?",
+                        [(ts, source, i["url"]) for i in items])
 
 
 async def _save(case, client, site, account_url, item) -> int:

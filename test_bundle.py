@@ -19,7 +19,7 @@ os.environ["HUNT_HOME"] = tempfile.mkdtemp()  # before importing hunt: never tou
 
 from PIL import Image
 
-from hunt import bundle, inbox, posts
+from hunt import bundle, inbox, notes, posts
 from hunt.case import Case
 from hunt.seed import Finding, Seed
 
@@ -50,6 +50,8 @@ inbox.amend(next(i for i in items if i["name"].endswith(".mp4")),
             url=f"https://www.tiktok.com/@kestrel_vane88/video/{tiktok_id}")
 inbox.take(case, items)
 
+notes.add(case, "Client says the claimant moved in May.")
+notes.add(case, "Client says the claimant moved in June.", replaces=1)
 bad_sha, bad = case._store(b"original bytes", "txt")
 (case.dir / bad).write_bytes(b"edited later")  # tampered after it was saved
 
@@ -66,6 +68,7 @@ with zipfile.ZipFile(zip_path) as z:
     rows = list(csv.DictReader(io.StringIO(z.read("manifest.csv").decode())))
     readme = z.read("README.txt").decode()
     log = list(csv.DictReader(io.StringIO(z.read("audit-log.csv").decode())))
+    noted = list(csv.DictReader(io.StringIO(z.read("notes.csv").decode())))
     dated = {i.filename: i.date_time for i in z.infolist()}
     z.extractall(unzipped := Path(tempfile.mkdtemp()))
 evidence = [f for f in (case.dir / "evidence").iterdir() if not f.name.startswith(".")]
@@ -89,6 +92,7 @@ assert avatar["exhibit"].endswith(".png") and avatar["url"] == "https://cdn.exam
 assert by_sha[bad_sha]["hash_ok"].startswith("NO") and made["changed"] == [by_sha[bad_sha]["exhibit"]]
 assert all(r["hash_ok"] == "yes" for r in rows if r["sha256"] != bad_sha)
 assert "WARNING: 1 files" in readme and "Insurer XYZ claim 123" in readme
+assert [(n["cite"], n["replaces"], n["replaced_by"]) for n in noted] == [("N-1", "", "N-2"), ("N-2", "N-1", "")]
 assert [e["action"] for e in log][:1] == ["case opened"] and any(e["action"] == "inbox import" for e in log)
 
 # The standard tool agrees: every exhibit checks out except the one edited after it was saved
