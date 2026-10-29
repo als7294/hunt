@@ -21,6 +21,8 @@ KINDS = {"name"}
 API = "https://api.open.fec.gov/v1/schedules/schedule_a/"
 PAGE = "https://www.fec.gov/data/receipts/individual-contributions/"
 CYCLES = 4  # two-year periods searched, newest first
+KEY = "HUNT_FEC_KEY"
+HEALTH = "https://api.open.fec.gov/swagger/"  # spends no key quota
 FIELDS = ("name", "city", "state", "zip", "employer", "occupation")
 
 
@@ -47,7 +49,7 @@ def _finding(seed, key, records, body):
 async def search(seed):
     year = datetime.now(UTC).year
     cycles = [year + year % 2 - 2 * i for i in range(CYCLES)]
-    key = os.environ.get("HUNT_FEC_KEY")
+    key = os.environ.get(KEY)
     # ponytail: first page only (100 newest records); follow pagination.last_indexes if prolific donors get cut off
     params = {"contributor_name": seed.value, "is_individual": "true", "per_page": 100,
               "sort": "-contribution_receipt_date", "two_year_transaction_period": cycles, "api_key": key or "DEMO_KEY"}

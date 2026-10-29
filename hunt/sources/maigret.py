@@ -16,6 +16,7 @@ from ..seed import Finding
 
 NAME = "maigret"
 KINDS = {"username"}
+HEALTH_NOTE = "checks its own sites; nothing single to probe"
 TOP_SITES = 500  # Maigret's own default; all ~3k sites takes several minutes
 
 log = logging.getLogger("maigret")

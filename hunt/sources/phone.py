@@ -6,6 +6,7 @@ from phonenumbers import PhoneNumberFormat, PhoneNumberType, carrier, geocoder, 
 from ..seed import Finding
 
 NAME = "phonenumbers"
+HEALTH_NOTE = "offline; nothing to reach"
 KINDS = {"phone"}
 LINE_TYPES = {v: k.lower() for k, v in vars(PhoneNumberType).items() if not k.startswith("_")}
 

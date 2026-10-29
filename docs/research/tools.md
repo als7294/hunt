@@ -80,7 +80,10 @@ Live carrier/CNAM lookup needs paid services (e.g. Twilio Lookup), so it's out o
 | **Wayback CDX** | Free, no key | ~60 req/min (2023 maintainer figure); back off on 429. **Wired in** |
 | **Nominatim / OSM** | Public instance 1 req/s, ODbL attribution | Self-host for scale |
 | PACER | $0.10/page (rising to $0.12 on 2027-01-01) | Not free; out of MVP |
-| OpenCorporates | Free only for journalists/NGOs/academics | Paid investigators likely don't qualify |
+| **State licence and business portals** (Socrata) | Keyless; throttled by IP; free app token ~1,000 req/hr | TX, CO, DE, IL, WA, OR, NYC licences; NY, OR, CT, CO, PA business registries. **Wired in** |
+| **FMCSA carrier census** | Keyless (data.transportation.gov) | Owner-operators and carrier officers. **Wired in** |
+| OpenCorporates | API key required; free keys only for public-benefit "Permitted Users" | Commercial use needs a paid key: rejected |
+| FAA airmen registry | Monthly ZIP of CSVs (registry.faa.gov) | Server answers scripted requests with 503; not automated (see below) |
 | NSOPW / sex-offender registries | **No API; terms forbid automated search** | Link out only |
 | Property/assessor | County by county, no free national API | Out of MVP |
 
@@ -102,6 +105,9 @@ _Checked live on 2026-10-29, logged out, with public organisations' handles, `ex
 | **SEC EDGAR** (`edgar`) | name → filers with their own CIK (insiders; address of record, form types) and companies whose filings contain the exact name | 10 req/s; ≤ 7 requests per name | `HUNT_SEC_UA` (your firm + contact) | SEC's firewall 403s any User-Agent containing "github.com" |
 | **NPI Registry** (`npi`) | first + last name → providers' practice address and phone, specialty, licence numbers, **former names** | None published | none | Public CMS data (FOIA) |
 | **CourtListener** (`courtlistener`) | name → federal RECAP dockets with that party: case, court, docket number, dates, parties | Free account 5/min, 50/hr, 125/day (third-party report) | `HUNT_COURTLISTENER_TOKEN`, **required**; off without it | RECAP is a sample of PACER, not every case |
+| **State licences** (`licences`) | first + last name → licences in 11 official tables: TX TDLR trades, TX real estate and inspectors (with sponsoring broker), TX Medical Board (with **year of birth**), CO DORA (all professions, with verify link), DE, IL IDFPR, WA L&I contractors and their principals (with dates), OR CCB contractors, NYC Buildings. Licence type and number, status, issue and expiry dates, business, city | Socrata: throttled by IP; one request per dataset per name, 50 rows each | `HUNT_SOCRATA_TOKEN` (~1,000/hr) | Public records; most tables public domain. Coverage is per state, never national |
+| **Business registries** (`businesses`) | first + last name → businesses the person runs or fronts: NY active corporations (chief executive, registered agent, process name), OR active businesses (every role, including sole-proprietor registrants), CT principals (role, residence town; business name joined in), CO registered agents and trade-name registrants, PA parties. Role, business, entity type, status, dates, city | as above, 6 tables | `HUNT_SOCRATA_TOKEN` | Officers' home towns are published by the states; Hunt shows the town, not the street |
+| **FMCSA census** (`fmcsa`) | first + last name → carriers registered under that name (owner-operators) or listing it as a company officer: USDOT number, active or inactive, interstate or intrastate, trucks, drivers and CDL drivers, address, phone, email on file, last MCS-150 update | as above, 1 table, updated daily | `HUNT_SOCRATA_TOKEN` | Federal public data. SAFER snapshot is the record page |
 
 ### Considered and rejected
 
@@ -115,6 +121,69 @@ _Checked live on 2026-10-29, logged out, with public organisations' handles, `ex
 | PyPI | No user API; user pages are behind a client challenge |
 | FINRA BrokerCheck | Terms limit use to investor-protection, compliance or regulatory purposes, and forbid bulk automated collection |
 | OFAC SDN list | Free and lawful, but a bulk list with fuzzy name matching, not a search API. Worth a separate sanctions-screen step |
+| OpenCorporates | Every API call needs a key, and free keys go only to public-benefit "Permitted Users"; commercial use is paid |
+| FMCSA QCMobile API | Needs a Login.gov web key. The keyless census on data.transportation.gov already gives the identity fields and officers; QCMobile would add only inspections and crashes |
+| California DCA / CSLB | No API. DCA posts monthly licensee files per board; CSLB's lookup is a web form. A bulk import could come later |
+| Florida DBPR | No API; "instant public records" CSV files per profession. Same bulk-import route as California |
+| FAA airmen registry | A monthly ZIP of CSVs (`registry.faa.gov/database/CS<MMYYYY>.zip`). The server answered Hunt's scripted HEAD with a 503, so Hunt doesn't fetch it; getting around that would be bot-check circumvention. Size not measured. **Decision for Aaron:** an investigator can download it by hand and Hunt could import the file |
+
+### Adding a state
+
+Most states publish licence or business tables on Socrata portals. To add one:
+1. Find candidates with the discovery API: `https://api.us.socrata.com/api/catalog/v1?q=license&only=dataset`.
+2. Read the columns (metadata only, no rows) at `https://<domain>/api/views/<id>.json`.
+3. Add a `Dataset` to `licences.py` or `businesses.py`: which column(s) hold the name and what role it plays, a record mapping, and the column that identifies a record.
+
+The search, filtering, proxy, health probe and note come with it. Tables already checked and ready to add:
+- NY registered tax preparers (`data.ny.gov` `b7jj-bh4g`)
+- NY home inspectors (`r9fr-48vu`)
+- OR notaries (`data.oregon.gov` `j2pk-zk6z`)
+- OR building-codes licences (`vhbr-cuaq`)
+- IL asbestos workers (`illinois-edp.data.socrata.com` `437c-unzu`)
+- Vermont fire-safety licences (`data.vermont.gov` `cy8e-89cz`)
+
+ArcGIS Hub portals would need a second engine (`FeatureServer/0/query`); none of the states checked so far needed one.
+
+### Source health
+
+`hunt.sources.health()` returns one row per source, in registry order, for the startup screen:
+- `source`, `kinds`
+- `reachable`: True, False, or None when there is nothing to probe (Maigret, user-scanner and phonenumbers run offline or check their own sites)
+- `detail`: "ok", "rate-limited right now", "refused (403)", "not found (404)", "server error 5xx" or "unreachable (…)"
+- `checks`: one per probed URL, with status and milliseconds
+- `key`: the env var name; `key_set`, `key_required`
+- `ready`: reachable, or nothing to reach, and no required key missing
+
+Each probe is a HEAD through `HUNT_PROXY` (a GET when HEAD isn't served), with an 8-second timeout, to a URL that spends no quota: GitHub's `/rate_limit`, FEC's docs page, each Socrata table's metadata. A row never contains a key's value. Live on 2026-10-29: 18 of 19 ready; CourtListener wasn't, because it has no token.
+
+## Records in the app (for the frontend)
+
+**What triggers them.**
+- A `name` seed runs every records source: `fec`, `edgar`, `npi`, `courtlistener` (with a token), `licences`, `businesses`, `fmcsa`. It also runs the name searches on GitHub, Bluesky, Mastodon and Stack Overflow; those are accounts, not records.
+- `location` and `address` seeds don't run records, but they are what separates the subject from namesakes: the scorer compares each record's `location` with them. The wizard should ask for the subject's city or state whenever a name is given.
+- A one-word name is not searched; the note says so.
+
+**Group records by what they show:**
+
+| Group | Sources | Investigator's question |
+|---|---|---|
+| Working | `licences`, `businesses`, `npi`, `fmcsa` (officers), `fec` (employer, occupation), `edgar` | Is the claimant licensed, trading or employed somewhere? |
+| Driving | `fmcsa` (owner-operator; trucks, drivers, interstate) | Does the claimant run or drive for a carrier? |
+| Courts | `courtlistener` | Earlier federal suits or claims? |
+| Money and politics | `fec`, `edgar` | Where were they, and with whom, when they donated or filed? |
+
+**On each record, show:**
+1. The record's own name as written (`fullname`), not the searched name. "ROBERT J VANCE" vs "Robert Vance" is the first namesake check.
+2. `roles`: licence holder, president, registered agent, company officer…
+3. The organisation (`business`, `carrier`, `filer`) and the place (`location`, `county`; `business_location` where the business is elsewhere).
+4. Identifiers: licence number, NPI, USDOT, CIK, registry number, `year_of_birth` (TX Medical Board).
+5. Status and dates (`status`, `issued`, `expires`, `registered`, `last_update`). Derive an **active now** badge from status and expiry. An expired licence or inactive carrier still shows the history.
+6. The record page (the candidate's URL) and when it was fetched. The URL is the evidence; the raw response is in the evidence locker.
+7. The match verdict and its reasons, as for accounts. Until name seeds get the corroboration cap in `match.py`, show records found by name alone with a "name only" label rather than the verdict.
+
+**Coverage, from the run's note.** Each records run's note lists the tables searched, those rate-limited or failed, and the row cap. Show it under the group, e.g. "searched 11 licence tables (TX, CO, DE, IL, WA, OR, NYC); not covered: CA, FL and other states." "Nothing found" must not read as "has no licence".
+
+**Don't surface by default:** street addresses of homes. CT's principal residences are in the raw record. Show the town, and keep the street one click away for the investigator who needs it.
 
 ## Image / identity
 
@@ -181,6 +250,7 @@ _Checked live on 2026-10-29, logged out, with public organisations' handles, `ex
 - API sources: [GitHub rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api), [GitHub AUP](https://docs.github.com/en/site-policy/acceptable-use-policies/github-acceptable-use-policies), [Gravatar REST API](https://docs.gravatar.com/rest-api/), [Bluesky rate limits](https://docs.bsky.app/docs/advanced-guides/rate-limits), [Mastodon rate limits](https://docs.joinmastodon.org/api/rate-limits/), [Stack Exchange throttles](https://api.stackexchange.com/docs/throttle), [SEC EDGAR access](https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data), [NPI registry API (no documented limit)](https://docs.ropensci.org/npi/articles/npi.html)
 - CourtListener limits: [free.law issue #7200](https://github.com/freelawproject/courtlistener/issues/7200), [third-party guide](https://www.vaquill.ai/blog/how-to-use-courtlistener-api)
 - FEC use restriction: [FEC: sale or use of contributor information](https://www.fec.gov/updates/sale-or-use-contributor-information), [11 CFR 104.15](https://www.law.cornell.edu/cfr/text/11/104.15)
+- Records: [Socrata discovery API](https://dev.socrata.com/docs/other/discovery), [Socrata app tokens](https://dev.socrata.com/docs/app-tokens), [TDLR All Licenses](https://data.texas.gov/d/7358-krk7), [Colorado DORA licences](https://data.colorado.gov/d/7s5z-vewr), [Illinois IDFPR licences](https://illinois-edp.data.socrata.com/d/pzzh-kp68), [WA L&I contractors](https://data.wa.gov/d/m8qx-ubtq), [NY active corporations](https://data.ny.gov/d/n9v6-gdp6), [Oregon active businesses](https://data.oregon.gov/d/tckn-sxa6), [CT principals](https://data.ct.gov/d/ka36-64k6), [FMCSA company census](https://catalog.data.gov/dataset/company-census-file), [FMCSA QCMobile](https://mobile.fmcsa.dot.gov/QCDevsite/home), [DCA open data](https://www.dca.ca.gov/data/index.shtml), [FAA releasable airmen](https://www.faa.gov/licenses_certificates/airmen_certification/releasable_airmen_download), [OpenCorporates terms](https://opencorporates.com/terms-of-use-2/)
 - Rejected: [ORCID API limits](https://info.orcid.org/ufaqs/what-are-the-api-limits/), [ORCID public API terms](https://info.orcid.org/public-client-terms-of-service/), [npm open-source terms](https://docs.npmjs.com/policies/open-source-terms), [BrokerCheck permitted uses](https://www.finra.org/investors/investing/working-with-investment-professional/about-brokercheck/permitted-uses)
 - [Maltego plans](https://docs.maltego.com/support/solutions/articles/15000036759-maltego-products-and-plans)
 - [IntelTechniques tools](https://inteltechniques.com/tools/)

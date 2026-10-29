@@ -19,6 +19,7 @@ NAME = "whatsmyname"
 KINDS = {"username"}
 DATA_URL = "https://raw.githubusercontent.com/WebBreacher/WhatsMyName/main/wmn-data.json"
 CACHE = HOME / "cache" / "wmn-data.json"
+HEALTH = DATA_URL
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
 
 

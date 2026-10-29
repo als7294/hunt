@@ -15,12 +15,14 @@ NAME = "courtlistener"
 KINDS = {"name"}
 API = "https://www.courtlistener.com/api/rest/v4/search/"
 SITE = "https://www.courtlistener.com"
+KEY, KEY_REQUIRED = "HUNT_COURTLISTENER_TOKEN", True
+HEALTH = SITE + "/api/rest/v4/"
 
 
 async def search(seed):
-    token = os.environ.get("HUNT_COURTLISTENER_TOKEN")
+    token = os.environ.get(KEY)
     if not token:
-        return [], 0, "not run: CourtListener needs a free account token in HUNT_COURTLISTENER_TOKEN"
+        return [], 0, f"not run: CourtListener needs a free account token in {KEY}"
     async with client(Authorization=f"Token {token}") as c:
         r = await fetch(c, API, {"type": "r", "q": f'party:"{seed.value}"'})
     data = r.json()

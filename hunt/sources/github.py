@@ -24,6 +24,8 @@ API = "https://api.github.com"
 CACHE = HOME / "cache" / "github"
 PROFILES = 10  # profiles read per search; each spends one of the hour's 60
 LOGIN = re.compile(r"[A-Za-z0-9](?:-?[A-Za-z0-9]){0,38}")  # GitHub's own username rule
+KEY = "HUNT_GITHUB_TOKEN"
+HEALTH = API + "/rate_limit"  # doesn't count against the quota
 
 
 async def _get(c, path, **params):
@@ -51,7 +53,7 @@ def _finding(seed, r, socials=()):
 
 
 async def search(seed):
-    token = os.environ.get("HUNT_GITHUB_TOKEN")
+    token = os.environ.get(KEY)
     async with client(**({"Authorization": f"Bearer {token}"} if token else {})) as c:
         if seed.kind == "username":
             if not LOGIN.fullmatch(seed.value):

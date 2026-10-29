@@ -11,6 +11,7 @@ from ._api import client, fetch, tidy
 NAME = "npi"
 KINDS = {"name"}
 API = "https://npiregistry.cms.hhs.gov/api/"
+HEALTH = API + "?version=2.1"
 SUFFIXES = {"jr", "sr", "ii", "iii", "iv"}  # not credentials: "Md" is also a given name
 
 

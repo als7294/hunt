@@ -14,11 +14,13 @@ from ._api import client, fetch, handles, tidy
 NAME = "gravatar"
 KINDS = {"email"}
 API = "https://api.gravatar.com/v3/profiles/"
+KEY = "HUNT_GRAVATAR_KEY"
+HEALTH = "https://api.gravatar.com/v3/openapi"  # spends no profile lookup
 
 
 async def search(seed):
     email = seed.value.strip().lower()
-    key = os.environ.get("HUNT_GRAVATAR_KEY")
+    key = os.environ.get(KEY)
     async with client(**({"Authorization": f"Bearer {key}"} if key else {})) as c:
         r = await fetch(c, API + hashlib.sha256(email.encode()).hexdigest())
     if not r:
