@@ -521,7 +521,8 @@ screens.scan = async slug => {
 // ponytail: the newest 60 files only; page them if cases routinely have more
 function tiles(slug, posts, running) {
   const media = posts.flatMap(p => p.media).slice(0, 60);
-  if (!media.length) return !running ? html`<div class="empty">None of the accounts you confirmed post anywhere Hunt can read without logging in.
+  if (!media.length) return !running ? html`<div class="empty">${posts.length ? `Hunt read ${posts.length} public post${posts.length === 1 ? '' : 's'} from the accounts you confirmed; none has a photo or video to check.`
+      : 'None of the accounts you confirmed post anywhere Hunt can read without logging in.'}
     Instagram, Facebook, TikTok and Strava need a login, so save the posts you need there and add them on the <a href="#/case/${slug}/posts" style="color:var(--ac)">Posts</a> page.</div>`
     : html`<div class="empty">Reading public posts from the accounts you confirmed…</div>`;
   return html`<div class="tiles">${media.map(m => { const src = evidenceUrl(slug, m.file);
