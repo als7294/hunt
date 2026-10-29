@@ -39,7 +39,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from . import report, search, sources, vlm
-from . import bundle, inbox, notes, recheck, watch  # docs/qol.md
+from . import bundle, inbox, notes, pack, recheck, seen, watch  # docs/qol.md
 from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, RETENTION_DAYS, Case, all_cases  # watch.py reads RETENTION_DAYS here
 from .match import ICD203
 from .seed import detect, now
@@ -1036,6 +1036,57 @@ async def _watch_loop(app):
             print(f"hunt app: watching: {type(e).__name__}: {e}", file=sys.stderr)
 
 
+def _folder(value) -> Path:
+    folder = Path(str(value or inbox.DOWNLOADS)).expanduser()
+    if not folder.is_absolute() or not folder.is_dir():
+        raise HTTPException(400, "folder must be a folder on this computer")
+    return folder
+
+
+async def post_pack(req: Request):
+    c = _case(req)
+    b = await _body(req)
+    folder, passphrase = _folder(b.get("folder")), b.get("passphrase")
+    try:
+        made = await asyncio.to_thread(pack.pack, c, folder, passphrase if isinstance(passphrase, str) else "")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except OSError as e:
+        raise HTTPException(409, str(e))
+    return JSONResponse({"name": Path(made["path"]).name, **made})
+
+
+async def get_archives(req: Request):
+    folder = _folder(req.query_params.get("folder"))
+    return JSONResponse({"folder": str(folder), "files": pack.archives(folder)})
+
+
+async def post_unpack(req: Request):
+    b = await _body(req)
+    folder, name = _folder(b.get("folder")), b.get("name")
+    if not isinstance(name, str) or "/" in name or not name.endswith(pack.SUFFIX):
+        raise HTTPException(400, f"name must be a {pack.SUFFIX} file in the folder")
+    if not isinstance(b.get("passphrase"), str) or not isinstance(b.get("replace", False), bool):
+        raise HTTPException(400, "passphrase must be text, and replace true or false")
+    if b.get("replace") and any(not j.finished for j in req.app.state.jobs.values()):
+        raise HTTPException(409, "wait for the running job to finish: replacing moves a case to the Trash")
+    try:
+        return JSONResponse(await asyncio.to_thread(pack.unpack, folder / name, b["passphrase"], b.get("replace", False)))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+async def get_seen(req: Request):
+    c = _case(req)
+    return JSONResponse(await asyncio.to_thread(seen.for_case, c, req.query_params.get("screening") == "1"))
+
+
+async def post_seen(req: Request):
+    b = await _body(req)
+    ids = seen.from_seeds(_str_list(b.get("seeds"), "seeds"))
+    return JSONResponse(await asyncio.to_thread(seen.lookup, ids, None, b.get("kind") == seen.SCREENING))
+
+
 def _watching(app):
     @asynccontextmanager
     async def lifespan(_):
@@ -1060,6 +1111,11 @@ QOL_ROUTES = [
     Route("/api/cases/{slug}/alerts/seen", post_alerts_seen, methods=["POST"]),
     Route("/api/watch/background", get_background),
     Route("/api/watch/background", post_background, methods=["POST"]),
+    Route("/api/cases/{slug}/pack", post_pack, methods=["POST"]),
+    Route("/api/case-archives", get_archives),
+    Route("/api/case-archives/unpack", post_unpack, methods=["POST"]),
+    Route("/api/cases/{slug}/seen-before", get_seen),
+    Route("/api/seen-before", post_seen, methods=["POST"]),
 ]
 
 

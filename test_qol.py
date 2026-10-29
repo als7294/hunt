@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore", message="Using `httpx` with")  # Starlette pre
 from starlette.testclient import TestClient  # noqa: E402
 
 from hunt import app as server
-from hunt import inbox, recheck, scan, watch
+from hunt import inbox, pack, recheck, scan, seen, watch
 from hunt.case import Case
 from hunt.seed import Finding, Seed
 
@@ -165,4 +165,45 @@ assert c.get("/api/watch/background").json() == {"on": True} and c.get(watch_api
 assert c.post("/api/watch/background", json={"on": False}, headers=JSON).json() == {"on": False}
 r = c.post(watch_api, json={"on": False}, headers=JSON)
 assert r.json()["on"] is False and r.json()["why"] == "turned off"
+
+# Moving a case: the archive is saved in a folder on this computer, never sent through the browser
+outbox, packed = Path(tempfile.mkdtemp()), []
+
+
+def fake_pack(c, folder, passphrase):
+    pack._check(passphrase)
+    packed.append(folder)
+    (folder / f"{c.name}-20261029-120000Z{pack.SUFFIX}").write_bytes(b"locked")
+    return {"path": str(folder / f"{c.name}-20261029-120000Z{pack.SUFFIX}"), "sha256": "a" * 64,
+            "manifest_sha256": "b" * 64, "files": 3, "bytes": 6, "changed": []}
+
+
+pack.pack = fake_pack
+pack.unpack = lambda path, passphrase, replace=False: {"slug": "vance-claim-2", "files": 3, "replaced": replace,
+                                                         "sha256": "a" * 64, "manifest_sha256": "b" * 64}
+pack_api = f"/api/cases/{case.name}/pack"
+assert c.post(pack_api, json={"passphrase": "short", "folder": str(outbox)}, headers=JSON).status_code == 400
+assert c.post(pack_api, json={"passphrase": "x" * 12, "folder": "relative"}, headers=JSON).status_code == 400
+r = c.post(pack_api, json={"passphrase": "correct horse battery", "folder": str(outbox)}, headers=JSON)
+assert r.status_code == 200 and r.json()["name"].endswith(".hunt-case.dmg") and packed == [outbox], r.text
+listed = c.get(f"/api/case-archives?folder={quote(str(outbox))}").json()
+assert [f["name"] for f in listed["files"]] == [r.json()["name"]]
+unpack_api = "/api/case-archives/unpack"
+for bad in ({"name": "../x.hunt-case.dmg"}, {"name": "x.zip"}, {"name": r.json()["name"], "replace": "yes"}):
+    assert c.post(unpack_api, json={"folder": str(outbox), "passphrase": "p", **bad}, headers=JSON).status_code == 400
+r = c.post(unpack_api, json={"folder": str(outbox), "name": r.json()["name"], "passphrase": "correct horse battery"},
+           headers=JSON)
+assert r.status_code == 200 and r.json()["slug"] == "vance-claim-2", r.text
+
+# Have we seen this person before?
+again = Case.create("Vance earlier claim", "Insurer XYZ claim 99", kind="insurance", tool="person")
+again.add_seeds([Seed("username", "kestrel_vane88")])
+case.add_seeds([Seed("username", "kestrel_vane88")])
+r = c.get(f"/api/cases/{case.name}/seen-before").json()
+assert r["checked"] and [m["case"] for m in r["matches"]] == [again.name], r
+assert not c.get(f"/api/cases/{case.name}/seen-before?screening=1").json()["checked"]
+r = c.post("/api/seen-before", json={"seeds": ["@kestrel_vane88"], "kind": "insurance"}, headers=JSON).json()
+assert [m["case"] for m in r["matches"]] == sorted([again.name, case.name]), r
+assert not c.post("/api/seen-before", json={"seeds": ["kestrel_vane88"], "kind": "background"}, headers=JSON).json()["checked"]
+assert c.post("/api/seen-before", json={"seeds": "kestrel_vane88"}, headers=JSON).status_code == 400
 print("ok")

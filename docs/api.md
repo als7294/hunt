@@ -156,7 +156,7 @@ scan.set_status(case, hit_id: int, status: str) -> dict
 - `driving`: driving
 - `injury`: mentions of the injury
 
-## Quality of life: the Downloads inbox, the evidence bundle, links, Check again, notes, watching
+## Quality of life: the Downloads inbox, the evidence bundle, links, Check again, notes, watching, moving cases, seen before
 See [qol.md](qol.md) for the screens that use these.
 
 | Method | Path | Body / response |
@@ -173,6 +173,11 @@ See [qol.md](qol.md) for the screens that use these.
 | POST | `/api/cases/{slug}/alerts/seen` | `{}` → `{marked: n}` |
 | GET | `/api/watch/background` | `{on}`: whether "Keep watching when Hunt is closed" is installed (one per-user LaunchAgent, for every watched case) |
 | POST | `/api/watch/background` | `{on: bool}` → `{on}`. Installs `~/Library/LaunchAgents/io.github.als7294.hunt.watch.plist` and loads it with `launchctl`, or unloads it and moves the plist to the Trash. Audited as `background watching` in every watched case. Returns 409 if `launchctl` refuses |
+| POST | `/api/cases/{slug}/pack` | `{passphrase (12+ characters), folder?}` → `{name, path, sha256, manifest_sha256, files, bytes, changed}`. Writes `<case>-<UTC time>.hunt-case.dmg` (AES-256 encrypted disk image) into `folder`, default `~/Downloads`. The archive never passes through the browser. Returns 400 for a short passphrase or a bad folder. Audited as `case packed` (inside the archive) and `case pack sealed` (here) |
+| GET | `/api/case-archives?folder=` | `{folder, files: [{name, folder, size, saved}]}`: `.hunt-case.dmg` files in the folder (default `~/Downloads`), newest first. Their contents stay locked until unpacked |
+| POST | `/api/case-archives/unpack` | `{name, folder?, passphrase, replace?: false}` → `{slug, files, replaced, sha256, manifest_sha256}`. Every file is checked against the manifest before the case is put in place. A case with the same name here is kept, and the new one gets `-2`; with `replace`, the one here goes to the Trash first. Returns 400 for a wrong passphrase, a file that doesn't match, or a file that isn't in the manifest; nothing is changed. Returns 409 with `replace` while any job runs. Audited as `case unpacked`; watching is turned off on arrival |
+| GET | `/api/cases/{slug}/seen-before?screening=0\|1` | `{checked, why, skipped_screenings, matches: [{case, label, kind, created, strong, on: [{kind: "username"\|"email"\|"phone"\|"url"\|"address"\|"name"\|"file", value}]}]}`, strongest first. Local and read-only, and never merges anything. A `background` case, or `screening=1`, gives `checked: false` with `why`. `background` cases never appear in others' matches |
+| POST | `/api/seen-before` | `{seeds: [str], kind?}` → the same, for the new-case form before the case exists. `kind: "background"` gives `checked: false` |
 | GET | `/api/cases/{slug}/notes?about=&ref=` | `{notes: [note]}`, oldest first, optionally only the notes about one thing. Returns 400 for an unknown `about` or a bad `ref` |
 | POST | `/api/cases/{slug}/notes` | `{text, about?: "case"\|"account"\|"post"\|"hit", ref?, replaces?: note id}` → `201 note`. A correction (`replaces`) keeps the old note's subject; a note can only be replaced once. Returns 400 for empty text (or more than 20,000 characters), an unknown subject, or a note that's already replaced. Audited as `note`, with its text |
 
