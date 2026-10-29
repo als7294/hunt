@@ -62,6 +62,7 @@ const brand = html`<a class="brand" href="#/"><span class="logo"></span>Hunt</a>
 let status = { proxy: false };
 function topHome() {
   return html`<header class="top">${brand}<div class="top-right">
+    <a class="chip-btn" href="#/connect" title="Sign in to platforms in the Hunt Browser">Accounts</a>
     <a class="chip-btn" href="#/settings" title="Your firm, licence and logo, for the report">Report settings</a>
     ${proxyChip()}
   </div></header>`;
@@ -126,7 +127,8 @@ screens.startup = async () => {
     await new Promise(r => setTimeout(r, 380));
   }
   sessionStorage.setItem('hunt-booted', '1');
-  const next = () => { if (['', '#/', '#/startup'].includes(location.hash)) { if (location.hash === '#/') render(); else location.hash = '#/'; } };
+  const firstBoot = (() => { try { return !localStorage.getItem('hunt-connect-seen'); } catch { return false; } })();
+  const next = () => { if (['', '#/', '#/startup'].includes(location.hash)) { const to = firstBoot ? '#/connect' : '#/'; if (location.hash === to) render(); else location.hash = to; } };
   // Cases past retention wait for a decision; otherwise carry on by itself
   if (checks.some(c => c.id === 'retention' && c.items?.length)) box.insertAdjacentHTML('beforeend', html`<a class="btn primary sm" href="#/" style="align-self:flex-start;margin-top:6px">Continue →</a>`.s);
   else setTimeout(next, checks.every(c => c.ok) ? 500 : 2500);
@@ -399,8 +401,11 @@ screens.identity = async slug => {
         <div style="flex:1;min-width:0"><div style="font-weight:500">${ns.label}</div><div class="muted" style="font-size:14px">${[ns.site, ...(ns.why || [])].filter(Boolean).join(' · ')}</div></div>
         <button class="btn ghost sm" data-act="decide" data-url="${ns.url}" data-decision="not him">${ns.decision === 'not him' ? '✓ Not them' : 'Not them'}</button></div>`)}
     </div>` : ''}
+    <div id="person-browse" style="width:min(880px,100%)"></div>
     <div id="seen-here" style="width:min(880px,100%)"></div>
   </main>`);
+  if (p.decision === 'him' || accts.some(a => a.decision === 'him')) Promise.all([api(`/api/cases/${encodeURIComponent(slug)}/checklist`), accts.some(a => a.site === 'Facebook') ? api(`/api/cases/${encodeURIComponent(slug)}/facebook/links`) : null])
+    .then(([cl, fb]) => { if ($('#person-browse')) $('#person-browse').innerHTML = html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:18px">${checklistPanel(slug, cl)}${fb ? facebookTile(slug, fb.links, accts.find(a => a.site === 'Facebook')?.reasons?.find(r => /login|logged/i.test(r))) : ''}</div>`.s; }).catch(() => {});
   api(`/api/cases/${encodeURIComponent(slug)}/seen-before`).then(r => { if ($('#seen-here')) $('#seen-here').innerHTML = seenBox(r, slug).s; }).catch(() => {});
 };
 
@@ -629,6 +634,114 @@ async function refreshNoteCounts(slug) { // the "Note" buttons on hits show how 
   btns.forEach(b => { const n = all.notes.filter(x => x.about === 'hit' && x.ref === b.dataset.ref && !x.replaced_by).length; b.textContent = n ? `${n} note${n > 1 ? 's' : ''}` : 'Note'; });
 }
 
+/* Logged-in platforms (docs/capture.md, docs/facebook.md §6): the Hunt Browser, the checklist, the capture feed,
+   and Facebook pages the investigator saved. Hunt never logs in; she browses as herself and Hunt records. */
+let poller = null; // the one screen-level poll (sign-ins, pairing, captures); cleared on every render
+const poll = (fn, ms) => { clearInterval(poller); poller = setInterval(fn, ms); };
+const CAPTURE_KIND = { view: 'screenshot', manual: 'screenshot', frame: 'video frame', page: 'page', recording: 'recording' };
+function checklistPanel(slug, cl) {
+  return html`<div style="display:flex;flex-direction:column;gap:10px"><b>What to open on each account</b>
+    ${cl.accounts.length ? cl.accounts.map(a => html`<div class="card" style="padding:12px;background:var(--panel-2);display:flex;flex-direction:column;gap:4px">
+      <div style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:${siteColor(a.platform)}"></span><b style="font-size:15px">${a.platform}</b><span class="muted" style="font-size:13.5px">${handleOf(a.account)}</span>
+        <span class="muted" style="margin-left:auto;font-size:13px">${a.sections.filter(x => x.seen).length} of ${a.sections.length} opened</span></div>
+      ${a.sections.map(x => html`<div style="display:flex;align-items:center;gap:10px;font-size:14px;padding:3px 0">
+        <span style="width:18px;height:18px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;${x.seen ? 'background:var(--gr-bg);color:var(--gr)' : 'box-shadow:inset 0 0 0 1.5px var(--line)'}">${x.seen ? '✓' : ''}</span>
+        <span style="flex:1">${x.label} ${x.seen ? html`<span class="muted" style="font-size:12.5px">· ${when(x.seen_at)}${x.evidence ? html` · <a href="${evidenceUrl(slug, x.evidence)}" target="_blank" rel="noopener" style="color:var(--ac)">saved</a>` : ''}</span>` : html`<span class="dim" style="font-size:12.5px">· not opened yet</span>`}</span>
+        <button data-act="browser-open" data-url="${x.url}" data-case="${slug}" style="color:var(--ac);font-size:13.5px">Open</button></div>`)}</div>`)
+    : html`<div class="empty" style="padding:16px">Confirm the subject’s accounts in Is it them? to see what to open.</div>`}
+    <span class="dim" style="font-size:12.5px">Open sends the page to the Hunt Browser. Turn on capture in its Hunt Capture button; ticks come from what it saved. What isn’t opened goes in the report under what we couldn’t see.</span></div>`;
+}
+const captureRows = (slug, caps) => caps.length ? caps.slice(0, 30).map(x => html`<div class="row" style="padding:10px 12px;align-items:flex-start">
+    ${x.file && !/\.(mhtml|webm|mp4)$/i.test(x.file) ? html`<img class="thumb" src="${evidenceUrl(slug, x.file)}" alt="" style="width:48px;height:48px;flex:none">` : html`<span class="tile-ic" style="width:48px;height:48px">${x.kind === 'recording' ? '▶' : '▤'}</span>`}
+    <div style="flex:1;min-width:0;font-size:14px"><div>${x.platform || ''} · ${CAPTURE_KIND[x.kind] || x.kind}${x.kind === 'page' && x.posts != null ? html` · <span class="t2">${x.posts} posts read, ${x.added} new</span>` : ''}</div>
+      <div class="muted" style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x.where || x.url}</div><div class="dim" style="font-size:12px">${when(x.viewed_at || x.ts)}</div></div>
+    ${x.file ? html`<a class="btn ghost sm" href="${evidenceUrl(slug, x.file)}" target="_blank" rel="noopener">View</a>` : ''}</div>`)
+  : html`<div class="empty" style="padding:16px">Nothing captured yet. Turn on capture in the Hunt Capture popup, then browse.</div>`;
+function facebookTile(slug, links, note) {
+  return html`<div style="display:flex;flex-direction:column;gap:10px"><div style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:${siteColor('Facebook')}"></span><b>Facebook</b></div>
+    <div class="t2" style="font-size:14.5px">Facebook shows almost nothing logged out. Browse it yourself, save what you find, and Hunt reads it.</div>
+    ${note ? html`<div class="muted" style="font-size:13px">Hunt’s own look: ${note}</div>` : ''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><label class="btn sm" for="fb-files" style="cursor:pointer">Add saved pages or screenshots</label><label class="btn ghost sm" for="fb-folder" style="cursor:pointer">Add a saved-page folder</label></div>
+    <input type="file" id="fb-files" data-slug="${slug}" multiple accept=".html,.htm,.mhtml,.mht,.webarchive,.png,.jpg,.jpeg,.heic" hidden>
+    <input type="file" id="fb-folder" data-slug="${slug}" webkitdirectory hidden>
+    <div class="muted" style="font-size:13px">Chrome: File › Save Page As › Webpage, Single File. Safari: File › Save As › Web Archive. Or take screenshots. Scroll and open “See more” first.</div>
+    <div id="fb-result" class="t2" style="font-size:13.5px"></div>
+    ${links.length ? html`<details><summary class="muted" style="cursor:pointer;font-size:14px">Searches to run on Facebook (${links.length})</summary>
+      <div style="display:flex;flex-direction:column;gap:2px;margin-top:6px">${links.map(l => html`<div style="display:flex;gap:10px;align-items:center;font-size:13.5px;padding:3px 0"><span style="flex:1;min-width:0">${l.label}</span>
+        <button data-act="browser-open" data-url="${l.url}" data-case="${slug}" style="color:var(--ac)">Hunt Browser</button><a href="${l.url}" target="_blank" rel="noopener noreferrer" style="color:var(--ac)">Your browser ↗</a></div>`)}</div>
+      <div class="dim" style="font-size:12.5px;margin-top:4px">These open under your own Facebook account. Hunt doesn’t visit them.</div></details>` : ''}</div>`;
+}
+// The posts step's logged-in section: checklist and Facebook on the left, what was captured on the right
+async function loggedInSection(slug, person) {
+  const base = `/api/cases/${encodeURIComponent(slug)}`;
+  const [cl, caps, links, cj] = await Promise.all([api(`${base}/checklist`).catch(() => ({ accounts: [] })), api(`${base}/captures`).catch(() => ({ captures: [] })),
+    api(`${base}/facebook/links`).catch(() => ({ links: [] })), person ? Promise.resolve(null) : api(`${base}/case.json`).catch(() => null)]);
+  const fbNote = cj?.methodology?.filter(r => r.source === 'facebook').at(-1)?.note;
+  const box = $('#logged-in'); if (!box) return;
+  box.innerHTML = html`<div class="two-up" style="gap:16px;align-items:start">
+    <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:18px">${checklistPanel(slug, cl)}${facebookTile(slug, links.links, fbNote)}</div>
+    <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;align-items:baseline"><b>Captured while you browsed</b><a href="#/connect" class="muted" style="font-size:13.5px">Hunt Browser →</a></div>
+      <div id="captures" style="display:flex;flex-direction:column;gap:6px;max-height:560px;overflow:auto">${captureRows(slug, caps.captures)}</div></div></div>`.s;
+  poll(async () => { if (!$('#captures')) return clearInterval(poller);
+    const c2 = await api(`${base}/captures`).catch(() => null); if (c2) $('#captures').innerHTML = captureRows(slug, c2.captures).s; }, 5000);
+}
+async function uploadFacebook(slug, files) {
+  if (!files?.length) return;
+  const form = new FormData(), newest = Math.max(...[...files].map(f => f.lastModified || 0));
+  [...files].forEach(f => form.append('files[]', f, f.webkitRelativePath || f.name)); // keeps Page_files/ beside Page.html
+  if (newest) form.append('saved_at', new Date(newest).toISOString());
+  const out = $('#fb-result'); if (out) out.textContent = `Reading ${files.length} file${files.length > 1 ? 's' : ''}…`;
+  try {
+    const r = await api(`/api/cases/${encodeURIComponent(slug)}/facebook`, { method: 'POST', form });
+    const said = `${r.posts} post${r.posts === 1 ? '' : 's'} read from ${r.pages} page${r.pages === 1 ? '' : 's'} and ${r.screenshots} screenshot${r.screenshots === 1 ? '' : 's'}; ${r.added} new.`;
+    if (out) out.innerHTML = html`${said}${r.skipped?.length ? html` <span class="dim">Left out: ${r.skipped.slice(0, 5).join(', ')}${r.skipped.length > 5 ? ` and ${r.skipped.length - 5} more` : ''}</span>` : ''}`.s;
+    if (r.added) { toast(`${said} Checking them now.`); if (await startScan(slug)) location.hash = `#/case/${slug}/scan`; }
+  } catch (e) { if (out) out.textContent = ''; fail(e); }
+}
+
+/* Connect your accounts (first boot, and from Home): sign in once in the Hunt Browser; each platform can be skipped */
+const setSkipped = list => { try { localStorage.setItem('hunt-skipped', JSON.stringify(list)); } catch { /* private window */ } };
+function connectRows(st) {
+  if (!st.browser?.available) return html`<div class="reason warn"><span class="ic">!</span><span>Install the Hunt Browser first: <span class="mono">uv run playwright install chromium</span>, then come back here.</span></div>`;
+  const sk = skipped();
+  return html`${st.logins.map(l => { const state = st[l.platform] || 'unknown', isSkipped = sk.includes(l.platform) && state !== 'signed_in';
+    return html`<div class="row" style="${isSkipped ? 'opacity:.55' : ''}"><span class="dot" style="background:${siteColor(l.label)}"></span><b style="flex:1">${l.label}</b>
+      <span style="font-size:14px;color:${state === 'signed_in' ? 'var(--gr)' : 'var(--mu)'}">${isSkipped ? 'Skipped' : state === 'signed_in' ? '✓ Signed in' : SIGNIN[state]}</span>
+      ${state === 'signed_in' ? '' : html`<button class="btn sm" data-act="browser-open" data-url="${l.url}">Sign in</button>`}
+      ${state === 'signed_in' ? '' : html`<button class="btn ghost sm" data-act="connect-skip" data-platform="${l.platform}">${isSkipped ? 'Undo' : 'Skip'}</button>`}</div>`; })}
+    ${st.checked_at ? html`<span class="dim" style="font-size:12.5px">Hunt Browser ${st.browser.version || ''} · checked ${ago(st.checked_at).toLowerCase()}</span>` : ''}`;
+}
+function pairingPanel(pr, code) {
+  return pr.paired ? html`<div class="t2" style="font-size:14.5px">Paired with Hunt Capture${pr.name ? ` (${pr.name})` : ''} since ${when(pr.paired_at)}.</div>
+      <div style="display:flex;gap:8px;align-items:center"><button class="btn ghost sm" data-act="pair-forget">Unpair</button><span class="muted" style="font-size:13px">If Hunt restarts, pair again (it moves to a new port).</span></div>`
+    : code ? html`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="mono" style="font-size:30px;letter-spacing:.06em">${code.code}</span><button class="btn ghost sm" data-act="pair-copy" data-code="${code.code}">Copy</button>
+        <span class="muted" id="pair-left" style="font-size:13.5px"></span></div><span class="muted" style="font-size:13px">Type it into the Hunt Capture popup in that browser. Waiting for it…</span>`
+    : html`<div class="t2" style="font-size:14.5px">The Hunt Browser comes with Hunt Capture already paired. To record from another Chromium browser instead, load the <span class="mono">extension</span> folder there (chrome://extensions → Developer mode → Load unpacked), then pair it.</div>
+      <button class="btn sm" data-act="pair-new" style="align-self:flex-start">Pair a browser</button>`;
+}
+let pairCode = null; // {code, until}
+screens.connect = async () => {
+  const [st, pr] = await Promise.all([api('/api/browser/status'), api('/api/pairing').catch(() => ({ paired: false }))]);
+  try { localStorage.setItem('hunt-connect-seen', '1'); } catch { /* fine */ }
+  mount(html`${topHome()}<main class="screen" style="align-items:center;padding:16px 24px 40px">
+    <div style="width:min(720px,100%);display:flex;flex-direction:column;gap:18px">
+      <div><a href="#/" data-act="back" class="muted" style="font-size:15px">← Back</a><div class="h2" style="margin-top:10px">Connect your accounts</div>
+        <div class="sub" style="margin-top:6px">Sign in once, in the Hunt Browser, to the platforms you’ll look at. Hunt never sees your passwords, and nothing is recorded while you sign in. Skip any you don’t use.</div></div>
+      <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px" id="connect-rows">${connectRows(st)}</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><a class="btn primary" href="#/">Done</a>
+        ${st.browser?.profile ? html`<span class="life" style="margin-left:auto"><button class="btn ghost sm" data-act="signout-ask">Sign out of everything…</button></span>` : ''}</div>
+      <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><b>Hunt Capture in another browser</b><div id="pairing" style="display:flex;flex-direction:column;gap:10px">${pairingPanel(pr, pairCode && pairCode.until > Date.now() ? pairCode : null)}</div></div>
+    </div></main>`);
+  poll(async () => {
+    if (route().name !== 'connect') return clearInterval(poller);
+    const s2 = await api('/api/browser/status').catch(() => null); if (s2 && $('#connect-rows')) $('#connect-rows').innerHTML = connectRows(s2).s;
+    if (pairCode) { const left = Math.round((pairCode.until - Date.now()) / 1000);
+      if (left <= 0) { pairCode = null; $('#pairing').innerHTML = html`<span class="muted" style="font-size:14px">That code expired; make a new one.</span>${pairingPanel({ paired: false }, null)}`.s; }
+      else { const p2 = await api('/api/pairing').catch(() => null); if (p2?.paired) { pairCode = null; $('#pairing').innerHTML = pairingPanel(p2).s; toast('Paired.'); }
+        else if ($('#pair-left')) $('#pair-left').textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} left`; } }
+  }, 2000);
+};
+
 /* Have we seen this person before? (docs/qol.md I): local, read-only, nothing merged or blocked */
 const ON_WORDS = { username: 'the username', email: 'the email', phone: 'the phone', url: 'the link', address: 'the address', name: 'the name', file: 'the same photo or video' };
 function seenBox(r, slug) {
@@ -671,16 +784,17 @@ screens.posts = async slug => {
     <div id="inbox" class="hidden"></div>
     ${c.steps.identity === 'done' ? html`<div class="two-up" style="gap:16px;align-items:start">${recheckCard(slug, ch)}${watchCard(slug, w, al)}</div>` : ''}
     ${weeklyChart(d.weekly || [], c.details.injury_date)}
-    <div class="split" style="--side:460px">
+    <div class="split" style="--side:460px;flex:1 0 auto;min-height:460px">
       <div style="display:flex;flex-direction:column;gap:8px;overflow:auto">${hits.length ? hits.map(h => html`<button class="row" data-act="pick-hit" data-id="${h.id}" style="text-align:left;${sel && h.id === sel.id ? 'box-shadow:inset 0 0 0 1.5px var(--ac)' : ''}">
           <span class="dot" style="background:${siteColor(h.source)}"></span>
           <div style="flex:1;min-width:0"><div style="font-weight:500">${h.what}</div><div class="muted" style="font-size:13.5px">${[h.source, h.posted_at ? 'posted ' + day(h.posted_at) : ''].filter(Boolean).join(' · ')}</div></div>
           <div style="text-align:right;font-size:13.5px"><div style="color:${h.timing === 'after' ? 'var(--am)' : 'var(--mu)'}">${h.days_after != null && h.days_after >= 0 ? `+${h.days_after} days` : ''}</div><div class="muted">${h.verdict}${h.status === 'in report' ? ' · in report' : h.status === 'kept' ? ' · kept' : ''}</div></div></button>`)
         : html`<div class="empty">Nothing flagged yet. <a href="#/case/${slug}/scan" style="color:var(--ac)">See the scan →</a></div>`}</div>
       <div id="hit-detail">${sel ? hitDetail(slug, c, sel) : ''}</div>
-    </div></main>`);
-  window.__hits = hits; window.__case = c;
-  refreshNoteCounts(slug);
+    </div>
+    <div id="logged-in" style="flex:none"></div></main>`);
+  window.__hits = hits; window.__case = c; window.__posts = d.posts;
+  refreshNoteCounts(slug); loggedInSection(slug);
   if (['recheck', 'watch'].includes(c.active_job?.kind)) watchRecheck(slug, c.active_job.id, c.active_job.kind === 'watch' ? 'Checking again (watching)' : '');
 };
 function hitDetail(slug, c, h) {
@@ -690,6 +804,7 @@ function hitDetail(slug, c, h) {
     <div class="muted" style="font-size:14px">${[lookLabel(h.category), h.source, h.posted_at ? 'Posted ' + day(h.posted_at) : '', h.days_after != null && h.days_after >= 0 ? `${h.days_after} days after the injury` : ''].filter(Boolean).join(' · ')}</div>
     ${src ? html`<img class="thumb ${blur ? 'blur' : ''}" src="${src}" alt="" style="width:100%;max-height:300px">` : ''}
     ${h.caption ? html`<div class="t2" style="font-size:14.5px">“${h.caption}”</div>` : ''}
+    ${(x => x ? html`<div class="muted" style="font-size:13.5px">${[x.place && `at ${x.place}`, x.activity, x.life_event].filter(Boolean).join(' · ')}${x.posted_at_precision && x.posted_at_precision !== 'second' ? html`${x.place || x.activity || x.life_event ? ' · ' : ''}date to the ${x.posted_at_precision}${x.posted_at_text ? `, as Facebook showed it: “${x.posted_at_text}”` : ''}` : ''}</div>` : '')((window.__posts || []).find(p => p.id === h.post_id)?.extra)}
     ${c.details.limits ? html`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div class="card" style="padding:12px;background:var(--panel-3)"><div class="label">The claim says</div><div>${c.details.limits}</div></div>
       <div class="card" style="padding:12px;background:var(--am-bg)"><div class="label" style="color:var(--am)">The post shows</div><div>${h.who === 'him' ? '' : 'A person: '}${h.what}</div></div></div>` : ''}
@@ -916,7 +1031,7 @@ const actions = {
     try { await api('/api/settings', { method: 'POST', body }); $('#settings-note').textContent = 'Saved.'; } catch (e) { fail(e); } finally { el.disabled = false; }
   },
   'logo-remove': async () => { try { await api('/api/settings', { method: 'POST', body: { logo: null } }); render(); } catch (e) { fail(e); } },
-  back: (el, e) => { e.preventDefault(); location.hash = lastHash || '#/'; },
+  back: (el, e) => { e.preventDefault(); if (el.closest('.life')) return render(); location.hash = lastHash || '#/'; },
   recheck: async el => {
     const slug = el.dataset.slug; el.disabled = true;
     try { watchRecheck(slug, (await api(`/api/cases/${encodeURIComponent(slug)}/recheck`, { method: 'POST', body: {} })).job); }
@@ -928,6 +1043,14 @@ const actions = {
   'notes-save': () => saveNote(),
   'notes-correct': el => { const n = window.__notes.get(+el.dataset.id); notesFor.replaces = n.id; $('#note-text').value = n.text; $('#note-text').focus();
     const r = $('#note-replacing'); r.textContent = `Correcting ${n.cite}: the old text stays in the record.`; r.classList.remove('hidden'); },
+  'connect-skip': el => { const sk = skipped(), pf = el.dataset.platform; setSkipped(sk.includes(pf) ? sk.filter(x => x !== pf) : [...sk, pf]); render(); },
+  'signout-ask': el => { el.closest('.life').innerHTML = html`<span class="muted" style="font-size:13.5px">This signs you out of every platform in the Hunt Browser. The profile goes to the Trash.</span>
+    <button class="btn sm" style="background:var(--rd-bg);color:var(--rd)" data-act="signout-do">Sign out</button><button class="btn ghost sm" data-act="back">Cancel</button>`.s; },
+  'signout-do': async el => { el.disabled = true; try { await api('/api/browser/sign-out', { method: 'POST', body: {} }); toast('Signed out of everything. The old profile is in the Trash.'); render(); }
+    catch (e) { el.disabled = false; fail(e.status === 409 ? new Error('Quit the Hunt Browser first, then sign out.') : e); } },
+  'pair-new': async () => { try { const r = await api('/api/pairing', { method: 'POST', body: {} }); pairCode = { code: r.code, until: Date.now() + r.expires_in * 1000 }; $('#pairing').innerHTML = pairingPanel({ paired: false }, pairCode).s; } catch (e) { fail(e); } },
+  'pair-copy': async el => { try { await navigator.clipboard.writeText(el.dataset.code); toast('Copied.'); } catch { toast('Select the code and copy it.', true); } },
+  'pair-forget': async () => { try { await api('/api/pairing/forget', { method: 'POST', body: {} }); toast('Unpaired. Its key stopped working.'); render(); } catch (e) { fail(e); } },
   'browser-open': async el => {
     try { await api('/api/browser/open', { method: 'POST', body: { url: el.dataset.url, ...(el.dataset.case ? { case: el.dataset.case } : {}) } }); toast('Opened in the Hunt Browser. Hunt never sees your password.'); }
     catch (e) { fail(e.status === 503 ? new Error('Install the Hunt Browser first: uv run playwright install chromium') : e); }
@@ -955,6 +1078,7 @@ document.addEventListener('click', e => {
 document.addEventListener('change', async e => {
   if (e.target.dataset.act === 'screening') { sessionStorage.setItem('hunt-screening', e.target.checked ? '1' : '0'); render(); }
   if (e.target.id === 'up-files') upload(e.target.dataset.slug, e.target.files);
+  if (e.target.id === 'fb-files' || e.target.id === 'fb-folder') uploadFacebook(e.target.dataset.slug, e.target.files);
   if (e.target.id === 'watch-on' || e.target.id === 'watch-every') {
     const slug = e.target.dataset.slug, on = $('#watch-on').checked;
     if (e.target.id === 'watch-every' && !on) return;
@@ -1012,6 +1136,7 @@ let lastHash = '', hereHash = ''; // where "← Back" goes
 async function render() {
   if (location.hash !== hereHash) [lastHash, hereHash] = [hereHash, location.hash];
   const r = route(); if (!['search', 'scan'].includes(r.name)) stopLive();
+  clearInterval(poller);
   if (notesFor && notesFor.slug !== r.slug) actions['notes-close']();
   const fn = screens[r.name] || screens.home;
   try { await fn(r.slug); } catch (e) { fail(e); if (r.slug && r.name !== 'search') location.hash = `#/case/${r.slug}/search`; }
