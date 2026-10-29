@@ -24,6 +24,7 @@ create table if not exists findings (
     id integer primary key, fetched_at text, source text, seed_kind text, seed text,
     site text, url text, attrs text, sha256 text, evidence text);
 create table if not exists captures (finding_id int, ts text, kind text, sha256 text, evidence text);
+create table if not exists photos (id integer primary key, ts text, name text, sha256 text, evidence text, analysis text);
 """
 
 
@@ -70,6 +71,12 @@ class Case:
         for kind, data, ext in (("screenshot", png, "png"), ("rendered page", html.encode(), "html")):
             sha, path = self._store(data, ext)
             self.db.execute("insert into captures values (?, ?, ?, ?, ?)", (finding_id, ts, kind, sha, path))
+
+    def add_photo(self, path: str, analysis: dict):
+        """Keep the image itself as evidence, beside what was concluded from it."""
+        sha, evidence = self._store(Path(path).read_bytes(), Path(path).suffix.lstrip(".").lower() or "img")
+        self.db.execute("insert into photos values (null, ?, ?, ?, ?, ?)",
+                        (now(), Path(path).name, sha, evidence, json.dumps(analysis, ensure_ascii=False)))
 
     def rows(self, sql: str, *args) -> list[dict]:
         cur = self.db.execute(sql, args)
