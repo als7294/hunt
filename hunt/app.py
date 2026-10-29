@@ -676,6 +676,15 @@ def _sniff(path: Path) -> str:
     return "image/webp" if head[:4] == b"RIFF" and head[8:12] == b"WEBP" else "application/octet-stream"
 
 
+class Frontend(StaticFiles):
+    """hunt/static/, revalidated on every load so an update never leaves a stale app.js behind."""
+
+    def file_response(self, *args, **kw):
+        r = super().file_response(*args, **kw)
+        r.headers["cache-control"] = "no-cache"
+        return r
+
+
 # --- the app ------------------------------------------------------------------------------------
 
 async def _http_error(req, exc: HTTPException):
@@ -708,7 +717,7 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/cases/{slug}/report", get_report),
         Route("/api/cases/{slug}/report.{fmt:str}", export_report),
         Route("/evidence/{slug}/{name}", evidence),
-    ] + ([Mount("/", app=StaticFiles(directory=STATIC, html=True))] if STATIC.is_dir() else [])  # the frontend
+    ] + ([Mount("/", app=Frontend(directory=STATIC, html=True))] if STATIC.is_dir() else [])
     app = Starlette(routes=routes, exception_handlers={HTTPException: _http_error, Exception: _server_error})
     app.state.token, app.state.jobs = token, {}
     return Guard(app, token, port)

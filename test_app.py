@@ -87,7 +87,11 @@ r = c.get("/api/cases/vance-claim").json()
 assert r["details"]["kind"] == "insurance" and r["details"]["look_for"] == ["sport"], r
 assert {"kind": "username", "value": "kestrel_vane88"} in r["seeds"] and r["steps"]["search"] == "todo", r
 assert c.get("/api/cases/nope").status_code == 404
-assert c.get("/api/cases/..%2F..").status_code == 404
+r = c.get("/")  # the frontend: index.html, never cached stale
+assert r.status_code == 200 and "<html" in r.text.lower() and r.headers["cache-control"] == "no-cache", r.headers
+assert c.get("/app.js").headers["cache-control"] == "no-cache"
+r = c.get("/api/cases/..%2F..")  # dot segments resolve inside hunt/static at most
+assert r.status_code in (307, 404) and "purpose" not in r.text, (r.status_code, r.text[:200])
 
 # --- Evidence: name pattern, no traversal, HTML never rendered from our origin -----------------
 case = Case.open("vance-claim")

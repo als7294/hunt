@@ -44,6 +44,9 @@ def compose(screening=False):
 rep = compose()
 texts = " ".join(s["text"] for s in rep["sentences"])
 assert all(s["cites"] for s in rep["sentences"]) and rep["checks"]["every_sentence_cited"], rep["sentences"]
+assert len(rep["couldnt_see"]) == len(rep["couldnt_see_cites"]) and all(rep["couldnt_see_cites"])
+assert [x["id"] for x in rep["sections"]][-1] == "couldnt_see"
+assert not any(x["section"] == "couldnt_see" for x in rep["sentences"])  # the app shows them as bullets, once
 assert "a person matching the details supplied" in texts and "Robert Vance's" not in texts
 assert "almost certain" not in texts and "very likely" not in texts, texts
 assert rep["evidence"][0]["verdict"] == "likely", rep["evidence"]
@@ -64,11 +67,18 @@ try:
 except AssertionError as e:
     assert "uncited" in str(e)
 
+# Namesakes are accounts whose name matches but nothing else does; a clashing name isn't one
+assert "shares the name" not in texts  # Instagram's name matches and it's in the person
+
 # Once confirmed, the report names the subject
 case.decide("", "him")
 case.decide("https://bsky.app/profile/kestrel_vane88", "him")
-texts = " ".join(s["text"] for s in compose()["sentences"])
+rep = compose()
+texts = " ".join(s["text"] for s in rep["sentences"])
 assert "Robert Vance's" in texts and "a person matching" not in texts, texts
+marked = next(x for x in rep["sentences"] if x["text"].startswith("The investigator marked Bluesky"))
+assert len([c for c in marked["cites"] if c.startswith("M-a")]) == 2, marked  # its own decision + the person's
+assert "investigator confirmed this account" not in texts, texts
 
 # Screening: protected traits (here, health) leave the report entirely
 rep = compose(screening=True)

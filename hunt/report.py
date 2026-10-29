@@ -9,18 +9,19 @@ sentence without one. Machine verdicts are never stronger than "likely", the sub
 
 import base64
 import html
+import json
 import mimetypes
 import re
 from pathlib import Path
 
 from . import search
 from .case import EVIDENCE_NAME, Case
-from .match import ICD203
+from .match import ICD203, norm_url
 from .seed import now
 
 SECTIONS = [("summary", "Summary"), ("scope", "Why and scope"), ("identity", "Is it him?"),
             ("method", "How we searched"), ("found", "What we found"), ("confidence", "How sure we are"),
-            ("gaps", "What we couldn't see")]
+            ("couldnt_see", "What we couldn't see")]
 VERDICTS = [label for _, label in ICD203]
 CEILING = "likely"  # the strongest wording a machine verdict gets in a report
 # Protected traits, dropped in screening mode (employment screening must not weigh them).
@@ -60,9 +61,12 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
             screening: bool = False, labels: dict | None = None) -> dict:
     """The report dict of docs/api.md. `snap` is search.build(); `checks` is case.verify()."""
     labels, d, doc = labels or {}, case.details(), _Doc(screening)
-    log = {}
+    log, decided = {}, {}  # action → citations; norm_url ('' = the person) → its decision citations
     for a in snap["audit"]:
         log.setdefault(a["action"], []).append(f"M-a{a['rowid']}")
+        if a["action"] == "decision":
+            decided.setdefault(json.loads(a["detail"]).get("url") or "", []).append(f"M-a{a['rowid']}")
+    own = lambda c: decided.get(norm_url(c["url"]), []) + decided.get("", [])
     opened = log.get("case opened", ["M-a1"])[:1]
     scope = log.get("case details", opened)[:1]
     people = [c for c in snap["candidates"] if search.in_person(c)]
@@ -81,7 +85,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     if confirmed:
         mine = [c for c in people if c["decision"] == "him"] or people
         doc.say("summary", f"The investigator confirmed {_many(len(mine), 'account')} as {who}'s: "
-                           f"{', '.join(c['site'] for c in mine)}.", [acc(c) for c in mine] + log.get("decision", []))
+                           f"{', '.join(c['site'] for c in mine)}.", [acc(c) for c in mine] + decided.get("", []))
     elif people:
         doc.say("summary", f"{_many(len(people), 'account')} likely belong to {who}; the investigator hasn't "
                            "confirmed them yet.", [acc(c) for c in people])
@@ -105,23 +109,26 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
 
     # Is it him?
     for c in people:
-        why = "; ".join(_plain(r) for r, t in zip(c["reasons"], c["tags"]) if not r.startswith(("+0.0", "-")))
+        why = "; ".join(_plain(r) for r, t in zip(c["reasons"], c["tags"])
+                        if t != "confirmed" and not r.startswith(("+0.0", "-")))  # the decision gets its own sentence
         doc.say("identity", f"{c['site']} account {c['url']}: {cap(c['verdict'])} to belong to {who}"
                             + (f" ({why})." if why else "."), [acc(c)])
         if c["decision"]:
-            doc.say("identity", f"The investigator marked {c['site']} '{c['decision']}'.", [acc(c)] + log.get("decision", []))
+            doc.say("identity", f"The investigator marked {c['site']} '{c['decision']}'.", [acc(c)] + own(c))
     namesakes = [c for c in snap["candidates"] if not search.in_person(c) and c["probability"] < 0.2
-                 and "name" in c["tags"]]
+                 and any(t == "name" and r.startswith("+") and not r.startswith("+0.0")
+                         for r, t in zip(c["reasons"], c["tags"]))]  # the name matches; the rest doesn't
     if namesakes:
-        doc.say("identity", f"{_many(len(namesakes), 'other account')} share a name but were judged unlikely to be "
-                            f"{who}.", [acc(c) for c in namesakes])
+        one = len(namesakes) == 1
+        doc.say("identity", f"{_many(len(namesakes), 'other account')} {'shares' if one else 'share'} the name but "
+                            f"{'was' if one else 'were'} judged unlikely to be {who}.", [acc(c) for c in namesakes])
 
     # How we searched
     for r in snap["methodology"]:
         if r["source"] == "-":
             continue  # reported under what we couldn't see
-        doc.say("method", f"{r['source']} looked up '{r['seed']}' ({r['seed_kind']}): {r['checked']} sites answered, "
-                          f"{r['found']} found ({r['status']}).", [f"M-{r['rowid']}"])
+        doc.say("method", f"{r['source']} looked up '{r['seed']}' ({r['seed_kind']}): {_many(r['checked'], 'site')} "
+                          f"answered, {r['found']} found ({r['status']}).", [f"M-{r['rowid']}"])
     if "geocode" in log:
         doc.say("method", "Locations were placed with OpenStreetMap's Nominatim, sending only place names.", log["geocode"])
     if "capture" in log:
@@ -162,34 +169,37 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     # What we couldn't see (automatic)
     for r in snap["methodology"]:
         if r["source"] == "-":
-            doc.say("gaps", f"No source searches {r['seed_kind']} details yet, so '{r['seed']}' was only used to "
+            doc.say("couldnt_see", f"No source searches {r['seed_kind']} details yet, so '{r['seed']}' was only used to "
                             "compare accounts.", [f"M-{r['rowid']}"])
         elif r["status"] == "failed":
-            doc.say("gaps", f"{r['source']} failed for '{r['seed']}': {r['note']}.", [f"M-{r['rowid']}"])
+            doc.say("couldnt_see", f"{r['source']} failed for '{r['seed']}': {r['note']}.", [f"M-{r['rowid']}"])
     for c in people:
         if not READ_AUTOMATICALLY.search(c["url"]):
-            doc.say("gaps", f"Posts on {c['site']} weren't read: Hunt reads Bluesky, Mastodon and YouTube, and never "
+            doc.say("couldnt_see", f"Posts on {c['site']} weren't read: Hunt reads Bluesky, Mastodon and YouTube, and never "
                             "logs in anywhere.", [acc(c)])
     if ruled := [h for h in hits if h.get("status") == "not relevant"]:
-        doc.say("gaps", f"{_many(len(ruled), 'flagged item')} were ruled not relevant by the investigator.", ev(ruled))
+        doc.say("couldnt_see", f"{_many(len(ruled), 'flagged item')} were ruled not relevant by the investigator.", ev(ruled))
     if undated := [h for h in hits if not h.get("posted_at")]:
-        doc.say("gaps", f"{_many(len(undated), 'item')} have no date, so they can't be placed in time.", ev(undated))
-    doc.say("gaps", "Court and other public records weren't searched; Hunt can't search them yet.",
+        doc.say("couldnt_see", f"{_many(len(undated), 'item')} have no date, so they can't be placed in time.", ev(undated))
+    doc.say("couldnt_see", "Court and other public records weren't searched; Hunt can't search them yet.",
             log.get("search", opened)[:1])
 
     said = {s["section"] for s in doc.sentences}
+    gaps = [s for s in doc.sentences if s["section"] == "couldnt_see"]
     review_done = "scan" in log and not any(h.get("status") == "new" for h in hits)
     done = {"summary": bool(runs), "scope": True, "identity": bool(case.decisions()), "method": bool(runs),
-            "found": review_done, "confidence": bool(case.decisions()), "gaps": True}
+            "found": review_done, "confidence": bool(case.decisions()), "couldnt_see": True}
     return {
         "screening": screening,
         "sections": [{"id": k, "title": t, "done": done[k] and k in said} for k, t in SECTIONS],
-        "sentences": doc.sentences,
+        "sentences": [s for s in doc.sentences if s["section"] != "couldnt_see"],
         "evidence": [{"id": f"E-{h['id']}", "date": h.get("posted_at"), "what": h.get("what"), "source": h.get("source"),
                       "verdict": cap(h["verdict"]) if h.get("verdict") in VERDICTS else h.get("verdict"),
                       "file": h.get("file")} for h in kept],
-        "couldnt_see": [s["text"] for s in doc.sentences if s["section"] == "gaps"],
-        "checks": {"every_sentence_cited": all(s["cites"] for s in doc.sentences),
+        # a bullet list in the app; still cited, so the citations ride along in the same order
+        "couldnt_see": [s["text"] for s in gaps],
+        "couldnt_see_cites": [s["cites"] for s in gaps],
+        "checks": {"every_sentence_cited": all(s["cites"] for s in doc.sentences),  # the bullets too
                    "files_checked": checks["checked"], "tampered": checks["tampered"]},
     }
 
@@ -215,6 +225,10 @@ def to_html(case: Case, rep: dict) -> str:
         if lines:
             out.append(f"<h2>{e(title)}</h2>")
             out += [f"<p>{e(s['text'])}<cite>[{e(', '.join(s['cites']))}]</cite></p>" for s in lines]
+        if sid == "couldnt_see" and rep["couldnt_see"]:
+            out.append(f"<h2>{e(title)}</h2><ul>" + "".join(
+                f"<li>{e(t)}<cite>[{e(', '.join(c))}]</cite></li>" for t, c in zip(rep["couldnt_see"], rep["couldnt_see_cites"]))
+                + "</ul>")
     if rep["evidence"]:
         out.append("<h2>Evidence</h2>")
         for item in rep["evidence"]:
