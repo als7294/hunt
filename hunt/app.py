@@ -39,7 +39,7 @@ from starlette.staticfiles import StaticFiles
 
 from . import report, search, vlm
 from . import bundle, inbox, notes, recheck  # docs/qol.md
-from .case import DECISIONS, EVIDENCE_NAME, HOME, Case, all_cases
+from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, Case, all_cases
 from .match import ICD203
 from .seed import detect
 
@@ -96,7 +96,7 @@ class Guard:
         if req.method not in ("GET", "HEAD"):
             if req.headers.get("origin") not in self.origins:
                 return 403, "cross-origin request"
-            want = "multipart/form-data" if req.url.path.endswith("/media") else "application/json"
+            want = "multipart/form-data" if req.url.path.endswith(("/media", "/logo")) else "application/json"
             if req.headers.get("content-type", "").split(";")[0].strip().lower() != want:
                 return 415, f"content type must be {want}"
         return None
@@ -394,18 +394,53 @@ async def create_case(req: Request):
         raise HTTPException(400, f"kind must be one of {', '.join(KINDS)}")
     if b.get("tool", "person") != "person":
         raise HTTPException(400, "tool must be 'person'")
-    if injury := b.get("injury_date"):
-        try:
-            date.fromisoformat(injury)
-        except (TypeError, ValueError):
-            raise HTTPException(400, "injury_date must be YYYY-MM-DD")
-    details = {"kind": b["kind"], "reference": b.get("reference") or None, "injury_date": injury or None,
-               "limits": b.get("limits") or None, "look_for": _str_list(b.get("look_for"), "look_for"), "tool": "person"}
+    details = {**_details(b), "kind": b["kind"], "tool": "person"}
+    details = {k: v for k, v in details.items() if v not in ("", None)}
     seeds = [s for raw in _str_list(b.get("seeds"), "seeds") for s in detect(raw)]
     c = Case.create(label, purpose, **details)
     c.add_seeds(seeds)
     c.audit("case details", {"label": label, **details, "seeds": [asdict(s) for s in seeds]})
     return JSONResponse({"slug": c.name}, 201)
+
+
+EDITABLE = ("reference", "injury_date", "limits", "look_for", "client", "adjuster", "file_number", "assignment_date",
+            "subject_dob", "recommendations")
+
+
+def _details(b: dict) -> dict:
+    """The editable case details present in a request body, validated. '' clears a field."""
+    out = {}
+    for k in EDITABLE:
+        if k not in b:
+            continue
+        v = b[k]
+        if k == "look_for":
+            out[k] = _str_list(v, k)
+        elif v is None or v == "":
+            out[k] = ""
+        elif not isinstance(v, str) or len(v) > 4000:
+            raise HTTPException(400, f"{k} must be text of at most 4,000 characters")
+        elif k in DATES:
+            try:
+                date.fromisoformat(v)
+            except ValueError:
+                raise HTTPException(400, f"{k} must be YYYY-MM-DD")
+            out[k] = v
+        else:
+            out[k] = v.strip()
+    return out
+
+
+async def update_details(req: Request):
+    """Fill in or correct the report's header fields after the wizard: client, adjuster, dates…"""
+    c = _case(req)
+    changes = _details(await _body(req))
+    if not changes:
+        raise HTTPException(400, f"send one or more of: {', '.join(EDITABLE)}")
+    c.set_details(**changes)
+    c.audit("case details", changes)
+    d = c.details()
+    return JSONResponse({"details": {k: d[k] for k in (*DETAILS, "purpose", "created")}})
 
 
 async def get_case(req: Request):
@@ -416,8 +451,7 @@ async def get_case(req: Request):
     d = c.details()
     return JSONResponse({
         "slug": c.name,
-        "details": {k: d[k] for k in ("label", "kind", "reference", "purpose", "injury_date", "limits", "look_for",
-                                      "tool", "created")},
+        "details": {k: d[k] for k in (*DETAILS, "purpose", "created")},
         "seeds": [{"kind": s.kind, "value": s.value} for s in c.seeds()],
         "steps": {"search": "running" if running("search") else _search_step(c),
                   "identity": "done" if c.decisions() else "todo",
@@ -626,6 +660,47 @@ async def set_hit(req: Request):
     return JSONResponse(await _call(scan.set_status, c, hit_id, status))  # it audits the change
 
 
+# --- the investigator's report settings -------------------------------------------------------------
+
+async def get_settings(req: Request):
+    return JSONResponse(report.settings())
+
+
+async def post_settings(req: Request):
+    b = await _body(req)
+    if "logo" in b:  # {"logo": null} removes it; a new one comes through /api/settings/logo
+        if b.pop("logo") is not None:
+            raise HTTPException(400, "upload a logo with POST /api/settings/logo; send logo: null to remove it")
+        report.save_logo(None)
+    try:
+        return JSONResponse(report.save_settings(**b))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+async def post_logo(req: Request):
+    form = await req.form(max_files=1, max_fields=1)
+    try:
+        f = form.get("file")
+        if not isinstance(f, UploadFile):
+            raise HTTPException(400, "send the logo as a file field named 'file'")
+        data = await f.read(report.LOGO_MAX + 1)
+        try:
+            report.save_logo(data)
+        except ValueError as e:
+            raise HTTPException(415, str(e))
+    finally:
+        await form.close()
+    return JSONResponse(report.settings())
+
+
+async def get_logo(req: Request):
+    path = report.logo_path()
+    if not path:
+        raise HTTPException(404, "no logo set")
+    return FileResponse(path, media_type="image/png" if path.suffix == ".png" else "image/jpeg")
+
+
 # --- report and evidence ------------------------------------------------------------------------
 
 async def _report(req: Request, c: Case, export: bool = False) -> dict:
@@ -647,14 +722,14 @@ async def export_report(req: Request):
     if fmt not in ("html", "pdf", "json"):
         raise HTTPException(404, "report formats: html, pdf, json")
     rep = await _report(req, c, export=True)
-    html = report.to_html(c, rep)
+    html = report.to_html(c, rep, pdf=fmt == "pdf")
     if fmt == "html":
         body, media = html.encode(), "text/html; charset=utf-8"
     elif fmt == "json":
         body, media = json.dumps(report.to_json(c, rep), indent=2, ensure_ascii=False).encode(), "application/json"
     else:
         async with search.HEAVY:
-            body, media = await report.to_pdf(html), "application/pdf"
+            body, media = await report.to_pdf(html, rep), "application/pdf"
     c.audit("report exported", {"format": fmt, "screening": rep["screening"], "tampered": rep["checks"]["tampered"]})
     name = f"{c.name}-report{'-screening' if rep['screening'] else ''}.{fmt}"
     return Response(body, media_type=media, headers={"content-disposition": f'attachment; filename="{name}"'})
@@ -844,6 +919,11 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/cases/{slug}/media", add_media, methods=["POST"]),
         Route("/api/cases/{slug}/posts", get_posts),
         Route("/api/cases/{slug}/hits/{id}", set_hit, methods=["POST"]),
+        Route("/api/cases/{slug}/details", update_details, methods=["POST"]),
+        Route("/api/settings", get_settings),
+        Route("/api/settings", post_settings, methods=["POST"]),
+        Route("/api/settings/logo", get_logo),
+        Route("/api/settings/logo", post_logo, methods=["POST"]),
         Route("/api/cases/{slug}/report", get_report),
         Route("/api/cases/{slug}/report.{fmt:str}", export_report),
         Route("/evidence/{slug}/{name}", evidence),
