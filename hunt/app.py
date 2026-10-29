@@ -12,6 +12,7 @@ import inspect
 import json
 import mimetypes
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -556,7 +557,10 @@ async def add_media(req: Request):
             await f.seek(0)
             if ext == ".svg" or b"<svg" in head:
                 raise HTTPException(415, "SVG files aren't accepted")
-            dest = tmp / f"{len(paths)}{ext if ext[1:].isalnum() else ''}"
+            # the investigator's own file name, made safe: posts audits it and the evidence bundle shows it
+            name = re.sub(r"[^\w.\- ]+", "_", Path(f.filename or "").name).strip(" .")[:120]
+            (tmp / str(len(paths))).mkdir()
+            dest = tmp / str(len(paths)) / (name if ext[1:].isalnum() and name else f"file{ext if ext[1:].isalnum() else ''}")
             with open(dest, "wb") as out:  # streamed: Starlette spools the upload to disk, we copy in chunks
                 while chunk := await f.read(1 << 20):
                     out.write(chunk)
