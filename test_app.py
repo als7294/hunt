@@ -275,8 +275,8 @@ assert c.post("/api/keys", content=json.dumps({"HUNT_NOPE": "x"}), headers=JSON)
 assert c.post("/api/keys", content=json.dumps({"HUNT_GRAVATAR_KEY": "x"}), headers={**JSON, "origin": "http://evil.test"}).status_code == 403
 c.post("/api/keys", content=json.dumps({"HUNT_GRAVATAR_KEY": ""}), headers=JSON)
 assert "HUNT_GRAVATAR_KEY" not in os.environ
-assert c.post("/api/cases/vance-claim/preview", content=json.dumps({"url": "https://www.instagram.com/example"}),
-              headers=JSON).status_code == 501  # until hunt/public.py lands
+r = c.post("/api/cases/vance-claim/preview", content=json.dumps({"url": "https://www.instagram.com/example"}), headers=JSON)
+assert r.status_code == 200 and r.json()["status"] == "failed" and "Hunt Browser" in r.json()["note"], r.text  # a login-walled site: the note says so
 
 # --- Report and exports -------------------------------------------------------------------------
 rep = c.get("/api/cases/vance-claim/report").json()
