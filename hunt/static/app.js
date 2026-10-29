@@ -92,6 +92,7 @@ function caseMenu(c) {
       <div class="life" style="display:flex;flex-direction:column;gap:2px">
         ${st.closed ? item('life-do', 'reopen', 'Reopen the case') : item('life-ask', 'close', 'Close the case…')}
         ${st.legal_hold ? item('life-do', 'unhold', 'Lift the legal hold') : item('life-ask', 'hold', 'Put on legal hold…')}
+        ${item('life-ask', 'pack', 'Move to another computer…')}
         ${st.legal_hold ? '' : item('life-ask', 'delete', 'Move to the Trash…', 'bad')}</div></div></details>`;
 }
 const closedBar = c => c.status?.closed ? html`<div style="margin:0 20px 8px;padding:10px 12px 10px 16px;border-radius:var(--r);background:var(--raise);display:flex;gap:12px;align-items:center;font-size:14.5px;flex:none">
@@ -191,7 +192,9 @@ screens.home = async () => {
     <div style="text-align:center"><div class="h1">What do you need to find?</div><div class="sub" style="font-size:18px;margin-top:8px">Your cases, photos and videos stay on this Mac.</div></div>
     <div class="two-up" style="width:min(1080px,100%);gap:20px">${toolCard('person')}${toolCard('photo')}</div>
     <div style="width:min(1080px,100%);display:flex;flex-direction:column;gap:10px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:600;font-size:19px">Recent cases</span>${cases.length > 4 ? html`<a href="#/cases" class="muted" style="font-size:15px">See all</a>` : ''}</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:16px"><span style="font-weight:600;font-size:19px">Recent cases</span>
+        <span style="display:flex;gap:16px"><button class="muted" style="font-size:15px" data-act="bring-open">Bring a case in…</button>${cases.length > 4 ? html`<a href="#/cases" class="muted" style="font-size:15px">See all</a>` : ''}</span></div>
+      <div id="bring" class="hidden"></div>
       ${cases.length ? html`<div class="two-up" style="gap:10px">${cases.slice(0, 4).map(caseRow)}</div>`
         : html`<div class="empty">No cases yet. Start one with <b>Find a person</b>.</div>`}
     </div>
@@ -200,7 +203,8 @@ screens.home = async () => {
 screens.cases = async () => {
   let cases = []; try { cases = await api('/api/cases'); } catch (e) { fail(e); }
   mount(html`${topHome()}<main class="screen" style="align-items:center;padding:24px"><div style="width:min(1080px,100%);display:flex;flex-direction:column;gap:10px">
-    <div class="h2" style="margin-bottom:12px">All cases</div>${cases.length ? cases.map(caseRow) : html`<div class="empty">No cases yet.</div>`}</div></main>`);
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px"><div class="h2">All cases</div><button class="muted" style="font-size:15px" data-act="bring-open">Bring a case in…</button></div>
+    <div id="bring" class="hidden"></div>${cases.length ? cases.map(caseRow) : html`<div class="empty">No cases yet.</div>`}</div></main>`);
 };
 
 /* New case wizard: Who, Why, Tool on one page, as in the design */
@@ -675,6 +679,41 @@ async function refreshNoteCounts(slug) { // the "Note" buttons on hits show how 
   btns.forEach(b => { const n = all.notes.filter(x => x.about === 'hit' && x.ref === b.dataset.ref && !x.replaced_by).length; b.textContent = n ? `${n} note${n > 1 ? 's' : ''}` : 'Note'; });
 }
 
+/* Move a case between computers (docs/qol.md H): an encrypted disk image, written and read by Hunt itself;
+   the archive and the passphrase never travel anywhere else */
+const size = n => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`;
+const fingerprint = sha => html`<span class="mono" title="${sha}">${sha.slice(0, 4)}…${sha.slice(-2)}</span>`;
+const archiveCase = name => name.replace(/-\d{8}-\d{6}Z\.hunt-case\.dmg$/, '');
+const packForm = slug => html`<div style="display:flex;flex-direction:column;gap:8px;width:100%">
+  <label class="field"><span class="label">Passphrase</span><input class="input" type="password" id="pack-pass" autocomplete="new-password" style="font-size:14.5px"></label>
+  <label class="field"><span class="label">Again</span><input class="input" type="password" id="pack-again" autocomplete="new-password" style="font-size:14.5px"></label>
+  <span class="muted" style="font-size:13px">12 or more characters; a few words works well. Hunt can’t recover it.</span>
+  <label class="field"><span class="label">Save to <span class="dim">· a folder’s full path; empty means Downloads</span></span><input class="input mono" id="pack-folder" placeholder="~/Downloads" style="font-size:13px"></label>
+  <div style="display:flex;gap:6px"><button class="btn primary sm" data-act="pack-do" data-slug="${slug}">Pack case</button><button class="btn ghost sm" data-act="life-cancel">Cancel</button></div>
+  <div id="pack-out" class="t2" style="font-size:13.5px"></div></div>`;
+let bring = null, bringAsked = 0; // the archive listing on screen: {folder, files, slugs}; the latest listing asked for
+async function openBring(folder) {
+  const box = $('#bring'), asked = ++bringAsked; box.classList.remove('hidden'); box.innerHTML = html`<div class="panel muted" style="padding:18px">Looking for Hunt case archives…</div>`.s;
+  try { const [r, cases] = await Promise.all([api(`/api/case-archives${folder ? '?' + new URLSearchParams({ folder }) : ''}`), api('/api/cases')]);
+    if (asked === bringAsked) { bring = { ...r, slugs: cases.map(c => c.slug) }; drawBring(); } } // a slower, older listing never overwrites a newer one
+  catch (e) { if (asked === bringAsked) { box.classList.add('hidden'); fail(e); } }
+}
+function drawBring(ask) {
+  const { folder, files } = bring;
+  $('#bring').innerHTML = html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b>Bring a case in</b><input class="input mono" id="bring-folder" value="${folder}" aria-label="Folder" style="flex:1;min-width:220px;font-size:13px"></div>
+    ${files.length ? files.map((f, i) => html`<label class="row" style="cursor:pointer;gap:12px"><input type="radio" name="bring-pick" value="${f.name}" data-folder="${f.folder}" ${i ? '' : 'checked'} style="accent-color:var(--ac)">
+      <span style="flex:1;min-width:0;overflow-wrap:anywhere" class="mono">${f.name}</span><span class="muted" style="font-size:13px;white-space:nowrap">${size(f.size)} · saved ${when(f.saved)}</span></label>`)
+      : html`<div class="empty" style="padding:16px">No .hunt-case.dmg files in this folder.</div>`}
+    ${files.length ? html`<label class="field"><span class="label">Passphrase</span><input class="input" type="password" id="bring-pass" autocomplete="off" style="max-width:360px"></label>
+      ${ask ? html`<div class="reason warn" style="flex-direction:column;align-items:flex-start;gap:8px">${ask === 'replace' ? html`<span>The case <b>${archiveCase(bring.pick)}</b> on this computer goes to the Trash. You can put it back from there.</span>
+          <div style="display:flex;gap:6px"><button class="btn sm" style="background:var(--rd-bg);color:var(--rd)" data-act="bring-do" data-replace="1">Replace it</button><button class="btn ghost sm" data-act="bring-do" data-skip-ask="1">Keep both instead</button></div>`
+        : html`<span>A case named <b>${archiveCase(bring.pick)}</b> is already here. Hunt never merges cases.</span>
+          <div style="display:flex;gap:6px"><button class="btn sm" data-act="bring-do" data-skip-ask="1">Add it as a second case</button><button class="btn ghost sm" data-act="bring-replace">Replace the one here instead</button></div>`}</div>`
+      : html`<div><button class="btn primary sm" data-act="bring-do">Unpack</button></div>`}` : ''}
+    <div id="bring-out" class="t2" style="font-size:14px"></div></div>`.s;
+}
+
 /* Logged-in platforms (docs/capture.md, docs/facebook.md §6): the Hunt Browser, the checklist, the capture feed,
    and Facebook pages the investigator saved. Hunt never logs in; she browses as herself and Hunt records. */
 let poller = null; // the one screen-level poll (sign-ins, pairing, captures); cleared on every render
@@ -1084,6 +1123,30 @@ const actions = {
   'notes-save': () => saveNote(),
   'notes-correct': el => { const n = window.__notes.get(+el.dataset.id); notesFor.replaces = n.id; $('#note-text').value = n.text; $('#note-text').focus();
     const r = $('#note-replacing'); r.textContent = `Correcting ${n.cite}: the old text stays in the record.`; r.classList.remove('hidden'); },
+  'pack-do': async el => {
+    const a = $('#pack-pass').value, b = $('#pack-again').value, folder = $('#pack-folder').value.trim(), out = $('#pack-out');
+    if (a.length < 12) return toast('Use 12 or more characters.', true);
+    if (a !== b) return toast('The two passphrases differ.', true);
+    el.disabled = true; out.textContent = 'Packing… (large videos take a while)';
+    try { const r = await api(`/api/cases/${encodeURIComponent(el.dataset.slug)}/pack`, { method: 'POST', body: { passphrase: a, ...(folder ? { folder } : {}) } });
+      $('#pack-pass').value = $('#pack-again').value = '';
+      out.innerHTML = html`Saved <span class="mono" style="overflow-wrap:anywhere">${r.name}</span> (${r.files} files, ${size(r.bytes)}). Fingerprint: ${fingerprint(r.sha256)}. Copy it to the other computer, and send the passphrase separately.`.s;
+      toast('Case packed.');
+    } catch (e) { el.disabled = false; out.textContent = ''; fail(e); }
+  },
+  'bring-open': () => $('#bring').classList.contains('hidden') ? openBring() : $('#bring').classList.add('hidden'),
+  'bring-replace': () => { const pass = $('#bring-pass').value; drawBring('replace'); $('#bring-pass').value = pass; },
+  'bring-do': async el => {
+    const pick = $('input[name="bring-pick"]:checked'), passphrase = $('#bring-pass').value; if (!pick) return toast('Pick an archive first.', true);
+    if (!passphrase) return toast('Type the case’s passphrase.', true);
+    bring.pick = pick.value;
+    if (!el.dataset.skipAsk && !el.dataset.replace && bring.slugs.includes(archiveCase(pick.value))) { drawBring('exists'); $(`input[value="${CSS.escape(pick.value)}"]`).checked = true; $('#bring-pass').value = passphrase; return; }
+    el.disabled = true; $('#bring-out').textContent = 'Unpacking and checking every file against its manifest…';
+    try { const r = await api('/api/case-archives/unpack', { method: 'POST', body: { name: pick.value, folder: pick.dataset.folder, passphrase, ...(el.dataset.replace ? { replace: true } : {}) } });
+      bring.slugs.push(r.slug); $('#bring-pass').value = '';
+      $('#bring-out').innerHTML = html`Unpacked as <a href="#/case/${r.slug}/search" style="color:var(--ac)">${r.slug}</a>: ${r.files} files, each matching the manifest${r.replaced ? '; the case that was here is in the Trash' : ''}. Watching is off on this computer. Turn it on here if this is where the case will be watched.`.s;
+    } catch (e) { el.disabled = false; $('#bring-out').textContent = ''; fail(e); }
+  },
   'connect-skip': el => { const sk = skipped(), pf = el.dataset.platform; setSkipped(sk.includes(pf) ? sk.filter(x => x !== pf) : [...sk, pf]); render(); },
   'signout-ask': el => { el.closest('.life').innerHTML = html`<span class="muted" style="font-size:13.5px">This signs you out of every platform in the Hunt Browser. The profile goes to the Trash.</span>
     <button class="btn sm" style="background:var(--rd-bg);color:var(--rd)" data-act="signout-do">Sign out</button><button class="btn ghost sm" data-act="back">Cancel</button>`.s; },
@@ -1096,7 +1159,7 @@ const actions = {
     try { await api('/api/browser/open', { method: 'POST', body: { url: el.dataset.url, ...(el.dataset.case ? { case: el.dataset.case } : {}) } }); toast('Opened in the Hunt Browser. Hunt never sees your password.'); }
     catch (e) { fail(e.status === 503 ? new Error('Install the Hunt Browser first: uv run playwright install chromium') : e); }
   },
-  'life-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = lifeForm(el.dataset.slug, el.dataset.mode).s; box.querySelector('input').focus(); },
+  'life-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = (el.dataset.mode === 'pack' ? packForm(el.dataset.slug) : lifeForm(el.dataset.slug, el.dataset.mode)).s; box.querySelector('input').focus(); },
   'life-cancel': el => { const box = el.closest('.life'); box.innerHTML = box.dataset.was || ''; },
   'life-do': async el => {
     const { slug, mode } = el.dataset, box = el.closest('.life') || document.body, v = box.querySelector('input')?.value.trim() || '';
@@ -1111,7 +1174,7 @@ const actions = {
   },
 };
 document.addEventListener('click', e => {
-  document.querySelectorAll('details.menu[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; });
+  document.querySelectorAll('details.menu[open]').forEach(d => { if (!d.contains(e.target)) { d.open = false; d.querySelectorAll('input[type=password]').forEach(i => { i.value = ''; }); } });
   const el = e.target.closest('[data-act]'); if (!el || el.disabled || el.getAttribute('aria-disabled') === 'true') return;
   if (el.dataset.act === 'screening') return; // handled on change
   const fn = actions[el.dataset.act]; if (fn) { if (el.tagName === 'BUTTON') e.preventDefault(); fn(el, e); }
@@ -1120,6 +1183,7 @@ document.addEventListener('change', async e => {
   if (e.target.dataset.act === 'screening') { sessionStorage.setItem('hunt-screening', e.target.checked ? '1' : '0'); render(); }
   if (e.target.id === 'up-files') upload(e.target.dataset.slug, e.target.files);
   if (e.target.id === 'fb-files' || e.target.id === 'fb-folder') uploadFacebook(e.target.dataset.slug, e.target.files);
+  if (e.target.id === 'bring-folder') openBring(e.target.value.trim());
   if (e.target.id === 'watch-on' || e.target.id === 'watch-every') {
     const slug = e.target.dataset.slug, on = $('#watch-on').checked;
     if (e.target.id === 'watch-every' && !on) return;
