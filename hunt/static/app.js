@@ -18,7 +18,7 @@ async function api(path, { method = 'GET', body, form } = {}) {
   else if (body !== undefined) { opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
   const r = await fetch(path, opts);
   const data = (r.headers.get('content-type') || '').includes('json') ? await r.json() : await r.text();
-  if (!r.ok) throw new Error(data?.error || `${r.status} ${r.statusText}`);
+  if (!r.ok) throw Object.assign(new Error(data?.error || `${r.status} ${r.statusText}`), { status: r.status });
   return data;
 }
 function follow(job, onEvent) {
@@ -157,6 +157,7 @@ screens.cases = async () => {
 /* New case wizard: Who, Why, Tool on one page, as in the design */
 const LOOK_FOR = [['activity', 'Physical activity', true], ['lifting', 'Lifting or carrying', true], ['sport', 'Sport and gym', true], ['walks', 'Long walks or hikes', true],
   ['travel', 'Travel', true], ['other_job', 'Working another job', false], ['driving', 'Driving', false], ['injury', 'Mentions of the injury', true]];
+const lookLabel = k => LOOK_FOR.find(l => l[0] === k)?.[1] || k;
 const KIND_CHOICES = [['insurance', 'Insurance claim', '⛨', 'var(--am)', 'rgba(0,0,0,.2)'], ['background', 'Background', '◉', 'var(--ac)', 'var(--ac-bg)'],
   ['diligence', 'Diligence', '▤', 'var(--violet)', 'var(--violet-bg)'], ['journalism', 'Journalism', '✎', 'var(--teal)', 'var(--teal-bg)']];
 let wiz;
@@ -339,49 +340,106 @@ screens.identity = async slug => {
   </main>`);
 };
 
-/* Find a person, 3a: analysing photos and videos */
+/* Find a person, 3a: analysing photos and videos. Starts by itself once the investigator confirms it's them */
+let queuedScan = null; // a case whose new files arrived while its scan was running
+async function startScan(slug) {
+  try { return (await api(`/api/cases/${encodeURIComponent(slug)}/scan`, { method: 'POST', body: {} })).job; }
+  catch (e) { if (e.status === 409 && /running/.test(e.message)) queuedScan = slug; else fail(e); }
+}
 screens.scan = async slug => {
   const c = await loadCase(slug); let data = { hits: [], posts: [], counts: {} };
   try { data = await api(`/api/cases/${encodeURIComponent(slug)}/posts`); } catch (e) { /* no posts yet */ }
-  const job = c.active_job?.kind === 'scan' ? c.active_job.id : null;
+  let job = c.active_job?.kind === 'scan' ? c.active_job.id : null;
+  if (!job && c.steps.identity === 'done' && c.steps.posts === 'todo') job = await startScan(slug);
+  const fresh = data.hits.filter(h => h.status === 'new').at(-1);
   mount(html`${topCase(c, 'posts')}<main class="screen" style="padding:8px 24px 24px;gap:18px">
-    <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap">
-      <div style="flex:1;min-width:300px"><div class="h2">Going through their photos and videos</div>
-        <div class="sub" style="margin-top:6px">Hunt only stops you when it spots something you asked about. Everything is checked on this Mac.</div></div>
-      <div style="display:flex;gap:10px"><button class="btn ghost" data-act="scan-pause" data-job="${job || ''}" ${job ? '' : 'disabled'}>Pause</button><a class="btn" href="#/case/${slug}/posts">See posts so far</a></div>
-    </div>
-    <div style="display:flex;gap:28px;align-items:baseline;flex-wrap:wrap" id="scan-stats">${scanStats({ checked: 0, total: 0, found: data.hits.length })}</div>
-    <div class="bar"><i id="scan-bar"></i></div>
+    <div><div class="h2">Going through their photos and videos</div>
+      <div class="sub" style="margin-top:6px">Hunt only stops you when it spots something you asked about. Everything is checked on this Mac.</div></div>
+    <div style="display:flex;gap:28px;align-items:baseline;flex-wrap:wrap" id="scan-stats">${job ? scanStats({ checked: 0, total: 0, found: data.hits.length }) : html`<span><b style="font-size:28px;font-weight:600">${data.counts.read_automatically ?? 0}</b> <span class="muted">posts read automatically</span></span>
+      <span><b style="font-size:22px">${data.counts.added_by_you ?? 0}</b> <span class="muted">added by you</span></span><span><b style="font-size:22px;color:var(--am)">${data.hits.length}</b> <span class="muted">found</span></span>`}</div>
+    ${job ? html`<div class="bar"><i id="scan-bar"></i></div>` : ''}
     <div class="split" style="--side:420px">
-      <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:14px;min-height:0">
-        ${dropZone(slug)}
-        <div class="muted" style="font-size:14px">Instagram, Facebook, TikTok and Strava only show posts to logged-in users, and Hunt never logs in. Save the posts you need there (screenshots, photos, videos) and drop them here; they’re scanned the same way.</div>
-        <div id="scan-start" ${job ? raw('class="hidden"') : ''}><button class="btn primary" data-act="scan-start" data-slug="${slug}">${data.hits.length || (data.posts || []).length ? 'Scan again (new files and posts)' : 'Start scanning'}</button></div>
+      <div class="panel" style="padding:18px;display:flex;flex-direction:column;min-height:0;overflow:auto">
+        <div id="tiles">${tiles(slug, data.posts, !!job)}</div>
+        <div id="pop">${fresh ? pop(slug, fresh) : ''}</div>
       </div>
-      <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px;min-height:0;overflow:auto">
+      <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px;min-height:0">
         <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:600;font-size:18px">Found so far</span><span class="muted" style="font-size:14px">newest first</span></div>
-        <div id="hit-list" style="display:flex;flex-direction:column;gap:10px">${data.hits.length ? [...data.hits].reverse().map(h => hitCard(slug, h)) : html`<div class="empty" id="no-hits">Nothing yet.</div>`}</div>
+        <div id="hit-list" style="flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:10px">${data.hits.length ? [...data.hits].reverse().map(h => hitCard(slug, h)) : html`<div class="empty" id="no-hits">Nothing yet.</div>`}</div>
+        <div class="muted" style="font-size:14px">You can keep working. Everything you keep goes to <b>Posts</b>.</div>
+        <div style="display:flex;gap:8px"><a class="btn" href="#/case/${slug}/posts">See posts so far</a>${job ? html`<button class="btn ghost" data-act="scan-pause" data-job="${job}">Pause</button>` : ''}</div>
       </div>
     </div></main>`);
   if (job) watchScan(slug, job);
 };
+// ponytail: the newest 60 files only; page them if cases routinely have more
+function tiles(slug, posts, running) {
+  const media = posts.flatMap(p => p.media).slice(0, 60);
+  if (!media.length) return !running ? html`<div class="empty">None of the accounts you confirmed post anywhere Hunt can read without logging in.
+    Instagram, Facebook, TikTok and Strava need a login, so save the posts you need there and add them on the <a href="#/case/${slug}/posts" style="color:var(--ac)">Posts</a> page.</div>`
+    : html`<div class="empty">Reading public posts from the accounts you confirmed…</div>`;
+  return html`<div class="tiles">${media.map(m => { const src = evidenceUrl(slug, m.file);
+    return html`<div class="tile" data-media="${m.id}">${m.kind === 'video' ? html`<video src="${src}#t=0.5" muted preload="metadata"></video><span class="play">▶</span>` : html`<img src="${src}" alt="" loading="lazy">`}</div>`; })}</div>`;
+}
+const pop = (slug, h) => html`<div class="pop"><div style="display:flex;justify-content:space-between;font-size:14px"><span style="color:var(--am);font-weight:600">● Found something</span><span class="muted">${h.source || ''}</span></div>${hitCard(slug, h)}</div>`;
 const scanStats = s => html`<span><b style="font-size:28px;font-weight:600">${s.checked}</b> <span class="muted">of ${s.total || '…'} checked</span></span>
   ${s.eta_s != null ? html`<span><span class="muted">about</span> <b style="font-size:22px">${Math.max(1, Math.round(s.eta_s / 60))}</b> <span class="muted">min left</span></span>` : ''}
   <span><b style="font-size:22px">${s.photos ?? 0}</b> <span class="muted">photos</span></span><span><b style="font-size:22px">${s.videos ?? 0}</b> <span class="muted">videos</span></span>
   <span><b style="font-size:22px;color:var(--am)">${s.found ?? 0}</b> <span class="muted">found</span></span>`;
-const dropZone = slug => html`<label class="drop" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:28px;border-radius:18px;border:1.5px dashed var(--line);text-align:center;cursor:pointer">
-  <span style="font-size:22px;color:var(--ac)">⤓</span><span style="font-weight:500">Drop saved posts, photos or videos here</span><span class="muted" style="font-size:14px">or choose files · JPG, PNG, HEIC, MP4, MOV</span>
-  <span style="display:flex;gap:8px;margin-top:6px">
-    <select class="input" id="up-platform" style="width:auto"><option value="">Platform…</option>${['Instagram', 'Facebook', 'TikTok', 'Strava', 'Other'].map(p => html`<option>${p}</option>`)}</select>
-    <input class="input" id="up-date" type="date" style="width:auto" aria-label="Posted on"></span>
-  <input type="file" id="up-files" multiple accept="image/*,video/*,.heic" hidden data-slug="${slug}"></label>`;
+const dropZone = slug => html`<label class="drop" for="up-files" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:28px;border-radius:18px;border:1.5px dashed var(--line);text-align:center;cursor:pointer">
+  <span style="font-size:22px;color:var(--ac)">⤓</span><span style="font-weight:500">Drop saved posts, photos or videos here</span><span class="muted" style="font-size:14px">or choose files · JPG, PNG, HEIC, MP4, MOV</span></label>
+  <input type="file" id="up-files" multiple accept="image/*,video/*,.heic" hidden data-slug="${slug}">
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <input class="input" id="up-link" placeholder="Post link (optional)" aria-label="Post link" style="flex:1;min-width:220px">
+    <select class="input" id="up-platform" style="width:auto" aria-label="Platform"><option value="">Platform…</option>${['Instagram', 'Facebook', 'TikTok', 'Strava', 'Other'].map(p => html`<option>${p}</option>`)}</select>
+    <input class="input" id="up-date" type="date" style="width:auto" aria-label="Posted on"></div>
+  <div class="muted" id="up-note" style="font-size:13px"></div>`;
+const utc = iso => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + ' UTC';
+const unfurl = url => /^https?:\/\//.test(url) ? api(`/api/unfurl?url=${encodeURIComponent(url)}`).catch(() => null) : Promise.resolve(null);
+
+/* From Downloads (docs/qol.md): files the investigator saved, filed into the case under clean names */
+const SAID = { 'file name': 'from the file name', 'where from': 'from your browser’s download record', 'post id': 'read from the post’s ID', link: 'from the link' };
+let inbox = null; // the listing on screen: {slug, folder, days, files, links: {id: post link}}
+async function openInbox(slug, folder, days = 7) {
+  $('#add-posts').classList.add('hidden'); const box = $('#inbox'); box.classList.remove('hidden');
+  box.innerHTML = html`<div class="panel muted" style="padding:18px">Looking in ${folder || 'Downloads'}…</div>`.s;
+  try { const q = new URLSearchParams({ days }); if (folder) q.set('folder', folder);
+    inbox = { slug, links: {}, ...(await api(`/api/cases/${encodeURIComponent(slug)}/inbox?${q}`)) }; drawInbox();
+  } catch (e) { box.classList.add('hidden'); fail(e); }
+}
+const chips = f => [['platform', f.platform], ['handle', f.handle && '@' + f.handle], ['posted_at', f.posted_at && 'Posted ' + utc(f.posted_at)]].filter(([, v]) => v).map(([k, v]) => {
+  const guess = f.from?.[k] === 'case';
+  return html`<span class="seed" style="font-size:13.5px;${guess ? 'background:var(--am-bg)' : ''}">${v} <span style="font-size:12px;color:${guess ? 'var(--am)' : 'var(--mu)'}">${guess ? `guess: the subject’s ${f.platform || ''} account. Check it’s theirs` : SAID[f.from?.[k]] || ''}</span></span>`; });
+function drawInbox(results) {
+  const { slug, folder, days, files, links } = inbox, done = Object.fromEntries((results || []).map(r => [r.id, r]));
+  $('#inbox').innerHTML = html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b>From Downloads</b>
+      <input class="input mono" id="inbox-folder" value="${folder}" aria-label="Folder" style="flex:1;min-width:220px;font-size:13px">
+      <select class="input" id="inbox-days" aria-label="Saved in" style="width:auto">${[[1, 'Last day'], [7, 'Last 7 days'], [30, 'Last 30 days']].map(([d, l]) => html`<option value="${d}" ${+days === d ? 'selected' : ''}>${l}</option>`)}</select></div>
+    ${files.length ? files.map(f => { const r = done[f.id]; return html`<div class="row" style="align-items:flex-start;gap:12px;${f.in_case && !r ? 'opacity:.55' : ''}">
+      ${results ? '' : html`<input type="checkbox" class="inbox-pick" data-id="${f.id}" checked aria-label="File ${f.name}" style="margin-top:3px;width:16px;height:16px;accent-color:var(--ac)">`}
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+        <div><span style="font-weight:500;overflow-wrap:anywhere">${f.name}</span> <span class="muted" style="font-size:13px">${(f.size / 1e6).toFixed(1)} MB · saved ${new Date(f.saved).toLocaleString()}</span></div>
+        <div style="font-size:14px">${r ? html`${r.result === 'added' ? html`Added as <span class="mono">${r.exhibit}</span>` : r.result}${r.trashed === true ? ' · original in the Trash' : r.trashed ? ` · ${r.trashed}` : ''}`
+          : f.in_case ? 'Already in this case' : html`→ <span class="mono">${f.exhibit}</span>`}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap" id="chips-${f.id}">${chips(r || f)}</div>
+        ${results || f.in_case ? '' : html`<input class="input inbox-link" data-id="${f.id}" value="${links[f.id] || ''}" placeholder="Post link (optional): fills in the platform, account and date" aria-label="Post link for ${f.name}" style="font-size:14px">`}
+      </div></div>`; })
+    : html`<div class="empty">Nothing saved here in the ${+days === 1 ? 'last day' : `last ${days} days`}. Save the post’s video or screenshot first; Hunt never downloads from Instagram, TikTok or Facebook for you.</div>`}
+    ${results ? html`<div class="muted" style="font-size:14px">${results.some(r => r.result === 'added') ? html`Checking them now · <a href="#/case/${slug}/scan" style="color:var(--ac)">see the scan →</a>` : 'Nothing new to check.'}</div>`
+      : files.length ? html`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <label style="display:flex;gap:8px;align-items:center;flex:1;min-width:240px"><input type="checkbox" id="inbox-trash" checked style="width:16px;height:16px;accent-color:var(--ac)"><span>Move the originals to the Trash afterwards <span class="muted" style="font-size:13px">· you can put them back from the Trash</span></span></label>
+      <button class="btn primary" data-act="inbox-take">File ${files.length} into this case</button></div>` : ''}
+  </div>`.s;
+}
+
 function hitCard(slug, h) {
   const flagged = h.status !== 'not relevant', src = evidenceUrl(slug, h.file), blur = h.blur || h.child_visible;
-  const range = h.t0 != null ? `${mmss(h.t0)}–${mmss(h.t1 ?? h.t0)}` : '';
+  const range = h.t0 == null ? '' : h.t1 != null && h.t1 !== h.t0 ? `${mmss(h.t0)}–${mmss(h.t1)}` : `at ${mmss(h.t0)}`;
   return html`<div class="card" style="padding:12px;display:flex;gap:12px;${h.status === 'not relevant' ? 'opacity:.45' : ''}" data-hit="${h.id}">
     ${src ? html`<img class="thumb ${blur ? 'blur' : ''}" src="${src}" alt="" style="width:84px;height:84px;flex:none">` : html`<div class="thumb" style="width:84px;height:84px;flex:none"></div>`}
     <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
-      <div class="muted" style="font-size:13px">${[h.source, h.posted_at ? 'posted ' + day(h.posted_at) : '', range].filter(Boolean).join(' · ')}</div>
+      <div class="muted" style="font-size:13px">${[lookLabel(h.category), h.source, h.posted_at ? 'posted ' + day(h.posted_at) : '', range].filter(Boolean).join(' · ')}</div>
       <div style="font-weight:500">${h.what}</div>
       <div style="font-size:13.5px;color:${h.timing === 'after' ? 'var(--am)' : 'var(--mu)'}">${h.days_after != null ? (h.days_after >= 0 ? `${h.days_after} days after the injury` : `${-h.days_after} days before the injury`) + ' · ' : ''}${h.verdict}${blur ? ' · blurred: may show a child' : ''}</div>
       ${flagged ? html`<div style="display:flex;gap:6px;margin-top:6px">
@@ -392,34 +450,42 @@ function hitCard(slug, h) {
 const mmss = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 function watchScan(slug, job) {
   stopLive();
-  live.es = follow(job, ev => {
-    if (ev.type === 'scan') { $('#scan-stats').innerHTML = scanStats(ev).s; $('#scan-bar').style.transform = `scaleX(${ev.total ? ev.checked / ev.total : 0})`; }
-    if (ev.type === 'hit') { $('#no-hits')?.remove(); $('#hit-list').insertAdjacentHTML('afterbegin', hitCard(slug, ev).s); }
+  live.es = follow(job, async ev => {
+    if (ev.type === 'scan') {
+      $('#scan-stats').innerHTML = scanStats(ev).s; $('#scan-bar').style.transform = `scaleX(${ev.total ? ev.checked / ev.total : 0})`;
+      const cur = $('.tile.on'), next = ev.media_id != null && $(`.tile[data-media="${ev.media_id}"]`);
+      if (next && cur !== next) { cur?.classList.replace('on', 'done'); next.classList.add('on'); }
+    }
+    if (ev.type === 'hit') { $('#no-hits')?.remove(); $('#hit-list').insertAdjacentHTML('afterbegin', hitCard(slug, ev).s); $('#pop').innerHTML = pop(slug, ev).s; }
     if (ev.type === 'stage' && ev.stage === 'collecting') $('#scan-stats').innerHTML = html`<span class="muted">Reading public posts from the accounts you confirmed…</span>`.s;
+    if (ev.type === 'stage' && ev.stage === 'scanning') { const d = await api(`/api/cases/${encodeURIComponent(slug)}/posts`).catch(() => null); if (d && $('#tiles')) $('#tiles').innerHTML = tiles(slug, d.posts, true).s; }
     if (ev.type === 'error') fail(new Error(ev.message));
-    if (ev.type === 'done') { stopLive(); toast('Scan finished'); $('#scan-start')?.classList.remove('hidden'); $('[data-act="scan-pause"]')?.setAttribute('disabled', ''); }
+    if (ev.type === 'done') { stopLive(); toast('Scan finished'); if (queuedScan === slug) { queuedScan = null; await startScan(slug); } render(); }
   });
 }
 
 /* Find a person, 3b: posts */
 screens.posts = async slug => {
   const [c, d] = await Promise.all([loadCase(slug), api(`/api/cases/${encodeURIComponent(slug)}/posts`).catch(() => ({ hits: [], posts: [], weekly: [], counts: {} }))]);
-  const hits = d.hits.filter(h => h.status !== 'not relevant'), sel = hits[0], look = [...(c.details.look_for || [])].map(k => LOOK_FOR.find(l => l[0] === k)?.[1]?.toLowerCase() || k);
+  const hits = d.hits.filter(h => h.status !== 'not relevant'), sel = hits[0], look = [...(c.details.look_for || [])].map(k => lookLabel(k).toLowerCase());
   mount(html`${topCase(c, 'posts')}<main class="screen" style="padding:8px 24px 24px;gap:16px">
     <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap">
       <div style="flex:1;min-width:300px"><div class="h2">What’s relevant in their posts</div><div class="sub" style="margin-top:6px">${look.length ? 'Looking for: ' + look.join(', ') : ''}</div></div>
       <div style="display:flex;gap:28px;align-items:baseline">
         <span><b style="font-size:26px">${d.counts.read_automatically ?? 0}</b> <span class="muted">read automatically</span></span>
         <span><b style="font-size:26px">${d.counts.added_by_you ?? 0}</b> <span class="muted">added by you</span></span>
-        <a class="btn ghost sm" href="#/case/${slug}/scan">Add or scan more</a></div>
+        <button class="btn ghost sm" data-act="add-posts">Add saved posts</button><button class="btn ghost sm" data-act="inbox-open" data-slug="${slug}">From Downloads</button></div>
     </div>
+    <div id="add-posts" class="hidden"><div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px">${dropZone(slug)}
+      <div class="muted" style="font-size:14px">Instagram, Facebook, TikTok and Strava only show posts to logged-in users, and Hunt never logs in. Save the posts you need there (screenshots, photos, videos) and add them here; Hunt checks them straight away.</div></div></div>
+    <div id="inbox" class="hidden"></div>
     ${weeklyChart(d.weekly || [], c.details.injury_date)}
     <div class="split" style="--side:460px">
       <div style="display:flex;flex-direction:column;gap:8px;overflow:auto">${hits.length ? hits.map(h => html`<button class="row" data-act="pick-hit" data-id="${h.id}" style="text-align:left;${sel && h.id === sel.id ? 'box-shadow:inset 0 0 0 1.5px var(--ac)' : ''}">
           <span class="dot" style="background:${siteColor(h.source)}"></span>
           <div style="flex:1;min-width:0"><div style="font-weight:500">${h.what}</div><div class="muted" style="font-size:13.5px">${[h.source, h.posted_at ? 'posted ' + day(h.posted_at) : ''].filter(Boolean).join(' · ')}</div></div>
           <div style="text-align:right;font-size:13.5px"><div style="color:${h.timing === 'after' ? 'var(--am)' : 'var(--mu)'}">${h.days_after != null && h.days_after >= 0 ? `+${h.days_after} days` : ''}</div><div class="muted">${h.verdict}${h.status === 'in report' ? ' · in report' : h.status === 'kept' ? ' · kept' : ''}</div></div></button>`)
-        : html`<div class="empty">Nothing flagged yet. <a href="#/case/${slug}/scan" style="color:var(--ac)">Scan their photos and videos →</a></div>`}</div>
+        : html`<div class="empty">Nothing flagged yet. <a href="#/case/${slug}/scan" style="color:var(--ac)">See the scan →</a></div>`}</div>
       <div id="hit-detail">${sel ? hitDetail(slug, c, sel) : ''}</div>
     </div></main>`);
   window.__hits = hits; window.__case = c;
@@ -428,7 +494,7 @@ function hitDetail(slug, c, h) {
   const src = evidenceUrl(slug, h.file), blur = h.blur || h.child_visible;
   return html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px">
     <div style="font-weight:600;font-size:20px">${h.what}</div>
-    <div class="muted" style="font-size:14px">${[h.source, h.posted_at ? 'Posted ' + day(h.posted_at) : '', h.days_after != null && h.days_after >= 0 ? `${h.days_after} days after the injury` : ''].filter(Boolean).join(' · ')}</div>
+    <div class="muted" style="font-size:14px">${[lookLabel(h.category), h.source, h.posted_at ? 'Posted ' + day(h.posted_at) : '', h.days_after != null && h.days_after >= 0 ? `${h.days_after} days after the injury` : ''].filter(Boolean).join(' · ')}</div>
     ${src ? html`<img class="thumb ${blur ? 'blur' : ''}" src="${src}" alt="" style="width:100%;max-height:300px">` : ''}
     ${h.caption ? html`<div class="t2" style="font-size:14.5px">“${h.caption}”</div>` : ''}
     ${c.details.limits ? html`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
@@ -444,7 +510,7 @@ function hitDetail(slug, c, h) {
 }
 function weeklyChart(weeks, injury) {
   if (!weeks.length) return '';
-  const W = 1000, H = 90, max = Math.max(1, ...weeks.map(w => w.posts)), bw = W / weeks.length;
+  const W = 1000, H = 90, max = Math.max(1, ...weeks.map(w => w.posts)), bw = W / Math.max(weeks.length, 12); // a lone week stays one week wide
   const injWeek = injury ? isoWeek(asDate(injury)) : null, ii = weeks.findIndex(w => w.week === injWeek);
   return html`<div class="panel" style="padding:14px 18px"><div style="display:flex;justify-content:space-between" class="muted"><span style="font-size:14px">Posts per week</span><span style="font-size:13px"><span style="color:var(--am)">■</span> flagged ${injury ? '· line = injury' : ''}</span></div>
     <svg viewBox="0 0 ${W} ${H + 4}" preserveAspectRatio="none" style="width:100%;height:96px;display:block;margin-top:8px" role="img" aria-label="Posts per week, flagged posts highlighted">
@@ -455,6 +521,8 @@ function weeklyChart(weeks, injury) {
 function isoWeek(d) { const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); const n = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - n); const y = new Date(Date.UTC(t.getUTCFullYear(), 0, 1)); return `${t.getUTCFullYear()}-W${String(Math.ceil(((t - y) / 864e5 + 1) / 7)).padStart(2, '0')}`; }
 
 /* Find a person, 4: report */
+const TODO = { summary: 'search', method: 'search', identity: 'identity', confidence: 'identity', found: 'posts' }; // the step that writes each section
+const TODO_LABEL = { search: 'Run the search', identity: 'Decide whether it’s them', posts: 'Review the flagged posts left' };
 screens.report = async slug => {
   const screening = sessionStorage.getItem('hunt-screening') === '1';
   const [c, r] = await Promise.all([loadCase(slug), api(`/api/cases/${encodeURIComponent(slug)}/report?screening=${screening ? 1 : 0}`)]);
@@ -476,11 +544,13 @@ screens.report = async slug => {
         <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><div style="font-weight:600">${r.checks.every_sentence_cited && !r.checks.tampered?.length && r.sections.every(x => x.done) ? 'Ready' : 'Almost ready'}</div>
           <div class="reason ${r.checks.every_sentence_cited ? '' : 'warn'}"><span class="ic">${r.checks.every_sentence_cited ? '✓' : '!'}</span>Every sentence has a source</div>
           <div class="reason ${r.checks.tampered?.length ? 'bad' : ''}"><span class="ic">${r.checks.tampered?.length ? '!' : '✓'}</span>${r.checks.tampered?.length ? `${r.checks.tampered.length} files changed since saved` : `All ${r.checks.files_checked} files unchanged`}</div>
-          ${r.sections.filter(s => !s.done).map(s => html`<div class="reason warn"><span class="ic">•</span>Write “${s.title}”</div>`)}</div>
+          ${[...new Set(r.sections.filter(s => !s.done).map(s => TODO[s.id]).filter(Boolean))].map(step => html`<a class="reason warn" href="#/case/${slug}/${step}"><span class="ic">•</span>${TODO_LABEL[step]}</a>`)}</div>
         <label class="panel" style="padding:16px 18px;display:flex;gap:12px;align-items:center;cursor:pointer"><input type="checkbox" data-act="screening" ${screening ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--ac)">
           <span><b>Job screening mode</b><br><span class="muted" style="font-size:13.5px">Hides protected details (age, health, religion, family…)</span></span></label>
         <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px">
-          <a class="btn primary" href="${base}.pdf${q}">Export PDF</a><a class="btn" href="${base}.html${q}" target="_blank" rel="noopener">Web page</a><a class="btn ghost" href="${base}.json${q}">Data file</a></div>
+          <a class="btn primary" href="${base}.pdf${q}">Export PDF</a><a class="btn" href="${base}.html${q}" target="_blank" rel="noopener">Web page</a><a class="btn ghost" href="${base}.json${q}">Data file</a>
+          <a class="btn ghost" href="/api/cases/${encodeURIComponent(slug)}/evidence.zip" download>Evidence bundle (.zip)</a>
+          <div class="muted" style="font-size:13px">Every evidence file under a readable name, with a SHA-256 manifest anyone can check with <span class="mono">shasum -c</span>.</div></div>
       </aside>
     </div></main>`);
 };
@@ -511,10 +581,19 @@ const actions = {
   'decide-all': async el => {
     const slug = route().slug;
     try { await api(`/api/cases/${encodeURIComponent(slug)}/decisions`, { method: 'POST', body: { decision: el.dataset.decision } });
-      if (el.dataset.decision === 'him') { const { job } = await api(`/api/cases/${encodeURIComponent(slug)}/scan`, { method: 'POST', body: {} }); location.hash = `#/case/${slug}/scan`; void job; } else render();
+      if (el.dataset.decision === 'him') location.hash = `#/case/${slug}/scan`; else render(); // the scan screen starts the scan
     } catch (e) { fail(e); }
   },
-  'scan-start': async el => { const slug = el.dataset.slug; try { await api(`/api/cases/${encodeURIComponent(slug)}/scan`, { method: 'POST', body: {} }); render(); } catch (e) { fail(e); } },
+  'add-posts': () => { $('#inbox').classList.add('hidden'); $('#add-posts').classList.toggle('hidden'); },
+  'inbox-open': el => $('#inbox').classList.contains('hidden') ? openInbox(el.dataset.slug) : $('#inbox').classList.add('hidden'),
+  'inbox-take': async el => {
+    const ids = [...document.querySelectorAll('.inbox-pick:checked')].map(c => c.dataset.id); if (!ids.length) return;
+    el.disabled = true;
+    try { const r = await api(`/api/cases/${encodeURIComponent(inbox.slug)}/inbox`, { method: 'POST', body: { folder: inbox.folder, days: +inbox.days, keep: !$('#inbox-trash').checked,
+        take: ids.map(id => inbox.links[id] ? { id, url: inbox.links[id] } : { id }) } });
+      drawInbox(r.files); if (r.files.some(f => f.result === 'added')) await startScan(inbox.slug);
+    } catch (e) { el.disabled = false; if (e.status === 409) { toast('Some files moved or changed since this list was made. Listing again.', true); openInbox(inbox.slug, inbox.folder, inbox.days); } else fail(e); }
+  },
   'scan-pause': async el => {
     const job = el.dataset.job, paused = el.dataset.paused === '1';
     try { await api(`/api/jobs/${encodeURIComponent(job)}/${paused ? 'resume' : 'pause'}`, { method: 'POST', body: {} }); el.dataset.paused = paused ? '0' : '1'; el.textContent = paused ? 'Pause' : 'Resume'; } catch (e) { fail(e); }
@@ -535,6 +614,24 @@ document.addEventListener('click', e => {
 document.addEventListener('change', async e => {
   if (e.target.dataset.act === 'screening') { sessionStorage.setItem('hunt-screening', e.target.checked ? '1' : '0'); render(); }
   if (e.target.id === 'up-files') upload(e.target.dataset.slug, e.target.files);
+  if (e.target.id === 'inbox-days' || e.target.id === 'inbox-folder') openInbox(inbox.slug, $('#inbox-folder').value.trim(), +$('#inbox-days').value);
+  if (e.target.classList.contains('inbox-pick')) { const b = $('[data-act="inbox-take"]'), n = document.querySelectorAll('.inbox-pick:checked').length; b.textContent = `File ${n} into this case`; b.disabled = !n; }
+});
+let unfurling; // the latest link typed or pasted, read once typing pauses
+document.addEventListener('input', e => {
+  const el = e.target; if (el.id !== 'up-link' && !el.classList.contains('inbox-link')) return;
+  clearTimeout(unfurling); unfurling = setTimeout(async () => {
+    const url = el.value.trim(), u = await unfurl(url);
+    if (el.id === 'up-link') {
+      if (u?.platform) { const o = [...$('#up-platform').options].find(o => o.text.toLowerCase() === u.platform.toLowerCase()); $('#up-platform').value = o ? o.text : 'Other'; }
+      if (u?.posted_at) $('#up-date').value = u.posted_at.slice(0, 10);
+      $('#up-note').textContent = u ? [u.platform, u.handle && '@' + u.handle, u.posted_at && `posted ${utc(u.posted_at)}, read from the post’s ID`].filter(Boolean).join(' · ') + '. The link fills in the platform and date; Hunt doesn’t open it.' : '';
+      return;
+    }
+    const id = el.dataset.id, f = inbox.files.find(x => x.id === id);
+    inbox.links[id] = u ? url : undefined;
+    $(`#chips-${id}`).innerHTML = (u ? chips({ ...u, from: { platform: 'link', handle: 'link', posted_at: 'post id' } }) : chips(f)).map(c => c.s).join('');
+  }, 350);
 });
 document.addEventListener('dragover', e => { if (e.target.closest('.drop')) { e.preventDefault(); e.target.closest('.drop').style.borderColor = 'var(--ac)'; } });
 document.addEventListener('dragleave', e => { const d = e.target.closest('.drop'); if (d) d.style.borderColor = ''; });
@@ -544,7 +641,10 @@ async function upload(slug, files) {
   const form = new FormData(); [...files].forEach(f => form.append('files[]', f));
   const platform = $('#up-platform')?.value, date = $('#up-date')?.value;
   if (platform) form.append('platform', platform); if (date) form.append('posted_at', date);
-  try { const r = await api(`/api/cases/${encodeURIComponent(slug)}/media`, { method: 'POST', form }); toast(`Added ${r.added} file${r.added === 1 ? '' : 's'}. Press “Scan again” to check them.`); render(); } catch (e) { fail(e); }
+  try { const r = await api(`/api/cases/${encodeURIComponent(slug)}/media`, { method: 'POST', form });
+    if (!r.added) return toast(files.length === 1 ? 'That file is already in this case.' : 'Those files are already in this case.');
+    toast(`Added ${r.added} file${r.added === 1 ? '' : 's'}. Checking ${r.added === 1 ? 'it' : 'them'} now.`); await startScan(slug); location.hash = `#/case/${slug}/scan`; render();
+  } catch (e) { fail(e); }
 }
 
 /* ---------- router ---------- */

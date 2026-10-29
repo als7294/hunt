@@ -20,6 +20,7 @@ from ..seed import Finding
 
 NAME = "user-scanner"
 KINDS = {"email"}
+HEALTH_NOTE = "checks its own sites; nothing single to probe"
 AUDITED = "1.5.2.3"  # user-scanner release the two sets below were read against
 
 # Never run. A login attempt with a password counts (failed-login alerts, lockouts).
