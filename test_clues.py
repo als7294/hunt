@@ -75,7 +75,7 @@ assert best(country_evidence({}, "ラーメン ¥980")) == {"jp"}
 assert best(country_evidence({}, "Phở bò 65.000₫")) == {"vn"}
 assert best(country_evidence({}, "Rp 15.000")) == {"id"}
 assert best(country_evidence({}, "HK$38")) == {"hk"} and best(country_evidence({}, "R$ 12,90")) == {"br"}
-assert best(country_evidence({}, "Кафе €2,50")) == {"bg", "me"}  # Cyrillic and the euro (Bulgaria's since 2026)
+assert best(country_evidence({}, "Кафе-сладкарница €2,50")) == {"bg", "me"}  # Cyrillic and the euro (Bulgaria's since 2026)
 assert "gb" in best(country_evidence({}, "10 Downing Street, London SW1A 2AA"))
 assert best(country_evidence({}, "Ottawa ON K1A 0B1")) == {"ca"}
 assert best(country_evidence({}, "Dublin D02 X285")) == {"ie"}
@@ -87,6 +87,11 @@ assert {"us", "gb", "pr"} <= best(ev) and "fr" not in ev, ev
 # Things that look like clues but aren't
 for text in ("CA$5", "A1 2345", "Room 12345", "2+2 = 4 km/h", "Rs", "Ft. Worth", "MPHASIS", "D02 1234"):
     assert country_evidence({}, text) == {}, (text, country_evidence({}, text))
+# Scripts Apple Vision invented from texture on real Commons photos (Poland, Sri Lanka, Peru, Chile)
+for text in ("เพกบอ", "ชงต้อะอ\n8รวงราคี\n52 сообо", "٤٠ امرفا", "A SCENSOR\nات ورا", "区", "РНАРМАСУ"):
+    assert country_evidence({}, text) == {}, (text, country_evidence({}, text))
+assert best(country_evidence({}, "Аптека Продукты")) <= {"ru", "ua", "by", "bg", "rs", "mk", "ba", "me", "kz", "kg",
+                                                          "tj", "uz", "mn"}  # real short Cyrillic words still count
 # Latin-only OCR reading kanji (vlm.md): junk letters must not pass for Turkish or Czech
 assert country_evidence({}, "İF E\nîEĚV^") == {}
 assert best(country_evidence({}, "İSTANBUL")) == {"tr", "az"}  # but real capitals still count
@@ -97,6 +102,21 @@ for text in ("Dr.No", "get.io", "watch at twitch.tv", "2+2 4567 8901", "5μ", "C
 ocr, vlm = country_evidence({}, "東京"), country_evidence({"text": ["東京"]}, "")
 assert totals(vlm)["jp"] == totals(ocr)["jp"] / 2, (vlm, ocr)
 assert country_evidence({"text": ["新宿"]}, "新宿") == country_evidence({}, "新宿")
+
+# Street and sign words, through case, missing accents and Turkish capitals
+assert "fr" in best(country_evidence({}, "3 eme ARRI\nRUE\nPRAVAZ"))  # a Lyon street sign
+assert best(country_evidence({}, "BAHNHOFSTRASSE 12")) == {"de", "at", "ch", "lu", "li", "be"}
+assert best(country_evidence({}, "Bahnhofstraße 12")) == {"de", "at", "lu"}  # ß: not Swiss
+assert best(country_evidence({}, "DROTTNINGGATAN")) == {"se", "fi", "ax"}
+assert best(country_evidence({}, "Petőfi utca")) == {"hu"}  # ő and utca, one country
+assert best(country_evidence({}, "ÇIKIŞ")) == {"tr"} and best(country_evidence({}, "GİRİŞ")) == {"tr"}  # ş and the word
+assert best(country_evidence({}, "Jl. Malioboro")) == {"id"}
+assert "pt" in best(country_evidence({}, "SAIDA")) and "pt" not in country_evidence({}, "INGÅNG")
+assert "nl" in country_evidence({}, "INGANG") and "se" in country_evidence({}, "INGANG")  # no accents: either
+for text in ("Brigade Road", "Gate 12", "Via Rail", "Plaza Hotel", "Entrées $12", "Karl-Marx-Allee", "TRUE STORY"):
+    assert country_evidence({}, text) == {}, (text, country_evidence({}, text))
+# The vision model's language adds only where sign words said nothing
+assert totals(country_evidence({"language": "fr"}, "RUE"))["fr"] == totals(country_evidence({}, "RUE"))["fr"]
 
 # Vision model's language, prose descriptions and own guesses
 assert best(country_evidence({"language": "nl"}, "")) == {"nl", "be", "sr"}

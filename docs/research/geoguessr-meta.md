@@ -96,6 +96,7 @@ We found no first-person method write-ups from Consus, Blinky or zi8gzag, only m
 | **Simplified vs traditional Chinese** | Yes | Yes, 3.0 bits. Character sets avoid modern Japanese forms |
 | **Language** | Yes | From the vision model's language field, 2.3 bits. English is ignored |
 | **Domains, phone codes** | Yes, readable by OCR. `.co`, `.io`, `.tv` and similar are global brands, not places ([GeoHints domains](https://geohints.com/meta/domains), [phone numbers](https://geohints.com/meta/phoneNumbers)) | Yes, 4.0 bits. Vanity domains are ignored |
+| **Street and sign words** (rue, calle, ulica, utca, -straße, -gatan, jalan, çıkış…) | Yes. Street-type words and exit/entrance/open/closed words are core pro vocabulary ([Plonk It](https://plonkit.net/beginners-guide) country pages) | Yes, 2.3 bits per language. Case and missing accents are tolerated. English look-alikes (via, gate, plaza) are left out |
 | **Currency signs** (₩ ₹ ₽ ฿ ₫ ¥ € £, R$, HK$, Rp…) | Yes. Prices on menus, shopfronts and markets are among the most common text in holiday and food photos ([Wikipedia](https://en.wikipedia.org/wiki/Currency_symbol)). € covers 21 eurozone members, Bulgaria since 2026-01-01, plus six non-EU users ([Eurozone](https://en.wikipedia.org/wiki/Eurozone)) | Yes, 3.8 bits. A bare `$` is too widely shared |
 | **Postcodes** | Yes where the format is distinctive: UK, Canada, Irish Eircode, Brazil's CEP, Japan's 〒 mark. Most countries' 4–6-digit codes look like any number | Yes, 3.8 bits, those five formats only |
 | **mph** | Yes on signs that print the unit. Only the US, the UK and about 30 territories and small states use it ([Wikipedia](https://en.wikipedia.org/wiki/Miles_per_hour)) | Yes, 3.8 bits. Liberia is left out (only occasional) |
@@ -133,7 +134,17 @@ All of this describes Google's publishing process, not the place. The only real-
 
 **In `tessera/clues.py`:** `country_evidence(obs, ocr_text)` turns OCR text and the vision model's observation dict into per-country Fellegi-Sunter bits, which `photo.fuse()` adds to each hypothesis.
 - **Strong clues, 3–4 bits:** script, rare letters, Chinese character forms, domains, phone codes, currency signs, distinctive postcodes, "mph".
-- **OCR junk is filtered out.** Apple Vision's default Latin-only OCR turns kanji into strings like "İF E" or "îEĚV^". So a rare letter only counts inside a word-shaped token: 3+ letters, all lower, ALL UPPER or Title case.
+- **Invented scripts are filtered out.**
+  - **The finding.** Measured on the 58 geotagged Commons photos in `~/Tessera/cache/geo-eval/`, using OCR text only. Apple Vision's automatic language detection invents short Thai, Arabic and Cyrillic lines from texture or scripts it can't read:
+    - Thai on photos from Poland and Sri Lanka
+    - Arabic on photos from Peru and Chile
+    - Cyrillic look-alikes on the Sri Lanka photo
+
+    These lines have the same 0.3 confidence as some real text, so the threshold can't separate them.
+  - **The rule.** Alphabetic scripts need a line of 8+ letters, 3+ of which don't look Latin. Han, kana and Hangul keep their per-character rules.
+  - **Before the rule:** 8 photos produced clues; 5 were wrong.
+  - **After:** 3 produced clues (Lyon "RUE", Nepal's Devanagari, Osaka's station sign), and all 3 were right. The cost: one real short Arabic word on the Egypt photo no longer counts.
+- **OCR junk letters are filtered out.** Apple Vision's default Latin-only OCR turns kanji into strings like "İF E" or "îEĚV^". So a rare letter only counts inside a word-shaped token: 3+ letters, all lower, ALL UPPER or Title case.
 - **Driving side, ±2 bits.**
 - **Weak hints, under 1 bit**, drawn only from the countries sources call the norm. Left out on purpose:
   - **Yellow centre lines** that only mean no-passing (jp, nz, ar, uy), snow (cl, ro), alpine roads (au) or roadworks (continental Europe).
