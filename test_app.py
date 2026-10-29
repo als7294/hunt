@@ -234,7 +234,8 @@ if shutil.which("sips"):  # macOS: a HEIC photo arrives as a JPEG
     posts.add_files = add_files
 assert not list(Case.open("vance-claim").dir.glob(".upload-*"))  # temporary copies cleaned up
 r = c.get("/api/cases/vance-claim/posts").json()
-assert r["counts"] == {"read_automatically": 1, "added_by_you": 2, "flagged": 1, "by_category": {"sport": 1}}, r["counts"]
+assert r["counts"] == {"read_automatically": 1, "added_by_you": 2, "captured": 0, "flagged": 1,
+                       "by_category": {"sport": 1}}, r["counts"]
 assert r["weekly"] == [{"week": "2026-W15", "posts": 1, "flagged": 1}, {"week": "2026-W18", "posts": 2, "flagged": 0}], r
 assert c.post("/api/cases/vance-claim/hits/7", content=json.dumps({"status": "great"}), headers=JSON).status_code == 400
 assert c.post("/api/cases/vance-claim/hits/7", content=json.dumps({"status": "in report"}), headers=JSON).json()["status"] == "in report"
@@ -277,6 +278,53 @@ cases = c.get("/api/cases").json()
 assert cases[0]["headline"] in ("Confirmed · report ready", "Report ready"), cases
 assert c.get("/api/cases/vance-claim").json()["steps"] == {"search": "done", "identity": "done", "posts": "done",
                                                             "report": "done"}
+# --- Facebook: saved pages (with their _files folder), screenshots, the investigator's links -----------
+del sys.modules["hunt.posts"]  # the real posts store from here on
+FB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "facebook")
+fb_case = {**new, "label": "Vell claim", "seeds": ["Dorian Vell", "@dorian.vell", "location:Port Alder"]}
+slug = c.post("/api/cases", content=json.dumps(fb_case), headers=JSON).json()["slug"]
+blank = os.path.join(tempfile.mkdtemp(), "IMG_2041.jpg")
+__import__("PIL.Image").Image.new("RGB", (64, 48), "gray").save(blank)
+saved = [("files[]", ("Saved/Dorian Vell _ Facebook.html", open(os.path.join(FB, "Dorian Vell _ Facebook.html"), "rb").read(),
+                      "text/html"))]
+for name in os.listdir(os.path.join(FB, "Dorian Vell _ Facebook_files")):
+    saved.append(("files[]", (f"Saved/Dorian Vell _ Facebook_files/{name}",
+                              open(os.path.join(FB, "Dorian Vell _ Facebook_files", name), "rb").read(), "image/jpeg")))
+saved += [("files[]", ("Saved/Dorian Vell _ Facebook_files/icon.svg", b"<svg onload=alert(1)>", "image/svg+xml")),
+          ("files[]", ("Saved/Dorian Vell _ Facebook_files/l9oFVWfjS2E.css", b"body{}", "text/css")),
+          ("files[]", ("mobile_fr.mhtml", open(os.path.join(FB, "mobile_fr.mhtml"), "rb").read(), "multipart/related")),
+          ("files[]", ("IMG_2041.jpg", open(blank, "rb").read(), "image/jpeg"))]
+url = f"/api/cases/{slug}/facebook"
+r = c.post(url, files=saved, data={"saved_at": "2026-10-28T15:00:00"}, headers={"origin": BASE})
+assert r.status_code == 200, r.text
+assert r.json() == {"added": 9, "posts": 9, "pages": 2, "screenshots": 1, "skipped": [
+    "Saved/Dorian Vell _ Facebook_files/icon.svg", "Saved/Dorian Vell _ Facebook_files/l9oFVWfjS2E.css"]}, r.json()
+assert c.post(url, files=saved, headers={"origin": BASE}).json()["added"] == 0  # the same pages again: nothing new
+listed = c.get(f"/api/cases/{slug}/posts").json()
+leg = next(p for p in listed["posts"] if p["url"] == "https://www.facebook.com/dorian.vell/posts/pfbid02XaLegDay7701")
+assert leg["source"] == "Facebook" and leg["origin"] == "added" and leg["posted_at"] == "2026-10-25T13:02:00+00:00"
+assert leg["extra"]["place"] == "Iron Harbor Gym" and leg["extra"]["posted_at_text"] == "3d" and len(leg["media"]) == 1
+assert c.get(f"/evidence/{slug}/{os.path.basename(leg['media'][0]['file'])}").headers["content-type"] == "image/jpeg"
+page = c.get(f"/evidence/{slug}/{os.path.basename(leg['extra']['evidence'])}")  # the saved page, kept as it came
+assert page.headers["content-type"].startswith("text/plain") and page.headers["content-security-policy"] == "sandbox"
+assert "Leg day done" in page.text
+squat = next(p for p in listed["posts"] if p["text"].startswith("Séance de muscu"))
+mhtml = c.get(f"/evidence/{slug}/{os.path.basename(squat['extra']['evidence'])}")
+assert squat["extra"]["evidence"].endswith(".mhtml") and mhtml.headers["content-type"].startswith("text/plain")
+assert sum(p["source"] == "Facebook" and not p["extra"] for p in listed["posts"]) == 1  # the plain photo, as a file
+for bad in ("../evil.html", "/tmp/evil.html", "Saved/../../evil.html", "C:/evil.html"):
+    r = c.post(url, files=[("files[]", (bad, b"<html></html>", "text/html"))], headers={"origin": BASE})
+    assert r.status_code == 400, (bad, r.status_code)
+assert c.post(url, files=[("files[]", ("notes.txt", b"hello", "text/plain"))], headers={"origin": BASE}).status_code == 400
+assert c.post(url, files=saved, headers={"origin": "http://evil.test"}).status_code == 403
+assert c.post(url, files=saved, data={"saved_at": "last week"}, headers={"origin": BASE}).status_code == 400
+assert not list(Case.open(slug).dir.glob(".upload-*"))
+links = c.get(f"/api/cases/{slug}/facebook/links").json()["links"]
+assert {"label": "Facebook people: Dorian Vell", "url": "https://www.facebook.com/search/people/?q=Dorian+Vell"} in links
+assert any(link["url"] == "https://www.facebook.com/dorian.vell" for link in links)
+assert any('"Dorian Vell" "Port Alder"' in link["label"] for link in links)
+assert c.get("/api/cases/nope/facebook/links").status_code == 404
+
 c.__exit__(None, None, None)
 
 print("ok")

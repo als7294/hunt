@@ -3,6 +3,8 @@ hunt photo IMAGE... --case NAME [--purpose TEXT]
 hunt inbox --case NAME [--folder DIR] [--days N] [--import all|ID[=URL]...] [--keep]
 hunt export --case NAME [--out DIR]
 hunt watch [--case NAME (--every 1|3|7 | --off)] [--background on|off]
+hunt pack --case NAME [--out DIR]          hunt unpack FILE [--replace]
+hunt seen [SEED...] [--case NAME] [--screening]
 hunt app
 
 search fans each seed out to every source that handles its kind, scores every
@@ -12,19 +14,22 @@ Both write <case>/case.json (also printed to stdout). inbox lists the photos and
 lately (~/Downloads by default) with clean names, and with --import files them into the case and
 moves the originals to the Trash. export zips every evidence file under a readable name with a
 SHA-256 manifest, for handing over. watch checks the watched cases that are due (what the background
-agent runs), or turns watching on and off. app opens the Hunt app in
+agent runs), or turns watching on and off. pack locks a whole case in an encrypted archive for another
+computer, and unpack brings one in after checking every file's hash. seen looks for the subject in
+the other cases on this computer. app opens the Hunt app in
 your browser, served only to this machine.
 """
 
 import argparse
 import asyncio
+import getpass
 import json
 import os
 import sys
 from datetime import date
 from pathlib import Path
 
-from . import bundle, inbox, photo, recheck, search, watch
+from . import bundle, inbox, pack, photo, recheck, search, seen, watch
 from .case import HOME, Case
 from .search import build  # noqa: F401  (re-exported: tests and older callers import it from here)
 from .seed import detect, now
@@ -66,6 +71,17 @@ def main():
     w.add_argument("--off", action="store_true", help="stop watching --case")
     w.add_argument("--background", choices=("on", "off"),
                    help="keep watching when Hunt is closed: installs (or removes) a per-user LaunchAgent")
+    k = sub.add_parser("pack", parents=[proxy], help="lock a whole case in an encrypted archive, to move it to another computer")
+    k.add_argument("--case", required=True, help="the case to pack")
+    k.add_argument("--out", type=Path, default=inbox.DOWNLOADS, help="where to save it (default ~/Downloads)")
+    u = sub.add_parser("unpack", parents=[proxy], help="bring in a case packed on another computer, checking every file")
+    u.add_argument("file", type=Path, help="the .hunt-case.dmg archive")
+    u.add_argument("--replace", action="store_true",
+                   help="if a case with that name is here, move it to the Trash first (default: keep both)")
+    n = sub.add_parser("seen", parents=[proxy], help="have we seen this person before? (looks in the other cases on this computer)")
+    n.add_argument("seeds", nargs="*", help="what you know about the subject, as for search")
+    n.add_argument("--case", help="look up this case's subject instead")
+    n.add_argument("--screening", action="store_true", help="an employment screening: other cases stay out of it")
     sub.add_parser("app", parents=[proxy], help="open the Hunt app in your browser (this machine only)")
     args = ap.parse_args()
 
@@ -76,6 +92,8 @@ def main():
         return serve()
     if args.cmd == "watch":
         return watch_cmd(args)
+    if args.cmd in ("pack", "unpack", "seen"):
+        return {"pack": pack_cmd, "unpack": unpack_cmd, "seen": seen_cmd}[args.cmd](args)
     try:
         case = Case(args.case, args.purpose)
     except ValueError as e:
@@ -177,3 +195,56 @@ def watch_cmd(args):
     os.nice(10)
     for line in asyncio.run(watch.tick(lambda c: watch.run(c, search.printer(sys.stderr)))):
         print(f"{now()[:16].replace('T', ' ')} {line}")
+
+
+def pack_cmd(args):
+    try:
+        case = Case(args.case, create=False)
+    except LookupError as e:
+        raise SystemExit(str(e))
+    passphrase = _ask(f"Passphrase for the archive ({pack.MIN_PASSPHRASE}+ characters): ")
+    if _ask("Again: ") != passphrase:
+        raise SystemExit("the passphrases don't match")
+    try:
+        made = pack.pack(case, args.out, passphrase)
+    except (ValueError, OSError) as e:
+        raise SystemExit(str(e))
+    print(f"{made['path']}\n  {made['files']} files, {made['bytes'] / 1e6:.1f} MB; SHA-256 {made['sha256']}"
+          + "".join(f"\n  changed since saved: {x}" for x in made["changed"])
+          + "\nKeep the passphrase apart from the archive.")
+
+
+def unpack_cmd(args):
+    if not args.file.is_file():
+        raise SystemExit(f"no such file: {args.file}")
+    try:
+        got = pack.unpack(args.file, _ask("Passphrase: "), args.replace)
+    except ValueError as e:
+        raise SystemExit(str(e))
+    print(f"unpacked as {got['slug']}: {got['files']} files checked"
+          + ("; the case that was here is in the Trash" if got["replaced"] else ""))
+
+
+def _ask(prompt: str) -> str:
+    try:
+        return getpass.getpass(prompt)  # never echoed, never on the command line
+    except (EOFError, KeyboardInterrupt):
+        raise SystemExit("no passphrase given")
+
+
+def seen_cmd(args):
+    if args.case:
+        try:
+            r = seen.for_case(Case(args.case, create=False), args.screening)
+        except LookupError as e:
+            raise SystemExit(str(e))
+    else:
+        r = seen.lookup(seen.from_seeds(args.seeds), screening=args.screening)
+    if not r["checked"]:
+        return print(r["why"])
+    for m in r["matches"]:
+        on = ", ".join(f"{o['kind']} {o['value'][:12] if o['kind'] == 'file' else o['value']}" for o in m["on"])
+        print(f"{m['case']}  ({m['label']}, {m['kind']}, opened {m['created'][:10]})"
+              f"{'' if m['strong'] else '  name only: could be someone else'}\n  {on}")
+    print(f"{len(r['matches'])} other case(s) share something"
+          + (f"; {r['skipped_screenings']} employment screening(s) not looked at" if r["skipped_screenings"] else ""))

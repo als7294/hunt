@@ -29,7 +29,7 @@ Ranked by how often each comes up × how much it helps this investigator:
 
 ## What was built
 
-Sections 1–3 and 5 run offline. Check again (4) and watching (6) make the same logged-out requests a search and a scan already make, through `HUNT_PROXY`; watching's notifications are local. Nothing is ever downloaded from Instagram, TikTok or Facebook for the investigator.
+Sections 1–3, 5, 7 and 8 run offline. Check again (4) and watching (6) make the same logged-out requests a search and a scan already make, through `HUNT_PROXY`; watching's notifications are local. Nothing is ever downloaded from Instagram, TikTok or Facebook for the investigator.
 
 ### 1. The Downloads inbox (`hunt/inbox.py`, `hunt inbox`)
 
@@ -153,7 +153,7 @@ Hunt finds the accounts, then keeps looking for fraud clues without the investig
 - **In the app,** the scan takes the heavy lock like every heavy job.
 - **The vision model's own load can't be lowered:** Ollama is a separate process. Waiting for an idle Mac is what protects the investigator from it.
 
-**When watching stops by itself:** when the case is closed (meta `closed`), or when its retention period ends (`app.RETENTION_DAYS` after it was opened, unless meta `legal_hold`). Either way it's audited as `watch off` with the reason. Nothing sets `closed` or `legal_hold` yet (integration point 9).
+**When watching stops by itself:** when the case is closed (meta `closed`), or when its retention period ends (`app.RETENTION_DAYS` after it was opened, unless meta `legal_hold`). Either way it's audited as `watch off` with the reason. `POST /api/cases/{slug}/close` and `/hold` set them (and close stops watching at once); see `docs/api.md`.
 
 **CLI:**
 
@@ -165,9 +165,79 @@ hunt watch --background on                # keep watching when Hunt is closed (o
 hunt watch                                # check what's due now (what the agent runs)
 ```
 
+### 7. Move a case between computers (`hunt/pack.py`, `hunt pack` / `hunt unpack`)
+
+Laura works on a work laptop and at home. A whole case travels as one encrypted archive: `<case>-<UTC time>.hunt-case.dmg`.
+
+**What's in the archive:**
+- `case.db`: a consistent copy, with the audit log, notes, decisions, posts, hits and watch settings.
+- Every evidence file.
+- `case.json`.
+- `manifest.json`: every file's SHA-256 and size, the case, which computer it was packed on, when, and the Hunt version.
+
+**The format:** an **AES-256 encrypted disk image**, made with macOS's own `hdiutil`.
+- It needs no extra software.
+- Finder can open it with the passphrase.
+- The passphrase is chosen per archive (12+ characters) and goes to `hdiutil` on stdin, never on a command line or in a log.
+- I chose it over adding a crypto library: the `cryptography` package isn't installed, and a home-made cipher is out of the question.
+
+**Unpacking:**
+- The image is mounted read-only and hidden from Finder.
+- The manifest may only name `case/case.db`, `case/case.json` and `case/evidence/<sha256>.<ext>`, so a crafted archive can't write anywhere else.
+- Every file is copied aside while being hashed. One mismatch, one missing file, or one file the manifest doesn't list, and nothing is accepted.
+- The database's integrity is checked, and only then is the case put in place.
+- **Never merged:** a case with the same name here is kept, and the new one arrives as `-2`. "Replace" moves the one here to the Trash first.
+
+**Chain of custody across the move:**
+- The archived case's own log ends with `case packed`: which computer, which file.
+- The computer it left logs `case pack sealed`, with the archive's and the manifest's SHA-256.
+- The computer it arrives on logs `case unpacked`, with the same two hashes, so the two logs can be tied together.
+- Watching is turned off on arrival (`watch off`, "moved from another computer"), so two computers never both watch one subject.
+
+```
+hunt pack --case vance-claim             # asks for the passphrase twice; saves to ~/Downloads
+hunt unpack ~/Downloads/vance-claim-20261029-120000Z.hunt-case.dmg [--replace]
+```
+
+### 8. Have we seen this person before? (`hunt/seen.py`, `hunt seen`)
+
+Investigators re-encounter subjects and do the work twice. When a case is created, and after a search, its identifiers are looked up in the other cases on this computer:
+- **What's compared:**
+  - seeds (username, email, phone, profile URL, address, name), normalised: case, `@` and spacing don't matter, and URLs are normalised as decisions are
+  - the URLs and handles of accounts marked as the subject's
+  - the SHA-256 of the photos and videos in the case
+- **Not compared:** page sources and screenshots. A site serves the same "not found" page to everyone.
+- **Strength:** a name alone is a **weak** match (namesakes); everything else is strong.
+- **What a match shows:** the other case's label, kind and opening date, and what matched. Nothing more.
+- **Safety:** local and read-only, and nothing is merged.
+
+**Screening:** an employment screening is purpose-bound, so it works both ways:
+- A `background` case's lookup, or any lookup with `screening=1`, doesn't open other cases, and says why.
+- `background` cases never appear in another case's matches.
+- **Why:** an employment screening may only use what was collected for it (FCRA permissible purpose). Many states bar hiring decisions based on past workers' compensation claims, which is what an insurance case often is.
+
+```
+hunt seen kestrel_vane88 kestrel@example.com     # before opening a case
+hunt seen --case vance-claim [--screening]
+```
+
 ### Self-checks
 
-All offline, using temp folders only. `test_inbox.py`, `test_bundle.py`, `test_recheck.py`, `test_notes.py`, `test_watch.py` and `test_qol.py` each print `ok`.
+All offline, using temp folders only. `test_inbox.py`, `test_bundle.py`, `test_recheck.py`, `test_notes.py`, `test_watch.py`, `test_pack.py`, `test_seen.py` and `test_qol.py` each print `ok`.
+
+`test_pack.py` makes one real encrypted image in a temp folder (about 10 s) and checks:
+- a wrong passphrase is refused
+- a taken name gets `-2`, and `replace` moves the old case to a stubbed Trash
+- the hashes in the logs on both sides agree
+- watching is off on arrival
+
+On plain folders, it checks that a changed, extra or missing file, a path outside `case/`, and a folder with no manifest are each refused, and that the case itself is never touched. It leaves no image attached.
+
+`test_seen.py` checks:
+- strong and weak matches, and their order
+- matches through a confirmed account and through the same video
+- lookups from typed seeds
+- both screening rules
 
 `test_watch.py` stubs battery, load, idle time, `launchctl`, notifications, the re-check and the scan. It never installs a real LaunchAgent, notifies, or touches `~/Library` or the Trash. It covers:
 - waiting on battery, when busy, and when in use
@@ -325,6 +395,37 @@ The real Trash call was checked once by hand, on a scratch file.
   - Opening the list sends `POST …/alerts/seen`.
 - **Lock-screen note** near the switch: "Notifications show counts only, never what was posted. To hide them on the lock screen: System Settings → Notifications → Show previews: When unlocked."
 
+### H. "Move to another computer" in the case menu, and "Bring a case in" on the case list
+
+**Packing:**
+- Case menu: **Move to another computer…** opens a dialog.
+- **Passphrase** and **Again** fields (password inputs). Helper: "12 or more characters; a few words works well. Hunt can't recover it."
+- **Save to** folder, default `~/Downloads`.
+- Button **Pack case** → `POST /api/cases/{slug}/pack` `{passphrase, folder}`.
+- Show progress, since it's slow for big cases: "Packing… (large videos take a while)".
+- On success: "Saved `vance-claim-20261029-120000Z.hunt-case.dmg` (3 files, 1.2 GB). Fingerprint: `71a9…f6`. Copy it to the other computer, and send the passphrase separately."
+- Clear the passphrase fields when the dialog closes.
+
+**Unpacking:**
+- Case list: **Bring a case in…** lists `GET /api/case-archives` (default `~/Downloads`), plus a folder field.
+- Pick an archive, enter the **Passphrase**, then **Unpack** → `POST /api/case-archives/unpack` `{name, folder, passphrase}`.
+- If the answer's `slug` isn't the archive's case name, say: "A case with this name is already here, so this one was added as vance-claim-2. Nothing was merged."
+- Offer **Replace the one here instead** (`replace: true`), with a confirm step: "The case on this computer goes to the Trash. You can put it back from there."
+- Errors are shown as is, e.g. "wrong passphrase, or not a Hunt case archive", or "case/evidence/… doesn't match its hash in the manifest; nothing was imported".
+- After unpacking: "Watching is off on this computer. Turn it on here if this is where the case will be watched."
+
+### I. "Seen before" in the new-case form and on the search results
+
+- **New-case form:**
+  - As seeds are typed (debounced), call `POST /api/seen-before` `{seeds, kind}`.
+  - If there are matches, show a banner above **Create**: "You may have looked into this person before: *Vance 2025 claim* (insurance, opened 3 Mar 2025) shares the username kestrel_vane88."
+  - Each match links to the case and lists its `on` items: `file` as "the same photo/video", `name` as "same name only: could be someone else", in a weaker style.
+  - **Nothing is merged and nothing is blocked:** the investigator decides.
+- **After a search** (Is it them?, or the case overview): `GET /api/cases/{slug}/seen-before` gives the same list.
+- **`checked: false`:** show `why` in place of the list (employment screenings).
+- **`skipped_screenings` > 0:** add a quiet line, "1 employment screening on this computer wasn't looked at."
+- **Notes:** a **Note** button on each match pre-fills "Seen before in *Vance 2025 claim*: …" (`about: "case"`). Linking the two cases goes on the record that way, by the investigator's own hand.
+
 ## Audit actions for the report (to pass to the report owner)
 
 Every row below is an audit entry, so its citation is `M-a<rowid>`, except notes, which are `N-<id>`. The sentences are suggestions in the report's neutral wording. Dates are the audit `ts`.
@@ -343,6 +444,9 @@ Every row below is an audit entry, so its citation is `M-a<rowid>`, except notes
 | `watch run` | `new_posts, changes, new_flagged, alerts` | Usually folded into one sentence: "The accounts were checked {n} times between {first} and {last} while watched; {sum new_flagged} posts were newly flagged." | How we searched |
 | `alert` | `kind, text, hits` or `change` | Not a report sentence in itself: the hits and changes it points to are already cited. Useful as "first noticed on {date}". | (none) |
 | `background watching` | `on, agent` | Methodology detail: "Checks also ran in the background while Hunt was closed, from {date}." | How we searched |
+| `case packed` | `from, file` | "The case was packed on {from} on {date} to move it to another computer." | How we searched (chain of custody) |
+| `case pack sealed` | `file, sha256, manifest_sha256, files, bytes, changed` | Only on the computer it left: "Archive {file} (SHA-256 {sha256:8}) was sealed on {date}." | Appendix |
+| `case unpacked` | `file, sha256, manifest_sha256, from, packed_at, files, as, replaced` | "On {date}, the case was brought onto this computer from {from} (packed {packed_at}); all {files} files matched their hashes (archive SHA-256 {sha256:8})." | How we searched (chain of custody) |
 | `inbox import` | `name, folder, sha256, exhibit, platform, handle, url, posted_at, from, where_from, result, trashed` | "{exhibit} was saved by the investigator as {name} and filed on {date} (SHA-256 {sha256:8})." | Evidence |
 | `evidence exported` | `file, sha256, exhibits, changed` | "An evidence bundle of {exhibits} files was made on {date} (SHA-256 {sha256})." | Appendix |
 
@@ -367,7 +471,9 @@ In screening mode, run notes and changed bios through the same protected-traits 
 6. **`report.py`: `N-<id>` citations.** Notes are a fourth citation kind beside `A-`, `E-` and `M-`. `notes.list_notes(case)` gives them with `cite`, `replaced_by` and `ref`.
 7. **The startup checks** could also remind about Check again: "2 cases not checked again in 30 days", from the latest `recheck` audit `ts` per case. Optional.
 8. **`search.screenshot`** only captures accounts that have no screenshot yet. `recheck._recapture` repeats its loop (about 10 lines) to capture again. An `again=True` flag there would let both share it.
-9. **Closing a case, and legal hold.** `watch.py` stops watching when `case.meta("closed")` is set, and when the retention period ends unless `case.meta("legal_hold")` is set. Nothing writes either key yet: `Case.set_details` doesn't accept them. A "Close case" action, and a legal-hold toggle, belong in `case.py`/`app.py`. When they arrive, watching follows them with no change here.
+9. **Closing a case, and legal hold.** Done (hunt-server): `Case.close()`, `reopen()`, `set_hold()` and `status()`, and the routes `POST /api/cases/{slug}/close`, `/reopen`, `/hold` and `/delete` (to the Trash). Closing also calls `watch.stop(case, "the case is closed")` at once. `RETENTION_DAYS` now lives in `hunt/case.py`, and `app.RETENTION_DAYS` re-exports it. `watch._ended` could call `case.status()["retention_due"]` instead of repeating the rule.
 10. **`serve()`** got one hook (`app.app.router.lifespan_context = _watching(app.app)`) to start the watch loop in the server's own event loop. That loop is where `search.HEAVY` lives. Tests that build the app with `make_app` never start it.
 11. **New post collectors** (TikTok, Instagram, Facebook, from data-sources) reach Check again and watching with no change here, as long as they're registered in `posts.FETCHERS`/`posts._site`. "Posts gone" and `none_left` then cover those platforms too.
+12. **Screening as a case setting.** "Screening" is a report flag today (`?screening=1`), plus the `background` kind. `seen.py` treats every `background` case as an employment screening. If a case-level "this is an employment screening" setting arrives, `seen.for_case` should read it instead of the kind.
+13. **A case created from "seen before".** The new-case form could offer "Open *Vance 2025 claim* instead". That's navigation only, never a merge.
 

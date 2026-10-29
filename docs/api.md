@@ -9,7 +9,7 @@ opens `/login?t=<token>`, which sets an HttpOnly, SameSite=Strict cookie and red
 - **Non-GET requests:**
   - `Origin` must be `http://127.0.0.1:<port>` (or the `localhost` form).
   - JSON bodies need `Content-Type: application/json`.
-  - Uploads (`/api/cases/{slug}/media`, `/api/settings/logo`) are `multipart/form-data` with the same Origin check; nothing else accepts multipart.
+  - Uploads (`/api/cases/{slug}/media`, `/api/cases/{slug}/facebook`, `/api/settings/logo`) are `multipart/form-data` with the same Origin check; nothing else accepts multipart. (The extension's `/api/capture/*` uploads pass their own check; see Hunt Capture.)
 - **`Sec-Fetch-Site`:** if present, must be `same-origin` or `none`.
 - **CORS:** no CORS headers, ever. GET requests never change state.
 - **Content-Security-Policy:**
@@ -25,10 +25,14 @@ Errors are `{"error": "message"}` with a 4xx or 5xx status.
 ## Cases
 | Method | Path | Body / response |
 |---|---|---|
-| GET | `/api/startup` | `{version, proxy: bool, checks: [{id, label, ok, detail}]}`. Check ids: `cases`, `evidence` (re-hash), `ai` (Ollama `/api/tags` lists `HUNT_VLM`; the model isn't loaded), `network`, `proxy`, `retention` (cases older than 90 days with no legal hold) |
-| GET | `/api/cases` | `[{slug, label, kind, reference, tool, created, updated, headline}]`, newest first. `headline` reads like "9 flagged posts" or "Confirmed · report ready" |
+| GET | `/api/startup` | `{version, proxy: bool, checks: [{id, label, ok, detail, items?}]}`. Check ids, in order: `cases`, `evidence` (re-hash; quick for unchanged files), `ai` (Ollama `/api/tags` lists `HUNT_VLM`; the model isn't loaded), `network`, `proxy`, `sources` (`hunt.sources.health()`: "N of M ready; K of L keys set"; `items: [{source, ready, reachable, key, key_set, key_required, detail}]`), any **Hunt Browser rows**, then `retention` (cases past 90 days without a legal hold; `items: [{slug, label, created}]`, each to be deleted or held) |
+| GET | `/api/cases` | `[{slug, label, kind, reference, tool, created, updated, headline, closed, legal_hold, retention_due}]`, newest first. `headline` reads like "9 flagged posts" or "Confirmed · report ready" |
 | POST | `/api/cases` | `{label, seeds: [str], kind: "insurance"\|"background"\|"diligence"\|"journalism", reference?, purpose (required: who asked and why it's lawful), injury_date?: "YYYY-MM-DD", limits?: str, look_for: [category key or custom text], tool: "person"}` plus any **report header fields** (below) → `201 {slug}`. A label that's already taken gets a `-2` suffix; nothing is ever merged |
-| GET | `/api/cases/{slug}` | `{slug, details: {label, kind, reference, purpose, injury_date, limits, look_for, tool, created, client, adjuster, file_number, assignment_date, subject_dob, recommendations}, seeds: [{kind, value}], steps: {search, identity, posts, report}` (each `"todo"`, `"running"` or `"done"`), `active_job: {id, kind} \| null, counts: {accounts, flagged, evidence}}` |
+| GET | `/api/cases/{slug}` | `{slug, details: {label, kind, reference, purpose, injury_date, limits, look_for, tool, created, client, adjuster, file_number, assignment_date, subject_dob, recommendations}, seeds: [{kind, value}], steps: {search, identity, posts, report}` (each `"todo"`, `"running"` or `"done"`), `status: {closed, legal_hold, retention_ends, retention_due}, active_job: {id, kind} \| null, counts: {accounts, flagged, evidence}}` |
+| POST | `/api/cases/{slug}/close` | `{reason?}` → status. Watching stops, and no search, scan, re-check or watch run starts until it's reopened (409). Audited (`case closed`); the report says when it was closed. 409 while a job runs |
+| POST | `/api/cases/{slug}/reopen` | `{}` → status. Audited (`case reopened`). Watching doesn't restart by itself |
+| POST | `/api/cases/{slug}/hold` | `{on: bool, reason?}` → status. A legal hold keeps the case past its retention period, keeps watching it, and blocks deleting. Audited (`legal hold`); the report's disclaimers mention it |
+| POST | `/api/cases/{slug}/delete` | `{confirm: <slug>, reason?}` → `{deleted, to: "Trash"}`. Moves the whole case folder to the Trash (Finder's Put Back restores it). 409 under a legal hold or while a job runs. Audited in the case (`case deleted`, which goes to the Trash with it) and in `~/Hunt/deleted-cases.log` |
 | POST | `/api/cases/{slug}/details` | Any of `{reference, injury_date, limits, look_for, client, adjuster, file_number, assignment_date, subject_dob, recommendations}`; `""` clears a field → `{details}`. Audited. Dates are `YYYY-MM-DD` |
 | POST | `/api/cases/{slug}/seeds` | `{seeds: [str]}` → `{seeds}` |
 | GET | `/api/cases/{slug}/case.json` | The full `search.build()` dict (candidates, methodology, audit…) |
@@ -62,13 +66,41 @@ Event `data` is JSON with a `type`:
 | Method | Path | Body / response |
 |---|---|---|
 | POST | `/api/cases/{slug}/media` | `multipart/form-data`: `files[]`, `platform?`, `posted_at?` → `{added: n}`. Uploads are streamed and hashed. HEIC is converted with `sips`; SVG is rejected |
-| GET | `/api/cases/{slug}/posts` | `{counts: {read_automatically, added_by_you, flagged, by_category: {}}, weekly: [{week: "YYYY-Www", posts, flagged}], hits: [hit], posts: [post]}` |
+| POST | `/api/cases/{slug}/facebook` | `multipart/form-data`: `files[]`, `saved_at?` (ISO) → `{added, posts, pages, screenshots, skipped: [name]}`. Details below |
+| GET | `/api/cases/{slug}/facebook/links` | `{links: [{label, url}]}`: Facebook search and `site:facebook.com` search-engine links for the case's seeds. For the investigator to open in their own browser; Hunt never requests them |
+| GET | `/api/cases/{slug}/posts` | `{counts: {read_automatically, added_by_you, captured, flagged, by_category: {}}, weekly: [{week: "YYYY-Www", posts, flagged}], hits: [hit], posts: [post]}` |
 | POST | `/api/cases/{slug}/hits/{id}` | `{status: "kept"\|"not relevant"\|"in report"}` → hit |
 
-- **post:** `{id, source, account_url, url, posted_at, text, origin: "fetched"|"added", media: [{id, kind: "image"|"video"|"screenshot", file, duration}]}`
+- **post:** `{id, source, account_url, url, posted_at, text, origin: "fetched"|"added"|"captured", media: [{id, kind: "image"|"video"|"screenshot", file, duration}], extra}`
+  - `extra` is `null`, except on imported Facebook posts: `{posted_at_precision: "second"|"minute"|"hour"|"day"|"week"|"month"|"year", posted_at_text, author, fb_id, post_id, place, activity, life_event, truncated, reactions, comments, shares, evidence}`, with only the keys found. `evidence` is the stored page the post came from.
+  - `posted_at` always starts with `YYYY-MM-DD`: an ISO date-time with an offset when exact, a date-time without one when it's what Facebook displayed (the saving browser's time zone), or a date.
 - **hit:** `{id, post_id, media_id, category, what, t0, t1, verdict, p, timing: "before"|"after", days_after, status: "new"|"kept"|"not relevant"|"in report", who: "unknown"|"him"|"other", file, source, posted_at, url, caption}`
 
 Machine verdicts never exceed "likely". Only the investigator's Keep raises an item's status, never the verdict wording.
+
+**Case lifecycle.** `status.closed` and `status.legal_hold` are the times they were set, or null. Retention runs 90
+days from opening (`RETENTION_DAYS` in `hunt/case.py`); `retention_ends` is null under a hold. `hunt/watch.py` stops
+watching on the same two rules.
+
+**Hunt Browser rows on the startup page.** Once a `hunt/browser.py` exists, `/api/startup` calls its `status()` (sync or
+async). It should return `[{id, label, ok, detail}]`, e.g. one row per site the investigator is signed in to in Hunt
+Browser, and appends them after `sources`. Until then there are no rows.
+
+**Every source run is in the case log.** `Case.add_run` also writes a `source run` audit entry, and the run keeps its
+row id, so the report cites a run as `M-a<id>`, which is in the evidence bundle's `audit-log.csv`. Runs recorded before
+this keep citing `M-<run rowid>`.
+
+**`POST /api/cases/{slug}/facebook`** imports what the investigator saved while browsing Facebook themselves ([facebook.md](facebook.md)):
+
+- **Accepted:** `.html`/`.htm` saved pages with their `_files` folder, `.mhtml`/`.mht`, `.webarchive`, and screenshots (`.png`, `.jpg`, `.jpeg`, `.webp`, `.heic`).
+- **Filenames are relative paths.** Send each file with its `webkitRelativePath`, so `Saved/Page.html` finds `Saved/Page_files/…`. An absolute path, a drive letter or a `..` part returns 400.
+- **Skipped, never stored:** SVG, scripts, styles and anything else; they're listed in `skipped`. Pictures inside a `…_files` folder are the page's own, not separate uploads.
+- **Pages:** each is hashed into the evidence as uploaded (`.webarchive` as `<sha>.plist`; HTML and MHTML are served as `text/plain`), then parsed into posts.
+- **Screenshots:** one showing a post's date line becomes that post; any other picture is added as a plain file, as `/media` does.
+- **Repeats:** a post already in the case (same link, or the same date and words) isn't added twice.
+- **`saved_at`** anchors relative times ("3d") for pages that carry no save date of their own. Otherwise an MHTML's `Date:` header, else the upload time.
+- **Response:** `posts` counts posts read, `added` counts new ones.
+- **Audit:** `facebook page imported`, `post imported`, `post already added`.
 
 **Report header fields** (case details; all optional, all audited): `client` (carrier, TPA or law firm), `adjuster`,
 `file_number` (the investigator's own file number; the report falls back to the case slug), `assignment_date`,
@@ -118,11 +150,13 @@ Citation ids: `E-<hit id>` (a kept item), `A-<finding id>` (an account), `M-<run
 row of the presence table), "Rec. n" (a row of the public records table) or "Log n" (Appendix B).
 
 ## Python interface between the server and the scan modules
-`hunt/posts.py` and `hunt/scan.py` own their tables (`posts`, `media`, `hits`) and create them on first use. `emit(event: dict)` is a plain, non-blocking callable.
+`hunt/posts.py` and `hunt/scan.py` own their tables (`posts`, `media`, `post_extra`, `hits`) and create them on first use. `emit(event: dict)` is a plain, non-blocking callable.
 
 ```python
 posts.collect(case, accounts: list[dict], since: str | None, emit) -> int  # Bluesky, Mastodon, YouTube RSS; accounts = [{url, site}]
 posts.add_files(case, paths: list[Path], platform: str | None, posted_at: str | None) -> list[int]
+posts.add_posts(case, items: list[dict], kind="image", evidence: str | None = None, origin="added") -> list[int]  # facebook / capture
+posts.store(case, path, ext=None) -> (file, sha256)  # hash a file into evidence/
 posts.list_posts(case) -> list[dict]
 scan.CATEGORIES: dict[str, dict]  # key -> {label, prompts, keywords}; keys match the wizard
 scan.run(case, look_for: list[str], limits: str, injury_date: str | None, emit, pause: asyncio.Event, check_everything=False) -> None
@@ -140,7 +174,47 @@ scan.set_status(case, hit_id: int, status: str) -> dict
 - `driving`: driving
 - `injury`: mentions of the injury
 
-## Quality of life: the Downloads inbox, the evidence bundle, links, Check again, notes, watching
+## Hunt Capture
+The browser extension that records what the investigator views while logged in as herself ([capture.md](capture.md)).
+
+**For the web app** (the usual cookie Guard):
+
+| Method | Path | Body / response |
+|---|---|---|
+| GET | `/api/browser/status` | `{facebook, instagram, tiktok, linkedin, x: "signed_in"\|"signed_out"\|"unknown", checked_at, browser: {available, running, version, profile: bool}, logins: [{platform, label, url}]}`. Sign-in states come from the Hunt Browser's extension: whether each sign-in cookie exists, never its value. Also re-points an open Hunt Browser at this Hunt's port (internal; no case or user state changes) |
+| POST | `/api/browser/open` | `{url, case?}` → `{opened, started}`. Opens an http(s) page in the Hunt Browser, starting it if needed. `case` is preselected in the extension's popup. 400 for other schemes; 404 for an unknown case; 503 when Playwright's browser isn't installed |
+| POST | `/api/browser/sign-out` | `{}` → `{moved_to: "Trash"\|null, …status}`. Moves the Hunt Browser's profile (every login) to the Trash, never deletes. 409 while it's open |
+| GET | `/api/pairing` | `{paired: bool, origin?, name?, paired_at?}` |
+| POST | `/api/pairing` | `{}` → `{code: "<port>-<8 digits>", expires_in: 300}`. A one-time code for the extension's popup. Five wrong tries close it; a new one replaces it |
+| POST | `/api/pairing/forget` | `{}` → `{paired: false}`. The extension's key stops working at once |
+| GET | `/api/cases/{slug}/checklist` | `{accounts: [{account, platform, sections: [{key, label, url, seen, seen_at, evidence}]}]}` for each account confirmed as the subject's |
+| GET | `/api/cases/{slug}/captures` | `{captures: [{ts, kind: "view"\|"page"\|"recording", url, where, platform, file, sha256, viewed_at, extension, …}]}`, newest first (200) |
+
+**For the extension.** These routes never take the cookie. Every request needs:
+- method POST
+- `Origin: chrome-extension://<paired id>`
+- `x-hunt-key: <key>` (except `pair`)
+- JSON, or multipart for uploads
+
+Anything else gets 403, 405 or 415. The key opens no other route.
+
+| Path | Body → response |
+|---|---|
+| `/api/capture/pair` | `{code, name?}` → `{key}`. 403 if the code is wrong, used, expired or closed |
+| `/api/capture/hello` | `{}` → `{version, paired, origin, name, paired_at, cases: [{slug, label}], active_case: {slug, label}\|null}` |
+| `/api/capture/signins` | `{facebook?, instagram?, tiktok?, linkedin?, x?: "signed_in"\|"signed_out"\|"unknown"}` → as `GET /api/browser/status`. Anything that isn't one of those states is refused (400) |
+| `/api/capture/checklist` | `{case}` → as `GET /api/cases/{slug}/checklist` |
+| `/api/capture/view` | multipart `case, url, viewed_at?, title?, kind? (view\|frame\|manual), screenshot` (JPEG or PNG) → `{post, file}`. `post` is null when that picture was already in the case |
+| `/api/capture/page` | multipart `case, url, viewed_at?, archive` (MHTML) → `{posts, added, file}` |
+| `/api/capture/recording` | multipart `case, url, started_at?, video` (WebM or MP4) → `{post, file}` |
+
+Capture uploads also share these rules:
+- `url` must be an https page on Facebook, Instagram, TikTok, X, LinkedIn or YouTube (else 400).
+- An unknown case returns 404.
+- A file of the wrong kind returns 415.
+- Posts are stored with `origin: "captured"`, and `/posts` counts them as `counts.captured`.
+
+## Quality of life: the Downloads inbox, the evidence bundle, links, Check again, notes, watching, moving cases, seen before
 See [qol.md](qol.md) for the screens that use these.
 
 | Method | Path | Body / response |
@@ -157,6 +231,11 @@ See [qol.md](qol.md) for the screens that use these.
 | POST | `/api/cases/{slug}/alerts/seen` | `{}` → `{marked: n}` |
 | GET | `/api/watch/background` | `{on}`: whether "Keep watching when Hunt is closed" is installed (one per-user LaunchAgent, for every watched case) |
 | POST | `/api/watch/background` | `{on: bool}` → `{on}`. Installs `~/Library/LaunchAgents/io.github.als7294.hunt.watch.plist` and loads it with `launchctl`, or unloads it and moves the plist to the Trash. Audited as `background watching` in every watched case. Returns 409 if `launchctl` refuses |
+| POST | `/api/cases/{slug}/pack` | `{passphrase (12+ characters), folder?}` → `{name, path, sha256, manifest_sha256, files, bytes, changed}`. Writes `<case>-<UTC time>.hunt-case.dmg` (AES-256 encrypted disk image) into `folder`, default `~/Downloads`. The archive never passes through the browser. Returns 400 for a short passphrase or a bad folder. Audited as `case packed` (inside the archive) and `case pack sealed` (here) |
+| GET | `/api/case-archives?folder=` | `{folder, files: [{name, folder, size, saved}]}`: `.hunt-case.dmg` files in the folder (default `~/Downloads`), newest first. Their contents stay locked until unpacked |
+| POST | `/api/case-archives/unpack` | `{name, folder?, passphrase, replace?: false}` → `{slug, files, replaced, sha256, manifest_sha256}`. Every file is checked against the manifest before the case is put in place. A case with the same name here is kept, and the new one gets `-2`; with `replace`, the one here goes to the Trash first. Returns 400 for a wrong passphrase, a file that doesn't match, or a file that isn't in the manifest; nothing is changed. Returns 409 with `replace` while any job runs. Audited as `case unpacked`; watching is turned off on arrival |
+| GET | `/api/cases/{slug}/seen-before?screening=0\|1` | `{checked, why, skipped_screenings, matches: [{case, label, kind, created, strong, on: [{kind: "username"\|"email"\|"phone"\|"url"\|"address"\|"name"\|"file", value}]}]}`, strongest first. Local and read-only, and never merges anything. A `background` case, or `screening=1`, gives `checked: false` with `why`. `background` cases never appear in others' matches |
+| POST | `/api/seen-before` | `{seeds: [str], kind?}` → the same, for the new-case form before the case exists. `kind: "background"` gives `checked: false` |
 | GET | `/api/cases/{slug}/notes?about=&ref=` | `{notes: [note]}`, oldest first, optionally only the notes about one thing. Returns 400 for an unknown `about` or a bad `ref` |
 | POST | `/api/cases/{slug}/notes` | `{text, about?: "case"\|"account"\|"post"\|"hit", ref?, replaces?: note id}` → `201 note`. A correction (`replaces`) keeps the old note's subject; a note can only be replaced once. Returns 400 for empty text (or more than 20,000 characters), an unknown subject, or a note that's already replaced. Audited as `note`, with its text |
 

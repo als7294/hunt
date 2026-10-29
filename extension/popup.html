@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Hunt Capture</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>Hunt Capture</h1>
+    <p id="state" class="state" role="status">Off</p>
+  </header>
+
+  <section id="pairing" hidden>
+    <p>Pair with Hunt on this computer. In Hunt, open <b>Browser capture</b> and copy the pairing code.</p>
+    <form id="pair-form">
+      <label for="code">Pairing code</label>
+      <input id="code" autocomplete="off" inputmode="numeric" placeholder="53211-48271953" required>
+      <button type="submit">Pair</button>
+    </form>
+  </section>
+
+  <section id="main" hidden>
+    <label for="case">Case</label>
+    <select id="case"><option value="">Choose a case…</option></select>
+
+    <button id="toggle" class="primary" type="button" disabled>Start capturing</button>
+
+    <fieldset>
+      <legend>Capture</legend>
+      <label><input type="radio" name="mode" value="auto"> Every page view I settle on</label>
+      <label><input type="radio" name="mode" value="manual"> Only when I press Capture this</label>
+    </fieldset>
+
+    <div class="actions">
+      <button id="capture" type="button" title="Alt+Shift+H">Capture this</button>
+      <button id="record" type="button">Record video</button>
+    </div>
+    <p class="hint">Hunt Capture records only pages you open yourself, and sends them only to Hunt on this computer.</p>
+
+    <h2>Checklist</h2>
+    <div id="checklist"><p class="hint">Confirm the subject's accounts in Hunt to see what to open.</p></div>
+
+    <p><button id="unpair" class="link" type="button">Unpair</button></p>
+  </section>
+
+  <p id="error" class="error" role="alert" hidden></p>
+  <script src="popup.js"></script>
+</body>
+</html>
