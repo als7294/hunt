@@ -191,6 +191,7 @@ assert case.verify(quick=True)["tampered"] == [rel]  # a changed size is always 
 
 # keys.env: optional keys loaded once, never overriding what's already set
 import os, tempfile
+from pathlib import Path
 from hunt import cli
 with tempfile.TemporaryDirectory() as d:
     f = Path(d) / "keys.env"
