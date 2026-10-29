@@ -34,11 +34,14 @@ See [docs/qol.md](docs/qol.md) for these.
 
 ## Guardrails
 
-Built in, not bolted on:
+Built in, not bolted on. The full list, with the reasoning behind each, is [Hunt's rules](docs/research/legal.md#hunts-rules).
+
 - **A purpose is required for every case,** and every case keeps an audit log of each search, decision, import and export.
-- **Hunt's own collection is passive and logged out.** It never logs in by itself, never uses sock-puppet accounts, and never automates a logged-in session.
-- **Logged-in viewing is the investigator's,** as themselves, in the Hunt Browser. Hunt Capture records what they choose to view and never clicks, scrolls or follows.
-- **The subject is never contacted or notified:** no follows, messages, or email checks that could alert them. All 220 email-check modules were read and classified.
+- **No software-caused request to a login-walled platform.** On Facebook, Instagram, TikTok, X and LinkedIn, the investigator browses as themselves in the Hunt Browser, and Hunt Capture records only what they open. Hunt never logs in and never drives their account. Hunt's own collection elsewhere is passive and logged out.
+- **The investigator's own real account only:** no fake accounts, sock puppets or pretexting.
+- **The subject and their associates are never contacted or notified:** no following, friending, liking or messaging, and no checks that could notify anyone. All 220 email-check modules were read and classified.
+- **No getting around a limit:** no CAPTCHA solving, and no proxies, IP rotation or spoofing to get past a block. Hunt stops at the first refusal, and on any sign that a platform has revoked access.
+- **No face search.**
 - **No automatic downloads** from Instagram, TikTok or Facebook.
 - **Machine verdicts stop at "likely",** and a handle alone can't pass "roughly even chance" (two-identifier rule).
 - **Employment screening mode** drops protected traits and sensitive records. Screenings are kept apart from other investigations.
@@ -95,7 +98,9 @@ Under active development: the app's screens are being rebuilt. Photo geolocation
 | [capture.md](docs/capture.md) | The Hunt Browser and Hunt Capture |
 | [api.md](docs/api.md) | The local app's API |
 | [research/pain-points.md](docs/research/pain-points.md) | What investigators struggle with, and what a good report contains |
-| [research/legal.md](docs/research/legal.md) | FCRA, DPPA/GLBA, state data-broker laws, scraping case law, biometrics, human-driven capture |
+| [research/legal.md](docs/research/legal.md) | FCRA, DPPA/GLBA, state data-broker laws, scraping case law, biometrics, human-driven capture, and Hunt's rules |
+| [research/automation-legal.md](docs/research/automation-legal.md) | How far collection from Facebook, Instagram and TikTok can lawfully be automated, platform by platform |
+| [for-counsel.md](docs/for-counsel.md) | Two pages for a lawyer: what Hunt does and doesn't do, and the open questions |
 | [research/report-format.md](docs/research/report-format.md) | What clients expect in a report |
 | [research/tools.md](docs/research/tools.md) | Open-source tools and free APIs, with licences and maintenance status |
 | [research/geolocation.md](docs/research/geolocation.md) | Local photo geolocation models and on-device ML |
