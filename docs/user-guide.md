@@ -4,7 +4,7 @@ Hunt helps you find a person's accounts online, decide which ones are really the
 
 It runs on your Mac. Your cases, evidence and the AI that reads photos and videos all stay on it.
 
-> The app's screens are being redesigned. Buttons in this guide may be worded slightly differently from what you see; the steps are the same.
+> This guide is for Hunt 0.1.0. What's new in each release, and what isn't built yet, is in the [changelog](../CHANGELOG.md).
 
 ---
 
@@ -26,7 +26,7 @@ Installing needs **Terminal**, once. Open it (Applications → Utilities → Ter
 
 2. **Install Hunt and set it up:**
    ```
-   uv tool install git+https://github.com/als7294/hunt && hunt setup
+   uv tool install --python 3.12 git+https://github.com/als7294/hunt && hunt setup
    ```
    `hunt setup` does three things:
    - It puts **Hunt** in your Applications folder.
@@ -39,7 +39,7 @@ From then on, you won't need Terminal for your daily work. The downloads above c
 
 ## 2. Starting and stopping Hunt
 
-- **To start Hunt,** double-click **Hunt** in Applications. Your browser opens on Hunt's home screen. Hunt is only reachable from this Mac; nothing else on your network can open it.
+- **To start Hunt,** double-click **Hunt** in Applications. Your browser opens on Hunt's start screen, with the version (for example v0.1.0) beside its name. Hunt is only reachable from this Mac; nothing else on your network can open it.
 - **If you closed the browser tab,** click Hunt in the Dock to get the page back.
 - **To stop Hunt,** use Hunt in the Dock → **Quit**.
 
@@ -60,6 +60,8 @@ Hunt's start screen checks its pieces:
 
 Anything missing comes with a fix. If a download is needed, Hunt shows its size and waits for your **yes**.
 
+The first time, two short steps follow: **Connect your accounts** (below), then **free keys**, which are optional. You can come back to either from the buttons at the top of every screen: **Accounts** and **Keys**.
+
 ### Signing in to the Hunt Browser
 
 Hunt reads public pages **logged out**. Facebook, Instagram, TikTok, X and LinkedIn show logged-out visitors very little. For those, you look yourself, **logged in as you**, in the **Hunt Browser**: a separate browser window Hunt opens, with its own profile.
@@ -73,10 +75,21 @@ Hunt reads public pages **logged out**. Facebook, Instagram, TikTok, X and Linke
 - **What it never does:** clicks, scrolls, likes or follows. It only records what you chose to look at.
 - **Use your own, real accounts.** Never fake ones.
 - **Never interact with the person you're looking into:** no follows, likes, messages or friend requests. Hunt can't stop a click for you.
+- **The checklist:** for each account you've confirmed, it lists the sections to open (posts, photos, tagged, videos, about…) and ticks each one off once you've captured it.
+- **Guided mode is coming:** how much of each profile you've covered, and what's left to open.
+
+### Free keys (optional)
+
+Hunt works fully without keys. A few sources give more with a free key of your own. The **Keys** screen links to each sign-up page, and the keys are kept on this Mac only:
+- **GitHub, Gravatar, OpenFEC and state open-data portals:** more lookups each hour.
+- **CourtListener:** federal court records only run with a key.
+- **SEC EDGAR:** asks for your firm's name and a contact email instead of a key.
 
 ## 4. A case, from start to report
 
 ### Open a case
+
+On Home, choose **Find a person**. (**Locate a photo** says "Coming soon": it isn't part of this release.)
 
 Give the case a name, choose what kind of work it is (an insurance claim, a background check, due diligence or journalism), and write its **purpose**: who asked, why, and why it's lawful. Hunt won't open a case without a purpose. It's the first line of the case's log, and it goes in the report.
 
@@ -100,7 +113,7 @@ Hunt then:
 
 This is where namesakes get caught. Hunt groups the accounts it believes belong to one person. For each account, it shows **why**: the name matches, the place matches, the same profile photo appears elsewhere, it links to another of their accounts. It also shows what **doesn't** match.
 
-People with the same name who are probably someone else are listed separately, with the reason.
+People with the same name who are probably someone else are listed separately, with the reason. Public records (court cases, licences, businesses, donations, filings) are shown apart from the accounts, for you to judge the same way.
 
 **You decide.** For each account, or for the whole person, mark it **them**, **not them** or **unsure**. Your decision is logged and goes in the report. Hunt never decides for you.
 
