@@ -38,7 +38,7 @@ from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Re
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import report, search, sources, vlm
+from . import keys, report, search, sources, vlm
 from . import bundle, inbox, notes, pack, recheck, seen, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
@@ -781,6 +781,36 @@ async def get_settings(req: Request):
     return JSONResponse(report.settings())
 
 
+async def get_keys(req: Request):
+    """The free keys: which are set and where from, never a value (hunt/keys.py)."""
+    return JSONResponse({"keys": keys.status()})
+
+
+async def post_keys(req: Request):
+    try:
+        return JSONResponse({"keys": keys.save(await _body(req))})
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+async def public_preview(req: Request):
+    """Read public preview, on her click, for one confirmed account (docs/research/automation-legal.md §4.4):
+    hunt.public.preview(case, url), sync or async, returning at least {note}. 501 until that module exists."""
+    c, b = _case(req), await _body(req)
+    url = b.get("url")
+    if not (isinstance(url, str) and url.startswith("https://")):
+        raise HTTPException(400, "url must be the account's https address")
+    fn = getattr(_module("public"), "preview", None)
+    if not fn:
+        raise HTTPException(501, "the public preview reader isn't installed yet")
+    if c.meta("closed"):
+        raise HTTPException(409, "this case is closed; reopen it first")
+    try:
+        return JSONResponse(await _call(fn, c, url))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 async def post_settings(req: Request):
     b = await _body(req)
     if "logo" in b:  # {"logo": null} removes it; a new one comes through /api/settings/logo
@@ -1414,6 +1444,7 @@ async def _server_error(req, exc: Exception):
 
 
 def make_app(token: str, port: int) -> Guard:
+    keys.load()  # free keys saved in Hunt go into the environment the sources read
     routes = [
         Route("/login", login),
         Route("/api/startup", startup),
@@ -1439,6 +1470,9 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/settings", get_settings),
         Route("/api/settings", post_settings, methods=["POST"]),
         Route("/api/settings/logo", get_logo),
+        Route("/api/keys", get_keys),
+        Route("/api/keys", post_keys, methods=["POST"]),
+        Route("/api/cases/{slug}/preview", public_preview, methods=["POST"]),
         Route("/api/settings/logo", post_logo, methods=["POST"]),
         Route("/api/cases/{slug}/report", get_report),
         Route("/api/cases/{slug}/report.{fmt:str}", export_report),

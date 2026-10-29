@@ -149,6 +149,8 @@ img.thumb.blur, .blur { filter: blur(10px) saturate(.6); }
 .tile { position: relative; aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: var(--panel-3); box-shadow: inset 0 0 0 1.5px transparent; transition: box-shadow .2s; }
 .tile img, .tile video { width: 100%; height: 100%; object-fit: cover; display: block; filter: blur(6px) saturate(.5); opacity: .45; transition: opacity .2s; }
 .tile.on { box-shadow: 0 0 0 2px var(--ac); }
+.tile.clear img { filter: none; opacity: 1; } .tile.clear img.blur { filter: blur(10px) saturate(.6); } /* flagged items: shown, unless they may show a child */
+button.tile:hover { box-shadow: 0 0 0 2px var(--ac); }
 .tile.on img, .tile.on video { opacity: .9; }
 .tile.done::after { content: "✓"; position: absolute; top: 5px; right: 7px; font-size: 12px; color: var(--gr); }
 .tile .play { position: absolute; left: 7px; bottom: 5px; font-size: 11px; color: var(--tx); }

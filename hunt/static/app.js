@@ -63,6 +63,7 @@ let status = { proxy: false };
 function topHome() {
   return html`<header class="top">${brand}<div class="top-right">
     <a class="chip-btn" href="#/connect" title="Sign in to platforms in the Hunt Browser">Accounts</a>
+    <a class="chip-btn" href="#/keys" title="Optional free keys that unlock more from some sources">Keys</a>
     <a class="chip-btn" href="#/settings" title="Your firm, licence and logo, for the report">Report settings</a>
     ${proxyChip()}
   </div></header>`;
@@ -118,12 +119,12 @@ screens.startup = async () => {
       </div>
     </div></div>`);
   if (!customElements.get('fetch-hound')) { const s = document.createElement('script'); s.src = 'hound.js'; document.head.appendChild(s); }
-  let checks;
-  try { const r = await api('/api/startup'); status = { proxy: r.proxy, checked: true }; checks = r.checks; }
+  let checks, keys = [];
+  try { const [r, k] = await Promise.all([api('/api/startup'), api('/api/keys').catch(() => ({ keys: [] }))]); status = { proxy: r.proxy, checked: true }; checks = r.checks; keys = k.keys; }
   catch (e) { checks = [{ id: 'server', label: 'Starting Hunt', ok: false, detail: e.message }]; }
   const box = $('#boot');
   for (let i = 0; i < checks.length; i++) {
-    box.insertAdjacentHTML('beforeend', bootRow(checks[i]).s);
+    box.insertAdjacentHTML('beforeend', bootRow(checks[i], keys).s);
     $('#boot-bar').style.transform = `scaleX(${(i + 1) / checks.length})`; $('#boot-pct').textContent = `${Math.round((i + 1) / checks.length * 100)}%`;
     await new Promise(r => setTimeout(r, 380));
   }
@@ -137,8 +138,9 @@ screens.startup = async () => {
 
 const SIGNIN = { signed_in: 'signed in', signed_out: 'not signed in', unknown: 'not checked yet' };
 const skipped = () => { try { return JSON.parse(localStorage.getItem('hunt-skipped') || '[]'); } catch { return []; } }; // platforms skipped on Connect your accounts
-function bootRow(c) {
-  const extra = c.id === 'sources' ? (c.items || []).filter(x => x.reachable === false).map(x => html`<span class="muted" style="font-size:13px">${x.source}: can’t be reached (${x.detail})</span>`)
+function bootRow(c, keys = []) {
+  const extra = c.id === 'sources' ? html`${(c.items || []).filter(x => x.reachable === false).map(x => html`<span class="muted" style="font-size:13px">${x.source}: can’t be reached (${x.detail})</span>`)}
+      ${keys.length ? html`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${keys.map(k => html`<a class="acct" href="#/keys" style="font-size:13px;${k.set ? '' : k.required ? 'color:var(--am)' : 'color:var(--mu)'}">${k.set ? html`${k.label} <span style="color:var(--gr)">✓</span>` : `${k.label} · ${k.required ? 'key needed' : k.url ? 'free key available' : 'not set'}`}</a>`)}</div>` : ''}`
     : c.id === 'browser' && c.items ? html`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${c.items.map(x => html`<span class="acct" style="font-size:13px" title="${x.label}: ${SIGNIN[x.state]}">${x.label}${x.state === 'signed_in' ? html` <span style="color:var(--gr)">✓</span>` : skipped().includes(x.platform) ? html` <span class="dim">skipped</span>` : html` <button data-act="browser-open" data-url="${x.url}" style="color:var(--ac)">Sign in</button>`}</span>`)}</div>
       ${c.checked_at ? html`<span class="dim" style="font-size:12.5px">checked ${ago(c.checked_at).toLowerCase()}</span>` : ''}`
     : c.id === 'retention' && c.items?.length ? html`<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${c.items.map(x => html`<div class="card" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
@@ -413,8 +415,9 @@ screens.identity = async slug => {
     <div id="person-browse" style="width:min(880px,100%)"></div>
     <div id="seen-here" style="width:min(880px,100%)"></div>
   </main>`);
-  if (p.decision === 'him' || accts.some(a => a.decision === 'him')) Promise.all([api(`/api/cases/${encodeURIComponent(slug)}/checklist`), accts.some(a => a.site === 'Facebook') ? api(`/api/cases/${encodeURIComponent(slug)}/facebook/links`) : null])
-    .then(([cl, fb]) => { if ($('#person-browse')) $('#person-browse').innerHTML = html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:18px">${checklistPanel(slug, cl)}${fb ? facebookTile(slug, fb.links, accts.find(a => a.site === 'Facebook')?.reasons?.find(r => /login|logged/i.test(r))) : ''}</div>`.s; }).catch(() => {});
+  if (p.decision === 'him' || accts.some(a => a.decision === 'him')) api(`/api/cases/${encodeURIComponent(slug)}/checklist`).then(cl => {
+    if ($('#person-browse') && cl.accounts.length) $('#person-browse').innerHTML = html`<a class="panel row" href="#/case/${slug}/worklist" style="padding:18px;gap:16px"><span class="tile-ic">▤</span>
+      <div style="flex:1"><b>Next: the worklist</b><div class="muted" style="font-size:14px">${cl.accounts.map(a => a.platform).join(', ')}: open each in the Hunt Browser and scroll; Hunt records and scans what loads.</div></div><span style="color:var(--ac)">Open →</span></a>`.s; }).catch(() => {});
   api(`/api/cases/${encodeURIComponent(slug)}/seen-before`).then(r => { if ($('#seen-here')) $('#seen-here').innerHTML = seenBox(r, slug).s; }).catch(() => {});
 };
 
@@ -719,18 +722,10 @@ function drawBring(ask) {
 let poller = null; // the one screen-level poll (sign-ins, pairing, captures); cleared on every render
 const poll = (fn, ms) => { clearInterval(poller); poller = setInterval(fn, ms); };
 const CAPTURE_KIND = { view: 'screenshot', manual: 'screenshot', frame: 'video frame', page: 'page', recording: 'recording' };
-function checklistPanel(slug, cl) {
-  return html`<div style="display:flex;flex-direction:column;gap:10px"><b>What to open on each account</b>
-    ${cl.accounts.length ? cl.accounts.map(a => html`<div class="card" style="padding:12px;background:var(--panel-2);display:flex;flex-direction:column;gap:4px">
-      <div style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:${siteColor(a.platform)}"></span><b style="font-size:15px">${a.platform}</b><span class="muted" style="font-size:13.5px">${handleOf(a.account)}</span>
-        <span class="muted" style="margin-left:auto;font-size:13px">${a.sections.filter(x => x.seen).length} of ${a.sections.length} opened</span></div>
-      ${a.sections.map(x => html`<div style="display:flex;align-items:center;gap:10px;font-size:14px;padding:3px 0">
-        <span style="width:18px;height:18px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;${x.seen ? 'background:var(--gr-bg);color:var(--gr)' : 'box-shadow:inset 0 0 0 1.5px var(--line)'}">${x.seen ? '✓' : ''}</span>
-        <span style="flex:1">${x.label} ${x.seen ? html`<span class="muted" style="font-size:12.5px">· ${when(x.seen_at)}${x.evidence ? html` · <a href="${evidenceUrl(slug, x.evidence)}" target="_blank" rel="noopener" style="color:var(--ac)">saved</a>` : ''}</span>` : html`<span class="dim" style="font-size:12.5px">· not opened yet</span>`}</span>
-        <button data-act="browser-open" data-url="${x.url}" data-case="${slug}" style="color:var(--ac);font-size:13.5px">Open</button></div>`)}</div>`)
-    : html`<div class="empty" style="padding:16px">Confirm the subject’s accounts in Is it them? to see what to open.</div>`}
-    <span class="dim" style="font-size:12.5px">Open sends the page to the Hunt Browser. Turn on capture in its Hunt Capture button; ticks come from what it saved. What isn’t opened goes in the report under what we couldn’t see.</span></div>`;
-}
+const sectionRows = (slug, a) => html`<div style="display:flex;flex-direction:column;padding:4px 0">${a.sections.map(x => html`<div style="display:flex;align-items:center;gap:10px;font-size:14px;padding:3px 0">
+  <span style="width:18px;height:18px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;${x.seen ? 'background:var(--gr-bg);color:var(--gr)' : 'box-shadow:inset 0 0 0 1.5px var(--line)'}">${x.seen ? '✓' : ''}</span>
+  <span style="flex:1">${x.label} ${x.seen ? html`<span class="muted" style="font-size:12.5px">· ${when(x.seen_at)}${x.evidence ? html` · <a href="${evidenceUrl(slug, x.evidence)}" target="_blank" rel="noopener" style="color:var(--ac)">saved</a>` : ''}</span>` : html`<span class="dim" style="font-size:12.5px">· not opened yet</span>`}</span>
+  <button data-act="browser-open" data-url="${x.url}" data-case="${slug}" style="color:var(--ac);font-size:13.5px">Open</button></div>`)}</div>`;
 const captureRows = (slug, caps) => caps.length ? caps.slice(0, 30).map(x => html`<div class="row" style="padding:10px 12px;align-items:flex-start">
     ${x.file && !/\.(mhtml|webm|mp4)$/i.test(x.file) ? html`<img class="thumb" src="${evidenceUrl(slug, x.file)}" alt="" style="width:48px;height:48px;flex:none">` : html`<span class="tile-ic" style="width:48px;height:48px">${x.kind === 'recording' ? '▶' : '▤'}</span>`}
     <div style="flex:1;min-width:0;font-size:14px"><div>${x.platform || ''} · ${CAPTURE_KIND[x.kind] || x.kind}${x.kind === 'page' && x.posts != null ? html` · <span class="t2">${x.posts} posts read, ${x.added} new</span>` : ''}</div>
@@ -751,19 +746,70 @@ function facebookTile(slug, links, note) {
         <button data-act="browser-open" data-url="${l.url}" data-case="${slug}" style="color:var(--ac)">Hunt Browser</button><a href="${l.url}" target="_blank" rel="noopener noreferrer" style="color:var(--ac)">Your browser ↗</a></div>`)}</div>
       <div class="dim" style="font-size:12.5px;margin-top:4px">These open under your own Facebook account. Hunt doesn’t visit them.</div></details>` : ''}</div>`;
 }
-// The posts step's logged-in section: checklist and Facebook on the left, what was captured on the right
-async function loggedInSection(slug, person) {
+/* Worklist (docs/research/automation-legal.md §4.3): the subject's confirmed accounts on login-walled platforms.
+   She opens each one in the Hunt Browser and scrolls; Hunt records and scans what loads. Hunt opens nothing itself. */
+const PREVIEWABLE = ['Instagram', 'Facebook', 'TikTok']; // "Read public preview", on her click (§4.4)
+const pathKey = u => { try { const x = new URL(u); return (x.hostname.replace(/^(www|m)\./, '') + x.pathname.replace(/\/+$/, '')).toLowerCase(); } catch { return String(u).toLowerCase(); } };
+// The extension's coverage counter and "open these" list, once docs/capture.md defines them on each checklist account:
+// progress {grid_seen, grid_total, flagged, opened, videos, played}, todo [{url, kind: "post"|"video", file, why}].
+// Until then the line and the list come from what the checklist and the case's hits already say.
+const progressLine = (a, mine) => a.progress ? `grid ${a.progress.grid_seen}/${a.progress.grid_total} · flagged ${a.progress.flagged} · opened ${a.progress.opened} of ${a.progress.flagged} · videos ${a.progress.videos}, played ${a.progress.played}`
+  : `${a.sections.filter(x => x.seen).length} of ${a.sections.length} sections opened · ${mine.posts} post${mine.posts === 1 ? '' : 's'} in the case · ${mine.hits.length} flagged`;
+const todoOf = (a, mine) => a.todo || mine.hits.filter(h => h.status === 'new' && /^https?:\/\//.test(h.url || '')).map(h => ({ url: h.url, kind: 'post', file: h.file, why: h.what, blur: h.blur || h.child_visible }));
+const fromGrid = (h, post) => !!(h.from_grid || post?.extra?.from === 'grid' || post?.extra?.grid);
+const previews = {}; // account → what Read public preview said, kept across refreshes
+let wlSig = '';
+function worklistCard(slug, a, mine, changes) {
+  const todo = todoOf(a, mine), seen = a.sections.filter(x => x.seen).length;
+  return html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="dot" style="background:${siteColor(a.platform)}"></span><b style="font-size:17px">${a.platform}</b><span class="muted">${handleOf(a.account)}</span>
+      <span class="muted" style="font-size:13px;margin-left:auto">${mine.last ? `last opened ${when(mine.last)}` : 'not opened yet'}</span></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary sm" data-act="browser-open" data-url="${a.account}" data-case="${slug}">Open in Hunt Browser</button>
+      ${PREVIEWABLE.includes(a.platform) ? html`<button class="btn ghost sm" data-act="preview" data-url="${a.account}" data-slug="${slug}" title="What the account shows logged out, read once">Read public preview</button>` : ''}</div>
+    ${previews[a.account] ? html`<div class="t2" style="font-size:14px">${previews[a.account]}</div>` : ''}
+    <div class="t2" style="font-size:14px">${progressLine(a, mine)}</div>
+    ${todo.length ? html`<div style="display:flex;flex-direction:column;gap:6px"><span class="muted" style="font-size:13.5px">Open these (${todo.length})</span>
+      <div class="tiles">${todo.map(t => html`<button class="tile clear" data-act="browser-open" data-url="${t.url}" data-case="${slug}" title="${t.why || 'Open it in the Hunt Browser'}">${t.file ? html`<img class="${t.blur ? 'blur' : ''}" src="${evidenceUrl(slug, t.file)}" alt="${t.why || ''}">` : ''}${t.kind === 'video' ? html`<span class="play">▶</span>` : ''}</button>`)}</div></div>` : ''}
+    <details data-account="${a.account}"><summary class="muted" style="cursor:pointer;font-size:14px">Sections: ${seen} of ${a.sections.length} opened</summary>${sectionRows(slug, a)}</details>
+    ${changes.length ? html`<div style="display:flex;flex-direction:column;gap:6px"><span class="muted" style="font-size:13.5px">Since it was last checked</span>${changes.slice(0, 3).map(x => changeLine(slug, x))}</div>` : ''}</div>`;
+}
+screens.worklist = async slug => {
+  const c = await loadCase(slug);
+  mount(html`${topCase(c, 'posts')}<main class="screen" style="padding:8px 24px 24px;gap:16px">
+    <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap"><div style="flex:1;min-width:300px"><div class="h2">Worklist</div>
+      <div class="sub" style="margin-top:6px">Open each account in the Hunt Browser and scroll as you normally would. Hunt records and scans what loads; it never opens, scrolls or clicks anything itself.</div></div>
+      <a class="btn ghost sm" href="#/case/${slug}/posts">Posts →</a></div>
+    <div class="split" style="--side:440px;flex:1 0 auto">
+      <div style="display:flex;flex-direction:column;gap:14px"><div id="wl-cards" style="display:flex;flex-direction:column;gap:14px"><div class="panel muted" style="padding:18px">Loading the worklist…</div></div><div id="wl-fb"></div></div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;align-items:baseline"><b>Found so far</b><span class="muted" style="font-size:13.5px">newest first</span></div>
+          <div id="wl-found" style="display:flex;flex-direction:column;gap:10px;max-height:640px;overflow:auto"></div></div>
+        <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;align-items:baseline"><b>Captured while you browsed</b><a href="#/connect" class="muted" style="font-size:13.5px">Hunt Browser →</a></div>
+          <div id="captures" style="display:flex;flex-direction:column;gap:6px;max-height:420px;overflow:auto"></div></div></div></div></main>`);
+  wlSig = '';
+  const [links, cj] = await Promise.all([api(`/api/cases/${encodeURIComponent(slug)}/facebook/links`).catch(() => ({ links: [] })), api(`/api/cases/${encodeURIComponent(slug)}/case.json`).catch(() => null)]);
+  if ($('#wl-fb')) $('#wl-fb').innerHTML = html`<div class="panel" style="padding:18px">${facebookTile(slug, links.links, cj?.methodology?.filter(r => r.source === 'facebook').at(-1)?.note)}</div>`.s;
+  await drawWorklist(slug);
+  poll(() => route().name === 'worklist' ? drawWorklist(slug) : clearInterval(poller), 5000);
+};
+async function drawWorklist(slug) {
   const base = `/api/cases/${encodeURIComponent(slug)}`;
-  const [cl, caps, links, cj] = await Promise.all([api(`${base}/checklist`).catch(() => ({ accounts: [] })), api(`${base}/captures`).catch(() => ({ captures: [] })),
-    api(`${base}/facebook/links`).catch(() => ({ links: [] })), person ? Promise.resolve(null) : api(`${base}/case.json`).catch(() => null)]);
-  const fbNote = cj?.methodology?.filter(r => r.source === 'facebook').at(-1)?.note;
-  const box = $('#logged-in'); if (!box) return;
-  box.innerHTML = html`<div class="two-up" style="gap:16px;align-items:start">
-    <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:18px">${checklistPanel(slug, cl)}${facebookTile(slug, links.links, fbNote)}</div>
-    <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;align-items:baseline"><b>Captured while you browsed</b><a href="#/connect" class="muted" style="font-size:13.5px">Hunt Browser →</a></div>
-      <div id="captures" style="display:flex;flex-direction:column;gap:6px;max-height:560px;overflow:auto">${captureRows(slug, caps.captures)}</div></div></div>`.s;
-  poll(async () => { if (!$('#captures')) return clearInterval(poller);
-    const c2 = await api(`${base}/captures`).catch(() => null); if (c2) $('#captures').innerHTML = captureRows(slug, c2.captures).s; }, 5000);
+  const [cl, d, caps, ch] = await Promise.all([api(`${base}/checklist`).catch(() => ({ accounts: [] })), api(`${base}/posts`).catch(() => ({ hits: [], posts: [] })),
+    api(`${base}/captures`).catch(() => ({ captures: [] })), api(`${base}/changes`).catch(() => ({ changes: [] }))]);
+  const sig = JSON.stringify([cl, d.hits, d.posts.length, caps.captures.length, ch.changes.length, previews]);
+  if (!$('#wl-cards') || sig === wlSig) return; // redraw only when something changed: open sections and scroll stay put
+  wlSig = sig;
+  const open = new Set([...document.querySelectorAll('#wl-cards details[open]')].map(x => x.dataset.account)), postOf = new Map(d.posts.map(p => [p.id, p]));
+  $('#wl-cards').innerHTML = fmt(cl.accounts.length ? cl.accounts.map(a => {
+    const key = pathKey(a.account), posts = d.posts.filter(p => pathKey(p.account_url || '') === key), ids = new Set(posts.map(p => p.id));
+    const last = [...caps.captures.filter(x => pathKey(x.url || '').startsWith(key)).map(x => x.viewed_at || x.ts), ...a.sections.map(x => x.seen_at)].filter(Boolean).sort().at(-1);
+    return worklistCard(slug, a, { posts: posts.length, hits: d.hits.filter(h => ids.has(h.post_id)), last }, ch.changes.filter(x => pathKey(x.account || '') === key));
+  }) : html`<div class="empty">Confirm the subject’s accounts on <a href="#/case/${slug}/identity" style="color:var(--ac)">Is it them?</a> to build the worklist.</div>`);
+  document.querySelectorAll('#wl-cards details').forEach(x => { if (open.has(x.dataset.account)) x.open = true; });
+  $('#wl-found').innerHTML = fmt(d.hits.length ? [...d.hits].sort((x, y) => y.id - x.id).slice(0, 40).map(h => html`<div style="display:flex;flex-direction:column;gap:4px">
+      ${fromGrid(h, postOf.get(h.post_id)) && h.status === 'new' ? html`<div style="display:flex;gap:8px;align-items:center;font-size:13px"><span class="tag warn">from a grid thumbnail; open the post to confirm</span>${/^https?:\/\//.test(h.url || '') ? html`<button data-act="browser-open" data-url="${h.url}" data-case="${slug}" style="color:var(--ac)">Open</button>` : ''}</div>` : ''}
+      ${hitCard(slug, h)}</div>`) : html`<div class="empty" id="no-hits">Nothing yet. Hits appear here as what you browse is scanned.</div>`);
+  $('#captures').innerHTML = fmt(captureRows(slug, caps.captures));
 }
 async function uploadFacebook(slug, files) {
   if (!files?.length) return;
@@ -808,7 +854,7 @@ screens.connect = async () => {
       <div><a href="#/" data-act="back" class="muted" style="font-size:15px">← Back</a><div class="h2" style="margin-top:10px">Connect your accounts</div>
         <div class="sub" style="margin-top:6px">Sign in once, in the Hunt Browser, to the platforms you’ll look at. Hunt never sees your passwords, and nothing is recorded while you sign in. Skip any you don’t use.</div></div>
       <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px" id="connect-rows">${connectRows(st)}</div>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><a class="btn primary" href="#/">Done</a>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${seenFlag('hunt-keys-seen') ? html`<a class="btn primary" href="#/">Done</a>` : html`<a class="btn primary" href="#/keys">Next: free keys (optional) →</a>`}
         ${st.browser?.profile ? html`<span class="life" style="margin-left:auto"><button class="btn ghost sm" data-act="signout-ask">Sign out of everything…</button></span>` : ''}</div>
       <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><b>Hunt Capture in another browser</b><div id="pairing" style="display:flex;flex-direction:column;gap:10px">${pairingPanel(pr, pairCode && pairCode.until > Date.now() ? pairCode : null)}</div></div>
     </div></main>`);
@@ -820,6 +866,29 @@ screens.connect = async () => {
       else { const p2 = await api('/api/pairing').catch(() => null); if (p2?.paired) { pairCode = null; $('#pairing').innerHTML = pairingPanel(p2).s; toast('Paired.'); }
         else if ($('#pair-left')) $('#pair-left').textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} left`; } }
   }, 2000);
+};
+
+/* Connect free keys (docs/research/tools.md, "Free keys"): optional, each only unlocks more; kept on this Mac */
+const seenFlag = k => { try { return !!localStorage.getItem(k); } catch { return true; } };
+const keyRow = k => html`<div class="row" style="align-items:flex-start;gap:14px">
+  <span style="width:22px;height:22px;border-radius:50%;flex:none;margin-top:2px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;${k.set ? 'background:var(--gr-bg);color:var(--gr)' : 'box-shadow:inset 0 0 0 1.5px var(--line)'}">${k.set ? '✓' : ''}</span>
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+    <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><b>${k.label}</b>${k.required ? html`<span class="tag warn">needed for it to run</span>` : ''}<span class="dim mono" style="font-size:12px">${k.key}</span></div>
+    ${k.free ? html`<div class="t2" style="font-size:14px">${k.free[0].toUpperCase() + k.free.slice(1)}</div>` : ''}
+    ${k.where === 'environment' ? html`<div class="muted" style="font-size:13px">Set in the shell that started Hunt; change it there.</div>`
+      : html`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input class="input key-in" ${k.key === 'HUNT_SEC_UA' ? '' : raw('type="password"')} data-key="${k.key}" autocomplete="off" spellcheck="false" aria-label="${k.label} key"
+          placeholder="${k.set ? 'Saved. Paste a new one to replace it' : k.key === 'HUNT_SEC_UA' ? 'Your firm and a contact email' : 'Paste the key'}" style="flex:1;min-width:220px;font-size:14px">
+        <button class="btn sm" data-act="key-save" data-key="${k.key}">Save</button>${k.set ? html`<button class="btn ghost sm" data-act="key-save" data-key="${k.key}" data-clear="1">Remove</button>` : ''}
+        ${k.url ? html`<a href="${k.url}" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:14px" title="Opens in your own browser">Get a free key ↗</a>` : ''}</div>`}</div></div>`;
+screens.keys = async () => {
+  const { keys } = await api('/api/keys');
+  try { localStorage.setItem('hunt-keys-seen', '1'); } catch { /* fine */ }
+  mount(html`${topHome()}<main class="screen" style="align-items:center;padding:16px 24px 40px"><div style="width:min(760px,100%);display:flex;flex-direction:column;gap:18px">
+    <div><a href="#/" data-act="back" class="muted" style="font-size:15px">← Back</a><div class="h2" style="margin-top:10px">Connect free keys <span class="muted" style="font-size:24px;font-weight:500">(optional)</span></div>
+      <div class="sub" style="margin-top:6px">Hunt works fully without any of these. Each is free and only unlocks more: a bigger quota, or a source that needs one. Keys stay on this Mac, and Hunt never shows one again once it’s saved.</div></div>
+    <div id="key-rows" style="display:flex;flex-direction:column;gap:8px">${keys.map(keyRow)}</div>
+    <div><a class="btn primary" href="#/">Done</a></div></div></main>`);
 };
 
 /* Have we seen this person before? (docs/qol.md I): local, read-only, nothing merged or blocked */
@@ -872,9 +941,10 @@ screens.posts = async slug => {
         : html`<div class="empty">Nothing flagged yet. <a href="#/case/${slug}/scan" style="color:var(--ac)">See the scan →</a></div>`}</div>
       <div id="hit-detail">${sel ? hitDetail(slug, c, sel) : ''}</div>
     </div>
-    <div id="logged-in" style="flex:none"></div></main>`);
+    <a class="panel row" href="#/case/${slug}/worklist" style="flex:none;padding:18px;gap:16px"><span class="tile-ic">▤</span>
+      <div style="flex:1"><b>Worklist: Instagram, Facebook, TikTok and the rest</b><div class="muted" style="font-size:14px">Open each confirmed account in the Hunt Browser; Hunt records and scans what you scroll past.</div></div><span style="color:var(--ac)">Open →</span></a></main>`);
   window.__hits = hits; window.__case = c; window.__posts = d.posts;
-  refreshNoteCounts(slug); loggedInSection(slug);
+  refreshNoteCounts(slug);
   if (['recheck', 'watch'].includes(c.active_job?.kind)) watchRecheck(slug, c.active_job.id, c.active_job.kind === 'watch' ? 'Checking again (watching)' : '');
 };
 function hitDetail(slug, c, h) {
@@ -1146,6 +1216,21 @@ const actions = {
       bring.slugs.push(r.slug); $('#bring-pass').value = '';
       $('#bring-out').innerHTML = html`Unpacked as <a href="#/case/${r.slug}/search" style="color:var(--ac)">${r.slug}</a>: ${r.files} files, each matching the manifest${r.replaced ? '; the case that was here is in the Trash' : ''}. Watching is off on this computer. Turn it on here if this is where the case will be watched.`.s;
     } catch (e) { el.disabled = false; $('#bring-out').textContent = ''; fail(e); }
+  },
+  preview: async el => {
+    const url = el.dataset.url, slug = el.dataset.slug; el.disabled = true; el.textContent = 'Reading…';
+    try { const r = await api(`/api/cases/${encodeURIComponent(slug)}/preview`, { method: 'POST', body: { url } });
+      previews[url] = r.note || 'Read.'; if (r.added) await startScan(slug); }
+    catch (e) { previews[url] = e.status === 501 ? 'Not available yet: the public preview reader is still being built.' : e.message; }
+    drawWorklist(slug);
+  },
+  'key-save': async el => {
+    const key = el.dataset.key, input = document.querySelector(`.key-in[data-key="${key}"]`), value = el.dataset.clear ? '' : input.value.trim();
+    if (!value && !el.dataset.clear) return toast('Paste the key first.', true);
+    el.disabled = true;
+    try { const { keys } = await api('/api/keys', { method: 'POST', body: { [key]: value } }); input.value = '';
+      $('#key-rows').innerHTML = fmt(keys.map(keyRow)); toast(value ? 'Saved. Hunt uses it from now on.' : 'Removed.'); }
+    catch (e) { el.disabled = false; fail(e); }
   },
   'connect-skip': el => { const sk = skipped(), pf = el.dataset.platform; setSkipped(sk.includes(pf) ? sk.filter(x => x !== pf) : [...sk, pf]); render(); },
   'signout-ask': el => { el.closest('.life').innerHTML = html`<span class="muted" style="font-size:13.5px">This signs you out of every platform in the Hunt Browser. The profile goes to the Trash.</span>

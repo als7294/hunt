@@ -67,6 +67,7 @@ Event `data` is JSON with a `type`:
 |---|---|---|
 | POST | `/api/cases/{slug}/media` | `multipart/form-data`: `files[]`, `platform?`, `posted_at?` → `{added: n}`. Uploads are streamed and hashed. HEIC is converted with `sips`; SVG is rejected |
 | POST | `/api/cases/{slug}/facebook` | `multipart/form-data`: `files[]`, `saved_at?` (ISO) → `{added, posts, pages, screenshots, skipped: [name]}`. Details below |
+| POST | `/api/cases/{slug}/preview` | `{url}` (a confirmed account's https address) → whatever `hunt.public.preview(case, url)` returns, at least `{note}` (e.g. "12 posts shown logged out; the rest need the Hunt Browser"). Read public preview, on her click, one account at a time. 501 until `hunt/public.py` exists; 409 on a closed case |
 | GET | `/api/cases/{slug}/facebook/links` | `{links: [{label, url}]}`: Facebook search and `site:facebook.com` search-engine links for the case's seeds. For the investigator to open in their own browser; Hunt never requests them |
 | GET | `/api/cases/{slug}/posts` | `{counts: {read_automatically, added_by_you, captured, flagged, by_category: {}}, weekly: [{week: "YYYY-Www", posts, flagged}], hits: [hit], posts: [post]}` |
 | POST | `/api/cases/{slug}/hits/{id}` | `{status: "kept"\|"not relevant"\|"in report"}` → hit |
@@ -116,6 +117,17 @@ reference number; `injury_date` is the date of injury or loss.
 | POST | `/api/settings` | Any of the fields above as strings (≤ 500 characters; `""` clears one; `timezone` must be an IANA zone name); `{logo: null}` removes the logo → the settings |
 | POST | `/api/settings/logo` | `multipart/form-data` with one `file`: PNG or JPEG under 2 MB (SVG and everything else get 415) → the settings |
 | GET | `/api/settings/logo` | The logo image, or 404 |
+
+## Free keys (one set per investigator, under `HUNT_HOME`)
+| Method | Path | Body / response |
+|---|---|---|
+| GET | `/api/keys` | `{keys: [{key, label, sources: [source], required, url, free, set, where: "saved"\|"environment"\|null}]}`, one row per env var (the state portals share `HUNT_SOCRATA_TOKEN`). Never a value |
+| POST | `/api/keys` | `{<env var>: value}`; `""` removes one → as GET. 400 for a key Hunt doesn't use, a value over 500 characters, or a key set in the shell that started Hunt (the shell wins; change it there) |
+
+`hunt/keys.py` keeps them in `HUNT_HOME/keys.json` (mode 0600) and puts them into the server's environment, where the
+sources read them. Which keys exist comes from the source modules' `KEY`, `KEY_REQUIRED`, `KEY_URL` and `KEY_FREE`; a
+key read elsewhere in Hunt (not by a source) is added to `keys.EXTRA = {env var: {label, url, free}}`. Every key is
+optional except CourtListener's, and Hunt works fully without any.
 
 ## Report
 Laid out like an insurance / online-activity investigation report (`docs/research/report-format.md`).

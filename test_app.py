@@ -265,6 +265,19 @@ assert (h["firm"], h["client"], h["file_number"], h["timezone"]) == ("Example In
                                                                     "America/Chicago"), h
 assert c.post("/api/settings", content=json.dumps({"logo": None}), headers=JSON).json()["logo"] is False
 
+# --- Free keys: saved into the environment, listed without their values, cleared -----------------
+os.environ.pop("HUNT_GRAVATAR_KEY", None)
+r = c.post("/api/keys", content=json.dumps({"HUNT_GRAVATAR_KEY": "gk-example"}), headers=JSON)
+assert r.status_code == 200 and "gk-example" not in r.text, r.text
+assert {k["key"]: k for k in r.json()["keys"]}["HUNT_GRAVATAR_KEY"]["where"] == "saved" and os.environ["HUNT_GRAVATAR_KEY"] == "gk-example"
+assert "gk-example" not in c.get("/api/keys").text
+assert c.post("/api/keys", content=json.dumps({"HUNT_NOPE": "x"}), headers=JSON).status_code == 400
+assert c.post("/api/keys", content=json.dumps({"HUNT_GRAVATAR_KEY": "x"}), headers={**JSON, "origin": "http://evil.test"}).status_code == 403
+c.post("/api/keys", content=json.dumps({"HUNT_GRAVATAR_KEY": ""}), headers=JSON)
+assert "HUNT_GRAVATAR_KEY" not in os.environ
+assert c.post("/api/cases/vance-claim/preview", content=json.dumps({"url": "https://www.instagram.com/example"}),
+              headers=JSON).status_code == 501  # until hunt/public.py lands
+
 # --- Report and exports -------------------------------------------------------------------------
 rep = c.get("/api/cases/vance-claim/report").json()
 assert rep["checks"]["every_sentence_cited"] and rep["checks"]["tampered"] == [], rep["checks"]
