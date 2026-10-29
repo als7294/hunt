@@ -108,6 +108,8 @@ ORGS = {  # organisation accounts only (businesses, clubs, associations); query 
                "physiopainassoc.bsky.social"],
 }
 PER_ORG = 3
+# Not evidence of what the subject does, even when they show it: the parent's hard negatives.
+IRRELEVANT = {"graphic", "old", "meme", "screenshot", "text"}
 MAX_VIDEO_S = 120
 
 
@@ -348,7 +350,7 @@ def score(items, found):
     """Per-category precision and recall, false alarms on negatives, video ranges and child blurring."""
     rows, negatives, tagged, overlap, blurred = {}, [0, 0], {}, [0, 0], [0, 0]
     for item in items:
-        truth = set(item["labels"])
+        truth = set() if item["tag"] in IRRELEVANT else set(item["labels"])
         hits = found.get(item["id"], [])
         said = {h["category"] for h in hits}
         for c in CATS:
@@ -393,6 +395,8 @@ async def evaluate(split, label):
             "n": len(part), "minutes": round(minutes, 1) if kind == "video" else None, **score(part, found),
             "seconds": {k: round(v, 1) for k, v in spent.items() if k != "peak_rss_gb"}, "calls": calls,
             "seconds_per": round(spent["total"] / (minutes if kind == "video" else len(part)), 2),
+            "predictions": {k: [{x: h[x] for x in ("category", "t0", "t1", "verdict", "p", "blur", "what")} for h in v]
+                            for k, v in found.items() if k},
             "memory": {"peak_rss_gb": round(spent["peak_rss_gb"], 2), "ollama_peak_gb": round(max(watch.ollama_mb) / 1024, 2),
                        "mps_peak_gb": round(max(watch.mps_mb) / 1024, 2)},
             "responsiveness": {"event_loop_lag_max_ms": round(max(watch.lag) * 1000),
@@ -401,6 +405,17 @@ async def evaluate(split, label):
         print(json.dumps({kind: out[kind + "s"]}, indent=1))
     (DIR / f"results-{split}-{label}.json").write_text(json.dumps(out, indent=1))
     return out
+
+
+def rescore(path):
+    """Score saved predictions again (e.g. after a label fix) without re-running the scan."""
+    out = json.loads(Path(path).read_text())
+    for kind in ("photos", "videos"):
+        items = [i for i in split_items(out["split"]) if i["kind"] + "s" == kind]
+        out[kind].update(score(items, out[kind]["predictions"]))
+        print(kind, json.dumps({k: out[kind][k] for k in ("micro", "categories", "negatives_flagged",
+                                                         "hard_negatives_flagged")}, indent=1))
+    Path(path).write_text(json.dumps(out, indent=1))
 
 
 if __name__ == "__main__":
@@ -413,3 +428,5 @@ if __name__ == "__main__":
         split = sys.argv[sys.argv.index("--split") + 1] if "--split" in sys.argv else "dev"
         label = sys.argv[sys.argv.index("--label") + 1] if "--label" in sys.argv else "current"
         asyncio.run(evaluate(split, label))
+    elif command == "rescore":
+        rescore(sys.argv[2])
