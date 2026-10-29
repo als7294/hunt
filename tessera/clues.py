@@ -78,6 +78,10 @@ SCRIPTS = {k: v.split() for k, v in {
     "ARABIC": " ".join(LANGUAGES["ar"]) + " ir af pk",
 }.items()}
 
+DENSE = {"CJK", "HIRAGANA", "KATAKANA", "HANGUL"}  # scripts where a character is a syllable or a word
+# Cyrillic and Greek letters that look Latin: OCR swaps them both ways, so they don't count towards a script.
+LOOKALIKES = set("аеорсухіјѕАВЕКМНОРСТУХІЈЅΑΒΕΖΗΙΚΜΝΟΡΤΥΧοικν")
+
 # Characters that differ between simplified Chinese (mainland, Singapore, Malaysia) and traditional
 # (Taiwan, Hong Kong, Macau), chosen so that neither set is used in modern Japanese, whose kanji
 # would otherwise pass for traditional.
@@ -95,6 +99,29 @@ LETTERS = {k: v.split() for k, v in {
     "ñ¿¡": " ".join(LANGUAGES["es"]),
     "їєґ": "ua", "і": "ua by kz", "ў": "by uz", "ђћ": "rs ba me", "џљњј": "rs mk ba me", "ѓќѕ": "mk",
     "әұһ": "kz", "ғқ": "kz uz tj", "ң": "kz kg", "өү": "mn kz kg", "ыэ": "ru by kz kg mn",
+}.items()}
+
+# Street and sign words of Latin-script languages (street, road; exit, entrance, closed, open), the
+# vocabulary Plonk It's country pages teach. A leading '-' marks a suffix, for compounds like
+# Bahnhofstraße or Drottninggatan. Left out: English look-alikes (via, gate, plaza, entrée, impasse,
+# piazza), Danish -gade (brigade, renegade) and French allée (German streets are 'Allee' too).
+SIGN_WORDS = {tuple(k.split()): v.split() for k, v in {
+    "de": "-straße -strasse -gasse -platz -weg ausfahrt einfahrt geschlossen geöffnet",
+    "nl": "-straat -gracht -laan -plein -weg uitgang ingang gesloten geopend", "af": "-straat uitgang ingang gesluit",
+    "fr": "rue chemin sortie fermé ouvert", "es": "calle carretera salida cerrado abierto", "es pt": "avenida entrada",
+    "pt": "rua travessa estrada praça saída fechado aberto", "gl": "rúa",
+    "it": "viale vicolo corso uscita entrata chiuso aperto", "it ro": "strada", "ca": "carrer avinguda sortida tancat obert",
+    "ro": "stradă ieșire intrare închis deschis", "pl sk hr sr bs sl": "ulica", "pl": "wyjście wejście zamknięte otwarte",
+    "cs sk": "východ vchod", "cs": "ulice zavřeno otevřeno", "sk": "zatvorené otvorené",
+    "hu": "utca kijárat bejárat zárva nyitva", "hr sr bs": "izlaz ulaz zatvoreno otvoreno", "sl": "izhod vhod zaprto odprto",
+    "sv": "-gatan -vägen utgång ingång stängt öppet", "no is": "-gata", "no": "-veien utgang inngang stengt åpent",
+    "da": "-vej udgang indgang lukket åben", "is": "-vegur útgangur inngangur lokað opið",
+    "fi": "-katu uloskäynti sisäänkäynti suljettu avoinna", "et": "-tänav väljapääs sissepääs suletud avatud",
+    "lv": "iela izeja ieeja slēgts atvērts", "lt": "gatvė išėjimas įėjimas uždaryta atidaryta",
+    "tr": "sokak sokağı cadde caddesi mahallesi çıkış giriş kapalı açık", "sq": "rruga dalje hyrje mbyllur hapur",
+    "id ms": "jalan keluar masuk tutup buka", "id": "jl", "ms": "jln lorong",
+    "tl": "barangay kalye labasan pasukan sarado bukas", "sw": "barabara mtaa", "ga": "sráid bóthar",
+    "cy": "heol stryd ffordd allanfa mynedfa", "mt": "triq", "eu": "kalea irteera sarrera",
 }.items()}
 
 # Country-code domains used worldwide as brand names (.io, .co, .tv, .me, .ai ...) say nothing about place.
@@ -177,8 +204,9 @@ def country_evidence(obs: dict, text: str) -> dict[str, list[tuple[float, str]]]
             agree = (c in LEFT) == (side == "left")
             add([c], bits(*DRIVING, agree), f"traffic drives on the {side}" if agree else
                 f"traffic drives on the {side}, but here it drives on the {other}")
-    if countries := LANGUAGES.get(str(obs.get("language")).lower()):
-        add(countries, bits(*LANGUAGE), f"signs are in language '{obs['language']}' (vision model)")
+    # The vision model's language comes from the same text, so it only adds what sign words didn't.
+    if rest := [c for c in LANGUAGES.get(str(obs.get("language")).lower(), []) if ("language", c) not in seen]:
+        add(rest, bits(*LANGUAGE), f"signs are in language '{obs['language']}' (vision model)")
     for field, pattern, countries, why in HINTS:
         if pattern.search(str(obs.get(field) or "").lower()):
             add(countries, bits(*WEAK), f"{why} (vision model: {obs[field]!r})")
@@ -189,21 +217,41 @@ def country_evidence(obs: dict, text: str) -> dict[str, list[tuple[float, str]]]
     return dict(ev)
 
 
+def _lower(s: str) -> str:
+    """Lowercase, with Turkish dotted and dotless i both read as i (İ.lower() leaves a stray dot)."""
+    return unicodedata.normalize("NFC", s.lower()).replace("i̇", "i").replace("ı", "i")
+
+
+def _fold(s: str) -> str:
+    """Accents removed, as OCR and all-caps signs often drop them."""
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+
 def _text_clues(text: str) -> list[tuple[str, list[str], float, str]]:
     """(kind, countries, bits, reason) for every clue in a piece of text. A kind repeats when the clue does."""
     text = unicodedata.normalize("NFC", text)
     out = []
-    scripts = defaultdict(list)
-    for ch in text:
-        name = unicodedata.name(ch, "").split(" ")[0].split("-")[0]
-        if name in SCRIPTS:
-            scripts[name].append(ch)
+    scripts, longest = defaultdict(list), defaultdict(int)  # script → its letters; longest believable line
+    for line in text.splitlines():
+        letters, distinct = defaultdict(int), defaultdict(int)
+        for ch in line:
+            name = unicodedata.name(ch, "").split(" ")[0].split("-")[0]
+            if name in SCRIPTS and unicodedata.category(ch)[0] in "LM":  # letters and vowel marks, not digits
+                scripts[name].append(ch)
+                letters[name] += 1
+                distinct[name] += ch not in LOOKALIKES
+        for name, n in letters.items():
+            if distinct[name] >= 3:
+                longest[name] = max(longest[name], n)
     for script, chars in scripts.items():
-        # Two characters, so one stray Greek μ or Cyrillic look-alike isn't a clue; one kana is
-        # enough, since Japanese place names often carry a lone ヶ or ノ among the kanji.
-        if len(chars) >= 2 or script in ("HIRAGANA", "KATAKANA"):
+        # Each Han, kana or Hangul character carries a word's worth: two count (one kana, since Japanese
+        # place names often carry a lone ヶ or ノ). Other scripts need a line of 8+ letters, 3+ of them
+        # unlike Latin. Apple Vision invents short Thai, Arabic and Cyrillic lines ('เพกบอ', 'ات ورا',
+        # 'сообо') from texture or scripts it can't read; on 58 geotagged Commons photos, 5 of 6 such
+        # fragments pointed at the wrong country, so they count for nothing.
+        if script in DENSE and (len(chars) >= 2 or script in ("HIRAGANA", "KATAKANA")) or longest[script] >= 8:
             label = {"CJK": "Han (Chinese-character)", "CANADIAN": "Canadian syllabics"}.get(script, script.title())
-            out.append((script, SCRIPTS[script], bits(*SCRIPT), f"{label} script in the text ({''.join(chars[:6])})"))
+            out.append((script, SCRIPTS[script], bits(*SCRIPT), f"{label} script in the text ({''.join(chars[:8])})"))
     for chars, countries, form in ((SIMPLIFIED, ["cn", "sg", "my"], "simplified"),
                                    (TRADITIONAL, ["tw", "hk", "mo"], "traditional")):
         if found := "".join(sorted({c for c in text if c in chars})):
@@ -221,6 +269,24 @@ def _text_clues(text: str) -> list[tuple[str, list[str], float, str]]:
     for c, found in letters.items():
         if found:  # one reason per country, however many of its letters appear: they're one clue
             out.append(("letters", [c], bits(*LETTER), f"letters {', '.join(sorted(found))} in the text"))
+
+    # Sign words, ignoring case; a token OCR printed without accents may match an accented word, but one
+    # with accents must match exactly (Swedish 'ingång' is not Dutch 'ingang').
+    tokens = set(re.findall(r"[^\W\d_]+", _lower(text)))
+    bare = {t for t in tokens if _fold(t) == t}
+    def says(word):
+        stem = _lower(word.lstrip("-"))
+        if word.startswith("-"):
+            return any(t.endswith(stem) for t in tokens) or any(t.endswith(_fold(stem)) for t in bare)
+        return stem in tokens or _fold(stem) in bare
+
+    said = defaultdict(set)
+    for langs, words in SIGN_WORDS.items():
+        if found := {w.lstrip("-") for w in words if says(w)}:
+            for c in {c for lang in langs for c in LANGUAGES[lang]}:
+                said[c] |= found
+    for c, found in said.items():
+        out.append(("language", [c], bits(*LANGUAGE), f"sign words {', '.join(sorted(found))}"))
 
     for m in DOMAIN.finditer(text):
         labels, tld = m.group(1).rstrip(".").split("."), m.group(2).lower()
