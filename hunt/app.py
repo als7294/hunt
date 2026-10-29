@@ -28,6 +28,7 @@ from pathlib import Path
 
 import httpx
 from starlette.applications import Starlette
+from starlette.background import BackgroundTask
 from starlette.datastructures import MutableHeaders, UploadFile
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -36,6 +37,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from . import report, search, vlm
+from . import bundle, inbox  # docs/qol.md
 from .case import DECISIONS, EVIDENCE_NAME, HOME, Case, all_cases
 from .match import ICD203, norm_url
 from .seed import detect
@@ -685,6 +687,83 @@ class Frontend(StaticFiles):
         return r
 
 
+# --- quality of life: the Downloads inbox, the evidence bundle, links (docs/qol.md) ----------------
+
+def _inbox_args(params) -> tuple[Path, float]:
+    folder = Path(str(params.get("folder") or inbox.DOWNLOADS)).expanduser()
+    if not folder.is_absolute() or not folder.is_dir():
+        raise HTTPException(400, "folder must be a folder on this computer")
+    try:
+        days = float(params.get("days") or 7)
+    except (TypeError, ValueError):
+        days = 0
+    if not 0 < days <= 365:
+        raise HTTPException(400, "days must be between 0 and 365")
+    return folder, days
+
+
+def _shown(item: dict) -> dict:
+    return {k: v for k, v in item.items() if k != "path"}
+
+
+async def get_inbox(req: Request):
+    c = _case(req)
+    folder, days = _inbox_args(req.query_params)
+    items = await asyncio.to_thread(inbox.scan, folder, days, c)
+    return JSONResponse({"folder": str(folder), "days": days, "files": [_shown(i) for i in items]})
+
+
+async def post_inbox(req: Request):
+    c = _case(req)
+    b = await _body(req)
+    folder, days = _inbox_args(b)
+    take = b.get("take")
+    if not isinstance(take, list) or not take or not all(isinstance(t, dict) and isinstance(t.get("id"), str)
+                                                         for t in take):
+        raise HTTPException(400, "take must be a list of {id, url?, platform?, handle?, posted_at?}")
+    take = {t["id"]: t for t in take}
+    for t in take.values():
+        if any(t.get(k) is not None and not isinstance(t[k], str) for k in ("url", "platform", "handle", "posted_at")):
+            raise HTTPException(400, "url, platform, handle and posted_at must be strings")
+        if t.get("url") and not t["url"].startswith(("http://", "https://")):
+            raise HTTPException(400, "url must be the post's or profile's link")
+        if t.get("posted_at"):
+            try:
+                datetime.fromisoformat(t["posted_at"])
+            except ValueError:
+                raise HTTPException(400, "posted_at must be YYYY-MM-DD or an ISO date-time")
+    items = await asyncio.to_thread(inbox.scan, folder, days, c)
+    if missing := sorted(set(take) - {i["id"] for i in items}):
+        raise HTTPException(409, f"no longer in the folder: {', '.join(missing)}; list it again")
+    chosen = [inbox.amend(i, t.get("url"), platform=t.get("platform"), handle=(t.get("handle") or "").lstrip("@"),
+                          posted_at=t.get("posted_at")) for i in items if (t := take.get(i["id"]))]
+    done = await asyncio.to_thread(inbox.take, c, chosen, b.get("keep") is True)
+    return JSONResponse({"files": [_shown(i) for i in done]})
+
+
+async def evidence_zip(req: Request):
+    c = _case(req)
+    out = Path(tempfile.mkdtemp(prefix=".bundle-", dir=c.dir))
+    made = await asyncio.to_thread(bundle.make, c, out)
+    return FileResponse(made["path"], media_type="application/zip", filename=Path(made["path"]).name,
+                        headers={"x-bundle-sha256": made["sha256"]}, background=BackgroundTask(shutil.rmtree, out, True))
+
+
+async def unfurl(req: Request):
+    url = req.query_params.get("url", "")
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(400, "url must be a link")
+    return JSONResponse(inbox.from_url(url))
+
+
+QOL_ROUTES = [
+    Route("/api/cases/{slug}/inbox", get_inbox),
+    Route("/api/cases/{slug}/inbox", post_inbox, methods=["POST"]),
+    Route("/api/cases/{slug}/evidence.zip", evidence_zip),
+    Route("/api/unfurl", unfurl),
+]
+
+
 # --- the app ------------------------------------------------------------------------------------
 
 async def _http_error(req, exc: HTTPException):
@@ -717,7 +796,7 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/cases/{slug}/report", get_report),
         Route("/api/cases/{slug}/report.{fmt:str}", export_report),
         Route("/evidence/{slug}/{name}", evidence),
-    ] + ([Mount("/", app=Frontend(directory=STATIC, html=True))] if STATIC.is_dir() else [])
+    ] + QOL_ROUTES + ([Mount("/", app=Frontend(directory=STATIC, html=True))] if STATIC.is_dir() else [])
     app = Starlette(routes=routes, exception_handlers={HTTPException: _http_error, Exception: _server_error})
     app.state.token, app.state.jobs = token, {}
     return Guard(app, token, port)
