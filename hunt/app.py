@@ -379,16 +379,27 @@ async def startup(req: Request):
 
 
 async def _browser_checks() -> list[dict]:
-    """Hunt Browser sign-in rows, once that module exists: hunt.browser.status() (sync or async) returns
-    [{id, label, ok, detail}], e.g. one per site the investigator signed in to."""
+    """The Hunt Browser row: hunt.browser.status() (docs/capture.md) as one check, with a sign-in state per
+    platform in `items` [{platform, label, url, state}] and `checked_at`."""
     fn = getattr(_module("browser"), "status", None)
     if not fn:
         return []
     try:
-        rows = await _call(fn)
+        st = await _call(fn)
     except Exception as e:
         return [{"id": "browser", "label": "Hunt Browser", "ok": False, "detail": f"status unavailable: {e}"}]
-    return [r for r in rows if isinstance(r, dict) and {"id", "label", "ok", "detail"} <= r.keys()]
+    b = st.get("browser") or {}
+    if not b.get("available"):
+        return [{"id": "browser", "label": "Hunt Browser", "ok": False,
+                 "detail": "not installed (for logged-in platforms): uv run playwright install chromium"}]
+    items = [{**{k: x[k] for k in ("platform", "label", "url")}, "state": st.get(x["platform"], "unknown")}
+             for x in st.get("logins", [])]
+    said = {state: [x["label"] for x in items if x["state"] == state] for state in ("signed_in", "signed_out", "unknown")}
+    detail = "; ".join(f"{words}: {', '.join(said[state])}" for state, words in
+                       (("signed_in", "signed in"), ("signed_out", "not signed in"), ("unknown", "not checked yet"))
+                       if said[state])
+    return [{"id": "browser", "label": f"Hunt Browser {b.get('version') or ''}".strip(), "ok": True, "detail": detail,
+             "items": items, "checked_at": st.get("checked_at")}]
 
 
 async def list_cases(req: Request):

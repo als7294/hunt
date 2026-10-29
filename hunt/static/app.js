@@ -103,16 +103,42 @@ screens.startup = async () => {
   catch (e) { checks = [{ id: 'server', label: 'Starting Hunt', ok: false, detail: e.message }]; }
   const box = $('#boot');
   for (let i = 0; i < checks.length; i++) {
-    const c = checks[i];
-    box.insertAdjacentHTML('beforeend', html`<div style="display:flex;align-items:center;gap:13px">
-      <span style="width:24px;height:24px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:${c.ok ? 'var(--gr-bg)' : 'var(--am-bg)'};color:${c.ok ? 'var(--gr)' : 'var(--am)'}">${c.ok ? '✓' : '!'}</span>
-      <div style="display:flex;flex-direction:column;gap:1px"><span style="font-size:16px">${c.label}</span><span style="font-size:13.5px;color:${c.ok ? 'var(--gr)' : 'var(--am)'}">${c.detail || ''}</span></div></div>`.s);
+    box.insertAdjacentHTML('beforeend', bootRow(checks[i]).s);
     $('#boot-bar').style.transform = `scaleX(${(i + 1) / checks.length})`; $('#boot-pct').textContent = `${Math.round((i + 1) / checks.length * 100)}%`;
     await new Promise(r => setTimeout(r, 380));
   }
   sessionStorage.setItem('hunt-booted', '1');
-  setTimeout(() => { if (['', '#/', '#/startup'].includes(location.hash)) { if (location.hash === '#/') render(); else location.hash = '#/'; } }, checks.every(c => c.ok) ? 500 : 2500);
+  const next = () => { if (['', '#/', '#/startup'].includes(location.hash)) { if (location.hash === '#/') render(); else location.hash = '#/'; } };
+  // Cases past retention wait for a decision; otherwise carry on by itself
+  if (checks.some(c => c.id === 'retention' && c.items?.length)) box.insertAdjacentHTML('beforeend', html`<a class="btn primary sm" href="#/" style="align-self:flex-start;margin-top:6px">Continue →</a>`.s);
+  else setTimeout(next, checks.every(c => c.ok) ? 500 : 2500);
 };
+
+const SIGNIN = { signed_in: 'signed in', signed_out: 'not signed in', unknown: 'not checked yet' };
+const skipped = () => { try { return JSON.parse(localStorage.getItem('hunt-skipped') || '[]'); } catch { return []; } }; // platforms skipped on Connect your accounts
+function bootRow(c) {
+  const extra = c.id === 'sources' ? (c.items || []).filter(x => x.reachable === false).map(x => html`<span class="muted" style="font-size:13px">${x.source}: can’t be reached (${x.detail})</span>`)
+    : c.id === 'browser' && c.items ? html`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${c.items.map(x => html`<span class="acct" style="font-size:13px" title="${x.label}: ${SIGNIN[x.state]}">${x.label}${x.state === 'signed_in' ? html` <span style="color:var(--gr)">✓</span>` : skipped().includes(x.platform) ? html` <span class="dim">skipped</span>` : html` <button data-act="browser-open" data-url="${x.url}" style="color:var(--ac)">Sign in</button>`}</span>`)}</div>
+      ${c.checked_at ? html`<span class="dim" style="font-size:12.5px">checked ${ago(c.checked_at).toLowerCase()}</span>` : ''}`
+    : c.id === 'retention' && c.items?.length ? html`<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${c.items.map(x => html`<div class="card" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><a href="#/case/${x.slug}/report" style="font-weight:500">${x.label || x.slug}</a><span class="muted" style="font-size:13px">opened ${longDay(x.created)}</span></div>
+        <div class="life" id="life-${x.slug}" style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" data-act="life-ask" data-mode="hold" data-slug="${x.slug}">Keep: legal hold</button><button class="btn ghost sm" data-act="life-ask" data-mode="delete" data-slug="${x.slug}">Move to Trash</button></div></div>`)}</div>` : '';
+  return html`<div style="display:flex;align-items:flex-start;gap:13px">
+    <span style="width:24px;height:24px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:${c.ok ? 'var(--gr-bg)' : 'var(--am-bg)'};color:${c.ok ? 'var(--gr)' : 'var(--am)'}">${c.ok ? '✓' : '!'}</span>
+    <div style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1"><span style="font-size:16px">${c.label}</span><span style="font-size:13.5px;color:${c.ok ? 'var(--gr)' : 'var(--am)'}">${c.detail || ''}</span>${extra}</div></div>`;
+}
+
+/* Case lifecycle: close, reopen, legal hold, delete to the Trash (docs/api.md, Cases). The forms open in place. */
+const LIFE = {
+  close: { label: 'Why it’s closed (optional)', hint: 'e.g. Claim settled', button: 'Close the case', note: 'Searches, scans and watching stop until you reopen it. The report says when it was closed.' },
+  hold: { label: 'Why it’s on hold', hint: 'e.g. Litigation pending', button: 'Put on legal hold', note: 'Kept past the 90-day retention period, and can’t be deleted until the hold is lifted.' },
+  delete: { label: 'Type the case name to confirm', hint: '', button: 'Move to the Trash', note: 'The whole case folder goes to the Trash; Finder’s Put Back restores it. It’s logged in ~/Hunt/deleted-cases.log.' },
+};
+const LIFE_DONE = { close: 'Case closed. Watching stopped.', reopen: 'Case reopened. Watching doesn’t restart by itself.', hold: 'On legal hold.', unhold: 'Legal hold lifted.', delete: 'Moved to the Trash.' };
+const lifeForm = (slug, mode) => { const f = LIFE[mode]; return html`<div style="display:flex;flex-direction:column;gap:8px;width:100%">
+  <label class="field"><span class="label">${f.label}${mode === 'delete' ? html`: <b class="mono" style="color:var(--t2)">${slug}</b>` : ''}</span><input class="input" style="font-size:14.5px" placeholder="${f.hint}" aria-label="${f.label}"></label>
+  <span class="muted" style="font-size:13px">${f.note}</span>
+  <div style="display:flex;gap:6px"><button class="btn sm ${mode === 'delete' ? '' : 'primary'}" style="${mode === 'delete' ? 'background:var(--rd-bg);color:var(--rd)' : ''}" data-act="life-do" data-mode="${mode}" data-slug="${slug}">${f.button}</button><button class="btn ghost sm" data-act="life-cancel">Cancel</button></div></div>`; };
 
 function toolCard(kind) {
   const person = kind === 'person', col = person ? 'var(--ac)' : 'var(--teal)', hex = person ? '#A3B5F2' : '#7FD4D9';
@@ -731,6 +757,23 @@ const actions = {
   },
   'logo-remove': async () => { try { await api('/api/settings', { method: 'POST', body: { logo: null } }); render(); } catch (e) { fail(e); } },
   back: (el, e) => { e.preventDefault(); location.hash = lastHash || '#/'; },
+  'browser-open': async el => {
+    try { await api('/api/browser/open', { method: 'POST', body: { url: el.dataset.url, ...(el.dataset.case ? { case: el.dataset.case } : {}) } }); toast('Opened in the Hunt Browser. Hunt never sees your password.'); }
+    catch (e) { fail(e.status === 503 ? new Error('Install the Hunt Browser first: uv run playwright install chromium') : e); }
+  },
+  'life-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = lifeForm(el.dataset.slug, el.dataset.mode).s; box.querySelector('input').focus(); },
+  'life-cancel': el => { const box = el.closest('.life'); box.innerHTML = box.dataset.was || ''; },
+  'life-do': async el => {
+    const { slug, mode } = el.dataset, box = el.closest('.life') || document.body, v = box.querySelector('input')?.value.trim() || '';
+    if (mode === 'delete' && v !== slug) return toast(`Type ${slug} exactly to move it to the Trash.`, true);
+    const body = { close: { reason: v || null }, reopen: {}, hold: { on: true, reason: v || null }, unhold: { on: false }, delete: { confirm: v } }[mode];
+    el.disabled = true;
+    try {
+      await api(`/api/cases/${encodeURIComponent(slug)}/${mode === 'unhold' ? 'hold' : mode}`, { method: 'POST', body }); toast(LIFE_DONE[mode]);
+      if (el.closest('#boot')) box.innerHTML = html`<span class="muted" style="font-size:13.5px">${LIFE_DONE[mode]}</span>`.s; // the startup list stays put
+      else if (mode === 'delete') location.hash = '#/'; else render();
+    } catch (e) { el.disabled = false; fail(e); }
+  },
 };
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el || el.disabled || el.getAttribute('aria-disabled') === 'true') return;

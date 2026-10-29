@@ -25,7 +25,7 @@ Errors are `{"error": "message"}` with a 4xx or 5xx status.
 ## Cases
 | Method | Path | Body / response |
 |---|---|---|
-| GET | `/api/startup` | `{version, proxy: bool, checks: [{id, label, ok, detail, items?}]}`. Check ids, in order: `cases`, `evidence` (re-hash; quick for unchanged files), `ai` (Ollama `/api/tags` lists `HUNT_VLM`; the model isn't loaded), `network`, `proxy`, `sources` (`hunt.sources.health()`: "N of M ready; K of L keys set"; `items: [{source, ready, reachable, key, key_set, key_required, detail}]`), any **Hunt Browser rows**, then `retention` (cases past 90 days without a legal hold; `items: [{slug, label, created}]`, each to be deleted or held) |
+| GET | `/api/startup` | `{version, proxy: bool, checks: [{id, label, ok, detail, items?}]}`. Check ids, in order: `cases`, `evidence` (re-hash; quick for unchanged files), `ai` (Ollama `/api/tags` lists `HUNT_VLM`; the model isn't loaded), `network`, `proxy`, `sources` (`hunt.sources.health()`: "N of M ready; K of L keys set"; `items: [{source, ready, reachable, key, key_set, key_required, detail}]`), `browser` (the Hunt Browser and its sign-ins; below), then `retention` (cases past 90 days without a legal hold; `items: [{slug, label, created}]`, each to be deleted or held) |
 | GET | `/api/cases` | `[{slug, label, kind, reference, tool, created, updated, headline, closed, legal_hold, retention_due}]`, newest first. `headline` reads like "9 flagged posts" or "Confirmed · report ready" |
 | POST | `/api/cases` | `{label, seeds: [str], kind: "insurance"\|"background"\|"diligence"\|"journalism", reference?, purpose (required: who asked and why it's lawful), injury_date?: "YYYY-MM-DD", limits?: str, look_for: [category key or custom text], tool: "person"}` plus any **report header fields** (below) → `201 {slug}`. A label that's already taken gets a `-2` suffix; nothing is ever merged |
 | GET | `/api/cases/{slug}` | `{slug, details: {label, kind, reference, purpose, injury_date, limits, look_for, tool, created, client, adjuster, file_number, assignment_date, subject_dob, recommendations}, seeds: [{kind, value}], steps: {search, identity, posts, report}` (each `"todo"`, `"running"` or `"done"`), `status: {closed, legal_hold, retention_ends, retention_due}, active_job: {id, kind} \| null, counts: {accounts, flagged, evidence}}` |
@@ -82,9 +82,10 @@ Machine verdicts never exceed "likely". Only the investigator's Keep raises an i
 days from opening (`RETENTION_DAYS` in `hunt/case.py`); `retention_ends` is null under a hold. `hunt/watch.py` stops
 watching on the same two rules.
 
-**Hunt Browser rows on the startup page.** Once a `hunt/browser.py` exists, `/api/startup` calls its `status()` (sync or
-async). It should return `[{id, label, ok, detail}]`, e.g. one row per site the investigator is signed in to in Hunt
-Browser, and appends them after `sources`. Until then there are no rows.
+**The Hunt Browser row on the startup page.** `/api/startup` turns `hunt.browser.status()` into one check after
+`sources`: `{id: "browser", label: "Hunt Browser <version>", ok, detail, items: [{platform, label, url, state:
+"signed_in"|"signed_out"|"unknown"}], checked_at}`. Being signed out isn't a failure (each platform is optional);
+`ok` is false only when the browser isn't installed or its status can't be read.
 
 **Every source run is in the case log.** `Case.add_run` also writes a `source run` audit entry, and the run keeps its
 row id, so the report cites a run as `M-a<id>`, which is in the evidence bundle's `audit-log.csv`. Runs recorded before
