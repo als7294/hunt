@@ -12,10 +12,12 @@ Tables, created here on first use:
   posts(id, source (shown as is: 'Bluesky', 'Instagram'...), account_url, url, posted_at, text,
         origin 'fetched'|'added', fetched_at)
   media(id, post_id, kind 'image'|'video'|'screenshot', file 'evidence/<sha256>.<ext>', sha256, duration, source_url)
+  post_extra(post_id, extra JSON): what an imported Facebook post says beyond those columns (add_posts)
 """
 
 import hashlib
 import html
+import json
 import os
 import re
 import subprocess
@@ -46,6 +48,9 @@ create table if not exists posts (id integer primary key, source text, account_u
 create table if not exists media (id integer primary key, post_id int, kind text, file text, sha256 text,
     duration real, source_url text);
 """
+# What an imported post says beyond the posts columns (date precision, place, activity, life event, IDs,
+# counts), kept apart so the posts table's shape, and every insert into it, stays as it is.
+EXTRA = "create table if not exists post_extra (post_id integer primary key, extra text);"
 
 
 async def collect(case, accounts: list[dict], since: str | None, emit) -> int:
@@ -114,15 +119,59 @@ def add_files(case, paths: list[Path], platform: str | None, posted_at: str | No
     return ids
 
 
+def add_posts(case, items: list[dict], kind: str = "image", evidence: str | None = None) -> list[int]:
+    """Posts the investigator imported with their words (hunt.facebook.parse_saved / parse_screenshot):
+    one 'added' post per item, its local media stored as add_files does (`kind` for pictures: "image",
+    or "screenshot" when the picture is the screenshot), and everything else the item says kept in
+    post_extra, with `evidence`, the stored page it came from. A post already in the case (same source
+    and link, or for a post without a link the same date and words) is skipped. Returns new post ids."""
+    case.db.executescript(SCHEMA + EXTRA)
+    ids = []
+    for it in items:
+        source, url, text = it.get("source") or ADDED, it.get("url"), it.get("text") or ""
+        if case.rows("select 1 from posts where source = ? and (url = ? or url is null and ? is null and text = ? "
+                     "and coalesce(posted_at, '') = ?)", source, url, url, text, it.get("posted_at") or ""):
+            case.audit("post already added", {"source": source, "url": url, "posted_at": it.get("posted_at")})
+            continue
+        post = case.db.execute("insert into posts (source, account_url, url, posted_at, text, origin, fetched_at) "
+                               "values (?, ?, ?, ?, ?, 'added', ?)",
+                               (source, it.get("account_url"), url, it.get("posted_at"), text, now())).lastrowid
+        stored = []
+        for path in map(Path, it.get("media") or []):
+            ext = _ext(path)
+            if ext not in VIDEO | IMAGE or not path.is_file():
+                continue
+            file, sha = _store_file(case, path, ext)
+            if case.rows("select 1 from media where sha256 = ?", sha):  # one copy is enough, as in add_files
+                continue
+            what = "video" if ext in VIDEO else kind
+            case.db.execute("insert into media values (null, ?, ?, ?, ?, ?, null)",
+                            (post, what, file, sha, duration(case.dir / file) if what == "video" else None))
+            stored.append(sha)
+        extra = {k: v for k, v in it.items() if k not in ("source", "url", "account_url", "posted_at", "text", "media")
+                 and v not in (None, "", False)} | ({"evidence": evidence} if evidence else {})
+        case.db.execute("insert into post_extra values (?, ?)", (post, json.dumps(extra, ensure_ascii=False)))
+        case.audit("post imported", {"source": source, "url": url, "posted_at": it.get("posted_at"),
+                                     "precision": it.get("posted_at_precision"), "media": stored, "from": evidence})
+        ids.append(post)
+    return ids
+
+
+def store(case, path, ext: str | None = None) -> tuple[str, str]:
+    """Hash a local file into the evidence locker: ('evidence/<sha256>.<ext>', sha256)."""
+    return _store_file(case, Path(path), ext or _ext(path))
+
+
 def list_posts(case) -> list[dict]:
     """Every post with its media, newest first (undated last)."""
-    case.db.executescript(SCHEMA)
+    case.db.executescript(SCHEMA + EXTRA)
     media = {}
     for m in case.rows("select id, post_id, kind, file, duration from media order by id"):
         media.setdefault(m.pop("post_id"), []).append(m)
+    extra = {r["post_id"]: json.loads(r["extra"]) for r in case.rows("select post_id, extra from post_extra")}
     posts = case.rows("select id, source, account_url, url, posted_at, text, origin from posts "
                       "order by posted_at is null, posted_at desc, id desc")
-    return [p | {"media": media.get(p["id"], [])} for p in posts]
+    return [p | {"media": media.get(p["id"], []), "extra": extra.get(p["id"])} for p in posts]
 
 
 def duration(path) -> float | None:

@@ -40,7 +40,8 @@ async def search(seed):
     global _last
     url = target(seed)
     if not url:
-        return [], 0, "not a possible Facebook profile (usernames there are 5+ letters, digits or dots)"
+        return [], 0, ("not a Facebook profile link" if seed.kind == "url" else
+                       "not a possible Facebook username (5+ letters, digits or dots)")
     async with _lock:
         await asyncio.sleep(max(0.0, _last + GAP_S - time.monotonic()))
         try:
@@ -70,4 +71,5 @@ def result(seed, url, final_url, status, html):
                                     ("followers", "followers"), ("location", "lives in"), ("works_at", "work"))
            if key in attrs]
     note = f"read {url} logged out: {', '.join(got) or 'nothing'}. {WALL}"
-    return [Finding(NAME, seed, "Facebook", attrs.get("url") or url, attrs, body=html)], 1, note
+    # the URL asked for, as Maigret reports it (facebook.com/<username>), so search.build merges the two
+    return [Finding(NAME, seed, "Facebook", url, attrs, body=html)], 1, note

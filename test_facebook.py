@@ -13,9 +13,15 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from hunt import facebook as fb
-from hunt.seed import Seed
-from hunt.sources import facebook as source
+os.environ["HUNT_HOME"] = tempfile.mkdtemp()  # before hunt.case reads it
+
+from hunt import facebook as fb  # noqa: E402
+from hunt import photo, scan, search, vlm  # noqa: E402
+from hunt import posts as post_db  # noqa: E402
+from hunt.case import Case  # noqa: E402
+from hunt.seed import Finding, Seed  # noqa: E402
+from hunt.sources import SOURCES  # noqa: E402
+from hunt.sources import facebook as source  # noqa: E402
 
 FIX = Path(__file__).parent / "fixtures" / "facebook"
 REF = datetime(2026, 10, 28, 15, 0)  # "saved" Wednesday 28 October 2026, 15:00
@@ -280,6 +286,67 @@ assert cats(place="Salle de sport Fer Rouge") == ["sport"]
 assert "other_job" in cats(life_event="a commencé à travailler chez Déménagements Port-Alder")
 assert cats(activity="fait de la randonnée") == ["walks"]
 assert fb.categories({"place": "Iron Harbor Gym"}) == [("sport", 'Facebook check-in: "Iron Harbor Gym"')]
+
+# Into a case: add_posts keeps each post's words, pictures and Facebook tags; re-importing adds nothing
+case = Case("facebook test", purpose="self-check with made-up posts")
+with tempfile.TemporaryDirectory() as tmp:
+    saved = fb.parse_saved(FIX / "mobile_fr.mhtml", media_dir=tmp)
+    page, page_sha = post_db.store(case, FIX / "mobile_fr.mhtml", "mhtml")
+    assert len(post_db.add_posts(case, saved, evidence=page)) == 3
+    assert post_db.add_posts(case, saved, evidence=page) == []
+shot = fb.parse_screenshot("Screenshot 2026-10-28 at 14.03.12.png", ["Dorian Vell is at Iron Harbor Gym.", "3d",
+                                                                    "Leg day done. New PB on the deadlift."], REF)
+assert len(post_db.add_posts(case, [shot], kind="screenshot")) == 1 and post_db.add_posts(case, [shot], kind="screenshot") == []
+listed = {p["url"]: p for p in post_db.list_posts(case)}
+squat = listed["https://www.facebook.com/story.php?story_fbid=5540011223&id=100087654321012"]
+assert (squat["source"], squat["origin"], squat["posted_at"]) == ("Facebook", "added", "2024-04-14T06:00:00+00:00")
+assert squat["text"].startswith("Séance de muscu") and squat["account_url"] == "https://www.facebook.com/dorian.vell"
+assert squat["extra"]["place"] == "Salle de sport Fer Rouge" and squat["extra"]["posted_at_precision"] == "second"
+assert squat["extra"]["fb_id"] == "100087654321012" and squat["extra"]["reactions"] == 23
+assert squat["extra"]["evidence"] == page and page.endswith(f"{page_sha}.mhtml") and (case.dir / page).is_file()
+assert [m["kind"] for m in squat["media"]] == ["image"] and (case.dir / squat["media"][0]["file"]).is_file()
+assert listed[None]["extra"]["place"] == "Iron Harbor Gym" and listed[None]["media"] == []  # the screenshot's text post
+[plain] = post_db.add_files(case, [FIX / "Dorian Vell _ Facebook_files" / "447120_n.jpg"], "Facebook", None)
+assert next(p for p in post_db.list_posts(case) if p["id"] == plain)["extra"] is None
+assert {r["action"] for r in case.rows("select action from audit")} >= {"post imported", "post already added"}
+
+# The scan's text pass turns the tags into hits (CLIP, the vision model and OCR stood in for, as in test_scan)
+async def no_clip(frames, cats, pause, progress):
+    return {mid: [{c: 0.0 for c in cats} for _ in shots] for mid, shots in frames.items()}
+
+
+async def nothing(*args, **kw):
+    pass
+
+
+scan._clip_scores, vlm.judge, vlm.unload, photo.read_text = no_clip, nothing, nothing, lambda path: []
+running, emitted = asyncio.Event(), []
+running.set()
+asyncio.run(scan.run(case, ["sport", "walks", "other_job", "lifting"], "", "2024-01-01", emitted.append, running))
+got = {(h["category"], h["what"]) for h in scan.hits(case)}
+# tags find what English caption keywords miss: a French gym check-in, a French life event
+assert ("sport", 'Facebook check-in: "Salle de sport Fer Rouge"') in got
+assert ("other_job", 'Facebook life event: "a commencé à travailler chez Déménagements Port-Alder"') in got
+# one hit per post and category: where the caption already matched ("15 km", "PB"), the caption hit stands
+assert ("walks", "Caption: “Randonnée de 15 km ce matin avec le chien.”") in got
+assert ("walks", 'Facebook check-in: "Parc national des Cèdres"') not in got
+assert ("sport", "Caption: “Leg day done. New PB on the deadlift.”") in got
+assert all(h["verdict"] != "almost certain" and h["who"] == "unknown" for h in scan.hits(case))
+before = len(scan.hits(case))
+asyncio.run(scan.run(case, ["sport", "walks", "other_job"], "", "2024-01-01", emitted.append, running))
+assert len(scan.hits(case)) == before  # a rescan finds nothing new
+
+# Registered, and merged with Maigret's facebook.com/<username> into one candidate by search.build
+assert source in SOURCES
+case.add_seeds([Seed("username", "dorian.vell"), Seed("name", "Dorian Vell")])
+case.add_finding(Finding("maigret", Seed("username", "dorian.vell"), "Facebook", "https://www.facebook.com/dorian.vell",
+                         {"fullname": "Dorian Vell"}))
+for f in source.result(Seed("username", "dorian.vell"), "https://www.facebook.com/dorian.vell",
+                       "https://www.facebook.com/Dorian.Vell/", 200, person)[0]:
+    case.add_finding(f)
+built = [c for c in search.build(case)["candidates"] if c["site"] == "Facebook"]
+assert len(built) == 1 and built[0]["found_by"] == ["facebook", "maigret"], built
+assert built[0]["attrs"]["uid"] == "100087654321012" and built[0]["attrs"]["location"] == "Port Alder, Oregon"
 
 if os.environ.get("HUNT_LIVE"):  # one logged-out read of a public organisation's Page, never a person
     findings, checked, note = asyncio.run(source.search(Seed("url", "https://www.facebook.com/NASA")))

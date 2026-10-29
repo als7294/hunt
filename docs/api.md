@@ -9,7 +9,7 @@ opens `/login?t=<token>`, which sets an HttpOnly, SameSite=Strict cookie and red
 - **Non-GET requests:**
   - `Origin` must be `http://127.0.0.1:<port>` (or the `localhost` form).
   - JSON bodies need `Content-Type: application/json`.
-  - Uploads are `multipart/form-data` with the same Origin check.
+  - Uploads (`/media`, `/facebook`) are `multipart/form-data` with the same Origin check.
 - **`Sec-Fetch-Site`:** if present, must be `same-origin` or `none`.
 - **CORS:** no CORS headers, ever. GET requests never change state.
 - **Content-Security-Policy:**
@@ -60,13 +60,29 @@ Event `data` is JSON with a `type`:
 | Method | Path | Body / response |
 |---|---|---|
 | POST | `/api/cases/{slug}/media` | `multipart/form-data`: `files[]`, `platform?`, `posted_at?` → `{added: n}`. Uploads are streamed and hashed. HEIC is converted with `sips`; SVG is rejected |
+| POST | `/api/cases/{slug}/facebook` | `multipart/form-data`: `files[]`, `saved_at?` (ISO) → `{added, posts, pages, screenshots, skipped: [name]}`. Details below |
+| GET | `/api/cases/{slug}/facebook/links` | `{links: [{label, url}]}`: Facebook search and `site:facebook.com` search-engine links for the case's seeds. For the investigator to open in their own browser; Hunt never requests them |
 | GET | `/api/cases/{slug}/posts` | `{counts: {read_automatically, added_by_you, flagged, by_category: {}}, weekly: [{week: "YYYY-Www", posts, flagged}], hits: [hit], posts: [post]}` |
 | POST | `/api/cases/{slug}/hits/{id}` | `{status: "kept"\|"not relevant"\|"in report"}` → hit |
 
-- **post:** `{id, source, account_url, url, posted_at, text, origin: "fetched"|"added", media: [{id, kind: "image"|"video"|"screenshot", file, duration}]}`
+- **post:** `{id, source, account_url, url, posted_at, text, origin: "fetched"|"added", media: [{id, kind: "image"|"video"|"screenshot", file, duration}], extra}`
+  - `extra` is `null`, except on imported Facebook posts: `{posted_at_precision: "second"|"minute"|"hour"|"day"|"week"|"month"|"year", posted_at_text, author, fb_id, post_id, place, activity, life_event, truncated, reactions, comments, shares, evidence}`, with only the keys found. `evidence` is the stored page the post came from.
+  - `posted_at` always starts with `YYYY-MM-DD`: an ISO date-time with an offset when exact, a date-time without one when it's what Facebook displayed (the saving browser's time zone), or a date.
 - **hit:** `{id, post_id, media_id, category, what, t0, t1, verdict, p, timing: "before"|"after", days_after, status: "new"|"kept"|"not relevant"|"in report", who: "unknown"|"him"|"other", file, source, posted_at, url, caption}`
 
 Machine verdicts never exceed "likely". Only the investigator's Keep raises an item's status, never the verdict wording.
+
+**`POST /api/cases/{slug}/facebook`** imports what the investigator saved while browsing Facebook themselves ([facebook.md](facebook.md)):
+
+- **Accepted:** `.html`/`.htm` saved pages with their `_files` folder, `.mhtml`/`.mht`, `.webarchive`, and screenshots (`.png`, `.jpg`, `.jpeg`, `.webp`, `.heic`).
+- **Filenames are relative paths.** Send each file with its `webkitRelativePath`, so `Saved/Page.html` finds `Saved/Page_files/…`. An absolute path, a drive letter or a `..` part returns 400.
+- **Skipped, never stored:** SVG, scripts, styles and anything else; they're listed in `skipped`. Pictures inside a `…_files` folder are the page's own, not separate uploads.
+- **Pages:** each is hashed into the evidence as uploaded (`.webarchive` as `<sha>.plist`; HTML and MHTML are served as `text/plain`), then parsed into posts.
+- **Screenshots:** one showing a post's date line becomes that post; any other picture is added as a plain file, as `/media` does.
+- **Repeats:** a post already in the case (same link, or the same date and words) isn't added twice.
+- **`saved_at`** anchors relative times ("3d") for pages that carry no save date of their own. Otherwise an MHTML's `Date:` header, else the upload time.
+- **Response:** `posts` counts posts read, `added` counts new ones.
+- **Audit:** `facebook page imported`, `post imported`, `post already added`.
 
 ## Report
 | Method | Path | Body / response |
@@ -78,11 +94,13 @@ Machine verdicts never exceed "likely". Only the investigator's Keep raises an i
 Citation ids: `E-<post or hit id>` (evidence), `A-<finding id>` (accounts), `M-<run rowid>` (method).
 
 ## Python interface between the server and the scan modules
-`hunt/posts.py` and `hunt/scan.py` own their tables (`posts`, `media`, `hits`) and create them on first use. `emit(event: dict)` is a plain, non-blocking callable.
+`hunt/posts.py` and `hunt/scan.py` own their tables (`posts`, `media`, `post_extra`, `hits`) and create them on first use. `emit(event: dict)` is a plain, non-blocking callable.
 
 ```python
 posts.collect(case, accounts: list[dict], since: str | None, emit) -> int  # Bluesky, Mastodon, YouTube RSS; accounts = [{url, site}]
 posts.add_files(case, paths: list[Path], platform: str | None, posted_at: str | None) -> list[int]
+posts.add_posts(case, items: list[dict], kind="image", evidence: str | None = None) -> list[int]  # hunt.facebook posts
+posts.store(case, path, ext=None) -> (file, sha256)  # hash a file into evidence/
 posts.list_posts(case) -> list[dict]
 scan.CATEGORIES: dict[str, dict]  # key -> {label, prompts, keywords}; keys match the wizard
 scan.run(case, look_for: list[str], limits: str, injury_date: str | None, emit, pause: asyncio.Event, check_everything=False) -> None

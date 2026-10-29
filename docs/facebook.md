@@ -6,7 +6,9 @@ nothing. Hunt's rules ([legal.md](research/legal.md)) stay fixed:
 - Hunt never logs in.
 - It never automates an account or uses a sock puppet (the hiQ v. LinkedIn loss pattern).
 - It never contacts or notifies the subject.
-- It's free and does no face recognition.
+- It's free, and it does no face *search*. The analysis session is adding an opt-in, guarded 1:1 check
+  of the investigator's own reference photo against candidate profile photos. It will be described in
+  `docs/analysis.md` once it lands. Nothing on this page uses it.
 
 So Hunt's Facebook support is built around the investigator's own browsing. They look at Facebook
 under their own lawful access and save what they find, and Hunt reads what they saved. The only
@@ -262,66 +264,73 @@ macOS. `HUNT_LIVE=1` adds the single NASA read.
 | `search_links` | Hunt builds URLs and never requests them. Facebook search needs a login, so opening one is the investigator's own search under their own account. Engine dorks go to Google and Bing in the investigator's browser |
 | `categories` | A pure mapping over what the investigator imported. The machine only surfaces: hits keep the scan's "likely" cap and never say who is shown |
 
-No face recognition anywhere; pictures are only passed on to the existing media scan.
+No face search anywhere: these pieces only pass pictures on to the media scan.
 
-## Wiring it in (for the main session)
+## How it's wired in
 
-1. **Source registry.** In `hunt/sources/__init__.py`:
-   - Add `facebook` to the import and to `SOURCES`.
-   - Maigret also reports `facebook.com/<username>`. This source adds
-     `uid`, followers, intro fields and the login-wall note, under the same URL
-     (`https://www.facebook.com/<handle>`), so merge or deduplicate candidates by URL in `search.py`.
+**1. Source registry.**
+- `hunt/sources/__init__.py` lists `facebook` with the username sources.
+- Its finding's URL is the one it asked for, `https://www.facebook.com/<username>`, exactly as Maigret
+  reports it. So `search.build` (which groups findings by `match.norm_url`) merges the two into one
+  candidate: `found_by: ["facebook", "maigret"]`, with this source's `uid`, followers and intro added
+  to the attrs. `search.py` itself needed no change.
 
-2. **Store imported posts with their text.** `posts.add_files` makes one empty post per file, so it
-   can't hold a saved page's posts. `posts.py` (scan session) needs
-   `posts.add_posts(case, items) -> list[int]`:
-   - One `posts` row per item: `source="Facebook"`, `account_url`, `url`, `posted_at`, `text`,
-     `origin='added'`.
-   - Each local `media` path goes through `_store_file`, as in `add_files`. Kind is `screenshot` for
-     `parse_screenshot` results, else image or video by extension.
-   - Skip items whose `(source, url)` already exists, so re-importing the same page doesn't duplicate.
-     Note that `lastrowid` is 0 on `insert or ignore`.
-   - `case.audit("post imported", {url, posted_at, posted_at_precision, fb_id, media count, page sha256})`.
-   - Add an `extra` JSON column (`alter table posts add column extra text` when missing) for
-     `posted_at_precision`, `posted_at_text`, `place`, `activity`, `life_event`, `fb_id`, `author` and
-     the counts. Return it from `list_posts` so the UI can show "at Iron Harbor Gym · feeling
-     adventurous · 3 days before the save (day precision)".
-   - `scan` should read dates with `posted_at[:10]` (all three `posted_at` forms start with a date).
+**2. Storing imported posts: `posts.add_posts(case, items, kind="image", evidence=None)`.**
+- One `added` post per item, with its text, link, account and date.
+- Local media is stored as `add_files` does: hashed into `evidence/`, and a picture already in the
+  case isn't stored twice. `kind="screenshot"` marks a screenshot's own picture.
+- A post already in the case (same source and link, or with no link the same date and words) is
+  skipped and audited as `post already added`.
+- `posts.store(case, path, ext)` hashes any file into evidence; the route uses it for the saved page.
+- **The extra fields live in a side table, `post_extra(post_id, extra)`, not a new `posts` column.**
+  `posts.py` inserts into `posts` by position (`insert into posts values (null, ?, …)`), so a ninth
+  column would break those inserts in existing cases. The extra fields are precision, `posted_at_text`,
+  author, IDs, place, activity, life event, counts and `evidence` (the stored page).
+- `list_posts` returns them as `extra` (`null` for other posts).
 
-3. **Upload route.** `POST /api/cases/{slug}/facebook`, `multipart/form-data` `files[]`, same
-   Origin/cookie rules as `/media`:
-   - Accept `.html`, `.htm`, `.mhtml`, `.mht`, `.webarchive`, the image files of a `_files` folder,
-     and screenshots (`.png`, `.jpg`, `.jpeg`, `.heic`). Refuse SVG, as `/media` does.
-   - Stream into a per-upload temp dir, keeping each part's relative path so `X.html` finds
-     `X_files/…`. Reject absolute paths and `..` parts.
-   - Hash each saved page into evidence first; it's the primary source, served as `text/plain` per
-     the security rules.
-   - Run in `asyncio.to_thread`: a big page takes a second or two, OCR longer. For pages,
-     `facebook.parse_saved(path, media_dir=tmp / "media")`; for screenshots,
-     `facebook.parse_screenshot(path)`. Then `posts.add_posts(case, items)`. A screenshot that
-     yields nothing still goes through `posts.add_files` as before.
-   - Respond `{added, posts, media, pages, screenshots, skipped: [name]}`. Map `ValueError` to 400.
-   - Audit "facebook import" with the file hashes and counts.
+**3. Upload route: `POST /api/cases/{slug}/facebook`.** Documented in [api.md](api.md).
+- Same Guard rules as `/media`: the Guard now accepts `multipart/form-data` on paths ending
+  `/facebook` too.
+- Each file keeps its relative path inside a streamed temp dir, so `Page.html` finds `Page_files/`.
+  Absolute paths, drive letters and `..` return 400.
+- SVG, scripts and styles from a `_files` folder are skipped (never stored) and listed in `skipped`,
+  instead of failing the whole folder with 415.
+- Pages are hashed into evidence first: HTML and MHTML are served as `text/plain` with
+  `CSP: sandbox` (MHTML was added to that list), and `.webarchive` is stored as `<sha>.plist`
+  (`EVIDENCE_NAME` allows 2–5 letter extensions).
+- Parsing runs in a worker thread.
+- A screenshot showing a post's date line becomes that post. Any other picture goes through
+  `add_files` with platform "Facebook".
+- An optional `saved_at` anchors relative dates.
 
-4. **Scan categories.** In `scan.run`'s text pass, for each post with `source == "Facebook"`:
-   - Run `for key, why in facebook.categories(post["extra"])`; when `key in look_for`, add a text hit
-     (`category=key`, `what=why`, `p=P_TEXT`, verdict capped as usual, `who="unknown"`).
-   - These sit beside the caption-keyword hits and work in Spanish and French too.
+**4. Scan.**
+- `scan.run`'s text pass calls `_tag_hits` after the caption keywords. It turns
+  `facebook.categories(post["extra"])` into text hits at `P_TEXT`, with the usual "likely" cap and
+  `who="unknown"`, for categories in `look_for`.
+- Hits are one per post and category, so where the caption already matched (say "15 km" for walks),
+  the caption hit stands.
+- The tags add what English caption keywords miss: "Salle de sport Fer Rouge" → sport, "a commencé à
+  travailler chez…" → other_job.
 
-5. **Links route.** `GET /api/cases/{slug}/facebook/links` returns
-   `facebook.search_links([Seed(s["kind"], s["value"]) for s in seeds])`. It's a GET with no network
-   access and no state change.
+**5. Links route: `GET /api/cases/{slug}/facebook/links`** returns `{links: search_links(case seeds)}`.
+It's a GET, with no network access and no state change.
 
-6. **UI: a "Facebook" tile**, in the posts step and on the person view when a Facebook account is in
-   the person.
-   - Line: "Facebook shows almost nothing logged out. Browse it yourself, save what you find, and Hunt
-     reads it."
-   - **Add saved posts:** a file input, `multiple`, `accept=".html,.htm,.mhtml,.mht,.webarchive,.png,
-     .jpg,.jpeg,.heic"`, plus an "Add a saved folder" input with `webkitdirectory` for Save Page As
-     complete. Hint: "Chrome: File › Save Page As › Webpage, Single File. Safari: File › Save As ›
-     Web Archive. Or take screenshots. Scroll and open 'See more' first."
-   - **Open search links:** the list from the links route, each an
-     `<a target="_blank" rel="noopener noreferrer">` with its label. Note under it: "These open in
-     your browser under your own Facebook account. Hunt doesn't visit them."
-   - Show the source's note ("Facebook showed a login wall; nothing more is public") beside the
-     account, so a thin result reads as Facebook's limit, not a failed search.
+**6. UI tile (the main session builds it).** A "Facebook" tile in the posts step, and on the person
+view when a Facebook account is in the person.
+- Line: "Facebook shows almost nothing logged out. Browse it yourself, save what you find, and Hunt
+  reads it."
+- **Add saved posts:** a file input, `multiple`, with
+  `accept=".html,.htm,.mhtml,.mht,.webarchive,.png,.jpg,.jpeg,.heic"`.
+  - Add a second input with `webkitdirectory` for "Save Page As, complete" folders.
+  - Append each file to the `FormData` with its `webkitRelativePath || name` as the filename.
+  - Optionally send `saved_at` from the newest `lastModified`.
+  - Hint: "Chrome: File › Save Page As › Webpage, Single File. Safari: File › Save As › Web Archive.
+    Or take screenshots. Scroll and open 'See more' first."
+  - Show `skipped` quietly.
+- **Open search links:** the links route's list, each an `<a target="_blank" rel="noopener noreferrer">`
+  with its label. Note: "These open in your browser under your own Facebook account. Hunt doesn't
+  visit them."
+- Show the source's note ("Facebook showed a login wall; nothing more is public") beside the account,
+  so a thin result reads as Facebook's limit, not a failed search.
+- An imported post's `extra` can be shown as "at Iron Harbor Gym · feeling adventurous", with the
+  date's precision ("3 days before the save, day precision").

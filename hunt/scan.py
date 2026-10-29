@@ -157,6 +157,7 @@ async def run(case, look_for: list[str], limits: str, injury_date: str | None, e
                 first = p["media"][0]["file"] if p["media"] else None
                 progress.found += _hit(case, emit, p, None, c, f"Caption: “{found}”", None, None, P_TEXT,
                                        injury_date, first)
+        progress.found += _tag_hits(case, emit, p, cats, injury_date)
         if not p["media"]:
             progress.done(1)
 
@@ -354,6 +355,17 @@ def _keywords(text: str, spec: dict) -> str | None:
         return None
     a, b = max(0, m.start() - 40), min(len(text), m.end() + 40)
     return ("…" if a else "") + " ".join(text[a:b].split()) + ("…" if b < len(text) else "")
+
+
+def _tag_hits(case, emit, post, cats: dict, injury_date: str | None) -> int:
+    """Text hits from an imported post's own tags (a Facebook check-in, feeling/activity or life event,
+    in English, Spanish or French; hunt.facebook.categories). A caption hit for the same category wins."""
+    if not post.get("extra"):
+        return 0
+    from . import facebook
+    first = post["media"][0]["file"] if post["media"] else None
+    return sum(_hit(case, emit, post, None, key, why, None, None, P_TEXT, injury_date, first)
+               for key, why in facebook.categories(post["extra"]) if key in cats)
 
 
 def _hit(case, emit, post, media, category, what, t0, t1, p, injury_date, file, blur=False) -> bool:
