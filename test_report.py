@@ -60,6 +60,11 @@ assert "Court and other public records" in gaps, gaps
 assert {e["id"] for e in rep["evidence"]} == {"E-1", "E-2"}  # kept or in report only
 assert "40 days after the injury" in texts
 
+# A source run again shows once, citing every run
+case.add_run("maigret", handle, "found", 2, 610, "")
+again = [x for x in compose()["sentences"] if x["text"].startswith("maigret looked up")]
+assert len(again) == 1 and len(again[0]["cites"]) == 2 and "610 sites" in again[0]["text"], again
+
 # An uncited sentence can't be written
 try:
     report._Doc(False).say("summary", "Trust me.", [])

@@ -123,21 +123,25 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         doc.say("identity", f"{_many(len(namesakes), 'other account')} {'shares' if one else 'share'} the name but "
                             f"{'was' if one else 'were'} judged unlikely to be {who}.", [acc(c) for c in namesakes])
 
-    # How we searched
-    for r in snap["methodology"]:
-        if r["source"] == "-":
-            continue  # reported under what we couldn't see
+    # How we searched: the latest run of each source for each seed, citing every run of it
+    latest = {}
+    for r in snap["methodology"]:  # in time order
+        if r["source"] != "-":  # those are reported under what we couldn't see
+            key = (r["source"], r["seed_kind"], r["seed"])
+            latest[key] = {**r, "cites": latest.get(key, {}).get("cites", []) + [f"M-{r['rowid']}"]}
+    for r in latest.values():
+        again = f"; run {len(r['cites'])} times, latest shown" if len(r["cites"]) > 1 else ""
         doc.say("method", f"{r['source']} looked up '{r['seed']}' ({r['seed_kind']}): {_many(r['checked'], 'site')} "
-                          f"answered, {r['found']} found ({r['status']}).", [f"M-{r['rowid']}"])
+                          f"answered, {r['found']} found ({r['status']}{again}).", r["cites"])
     if "geocode" in log:
         doc.say("method", "Locations were placed with OpenStreetMap's Nominatim, sending only place names.", log["geocode"])
     if "capture" in log:
         doc.say("method", "Screenshots of the likely accounts were saved as evidence, logged out.", log["capture"])
     if "scan" in log:
         doc.say("method", "Posts from the accounts marked as the subject's were collected and scanned on this "
-                          "computer.", log["scan"])
-    if "media added" in log:
-        doc.say("method", "The investigator added media by hand.", log["media added"])
+                          "computer.", log["scan"] + log.get("posts collected", []) + log.get("scan finished", []))
+    if "file added" in log:  # one entry per file, written by hunt.posts
+        doc.say("method", f"The investigator added {_many(len(log['file added']), 'file')} by hand.", log["file added"])
 
     # What we found: only what the investigator kept
     for h in sorted(kept, key=lambda h: h.get("posted_at") or ""):

@@ -313,11 +313,9 @@ async def startup(req: Request):
     root = HOME / "cases"
     root.mkdir(parents=True, exist_ok=True)
     check("cases", "Case folder", os.access(root, os.W_OK), f"{len(slugs)} cases in {root}")
-    # ponytail: re-hashes every evidence file on each startup check; slow once cases hold GBs of
-    # video. Upgrade: hash in the background and report the last full check's time.
     checked, tampered = 0, []
     for s in slugs:
-        v = await asyncio.to_thread(Case.open(s).verify)
+        v = await asyncio.to_thread(Case.open(s).verify, True)  # unchanged files aren't re-read
         checked += v["checked"]
         tampered += [f"{s}/{t}" for t in v["tampered"]]
     check("evidence", "Evidence files unchanged", not tampered,
@@ -457,11 +455,9 @@ async def start_scan(req: Request):
     d = c.details()
 
     async def work(job):
-        async with search.HEAVY:
-            job.emit({"type": "stage", "stage": "collecting"})
+        async with search.HEAVY:  # the modules announce their own stages: collecting, scanning
             n = await _call(posts.collect, c, accounts, None, job.emit)
             await job.pause.wait()
-            job.emit({"type": "stage", "stage": "scanning"})
             await _call(scan.run, c, d["look_for"], d["limits"] or "", d["injury_date"], job.emit, job.pause,
                         check_everything=check_everything)
         c.audit("scan", {"accounts": len(accounts), "posts_collected": n, "check_everything": check_everything})
@@ -557,8 +553,7 @@ async def add_media(req: Request):
         if not paths:
             raise HTTPException(400, "no files")
         platform, posted_at = form.get("platform") or None, form.get("posted_at") or None
-        ids = await _call(posts.add_files, c, paths, platform, posted_at)
-        c.audit("media added", {"files": len(paths), "platform": platform, "posted_at": posted_at})
+        ids = await _call(posts.add_files, c, paths, platform, posted_at)  # it audits each file
         return JSONResponse({"added": len(ids)})
     finally:
         await form.close()
@@ -613,17 +608,15 @@ async def set_hit(req: Request):
         hit_id = int(req.path_params["id"])
     except ValueError:
         raise HTTPException(404, "no such hit")
-    hit = await _call(scan.set_status, c, hit_id, status)
-    c.audit("hit reviewed", {"hit": hit_id, "status": status})
-    return JSONResponse(hit)
+    return JSONResponse(await _call(scan.set_status, c, hit_id, status))  # it audits the change
 
 
 # --- report and evidence ------------------------------------------------------------------------
 
-async def _report(req: Request, c: Case) -> dict:
+async def _report(req: Request, c: Case, export: bool = False) -> dict:
     screening = req.query_params.get("screening") == "1"
     snap, posts, hits = await search.snapshot(c), await _posts(c), await _hits(c)
-    checks = await asyncio.to_thread(c.verify)
+    checks = await asyncio.to_thread(c.verify, not export)  # exports re-hash every file
     scan = _module("scan")
     labels = {k: v.get("label", k) for k, v in getattr(scan, "CATEGORIES", {}).items()}
     return report.compose(c, snap, posts, hits, checks, screening=screening, labels=labels)
@@ -638,7 +631,7 @@ async def export_report(req: Request):
     fmt = req.path_params["fmt"]
     if fmt not in ("html", "pdf", "json"):
         raise HTTPException(404, "report formats: html, pdf, json")
-    rep = await _report(req, c)
+    rep = await _report(req, c, export=True)
     html = report.to_html(c, rep)
     if fmt == "html":
         body, media = html.encode(), "text/html; charset=utf-8"

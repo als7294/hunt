@@ -179,7 +179,13 @@ with open(big, "wb") as f:
 sha, rel = case._store(__import__("pathlib").Path(big), "mp4")
 assert sha == hashlib.sha256(open(big, "rb").read()).hexdigest() and (case.dir / rel).exists()
 assert case.verify()["tampered"] == []
+assert case.verify(quick=True)["tampered"] == []  # remembers what verified
+st = os.stat(case.dir / rel)
+(case.dir / rel).write_bytes(os.urandom(3 << 20))
+os.utime(case.dir / rel, ns=(st.st_atime_ns, st.st_mtime_ns))  # same size, same time: a careful edit
+assert case.verify(quick=True)["tampered"] == [] and case.verify()["tampered"] == [rel]  # only a full check sees it
+assert case.verify(quick=True)["tampered"] == [rel]  # and once seen, it stays flagged
 (case.dir / rel).write_bytes(b"edited")
-assert case.verify()["tampered"] == [rel]
+assert case.verify(quick=True)["tampered"] == [rel]  # a changed size is always re-hashed
 
 print("ok")
