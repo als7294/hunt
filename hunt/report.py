@@ -315,7 +315,8 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     # Assignment and scope
     got = f"Assigned {d['assignment_date']}" if d["assignment_date"] else f"Case opened {d['created'][:10]}"
     by = f" by {d['client']}" + (f" (adjuster: {d['adjuster']})" if d["adjuster"] else "") if d["client"] else ""
-    doc.say("scope", f"{got}{by}, for: {_end(case.purpose)}", opened + scope)
+    doc.say("scope", f"{got}{by}.", opened + scope)
+    doc.say("scope", f"Purpose on record: {_end(case.purpose)}", opened)  # alone, so screening can drop just this
     if d["kind"]:
         ref = f"; {'claim' if d['kind'] == 'insurance' else 'reference'} {d['reference']}" if d["reference"] else ""
         doc.say("scope", f"Case type: {d['kind']}{ref}" + (f"; file {d['file_number']}" if d["file_number"] else "") + ".",

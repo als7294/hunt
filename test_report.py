@@ -115,7 +115,7 @@ assert [x["id"] for x in rep["exhibits"]] == ["E-2", "E-1"], rep["exhibits"]  # 
 assert {e["id"] for e in rep["evidence"]} == {"E-1", "E-2"}  # kept or in report only
 found = " ".join(s["text"] for s in rep["sentences"] if s["section"] == "found")
 assert "Exhibit 2: Bluesky, posted 2026-04-11, 41 days after" in found and "1 day after" in found, found
-assert "whatsmyname was tried" in t and "for: Insurer XYZ claim 123: disputed injury, permissible purpose on file." in t, t
+assert "whatsmyname was tried" in t and "Purpose on record: Insurer XYZ claim 123: disputed injury, permissible purpose on file." in t, t
 assert "belonging, or likely belonging, to a person matching" in t and "supplied's" not in t, t
 
 # An uncited sentence can't be written
@@ -168,6 +168,7 @@ rep = compose(screening=True)
 t = text(rep)
 assert report.PROTECTED.search(t) is None, report.PROTECTED.search(t)
 assert "2026-03-01" not in t and "1990-05-05" not in t and {e["id"] for e in rep["evidence"]} == {"E-1"}, rep["evidence"]
+assert "Assigned 2026-03-20 by Fictional Mutual (adjuster: A. Adjuster)." in t and "Purpose on record" not in t, t
 assert rep["header"]["subject_dob"] is None and rep["header"]["injury_date"] is None
 assert all(x["screenshot"] is None for x in rep["accounts"]) and all(x["kind"] != "account screenshot" for x in rep["exhibits"])
 assert all(s["cites"] for s in rep["sentences"])
