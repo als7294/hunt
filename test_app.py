@@ -234,7 +234,8 @@ if shutil.which("sips"):  # macOS: a HEIC photo arrives as a JPEG
     posts.add_files = add_files
 assert not list(Case.open("vance-claim").dir.glob(".upload-*"))  # temporary copies cleaned up
 r = c.get("/api/cases/vance-claim/posts").json()
-assert r["counts"] == {"read_automatically": 1, "added_by_you": 2, "flagged": 1, "by_category": {"sport": 1}}, r["counts"]
+assert r["counts"] == {"read_automatically": 1, "added_by_you": 2, "captured": 0, "flagged": 1,
+                       "by_category": {"sport": 1}}, r["counts"]
 assert r["weekly"] == [{"week": "2026-W15", "posts": 1, "flagged": 1}, {"week": "2026-W18", "posts": 2, "flagged": 0}], r
 assert c.post("/api/cases/vance-claim/hits/7", content=json.dumps({"status": "great"}), headers=JSON).status_code == 400
 assert c.post("/api/cases/vance-claim/hits/7", content=json.dumps({"status": "in report"}), headers=JSON).json()["status"] == "in report"

@@ -36,6 +36,49 @@ _Research date: 2026-10-29. This is engineering research, not legal advice. **[S
 - **X v. Bright Data:** partially revived in Nov 2024 on server-access and fraud theories; current status unknown [S] ([Bloomberg Law](https://news.bloomberglaw.com/ip-law/x-partially-revives-lawsuit-against-israeli-data-scraping-firm)).
 - **[I] Rule for Hunt:** logged-out collection of public data only. Logged-in automation through sock puppets is the hiQ loss pattern, so it's never automated by Hunt.
 
+## Human-driven capture: Hunt Capture (browser extension)
+
+_Added 2026-10-29. The design is in [capture.md](../capture.md)._
+
+**What it is.** The investigator browses Facebook, Instagram, TikTok, X, LinkedIn and YouTube herself, logged in as herself. While she turns capture on, the extension records what she views into the case, on her own computer:
+- a screenshot of the screen
+- the page as her browser already loaded it (MHTML)
+- on her click, a recording of the tab while she plays a video
+
+It never navigates, clicks, scrolls, searches, likes, follows or messages. It sends no request to the platforms and talks only to Hunt on 127.0.0.1.
+
+**Precedent [S]:**
+- **Hunchly** is the established tool of this kind. It is a browser extension that automatically collects the URL, timestamps and hashes of every page the investigator visits ([Hunchly, law enforcement](https://www.hunch.ly/hunchly-law-enforcement)).
+- Its users include law enforcement, private investigators, journalists and insurance investigators ([eInvestigator](https://www.einvestigator.com/hunchly-online-evidence-collection/)).
+- The Bellingcat toolkit notes it captures only what the investigator has seen on the page, not content in motion ([Bellingcat](https://bellingcat.gitbook.io/toolkit/more/all-tools/hunchly)).
+- Hunchly is a commercial product, not a court ruling: it shows the practice is established, not that it's immune.
+
+**The contract risk is real [S]:**
+- Meta's terms bar collecting data by automated means without permission, logged in or not.
+- In *Meta v. BrandTotal* (N.D. Cal., June 2022), the court found that a browser extension collecting Facebook data from logged-in users' sessions breached that clause ([Justia, order no. 344](https://law.justia.com/cases/federal/district-courts/california/candce/3:2020cv07182/367276/344/), [Courthouse News](https://www.courthousenews.com/judge-rules-brandtotals-data-harvesting-violates-metas-terms-of-use-and-anti-hacking-laws/)).
+- Its earlier products "automatically caused users' browsers to query Facebook's servers".
+- The case settled in September 2022; BrandTotal paid and destroyed the data ([IAPP](https://iapp.org/news/a/meta-settles-its-lawsuit-against-web-advertisers-for-data-scraping)).
+- Meta revised its terms on automated collection again in July 2026 ([ConductAtlas](https://conductatlas.com/platform/meta/meta-terms-of-service/automated-data-collection-restrictions/)). Check the live text before relying on a section number.
+
+**[I] Why Hunt Capture is on the Hunchly side of that line, and what risk remains:**
+- **No requests of its own.** A screenshot (`captureVisibleTab`) and a page archive (`pageCapture`) copy what is already on her screen and in her browser. Nothing queries the platform, unlike BrandTotal.
+- **Her views only.** It records only pages she opens, when she opens them. There is no panel of other people's accounts and no background collection. Capture is off by default, shows a REC badge, and turns off when the browser restarts.
+- **One lawful case, kept locally.** Not a dataset, not resold.
+- **Manual mode.** "Only when I press Capture this" is the same act as her taking a screenshot or using Save Page As. That's the lowest-risk setting for a firm whose counsel prefers it.
+- **What remains.** A platform could still call an automatically recording extension "automated means". The exposure would be contractual (her account), not CFAA. She uses her own credentials to see what she is allowed to see, which is authorized access under *Van Buren*'s gates-up-or-down test. No sock puppets, ever: fake accounts are the hiQ loss pattern.
+- **Third parties.** Captures include whatever else is on her screen (friends' comments and photos), as any screenshot does. Case retention and purge, the minors flag and the scan's child blurring apply.
+
+**Evidence value [S]:**
+- Bare screenshots get excluded: *United States v. Vayner*, 769 F.3d 125 (2d Cir. 2014). *Commonwealth v. Mangel*, 181 A.3d 1154 (Pa. Super. 2018) turned partly on missing creation metadata.
+- Many courts accept hashes plus metadata as circumstantial authentication under FRE 901(b)(4) ([Constellation Research summary](https://www.constellationr.com/research/blog/evidentiary-challenges-social-media-evidence-now-routine-when-best-practices-not); vendor-written, so weigh it accordingly).
+- **[I]** Hunt Capture keeps, for each capture:
+  - the URL and capture time
+  - a SHA-256 taken when it lands
+  - the page source (MHTML, with its own `Snapshot-Content-Location` and `Date`) beside the screenshot
+  - the paired extension's identity, in the audit log
+
+  That supports the investigator's own testimony. It doesn't replace it.
+
 ## Biometrics (relevant to photo features)
 
 - **Illinois BIPA:** $1k negligent / $5k reckless per violation. Since SB 2979 (Aug 2024), damages are counted per person [S] ([DWT](https://dwt.com/blogs/privacy--security-law-blog/2024/08/illinois-bipa-biometrics-law-amended-for-damages)).

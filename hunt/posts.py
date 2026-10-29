@@ -10,7 +10,7 @@ evidence locker, so a multi-GB video is never held in memory.
 
 Tables, created here on first use:
   posts(id, source (shown as is: 'Bluesky', 'Instagram'...), account_url, url, posted_at, text,
-        origin 'fetched'|'added', fetched_at)
+        origin 'fetched'|'added'|'captured', fetched_at)
   media(id, post_id, kind 'image'|'video'|'screenshot', file 'evidence/<sha256>.<ext>', sha256, duration, source_url)
   post_extra(post_id, extra JSON): what an imported Facebook post says beyond those columns (add_posts)
   post_seen(post_id, last): when each fetched post was last seen where it was posted (recheck.py finds the gone ones)
@@ -122,28 +122,38 @@ def add_files(case, paths: list[Path], platform: str | None, posted_at: str | No
     return ids
 
 
-def add_posts(case, items: list[dict], kind: str = "image", evidence: str | None = None) -> list[int]:
-    """Posts the investigator imported with their words (hunt.facebook.parse_saved / parse_screenshot):
-    one 'added' post per item, its local media stored as add_files does (`kind` for pictures: "image",
-    or "screenshot" when the picture is the screenshot), and everything else the item says kept in
-    post_extra, with `evidence`, the stored page it came from. A post already in the case (same source
-    and link, or for a post without a link the same date and words) is skipped. Returns new post ids."""
+def add_posts(case, items: list[dict], kind: str = "image", evidence: str | None = None,
+              origin: str = "added") -> list[int]:
+    """Posts with their words (hunt.facebook's importers, Hunt Capture): one post per item, `origin`
+    'added' (the investigator's saved files) or 'captured' (recorded by the extension as she browsed).
+    Local media is stored as add_files does (`kind` for pictures: "image", or "screenshot" when the
+    picture is the screenshot), and everything else the item says goes to post_extra, with `evidence`,
+    the stored page it came from. Already in the case, so skipped: the same source and link; without a
+    link, the same date and words; with neither, the same pictures. Returns new post ids."""
+    if origin not in ("added", "captured"):
+        raise ValueError("origin must be 'added' or 'captured'")
     case.db.executescript(SCHEMA + EXTRA)
     ids = []
     for it in items:
         source, url, text = it.get("source") or ADDED, it.get("url"), it.get("text") or ""
-        if case.rows("select 1 from posts where source = ? and (url = ? or url is null and ? is null and text = ? "
-                     "and coalesce(posted_at, '') = ?)", source, url, url, text, it.get("posted_at") or ""):
+        paths = [p for p in map(Path, it.get("media") or []) if _ext(p) in VIDEO | IMAGE and p.is_file()]
+        if url:
+            dup = case.rows("select 1 from posts where source = ? and url = ?", source, url)
+        elif text:
+            dup = case.rows("select 1 from posts where source = ? and url is null and text = ? and "
+                            "coalesce(posted_at, '') = ?", source, text, it.get("posted_at") or "")
+        else:  # a bare picture: the same picture again adds nothing
+            shas = [store(case, p)[1] for p in paths]
+            dup = not shas or all(case.rows("select 1 from media where sha256 = ?", sha) for sha in shas)
+        if dup:
             case.audit("post already added", {"source": source, "url": url, "posted_at": it.get("posted_at")})
             continue
         post = case.db.execute("insert into posts (source, account_url, url, posted_at, text, origin, fetched_at) "
-                               "values (?, ?, ?, ?, ?, 'added', ?)",
-                               (source, it.get("account_url"), url, it.get("posted_at"), text, now())).lastrowid
+                               "values (?, ?, ?, ?, ?, ?, ?)",
+                               (source, it.get("account_url"), url, it.get("posted_at"), text, origin, now())).lastrowid
         stored = []
-        for path in map(Path, it.get("media") or []):
+        for path in paths:
             ext = _ext(path)
-            if ext not in VIDEO | IMAGE or not path.is_file():
-                continue
             file, sha = _store_file(case, path, ext)
             if case.rows("select 1 from media where sha256 = ?", sha):  # one copy is enough, as in add_files
                 continue
@@ -154,7 +164,7 @@ def add_posts(case, items: list[dict], kind: str = "image", evidence: str | None
         extra = {k: v for k, v in it.items() if k not in ("source", "url", "account_url", "posted_at", "text", "media")
                  and v not in (None, "", False)} | ({"evidence": evidence} if evidence else {})
         case.db.execute("insert into post_extra values (?, ?)", (post, json.dumps(extra, ensure_ascii=False)))
-        case.audit("post imported", {"source": source, "url": url, "posted_at": it.get("posted_at"),
+        case.audit("post imported", {"source": source, "url": url, "posted_at": it.get("posted_at"), "origin": origin,
                                      "precision": it.get("posted_at_precision"), "media": stored, "from": evidence})
         ids.append(post)
     return ids

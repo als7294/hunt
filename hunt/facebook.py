@@ -298,7 +298,7 @@ UI = re.compile(  # lines of Facebook chrome, never post text
     r"[^\w]{0,3}|\d[\d.,]*\s?[km]?|\W*\w\W*")
 SEE_MORE = re.compile(r"(?:…|\.\.\.)\s*(?:more|mas|plus)$|(?:…|\.\.\.)?\s*(?:see more|ver mas|voir plus|afficher la suite)$")
 COMMENT_LABEL = re.compile(r"^(?:comment|reply|comentario|respuesta|commentaire|reponse)\b")
-NUM = r"(\d(?:[\d.,]|[^\S\n])*\d(?: ?[km]\b)?|\d(?: ?[km]\b)?)"  # 1,234 · 1 234 · 1.2K
+NUM = r"(\d(?:[\d.,]|[\xa0\N{NARROW NO-BREAK SPACE}])*\d(?: ?[km]\b)?|\d(?: ?[km]\b)?)"  # 1,234 · 1.2K · French 1 234 (no-break space; a plain space would join two counts)
 COUNTS = {
     "reactions": [re.compile(rf"(?:all reactions|todas las reacciones|toutes les reactions)\s*:?\s*{NUM}"),
                   re.compile(rf"(?:like|me gusta|j'aime)\s*:\s*{NUM} (?:people|personas|personnes)"),
@@ -862,7 +862,7 @@ WORDS = {  # folded activity tags and life events, English / Spanish / French, i
                 r"montana|paseo|randonn\w*|rando\b|balade|sentier|montagne"),
     "travel": _c(r"travel\w*|trip to|vacation|holiday|flight|flying|airport|cruise|abroad|viaj\w*|vacaciones|vuelo|"
                  r"aeropuerto|crucero|voyag\w*|vacances|aeroport|croisiere|en vol\b"),
-    "other_job": _c(r"new job|started (?:a )?(?:new )?job|started working|working(?! ?out)|at work|shift\b|promot\w*|"
+    "other_job": _c(r"new job|new position|started (?:a )?(?:new )?job|started working|working(?! ?out)|at work|shift\b|promot\w*|"
                     r"first day at|nuevo (?:trabajo|empleo)|empezo a trabajar|comenzo a trabajar|trabaj\w*|primer dia|"
                     r"nouvel emploi|nouveau travail|a commence a travailler|travaill\w*|premier jour"),
     "driving": _c(r"driv\w*|road ?trip|new (?:car|truck)|bought a (?:new )?(?:car|truck)|behind the wheel|manej\w*|"

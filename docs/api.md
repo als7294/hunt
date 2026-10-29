@@ -63,10 +63,10 @@ Event `data` is JSON with a `type`:
 | POST | `/api/cases/{slug}/media` | `multipart/form-data`: `files[]`, `platform?`, `posted_at?` → `{added: n}`. Uploads are streamed and hashed. HEIC is converted with `sips`; SVG is rejected |
 | POST | `/api/cases/{slug}/facebook` | `multipart/form-data`: `files[]`, `saved_at?` (ISO) → `{added, posts, pages, screenshots, skipped: [name]}`. Details below |
 | GET | `/api/cases/{slug}/facebook/links` | `{links: [{label, url}]}`: Facebook search and `site:facebook.com` search-engine links for the case's seeds. For the investigator to open in their own browser; Hunt never requests them |
-| GET | `/api/cases/{slug}/posts` | `{counts: {read_automatically, added_by_you, flagged, by_category: {}}, weekly: [{week: "YYYY-Www", posts, flagged}], hits: [hit], posts: [post]}` |
+| GET | `/api/cases/{slug}/posts` | `{counts: {read_automatically, added_by_you, captured, flagged, by_category: {}}, weekly: [{week: "YYYY-Www", posts, flagged}], hits: [hit], posts: [post]}` |
 | POST | `/api/cases/{slug}/hits/{id}` | `{status: "kept"\|"not relevant"\|"in report"}` → hit |
 
-- **post:** `{id, source, account_url, url, posted_at, text, origin: "fetched"|"added", media: [{id, kind: "image"|"video"|"screenshot", file, duration}], extra}`
+- **post:** `{id, source, account_url, url, posted_at, text, origin: "fetched"|"added"|"captured", media: [{id, kind: "image"|"video"|"screenshot", file, duration}], extra}`
   - `extra` is `null`, except on imported Facebook posts: `{posted_at_precision: "second"|"minute"|"hour"|"day"|"week"|"month"|"year", posted_at_text, author, fb_id, post_id, place, activity, life_event, truncated, reactions, comments, shares, evidence}`, with only the keys found. `evidence` is the stored page the post came from.
   - `posted_at` always starts with `YYYY-MM-DD`: an ISO date-time with an offset when exact, a date-time without one when it's what Facebook displayed (the saving browser's time zone), or a date.
 - **hit:** `{id, post_id, media_id, category, what, t0, t1, verdict, p, timing: "before"|"after", days_after, status: "new"|"kept"|"not relevant"|"in report", who: "unknown"|"him"|"other", file, source, posted_at, url, caption}`
@@ -100,7 +100,7 @@ Citation ids: `E-<post or hit id>` (evidence), `A-<finding id>` (accounts), `M-<
 ```python
 posts.collect(case, accounts: list[dict], since: str | None, emit) -> int  # Bluesky, Mastodon, YouTube RSS; accounts = [{url, site}]
 posts.add_files(case, paths: list[Path], platform: str | None, posted_at: str | None) -> list[int]
-posts.add_posts(case, items: list[dict], kind="image", evidence: str | None = None) -> list[int]  # hunt.facebook posts
+posts.add_posts(case, items: list[dict], kind="image", evidence: str | None = None, origin="added") -> list[int]  # facebook / capture
 posts.store(case, path, ext=None) -> (file, sha256)  # hash a file into evidence/
 posts.list_posts(case) -> list[dict]
 scan.CATEGORIES: dict[str, dict]  # key -> {label, prompts, keywords}; keys match the wizard
@@ -118,6 +118,42 @@ scan.set_status(case, hit_id: int, status: str) -> dict
 - `other_job`: working another job
 - `driving`: driving
 - `injury`: mentions of the injury
+
+## Hunt Capture
+The browser extension that records what the investigator views while logged in as herself ([capture.md](capture.md)).
+
+**For the web app** (the usual cookie Guard):
+
+| Method | Path | Body / response |
+|---|---|---|
+| GET | `/api/pairing` | `{paired: bool, origin?, name?, paired_at?}` |
+| POST | `/api/pairing` | `{}` → `{code: "<port>-<8 digits>", expires_in: 300}`. A one-time code for the extension's popup. Five wrong tries close it; a new one replaces it |
+| POST | `/api/pairing/forget` | `{}` → `{paired: false}`. The extension's key stops working at once |
+| GET | `/api/cases/{slug}/checklist` | `{accounts: [{account, platform, sections: [{key, label, url, seen, seen_at, evidence}]}]}` for each account confirmed as the subject's |
+| GET | `/api/cases/{slug}/captures` | `{captures: [{ts, kind: "view"\|"page"\|"recording", url, where, platform, file, sha256, viewed_at, extension, …}]}`, newest first (200) |
+
+**For the extension.** These routes never take the cookie. Every request needs:
+- method POST
+- `Origin: chrome-extension://<paired id>`
+- `x-hunt-key: <key>` (except `pair`)
+- JSON, or multipart for uploads
+
+Anything else gets 403, 405 or 415. The key opens no other route.
+
+| Path | Body → response |
+|---|---|
+| `/api/capture/pair` | `{code, name?}` → `{key}`. 403 if the code is wrong, used, expired or closed |
+| `/api/capture/hello` | `{}` → `{version, paired, origin, name, paired_at, cases: [{slug, label}]}` |
+| `/api/capture/checklist` | `{case}` → as `GET /api/cases/{slug}/checklist` |
+| `/api/capture/view` | multipart `case, url, viewed_at?, title?, kind? (view\|frame\|manual), screenshot` (JPEG or PNG) → `{post, file}`. `post` is null when that picture was already in the case |
+| `/api/capture/page` | multipart `case, url, viewed_at?, archive` (MHTML) → `{posts, added, file}` |
+| `/api/capture/recording` | multipart `case, url, started_at?, video` (WebM or MP4) → `{post, file}` |
+
+Capture uploads also share these rules:
+- `url` must be an https page on Facebook, Instagram, TikTok, X, LinkedIn or YouTube (else 400).
+- An unknown case returns 404.
+- A file of the wrong kind returns 415.
+- Posts are stored with `origin: "captured"`, and `/posts` counts them as `counts.captured`.
 
 ## Quality of life: the Downloads inbox, the evidence bundle, links, Check again, notes
 See [qol.md](qol.md) for the screens that use these.

@@ -10,6 +10,10 @@ nothing. Hunt's rules ([legal.md](research/legal.md)) stay fixed:
   of the investigator's own reference photo against candidate profile photos. It will be described in
   `docs/analysis.md` once it lands. Nothing on this page uses it.
 
+[Hunt Capture](capture.md), the browser extension, now records those pages as she browses: no Save
+Page As needed. It feeds the same parser (`parse_saved` reads its MHTML archives). The saved-page
+upload below remains the path for a browser without the extension, or for pages saved earlier.
+
 So Hunt's Facebook support is built around the investigator's own browsing. They look at Facebook
 under their own lawful access and save what they find, and Hunt reads what they saved. The only
 thing Hunt fetches itself is the small public part of a profile or Page that Facebook serves to

@@ -40,6 +40,7 @@ from starlette.staticfiles import StaticFiles
 from . import report, search, vlm
 from . import bundle, inbox, notes, recheck  # docs/qol.md
 from . import facebook  # docs/facebook.md
+from . import extension  # docs/capture.md
 from .case import DECISIONS, EVIDENCE_NAME, HOME, Case, all_cases
 from .match import ICD203
 from .seed import detect
@@ -87,6 +88,8 @@ class Guard:
     def problem(self, req: Request) -> tuple[int, str] | None:
         if req.headers.get("host") not in self.hosts:
             return 403, "wrong host"
+        if req.url.path.startswith("/api/capture/"):  # Hunt Capture: extension origin + key, never the cookie
+            return extension.problem(req)
         if req.headers.get("sec-fetch-site", "none") not in ("same-origin", "none"):
             return 403, "cross-site request"
         if req.url.path == "/login":
@@ -600,6 +603,7 @@ async def get_posts(req: Request):
     return JSONResponse({
         "counts": {"read_automatically": sum(p.get("origin") == "fetched" for p in posts),
                    "added_by_you": sum(p.get("origin") == "added" for p in posts),
+                   "captured": sum(p.get("origin") == "captured" for p in posts),
                    "flagged": len(flagged), "by_category": dict(Counter(h.get("category") for h in flagged))},
         "weekly": [{"week": w, "posts": weekly[w, "posts"], "flagged": weekly[w, "flagged"]} for w in weeks],
         "hits": hits, "posts": posts,
@@ -909,6 +913,128 @@ FACEBOOK_ROUTES = [
 ]
 
 
+# --- Hunt Capture: the browser extension's routes, and the app's pairing screens (docs/capture.md) -
+
+CAPTURE_FILES = {  # form field → (stored extension, magic bytes it must start with)
+    "screenshot": [(".jpg", b"\xff\xd8\xff"), (".png", b"\x89PNG")],
+    "archive": [(".mhtml", b"")],  # checked below: an MHTML is a MIME message, multipart/related
+    "video": [(".webm", b"\x1aE\xdf\xa3"), (".mp4", b"")],
+}
+
+
+async def pairing_new(req: Request):
+    return JSONResponse(extension.new_code(req.url.port))
+
+
+async def pairing_status(req: Request):
+    return JSONResponse(extension.status())
+
+
+async def pairing_forget(req: Request):
+    extension.forget()
+    print("hunt app: Hunt Capture unpaired", file=sys.stderr)
+    return JSONResponse(extension.status())
+
+
+async def case_checklist(req: Request):
+    return JSONResponse({"accounts": await asyncio.to_thread(extension.checklist, _case(req))})
+
+
+async def case_captures(req: Request):
+    return JSONResponse({"captures": extension.feed(_case(req))})
+
+
+async def capture_pair(req: Request):
+    b = await _body(req)
+    try:
+        key = extension.pair(str(b.get("code") or ""), req.headers["origin"], str(b.get("name") or ""))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    print(f"hunt app: Hunt Capture paired ({req.headers['origin']})", file=sys.stderr)  # each capture audits it too
+    return JSONResponse({"key": key})
+
+
+async def capture_hello(req: Request):
+    cases = [{"slug": s, "label": Case.open(s).details()["label"]} for s in all_cases()]
+    return JSONResponse({"version": version("hunt-osint"), **extension.status(), "cases": cases})
+
+
+async def capture_checklist(req: Request):
+    b = await _body(req)
+    try:
+        c = Case.open(str(b.get("case") or ""))
+    except LookupError:
+        raise HTTPException(404, "no such case")
+    return JSONResponse({"accounts": await asyncio.to_thread(extension.checklist, c)})
+
+
+async def _capture_upload(req: Request, field: str, work):
+    """A capture upload: the case, the page's URL (a supported site's https page), one file of the right
+    kind streamed to a temp dir, then `work(case, form, path, tmp)` in a worker thread."""
+    form = await req.form(max_files=1, max_fields=10)
+    try:
+        try:
+            c = Case.open(str(form.get("case") or ""))
+        except LookupError:
+            raise HTTPException(404, "no such case")
+        if not extension.platform(form.get("url")):
+            raise HTTPException(400, "url must be a page on Facebook, Instagram, TikTok, X, LinkedIn or YouTube")
+        f = form.get(field)
+        if not isinstance(f, UploadFile):
+            raise HTTPException(400, f"no {field}")
+        head = await f.read(2048)
+        await f.seek(0)
+        ext = next((e for e, magic in CAPTURE_FILES[field] if magic and head.startswith(magic)), None)
+        if field == "archive" and b"multipart/related" in head.lower():
+            ext = ".mhtml"
+        if field == "video" and head[4:8] == b"ftyp":
+            ext = ".mp4"
+        if not ext:
+            raise HTTPException(415, f"that isn't a {field} Hunt Capture sends")
+        tmp = Path(tempfile.mkdtemp(prefix=".capture-", dir=c.dir))
+        try:
+            path = tmp / f"{field}{ext}"
+            with open(path, "wb") as out:
+                while chunk := await f.read(1 << 20):
+                    out.write(chunk)
+            return JSONResponse(await asyncio.to_thread(work, c, form, path, tmp))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+    finally:
+        await form.close()
+
+
+async def capture_view(req: Request):
+    return await _capture_upload(req, "screenshot", lambda c, form, path, tmp: extension.add_view(
+        c, form["url"], path, form.get("viewed_at") or None, form.get("title") or "",
+        form.get("kind") if form.get("kind") in ("view", "manual", "frame") else "view"))
+
+
+async def capture_page(req: Request):
+    return await _capture_upload(req, "archive", lambda c, form, path, tmp: extension.add_page(
+        c, form["url"], path, form.get("viewed_at") or None, tmp / "media"))
+
+
+async def capture_recording(req: Request):
+    return await _capture_upload(req, "video", lambda c, form, path, tmp: extension.add_recording(
+        c, form["url"], path, form.get("started_at") or None))
+
+
+CAPTURE_ROUTES = [
+    Route("/api/pairing", pairing_status),
+    Route("/api/pairing", pairing_new, methods=["POST"]),
+    Route("/api/pairing/forget", pairing_forget, methods=["POST"]),
+    Route("/api/cases/{slug}/checklist", case_checklist),
+    Route("/api/cases/{slug}/captures", case_captures),
+    Route("/api/capture/pair", capture_pair, methods=["POST"]),
+    Route("/api/capture/hello", capture_hello, methods=["POST"]),
+    Route("/api/capture/checklist", capture_checklist, methods=["POST"]),
+    Route("/api/capture/view", capture_view, methods=["POST"]),
+    Route("/api/capture/page", capture_page, methods=["POST"]),
+    Route("/api/capture/recording", capture_recording, methods=["POST"]),
+]
+
+
 # --- the app ------------------------------------------------------------------------------------
 
 async def _http_error(req, exc: HTTPException):
@@ -941,7 +1067,7 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/cases/{slug}/report", get_report),
         Route("/api/cases/{slug}/report.{fmt:str}", export_report),
         Route("/evidence/{slug}/{name}", evidence),
-    ] + QOL_ROUTES + FACEBOOK_ROUTES + ([Mount("/", app=Frontend(directory=STATIC, html=True))] if STATIC.is_dir() else [])
+    ] + QOL_ROUTES + FACEBOOK_ROUTES + CAPTURE_ROUTES + ([Mount("/", app=Frontend(directory=STATIC, html=True))] if STATIC.is_dir() else [])
     app = Starlette(routes=routes, exception_handlers={HTTPException: _http_error, Exception: _server_error})
     app.state.token, app.state.jobs = token, {}
     return Guard(app, token, port)
