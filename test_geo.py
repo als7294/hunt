@@ -10,12 +10,12 @@ import sys
 import tempfile
 import time
 
-os.environ["TESSERA_HOME"] = tempfile.mkdtemp()  # before importing tessera: never touch the real cache
+os.environ["HUNT_HOME"] = tempfile.mkdtemp()  # before importing hunt: never touch the real cache
 
 import httpx
 
-from tessera import geo
-from tessera.geo import Place, compare
+from hunt import geo
+from hunt.geo import Place, compare
 
 US = Place("USA", 39.784, -100.446, "us", None, 4, "United States", 36495)
 ARIZONA = Place("Arizona", 34.395, -111.763, "us", "US-AZ", 8, "Arizona, United States", 800)

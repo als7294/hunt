@@ -3,9 +3,9 @@
 Offline. All text here is made up or a public place name.
 """
 
-from tessera import clues
-from tessera.clues import COUNTRIES, HINTS, LANGUAGES, LEFT, LETTERS, SCRIPTS, country_evidence
-from tessera.match import bits
+from hunt import clues
+from hunt.clues import COUNTRIES, HINTS, LANGUAGES, LEFT, LETTERS, SCRIPTS, country_evidence
+from hunt.match import bits
 
 
 def totals(ev):

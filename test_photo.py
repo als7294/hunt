@@ -9,14 +9,14 @@ import os
 import random
 import tempfile
 
-os.environ["TESSERA_HOME"] = tempfile.mkdtemp()  # before tessera.case reads it
+os.environ["HUNT_HOME"] = tempfile.mkdtemp()  # before hunt.case reads it
 
 from PIL import Image
 
-from tessera.case import Case
-from tessera.cli import build
-from tessera.geo import Place
-from tessera.photo import cluster, densest, dhash, exif, fuse
+from hunt.case import Case
+from hunt.cli import build
+from hunt.geo import Place
+from hunt.photo import cluster, densest, dhash, exif, fuse
 
 
 def picture(seed: int) -> Image.Image:
@@ -100,7 +100,7 @@ h = fuse([SYDNEY, TOKYO], obs={"place": "Ormeau, Queensland"}, place=ORMEAU, can
 assert (h[0]["lat"], h[0]["lon"]) == (-27.7712, 153.2391) and any("strongest spot in the town" in r for r in h[0]["reasons"])
 
 # OpenStreetMap lookups: which photo text is worth searching, and what a hit does
-from tessera.photo import lookups
+from hunt.photo import lookups
 assert lookups(["Krua Thai nãImer", "Restaurant / Take Away", "STOP", "Yodoyabashi", "400m"]) == ["Krua Thai nãImer", "Yodoyabashi"]
 pharmacy = [{"name": "Worldview Pharmacy", "kind": "amenity=pharmacy", "lat": 35.70, "lon": 139.77, "text": "Worldview Pharmacy"}]
 h = fuse([KYOTO, TOKYO], found=pharmacy)
@@ -133,8 +133,8 @@ assert p["evidence"] == f"evidence/{hashlib.sha256(open(path, 'rb').read()).hexd
 
 # Profile photos: a bare profile sharing a likely match's photo is linked; a default-avatar URL
 # isn't, even with the same picture; an avatar that is a case photo is linked to that photo
-from tessera.photo import same_image
-from tessera.seed import Finding, Seed
+from hunt.photo import same_image
+from hunt.seed import Finding, Seed
 
 assert same_image(dhash(a), dhash(jpeg(a.resize((96, 72)), quality=50))) and not same_image(dhash(a), dhash(picture(9)))
 assert not same_image("0" * 16, "0" * 16)  # flat images say nothing

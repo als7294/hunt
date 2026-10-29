@@ -1,12 +1,12 @@
-# Tessera
+# Hunt
 
 **One search, every source, the right person, with proof.**
 
-Tessera is a free, open-source, local-first OSINT investigation tool for background checks, due diligence and social media reports.
+Hunt is a free, open-source, local-first OSINT investigation tool for background checks, due diligence and social media reports.
 
 Start with whatever you have (a name, username, email, phone number, address, profile link or photo):
 
-- Tessera checks dozens of open sources at once.
+- Hunt checks dozens of open sources at once.
 - It works out which results really belong to the same person, and shows why.
 - It captures tamper-evident evidence of everything it finds.
 - It estimates where photos were taken using AI running on your own machine.
@@ -21,13 +21,13 @@ Requires [uv](https://docs.astral.sh/uv/).
 ```bash
 uv sync
 uv run playwright install chromium   # headless browser for evidence screenshots
-uv run tessera search kestrel_vane88 "name:Marisol Vance" "location:Tucson, AZ" \
+uv run hunt search kestrel_vane88 "name:Marisol Vance" "location:Tucson, AZ" \
   --case vance-screen --purpose "Pre-employment social media screen, signed consent on file"
 ```
 
-Seeds can be a username, email, phone, name, address or profile URL. Tessera detects which is which; prefix a seed with its kind to force it (`location:Tucson, AZ`). Running `search` again on the same case adds seeds and re-scores everything.
+Seeds can be a username, email, phone, name, address or profile URL. Hunt detects which is which; prefix a seed with its kind to force it (`location:Tucson, AZ`). Running `search` again on the same case adds seeds and re-scores everything.
 
-**OPSEC:** `--proxy socks5h://127.0.0.1:9050` (or the `TESSERA_PROXY` env var) routes every request through a proxy or VPN. That covers site checks, screenshots and geocoding.
+**OPSEC:** `--proxy socks5h://127.0.0.1:9050` (or the `HUNT_PROXY` env var) routes every request through a proxy or VPN. That covers site checks, screenshots and geocoding.
 
 **What leaves your machine:**
 - Requests to the sites being checked. Email checks that could notify the subject (password resets, login codes, sign-ups, login attempts) are never run; every module was read and classified.
@@ -35,7 +35,7 @@ Seeds can be a username, email, phone, name, address or profile URL. Tessera det
 
 Phone lookups and all scoring run offline.
 
-Each case lives in `~/Tessera/cases/<case>/`:
+Each case lives in `~/Hunt/cases/<case>/`:
 
 - **`case.db`** (SQLite) holds:
   - the purpose
@@ -48,7 +48,7 @@ Each case lives in `~/Tessera/cases/<case>/`:
 ### Where was this photo taken?
 
 ```bash
-uv run tessera photo beach.jpg street.jpg --case vance-screen
+uv run hunt photo beach.jpg street.jpg --case vance-screen
 ```
 
 Everything runs on your machine; the image never leaves it.
@@ -62,7 +62,7 @@ Everything runs on your machine; the image never leaves it.
 - **The answer:** ranked hypotheses, each with a radius and its reasons, never a single pin.
 - **What leaves your machine:** if the vision model names a place, only that place name is sent for geocoding, as with profile locations.
 
-Self-checks (offline): `uv run python test_tessera.py`, `test_geo.py`, `test_photo.py`, `test_clues.py`
+Self-checks (offline): `uv run python test_hunt.py`, `test_geo.py`, `test_photo.py`, `test_clues.py`
 
 ## How matching works
 
@@ -81,7 +81,7 @@ Every hit is scored against everything the case knows, Fellegi-Sunter style. Eac
 
 ## Why
 
-Investigators juggle dozens of single-purpose tools, copy results between them by hand, and fight same-name false positives. Every open-source OSINT framework we surveyed (SpiderFoot, recon-ng, BBOT) is built around infrastructure, not people. Tessera focuses on what practitioners say matters most:
+Investigators juggle dozens of single-purpose tools, copy results between them by hand, and fight same-name false positives. Every open-source OSINT framework we surveyed (SpiderFoot, recon-ng, BBOT) is built around infrastructure, not people. Hunt focuses on what practitioners say matters most:
 
 1. **Explainable identity resolution.** Every match shows which identifiers agree and which conflict. Look-alikes that were ruled out are recorded with the reason.
 2. **Provenance.** Every finding is captured with URL, timestamp and SHA-256, and flows straight into the report.
@@ -89,13 +89,13 @@ Investigators juggle dozens of single-purpose tools, copy results between them b
 
 ## Local-first, on purpose
 
-- Tessera runs on the investigator's own computer, and case data and photos stay there.
+- Hunt runs on the investigator's own computer, and case data and photos stay there.
 - Photo geolocation, OCR and report drafting run on local hardware (Apple Silicon or an NVIDIA GPU) through open models.
 - There is no hosted people-search service, and there won't be. See [legal research](docs/research/legal.md) for why.
 
 ## Responsible use
 
-Tessera is for lawful, purpose-bound investigations. These guardrails are built in, not bolted on:
+Hunt is for lawful, purpose-bound investigations. These guardrails are built in, not bolted on:
 
 - A purpose statement and audit log for every case
 - Passive, logged-out collection only: no following, messaging or sock-puppet automation
@@ -104,9 +104,9 @@ Tessera is for lawful, purpose-bound investigations. These guardrails are built 
 - Per-case retention and purge
 - An FCRA mode for employment screening
 
-If you furnish reports for employment, tenancy, credit or insurance decisions, you are likely a consumer reporting agency under the FCRA whatever software you use. Tessera helps you comply; it does not exempt you.
+If you furnish reports for employment, tenancy, credit or insurance decisions, you are likely a consumer reporting agency under the FCRA whatever software you use. Hunt helps you comply; it does not exempt you.
 
-Tessera uses free and open sources only. It **complements** licensed data-broker tools (TLOxp, Accurint, etc.); it does not replace them.
+Hunt uses free and open sources only. It **complements** licensed data-broker tools (TLOxp, Accurint, etc.); it does not replace them.
 
 ## Research
 
@@ -119,7 +119,7 @@ Tessera uses free and open sources only. It **complements** licensed data-broker
 
 ## Credits
 
-Tessera builds on [Maigret](https://github.com/soxoj/maigret), [WhatsMyName](https://github.com/WebBreacher/WhatsMyName) (CC BY-SA 4.0), [user-scanner](https://github.com/kaifcodec/user-scanner), [GeoCLIP](https://github.com/VicenteVivan/geo-clip) and others listed in [tools.md](docs/research/tools.md).
+Hunt builds on [Maigret](https://github.com/soxoj/maigret), [WhatsMyName](https://github.com/WebBreacher/WhatsMyName) (CC BY-SA 4.0), [user-scanner](https://github.com/kaifcodec/user-scanner), [GeoCLIP](https://github.com/VicenteVivan/geo-clip) and others listed in [tools.md](docs/research/tools.md).
 
 ## Licence
 

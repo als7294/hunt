@@ -1,4 +1,4 @@
-"""Offline self-check for tessera/vlm.py: Ollama is stubbed, no model runs. Run: uv run python test_vlm.py"""
+"""Offline self-check for hunt/vlm.py: Ollama is stubbed, no model runs. Run: uv run python test_vlm.py"""
 
 import asyncio
 import json
@@ -7,7 +7,7 @@ import tempfile
 import httpx
 from PIL import Image
 
-from tessera import vlm
+from hunt import vlm
 
 photo = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
 Image.new("RGBA", (2000, 100), "blue").save(photo)

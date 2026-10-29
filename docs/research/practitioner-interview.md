@@ -25,4 +25,4 @@ The ranked pain points in [`pain-points.md`](pain-points.md) come from public so
 12. What would make you trust a new tool's results, and what would make you stop using it immediately?
 
 ## Wishlist
-- If Tessera could do one thing perfectly on day one, what should it be?
+- If Hunt could do one thing perfectly on day one, what should it be?

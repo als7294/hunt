@@ -1,4 +1,4 @@
-"""Self-check for seed detection, identity scoring and the case store. Run: uv run python test_tessera.py
+"""Self-check for seed detection, identity scoring and the case store. Run: uv run python test_hunt.py
 
 Offline; all subjects here are fictional.
 """
@@ -7,13 +7,13 @@ import hashlib
 import os
 import tempfile
 
-os.environ["TESSERA_HOME"] = tempfile.mkdtemp()  # before tessera.case reads it
+os.environ["HUNT_HOME"] = tempfile.mkdtemp()  # before hunt.case reads it
 
-from tessera.cli import build
-from tessera.case import Case
-from tessera.geo import Place
-from tessera.match import compare_names, place_text, score, username_u, verdict
-from tessera.seed import Finding, Seed, detect
+from hunt.cli import build
+from hunt.case import Case
+from hunt.geo import Place
+from hunt.match import compare_names, place_text, score, username_u, verdict
+from hunt.seed import Finding, Seed, detect
 
 # Seed detection
 assert detect("marisol.vance@example.com") == [Seed("email", "marisol.vance@example.com")]

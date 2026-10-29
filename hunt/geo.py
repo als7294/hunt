@@ -2,9 +2,9 @@
 
 What leaves the machine: only the place strings themselves (the subject's and the
 profiles' location fields), sent to OpenStreetMap's public Nominatim
-(nominatim.openstreetmap.org, run by the OSM Foundation), through TESSERA_PROXY if
+(nominatim.openstreetmap.org, run by the OSM Foundation), through HUNT_PROXY if
 set. Each string is sent at most once: every answer, "no such place" included, is
-cached in ~/Tessera/cache/geocode.json. We follow the usage policy
+cached in ~/Hunt/cache/geocode.json. We follow the usage policy
 (operations.osmfoundation.org/policies/nominatim): at most 1 request/second, an
 identifying User-Agent, no bulk lists. Results are © OpenStreetMap contributors
 (ODbL): credit them wherever a Place's label is shown.
@@ -36,7 +36,7 @@ import httpx
 from .case import HOME
 
 URL = "https://nominatim.openstreetmap.org/search"
-UA = "Tessera/0.1 (+https://github.com/als7294/tessera)"
+UA = "Hunt/0.1 (+https://github.com/als7294/hunt)"
 CACHE = HOME / "cache" / "geocode.json"
 INTERVAL = 1.0  # seconds between requests, process-wide (Nominatim's hard limit)
 # Nominatim place_rank (nominatim.org/release-docs/latest/customize/Ranking/):
@@ -110,7 +110,7 @@ async def locate(texts: list[str]) -> dict[str, Place | None]:
     """
     cache, out, offline = _load(), {}, False
     need = any(q not in cache for t in texts for q in _queries(t))
-    async with (httpx.AsyncClient(timeout=10, headers={"User-Agent": UA}, proxy=os.environ.get("TESSERA_PROXY"))
+    async with (httpx.AsyncClient(timeout=10, headers={"User-Agent": UA}, proxy=os.environ.get("HUNT_PROXY"))
                 if need else contextlib.nullcontext()) as client:
         for text in texts:
             place = None
@@ -175,7 +175,7 @@ async def named(query: str, near: tuple[float, float, float] | None = None, coun
     key = "named:" + json.dumps(params, sort_keys=True)
     cache = _load()
     if key not in cache:
-        async with httpx.AsyncClient(timeout=20, headers={"User-Agent": UA}, proxy=os.environ.get("TESSERA_PROXY")) as c:
+        async with httpx.AsyncClient(timeout=20, headers={"User-Agent": UA}, proxy=os.environ.get("HUNT_PROXY")) as c:
             await _turn()
             r = await c.get(URL, params=params)
             r.raise_for_status()

@@ -1,6 +1,6 @@
 # Local image geolocation and on-device ML
 
-_Research date: 2026-10-29. **Licensing caveat:** investigators running paid background checks are commercial users even though Tessera is free, so non-commercial weights (CC-BY-NC, "research only") are out._
+_Research date: 2026-10-29. **Licensing caveat:** investigators running paid background checks are commercial users even though Hunt is free, so non-commercial weights (CC-BY-NC, "research only") are out._
 
 ## Dedicated geolocation models
 
@@ -71,7 +71,7 @@ Accuracy figures are Im2GPS3k at 1 km / 25 km / 200 km / 750 km / 2500 km (stree
 - **GeoSpy (Graylark):**
   - Its Superbolt model is trained on 46M street-level images, with a claimed meter-level accuracy where references exist ([blog](https://geospy.ai/blog/superbolt-the-future-of-visual-place-recognition)).
   - The **public version was shut down** after 404 Media reported users trying to locate specific women; it's now law-enforcement-only ([summary](https://booksbikesboomsticks.blogspot.com/2025/01/stalkerbot.html)).
-  - Lesson for Tessera: geolocation must be case-bound and audited.
+  - Lesson for Hunt: geolocation must be case-bound and audited.
 - **Picarta:** claims 44.8% @1km on Im2GPS3k (**unverified**; likely benchmark overlap) ([V2](https://picarta.ai/picarta-v2)).
 
 ## Other on-device wins
@@ -94,7 +94,7 @@ Accuracy figures are Im2GPS3k at 1 km / 25 km / 200 km / 750 km / 2500 km (stree
   - Permissive options if ever needed: YuNet (MIT) + AuraFace (Apache-2.0).
   - Legal context in `legal.md`.
 
-## Tessera MVP pipeline (M3)
+## Hunt MVP pipeline (M3)
 
 1. **Intake:** SHA-256 + pHash, then `exiftool`. If GPS is present, show it first and still verify it.
 2. **Cheap signals in parallel:**

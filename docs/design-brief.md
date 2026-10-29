@@ -1,16 +1,16 @@
-# Tessera: design brief for Claude Design
+# Hunt: design brief for Claude Design
 
 Paste everything below the line into Claude Design.
 
 ---
 
-You're designing **Tessera**, a free, open-source OSINT (open-source intelligence) investigation tool. The visual direction, branding, layout, typography, colour, iconography and interaction patterns are entirely yours. I'm deliberately giving you no direction on any of that. "Tessera" is the working name, and how it's expressed visually is up to you.
+You're designing **Hunt**, a free, open-source OSINT (open-source intelligence) investigation tool. The visual direction, branding, layout, typography, colour, iconography and interaction patterns are entirely yours. I'm deliberately giving you no direction on any of that. "Hunt" is the working name, and how it's expressed visually is up to you.
 
 Below are the product, the people it's for, and what it needs to do. **Run with these features, and feel free to add more where they'd genuinely help an investigator, within reason.** If you see a better way to combine or present capabilities, do it.
 
 ## The product in one paragraph
 
-Investigators who run background checks and social media reports currently juggle dozens of single-purpose tools: one for usernames, another for emails, another for phone numbers, plus court records, archives, maps and reverse image search. They copy results between them by hand and write the report themselves. Tessera replaces that. The investigator enters whatever they have about a subject, whether a name, username, email, phone number, address, social media link or photo. Tessera checks every source at once, works out which results really belong to the same person, captures tamper-evident evidence of everything it finds, estimates where photos were taken using AI running on the investigator's own computer, and produces a professional, fully cited report.
+Investigators who run background checks and social media reports currently juggle dozens of single-purpose tools: one for usernames, another for emails, another for phone numbers, plus court records, archives, maps and reverse image search. They copy results between them by hand and write the report themselves. Hunt replaces that. The investigator enters whatever they have about a subject, whether a name, username, email, phone number, address, social media link or photo. Hunt checks every source at once, works out which results really belong to the same person, captures tamper-evident evidence of everything it finds, estimates where photos were taken using AI running on the investigator's own computer, and produces a professional, fully cited report.
 
 ## Who uses it
 
@@ -26,13 +26,13 @@ Investigators who run background checks and social media reports currently juggl
 ## Features
 
 1. **Cases.** Work is organised into cases. Starting a case requires stating the purpose of the investigation and its scope. Each case keeps an audit log of every search run and why.
-2. **Universal intake.** One place to paste or drop anything known about the subject: name, username, email, phone, address, profile URL or photo. Tessera works out what each item is and normalises it.
+2. **Universal intake.** One place to paste or drop anything known about the subject: name, username, email, phone, address, profile URL or photo. Hunt works out what each item is and normalises it.
 3. **Live search across every source.** Searching fans out to dozens of sources at once. The investigator can see each source's status (running, found something, found nothing, rate-limited, failed, skipped) as results stream in. "Searched and found nothing" is recorded too, because it matters in a report.
-4. **Identity resolution (the core feature).** Results are grouped into candidate identities ranked by how likely each one is to be the subject. Every candidate comes with a plain-language explanation of which details agree and which conflict ("same username and city, different birth year"). The investigator can confirm, reject with a reason, or merge candidates. Tessera warns when a common name makes look-alikes likely.
+4. **Identity resolution (the core feature).** Results are grouped into candidate identities ranked by how likely each one is to be the subject. Every candidate comes with a plain-language explanation of which details agree and which conflict ("same username and city, different birth year"). The investigator can confirm, reject with a reason, or merge candidates. Hunt warns when a common name makes look-alikes likely.
 5. **Pivoting.** Anything discovered, such as a new username, email, linked site or location, can become a new search in one action. The investigator can see how all the discovered people, accounts and identifiers connect.
 6. **Evidence locker.** Every finding is automatically preserved: a snapshot of the page, an archived copy, the exact capture time, and a cryptographic fingerprint that proves it hasn't been altered. Each source carries a reliability grade. Archived copies of deleted pages are pulled in where available.
 7. **Timeline.** The subject's activity across platforms laid out over time.
-8. **Photo analysis and geolocation.** The investigator drops in photos and Tessera estimates where they were taken, GeoGuessr-style, using AI that runs locally:
+8. **Photo analysis and geolocation.** The investigator drops in photos and Hunt estimates where they were taken, GeoGuessr-style, using AI that runs locally:
    - reads hidden location data in the file, if present
    - picks out clues such as signs and their language, which side of the road cars drive on, architecture and vegetation
    - proposes ranked candidate locations, each with a confidence radius, never a single falsely precise pin
@@ -46,7 +46,7 @@ Investigators who run background checks and social media reports currently juggl
 11. **Privacy and hardware status.** Shows what the investigator's computer is capable of (e.g. which local AI models are installed and ready), and makes clear for each source whether anything leaves the machine.
 12. **Sources and settings.** Turn sources on or off. Add optional API keys. Enable optional advanced plugins, each clearly labelled with its risk. Set rate limits. Route traffic through a VPN or proxy so the investigator's own identity and location stay hidden.
 13. **Responsible-use guardrails.**
-    - collection is passive only: Tessera never follows, likes, messages or logs in as anyone
+    - collection is passive only: Hunt never follows, likes, messages or logs in as anyone
     - a flag for subjects who may be minors
     - per-case data retention and permanent purge
     - the purpose statement and audit log from feature 1
@@ -54,7 +54,7 @@ Investigators who run background checks and social media reports currently juggl
     These should feel like part of a professional tool, not nagging.
 14. **Startup / loading screen.** What the investigator sees while the app launches: local AI models warming up and sources being health-checked.
 15. **Public landing page.** Explains:
-    - what Tessera is and the problem it solves
+    - what Hunt is and the problem it solves
     - that it's free and open source
     - that it runs locally and keeps data private
     - how it works

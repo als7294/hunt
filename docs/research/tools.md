@@ -2,7 +2,7 @@
 
 _Research date: 2026-10-29. Licences and last-commit dates come from the GitHub API on that date. Items marked **(unverified)** could not be confirmed from a primary source._
 
-## Licence compatibility (Tessera is AGPL-3.0)
+## Licence compatibility (Hunt is AGPL-3.0)
 
 - **MIT, BSD, Apache-2.0, Unlicense, GPL-3.0, AGPL-3.0:** can be embedded directly.
 - **GPL-2.0-only:** incompatible with (A)GPL-3; run it as a separate subprocess only.
@@ -85,7 +85,7 @@ Live carrier/CNAM lookup needs paid services (e.g. Twilio Lookup), so it's out o
 
 ## Image / identity
 
-- **Reverse image search:** no free web-wide API. Bing Visual Search was retired Aug 2025. TinEye and Google Cloud Vision are paid. Tessera offers "open in browser" actions the investigator chooses, never automatic uploads.
+- **Reverse image search:** no free web-wide API. Bing Visual Search was retired Aug 2025. TinEye and Google Cloud Vision are paid. Hunt offers "open in browser" actions the investigator chooses, never automatic uploads.
 - **EXIF:** ExifTool (GPL/Artistic, subprocess); exif-py (BSD-3). Most platforms strip EXIF.
 - **Face recognition:** out of MVP (see `legal.md` and `geolocation.md`).
 
@@ -109,12 +109,12 @@ Live carrier/CNAM lookup needs paid services (e.g. Twilio Lookup), so it's out o
 |---|---|
 | OSINT Industries | Real-time email/phone/username lookups, clean reports; from ~£19/mo (third-party figure) |
 | Maltego | Graph link analysis plus a transform marketplace; Pro ~$5–6.6K/yr |
-| Skopenow | Automated person reports with match scoring. **Closest to Tessera.** |
+| Skopenow | Automated person reports with match scoring. **Closest to Hunt.** |
 | Pipl | Identity-resolution API over a large linked index |
 | Social Links, ShadowDragon | Deep social/network mapping for law enforcement |
 | IntelTechniques tools | Browser-side search URL builders |
 | OSINT Framework | Free link directory, not an engine |
-| TLOxp, Accurint, IRB, Tracers | Credit-header broker data (addresses, relatives, phones). **No OSS can replicate this; Tessera complements it.** |
+| TLOxp, Accurint, IRB, Tracers | Credit-header broker data (addresses, relatives, phones). **No OSS can replicate this; Hunt complements it.** |
 
 ## MVP picks
 

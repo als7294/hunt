@@ -24,7 +24,7 @@ _Research date: 2026-10-29. All summaries are in our own words. Sources are link
 - coverage and season
 - which places a GeoGuessr map contains
 
-In Learnable Meta's beginner "Basics" world map, roughly one clue in five is a Google-car tell ([map](https://learnablemeta.com/maps/66fda352ee1c8ee4735e1aa8)). Pros' priors are also shaped by where Street View exists. Tessera must not inherit that: a photo can come from anywhere.
+In Learnable Meta's beginner "Basics" world map, roughly one clue in five is a Google-car tell ([map](https://learnablemeta.com/maps/66fda352ee1c8ee4735e1aa8)). Pros' priors are also shaped by where Street View exists. Hunt must not inherit that: a photo can come from anywhere.
 
 **What to copy from OSINT practice:**
 - Go wide to narrow.
@@ -73,7 +73,7 @@ We found no first-person method write-ups from Consus, Blinky or zi8gzag, only m
 - **Publish the breakdown so others can audit it.** [GeoConfirmed](https://geoconfirmed.org/) collects, verifies, then publishes coordinates with sources and an annotated breakdown. The [Berkeley Protocol](https://humanrights.berkeley.edu/wp-content/uploads/archive/2024/02/Berkeley-Protocol.pdf) recommends peer review.
 - **AI is a lead, not a finding.** In Bellingcat's October 2026 test, GeoCLIP beat only one of the language models. Even the best models were sometimes confidently wrong and were weakest at the exact spot ([Bellingcat](https://www.bellingcat.com/resources/2026/10/22/can-llms-supercharge-geolocations-our-tests-show-big-improvements-but-humans-remain-key/)).
 
-### Techniques and what Tessera can automate
+### Techniques and what Hunt can automate
 
 | Technique | Output | Local automation? |
 |---|---|---|
@@ -130,12 +130,12 @@ All of this describes Google's publishing process, not the place. The only real-
 - **Crops, filters, low resolution.** These weaken reverse search, and filters make colour clues (soil, vegetation, line colour) unreliable.
 - **Upload time is not capture time.** That breaks sun methods unless EXIF time survives and is believed.
 
-## How Tessera uses this
+## How Hunt uses this
 
-**In `tessera/clues.py`:** `country_evidence(obs, ocr_text)` turns OCR text and the vision model's observation dict into per-country Fellegi-Sunter bits, which `photo.fuse()` adds to each hypothesis.
+**In `hunt/clues.py`:** `country_evidence(obs, ocr_text)` turns OCR text and the vision model's observation dict into per-country Fellegi-Sunter bits, which `photo.fuse()` adds to each hypothesis.
 - **Strong clues, 3–4 bits:** script, rare letters, Chinese character forms, domains, phone codes, currency signs, distinctive postcodes, "mph".
 - **Invented scripts are filtered out.**
-  - **The finding.** Measured on the 58 geotagged Commons photos in `~/Tessera/cache/geo-eval/`, using OCR text only. Apple Vision's automatic language detection invents short Thai, Arabic and Cyrillic lines from texture or scripts it can't read:
+  - **The finding.** Measured on the 58 geotagged Commons photos in `~/Hunt/cache/geo-eval/`, using OCR text only. Apple Vision's automatic language detection invents short Thai, Arabic and Cyrillic lines from texture or scripts it can't read:
     - Thai on photos from Poland and Sri Lanka
     - Arabic on photos from Peru and Chile
     - Cyrillic look-alikes on the Sri Lanka photo

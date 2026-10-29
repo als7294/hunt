@@ -3,7 +3,7 @@
 
 `checked` counts sites that gave a definite yes/no answer (it feeds username
 rarity); `note` is a one-line methodology summary. Network calls honour the
-`TESSERA_PROXY` environment variable (unset = direct)."""
+`HUNT_PROXY` environment variable (unset = direct)."""
 
 from . import maigret, phone, user_scanner, wmn
 

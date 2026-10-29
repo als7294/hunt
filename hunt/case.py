@@ -1,7 +1,7 @@
 """A case: purpose, seeds, audit log, findings and evidence, all in one local folder.
 
-    ~/Tessera/cases/<case>/case.db       SQLite: everything below
-    ~/Tessera/cases/<case>/evidence/     raw pages and screenshots, named by SHA-256
+    ~/Hunt/cases/<case>/case.db       SQLite: everything below
+    ~/Hunt/cases/<case>/evidence/     raw pages and screenshots, named by SHA-256
 """
 
 import hashlib
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .seed import Finding, Seed, now
 
-HOME = Path(os.environ.get("TESSERA_HOME", Path.home() / "Tessera"))
+HOME = Path(os.environ.get("HUNT_HOME", Path.home() / "Hunt"))
 
 SCHEMA = """
 create table if not exists meta (key text primary key, value text);

@@ -9,9 +9,9 @@ _Research date: 2026-10-29. This is engineering research, not legal advice. **[S
   - Social media screening sold to employers makes the seller a CRA [S] ([FTC, Social Intelligence 2011](https://www.ftc.gov/sites/default/files/documents/closing_letters/social-intelligence-corporation/110509socialintelligenceletter.pdf)).
   - Instant Checkmate/TruthFinder paid $5.8M (2023). "Not for FCRA purposes" disclaimers didn't help. Failures cited: no permissible-purpose checks, weak access controls, inaccurate reports, ignored disputes [S] ([FTC](https://www.ftc.gov/news-events/news/press-releases/2023/09/ftc-says-truthfinder-instant-checkmate-deceived-users-about-background-report-accuracy-violated-fcra)).
   - FTC to background-check app makers: "not for employment" disclaimers do not remove FCRA duties [S] ([ZwillGen](https://www.zwillgen.com/general/ftc-sends-fcra-warning-letters-to-mobile-app-background-check-providers/)).
-- **[I] For Tessera:**
+- **[I] For Hunt:**
   - If an investigator's firm delivers social media reports to employers, *the firm* is the CRA, whatever software it uses.
-  - Tessera should help it comply: purpose record, accuracy, dispute-friendly evidence, FCRA-mode redaction. It shouldn't pretend FCRA doesn't apply.
+  - Hunt should help it comply: purpose record, accuracy, dispute-friendly evidence, FCRA-mode redaction. It shouldn't pretend FCRA doesn't apply.
 
 ## DPPA / GLBA
 
@@ -34,7 +34,7 @@ _Research date: 2026-10-29. This is engineering research, not legal advice. **[S
 - **Van Buren (2021) and hiQ v. LinkedIn (9th Cir. 2022):** scraping public pages is likely not "without authorization". But hiQ ultimately lost on contract and stipulated to a $500k judgment, including CFAA liability for fake accounts [S] ([Proskauer](https://newmedialaw.proskauer.com/2022/12/08/hiq-and-linkedin-reach-proposed-settlement-in-landmark-scraping-case/)).
 - **Meta v. Bright Data (2024):** logged-off scraping of public data didn't breach Meta's terms. Meta dropped the case [S] ([TechCrunch](https://techcrunch.com/2024/02/26/meta-drops-lawsuit-against-web-scraping-firm-bright-data-that-sold-millions-of-instagram-records)).
 - **X v. Bright Data:** partially revived in Nov 2024 on server-access and fraud theories; current status unknown [S] ([Bloomberg Law](https://news.bloomberglaw.com/ip-law/x-partially-revives-lawsuit-against-israeli-data-scraping-firm)).
-- **[I] Rule for Tessera:** logged-out collection of public data only. Logged-in automation through sock puppets is the hiQ loss pattern, so it's never automated by Tessera.
+- **[I] Rule for Hunt:** logged-out collection of public data only. Logged-in automation through sock puppets is the hiQ loss pattern, so it's never automated by Hunt.
 
 ## Biometrics (relevant to photo features)
 
@@ -44,7 +44,7 @@ _Research date: 2026-10-29. This is engineering research, not legal advice. **[S
 
 ## Hosted public site vs self-hosted tool
 
-| Risk | Free public hosted site | Self-hosted OSS (Tessera) |
+| Risk | Free public hosted site | Self-hosted OSS (Hunt) |
 |---|---|---|
 | FCRA CRA status | Plausible, especially if marketed for screening | User's own use; the developer furnishes nothing |
 | CA data broker / Daniel's Law | Exposed: the operator collects and displays addresses | The developer collects nothing |
@@ -52,11 +52,11 @@ _Research date: 2026-10-29. This is engineering research, not legal advice. **[S
 | Abuse (stalking, doxxing) | Anonymous public access is the scenario behind the DPPA | Setup effort filters casual abuse; guardrails built in |
 
 **Decision:**
-- Tessera is self-hosted, local-first software.
+- Hunt is self-hosted, local-first software.
 - The public website is a landing page plus a demo on fictional data only.
 - Precedent: GeoSpy's public geolocation tool was pulled after stalking misuse (see `geolocation.md`).
 
-## Guardrails Tessera ships
+## Guardrails Hunt ships
 
 Disclaimers alone are not enough: the FTC has said so, and OpenOSINT was criticised for shipping a disclaimer without guardrails. These guardrails are real features:
 
@@ -73,4 +73,4 @@ Disclaimers alone are not enough: the FTC has said so, and OpenOSINT was critici
 - The FBI analyst process includes a timed writing test simulating intelligence products ([fbijobs.gov](https://fbijobs.gov/intelligence-analysts)).
 - The IC OSINT Strategy 2024–2026 aims to professionalise tradecraft ([ODNI](https://www.dni.gov/index.php/newsroom/reports-publications/reports-publications-2024/3785-the-ic-osint-strategy-2024-2026)).
 - Hiring managers prefer "how you investigated X, overcame Y, found Z" stories ([osintme](https://osintme.com/index.php/2022/06/19/getting-a-job-in-osint-interview-with-lorand-bodo/)).
-- **[I] Strongest signals for Tessera:** ICD 203 confidence language, provenance and hashing, built-in legal and ethical guardrails, and a written methodology. A public doxxing-style site could hurt a suitability review.
+- **[I] Strongest signals for Hunt:** ICD 203 confidence language, provenance and hashing, built-in legal and ethical guardrails, and a written methodology. A public doxxing-style site could hurt a suitability review.

@@ -6,8 +6,8 @@ runs reuse it. Delete that folder to re-collect. Images stay out of the repo.
 
 Columns, each as % within 1/25/200/750/2500 km plus median error:
   geoclip  GeoCLIP top-1
-  vlm      the local VLM alone (no OCR, no candidates): its `place`, geocoded by tessera.geo
-  fused    top hypothesis of tessera.photo.analyze, when that module exists
+  vlm      the local VLM alone (no OCR, no candidates): its `place`, geocoded by hunt.geo
+  fused    top hypothesis of hunt.photo.analyze, when that module exists
 
     uv run python scripts/eval_geo.py [results.json]
 """
@@ -24,12 +24,12 @@ from pathlib import Path
 
 import httpx
 
-from tessera import geo, vlm
-from tessera.case import HOME
+from hunt import geo, vlm
+from hunt.case import HOME
 
 DIR = HOME / "cache" / "geo-eval"
 API = "https://commons.wikimedia.org/w/api.php"
-UA = "Tessera-eval/0.1 (+https://github.com/als7294/tessera)"
+UA = "Hunt-eval/0.1 (+https://github.com/als7294/hunt)"
 KM = (1, 25, 200, 750, 2500)
 LICENCE = re.compile(r"(CC0|Public domain|PD\b.*|CC BY(-SA)? \d(\.\d)?.*)", re.I)
 # Not people, not close-ups or documents: only scenes a photo geolocator should place.
@@ -111,7 +111,7 @@ async def collect():
     DIR.mkdir(parents=True, exist_ok=True)
     manifest = []
     async with httpx.AsyncClient(timeout=30, headers={"User-Agent": UA}, follow_redirects=True,
-                                 proxy=os.environ.get("TESSERA_PROXY")) as client:
+                                 proxy=os.environ.get("HUNT_PROXY")) as client:
         for lat, lon in SEEDS:
             try:
                 near = (await _api(client, {"list": "geosearch", "gscoord": f"{lat}|{lon}", "gsradius": 10000,
@@ -148,7 +148,7 @@ async def collect():
 async def evaluate(manifest, out):
     from geoclip import GeoCLIP
     try:
-        from tessera.photo import analyze
+        from hunt.photo import analyze
     except ImportError:
         analyze = None
     model, rows = GeoCLIP(), []

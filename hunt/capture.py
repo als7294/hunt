@@ -8,7 +8,7 @@ from playwright.async_api import async_playwright
 
 async def screenshots(urls: list[str], concurrency: int = 4) -> dict[str, tuple[bytes, str] | Exception]:
     async with async_playwright() as p:
-        proxy = os.environ.get("TESSERA_PROXY")
+        proxy = os.environ.get("HUNT_PROXY")
         browser = await p.chromium.launch(proxy={"server": proxy} if proxy else None)
         context = await browser.new_context(viewport={"width": 1280, "height": 900})
         sem = asyncio.Semaphore(concurrency)

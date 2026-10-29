@@ -25,7 +25,7 @@ log.setLevel(logging.ERROR)
 async def search(seed):
     sites = MaigretDatabase().load_from_path(BUNDLED_DB_PATH).ranked_sites_dict(top=TOP_SITES, disabled=False)
     results = await maigret_search(seed.value, sites, log, timeout=10, is_parsing_enabled=True, no_progressbar=True,
-                                    proxy=os.environ.get("TESSERA_PROXY"))
+                                    proxy=os.environ.get("HUNT_PROXY"))
     findings, statuses = [], Counter()
     for site, r in results.items():
         check = r["status"]

@@ -2,12 +2,12 @@
 
     file → SHA-256 + dHash → EXIF (camera GPS, time, device) → OCR (Apple Vision)
          → GeoCLIP top-50 coordinates, clustered and labelled offline (GeoNames)
-         → local vision model observations (tessera.vlm, Ollama)
-         → per-country clue evidence (tessera.clues)
+         → local vision model observations (hunt.vlm, Ollama)
+         → per-country clue evidence (hunt.clues)
          → fused hypotheses: each a centre, a radius and its reasons. Never one pin.
 
 The image never leaves the machine. The only network call is geocoding the vision
-model's place guess (a place name, not the photo) through tessera.geo, as for
+model's place guess (a place name, not the photo) through hunt.geo, as for
 profile locations.
 """
 

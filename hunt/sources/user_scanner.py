@@ -3,7 +3,7 @@
 Passive only: a module runs only once its code has been read and judged silent.
 Modules that notify the subject, or could (password resets, login codes, sign-ups
 that might go through, password login attempts), never run; they are only counted.
-Re-audit after upgrading user-scanner: `uv run python -m tessera.sources.user_scanner`.
+Re-audit after upgrading user-scanner: `uv run python -m hunt.sources.user_scanner`.
 """
 
 import asyncio
@@ -166,7 +166,7 @@ AUDITED_SILENT = {
     "pornhub",  # create_account_check validator, on a +sub-address
     "quizlet",  # validate-email
     "quora",  # validateEmail query
-    "rappi",  # check-email; its OTP login runs only if "--allow-loud" is in sys.argv, which tessera never takes
+    "rappi",  # check-email; its OTP login runs only if "--allow-loud" is in sys.argv, which hunt never takes
     "redtube",  # create_account_check validator
     "rubygems",  # sign-up with blank password and handle
     "screener",  # sign-up with blank password
@@ -221,7 +221,7 @@ def _skip(module) -> str | None:
 
 
 async def search(seed):
-    proxy = os.environ.get("TESSERA_PROXY")
+    proxy = os.environ.get("HUNT_PROXY")
     set_proxy_manager(proxies=[proxy] if proxy else None)
     if proxy:  # most modules open their own httpx client, which only sees a proxy via the environment
         os.environ.update(http_proxy=proxy, https_proxy=proxy, all_proxy=proxy)
@@ -246,7 +246,7 @@ async def search(seed):
     stale = "" if version("user-scanner") == AUDITED else f"; user-scanner {version('user-scanner')} is unaudited"
     return found, checked, (f"checked {len(quiet)} sites, {errors} errors; skipped {len(modules) - len(quiet)} "
                             f"that may notify the subject ({n['upstream']} flagged by user-scanner, "
-                            f"{n['audit']} by Tessera's audit, {n['heuristic']} unaudited){stale}")
+                            f"{n['audit']} by Hunt's audit, {n['heuristic']} unaudited){stale}")
 
 
 if __name__ == "__main__":  # audit coverage check; executes no module

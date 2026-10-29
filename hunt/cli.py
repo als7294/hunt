@@ -1,5 +1,5 @@
-"""tessera search SEED... --case NAME [--purpose TEXT] [--no-capture]
-tessera photo IMAGE... --case NAME [--purpose TEXT]
+"""hunt search SEED... --case NAME [--purpose TEXT] [--no-capture]
+hunt photo IMAGE... --case NAME [--purpose TEXT]
 
 search fans each seed out to every source that handles its kind, scores every
 hit against everything the case knows about the subject, and screenshots the
@@ -36,12 +36,12 @@ DEFAULT_AVATAR = re.compile(r"default|placeholder|blank|anonymous|mystery|[?&]d=
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="tessera", description="Local-first OSINT: one search, every source, the right person, with proof.")
+    ap = argparse.ArgumentParser(prog="hunt", description="Local-first OSINT: one search, every source, the right person, with proof.")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--case", required=True, help="case name; created on first use")
     common.add_argument("--purpose", help="why this investigation is lawful and necessary (required for a new case)")
-    common.add_argument("--proxy", default=os.environ.get("TESSERA_PROXY"),
-                        help="route every request through this proxy, e.g. socks5h://127.0.0.1:9050 (or set TESSERA_PROXY)")
+    common.add_argument("--proxy", default=os.environ.get("HUNT_PROXY"),
+                        help="route every request through this proxy, e.g. socks5h://127.0.0.1:9050 (or set HUNT_PROXY)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("search", parents=[common], help="search seeds within a case")
     s.add_argument("seeds", nargs="+", help="username, email, phone, name, address or profile URL; "
@@ -55,7 +55,7 @@ def main():
     args = ap.parse_args()
 
     if args.proxy:
-        os.environ["TESSERA_PROXY"] = args.proxy
+        os.environ["HUNT_PROXY"] = args.proxy
     case = Case(args.case, args.purpose)
     if args.cmd == "photo":
         asyncio.run(photos(case, args.images, args.verify))
@@ -211,7 +211,7 @@ async def avatars(case: Case, report: dict, top: int = 40):
     print(f"fetching {len(todo)} profile photos...", file=sys.stderr)
     sem = asyncio.Semaphore(8)
     async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers={"User-Agent": UA},
-                                 proxy=os.environ.get("TESSERA_PROXY")) as client:
+                                 proxy=os.environ.get("HUNT_PROXY")) as client:
         async def one(url):
             async with sem:
                 try:

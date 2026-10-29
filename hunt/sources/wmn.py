@@ -24,7 +24,7 @@ UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML,
 
 def _client():
     # English, because the strings were written against it.
-    return httpx.AsyncClient(timeout=20, follow_redirects=True, proxy=os.environ.get("TESSERA_PROXY"),
+    return httpx.AsyncClient(timeout=20, follow_redirects=True, proxy=os.environ.get("HUNT_PROXY"),
                              headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"})
 
 

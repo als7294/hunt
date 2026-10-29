@@ -11,9 +11,9 @@ import json
 import sys
 from collections import Counter
 
-from tessera.sources import wmn
+from hunt.sources import wmn
 
-NONSENSE = "zq7x0tessera0k3"
+NONSENSE = "zq7x0hunt0k3qv"
 
 
 async def main(out):

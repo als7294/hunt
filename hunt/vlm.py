@@ -4,7 +4,7 @@ The model runs in Ollama on this machine; the image never leaves it (no proxy, n
 remote host). Open VLMs hallucinate geolocation reasoning (docs/research/geolocation.md,
 GeoRC), so the prompt makes the model write what it sees before it decides, allows
 "unknown" everywhere, and keeps each country's `why` to one concrete visible clue.
-Treat the result as hypotheses for tessera/clues.py, not evidence.
+Treat the result as hypotheses for hunt/clues.py, not evidence.
 """
 
 import base64
@@ -20,7 +20,7 @@ from PIL import Image, ImageOps
 URL = "http://localhost:11434/api/chat"
 # The instruct tag, not plain qwen3-vl:4b: that is the thinking variant, which spent 117s and
 # 3,000+ tokens on one photo (and once never finished) for the same answer instruct gives in ~10s.
-MODEL = os.environ.get("TESSERA_VLM", "qwen3-vl:4b-instruct")
+MODEL = os.environ.get("HUNT_VLM", "qwen3-vl:4b-instruct")
 TIMEOUT = 180  # seconds for one answer; a cold model load alone can take ~20
 MAX_TOKENS = 1024  # an observation is ~200-350 tokens; a cap stops a looping model early
 MAX_SIDE = 1280  # px; larger photos cost tokens and time without sharper text
