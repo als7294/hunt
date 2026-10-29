@@ -162,3 +162,13 @@ img.thumb.blur, .blur { filter: blur(10px) saturate(.6); }
 .tbl td { padding: 9px 8px; border-bottom: 1px solid var(--edge); vertical-align: top; }
 .tbl a { color: var(--ac); display: inline-block; max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top; }
 @media (max-width: 900px) { .kv { grid-template-columns: max-content minmax(0, 1fr); } }
+
+/* Case menu (the case pill) and small status tags */
+.menu { position: relative; }
+.menu > summary { list-style: none; cursor: pointer; } .menu > summary::-webkit-details-marker { display: none; }
+.menu-pop { position: absolute; right: 0; top: calc(100% + 6px); width: 320px; padding: 10px; display: flex; flex-direction: column; gap: 2px; z-index: 20; box-shadow: inset 0 0 0 1px var(--edge), 0 20px 40px rgba(0, 0, 0, .45); }
+.menu-item { display: block; width: 100%; text-align: left; padding: 9px 10px; border-radius: var(--r-sm); font-size: 14.5px; color: var(--t2); }
+.menu-item:hover { background: var(--raise); color: var(--tx); } .menu-item.bad { color: var(--rd); }
+.menu-pop .life > div { padding: 6px 4px; }
+.tag { display: inline-flex; padding: 2px 8px; border-radius: 999px; background: var(--raise); color: var(--t2); font-size: 12px; font-weight: 600; }
+.tag.hold { background: var(--violet-bg); color: var(--violet); } .tag.warn { background: var(--am-bg); color: var(--am); }

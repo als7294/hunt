@@ -62,9 +62,10 @@ let status = { proxy: false };
 function topHome() {
   return html`<header class="top">${brand}<div class="top-right">
     <a class="chip-btn" href="#/settings" title="Your firm, licence and logo, for the report">Report settings</a>
-    <span class="chip-btn" title="${status.proxy ? 'All traffic goes through your proxy (HUNT_PROXY)' : 'No proxy set: sites see this computer’s address'}"><span class="dot ${status.proxy ? 'ok' : 'warn'}"></span>${status.proxy ? 'Proxy on' : 'Proxy off'}</span>
+    ${proxyChip()}
   </div></header>`;
 }
+const proxyChip = () => html`<span class="chip-btn" id="proxy-chip" title="${status.proxy ? 'All traffic goes through your proxy (HUNT_PROXY)' : 'No proxy set: sites see this computer’s address'}"><span class="dot ${status.proxy ? 'ok' : 'warn'}"></span>${status.proxy ? 'Proxy on' : 'Proxy off'}</span>`;
 const STEP_DEFS = [['search', 'Search'], ['identity', 'Is it them?'], ['posts', 'Posts'], ['report', 'Report']];
 function topCase(c, now) {
   const steps = c?.steps || {}, idx = STEP_DEFS.findIndex(([k]) => k === now);
@@ -75,9 +76,25 @@ function topCase(c, now) {
       const done = steps[k] === 'done' && i !== idx, on = i === idx;
       return html`${i ? html`<div class="step-link ${i <= idx ? 'done' : ''}"></div>` : ''}<a class="step ${on ? 'now' : done ? 'done' : ''}" href="#/case/${c.slug}/${k}"><span class="n">${done ? '✓' : i + 1}</span>${label}${k === 'posts' && c.counts?.flagged ? html` <span class="count">${c.counts.flagged}</span>` : ''}</a>`;
     })}</nav>
-    <a class="chip-btn" href="#/" title="All cases"><span class="dot ok"></span><span>${c.details?.label || c.slug}</span><span class="muted">▾</span></a>
-  </header>`;
+    ${caseMenu(c)}
+  </header>${closedBar(c)}`;
 }
+// The case pill opens the case menu: where the case stands, and closing, holding or deleting it
+const lifeLine = st => [st.closed ? `Closed ${longDay(st.closed)}` : 'Open', st.legal_hold ? `on legal hold since ${longDay(st.legal_hold)}`
+  : st.retention_due ? 'past its 90 days: hold it or delete it' : st.retention_ends ? `kept until ${longDay(st.retention_ends)}` : ''].filter(Boolean).join(' · ');
+function caseMenu(c) {
+  const st = c.status || {}, slug = c.slug, item = (act, mode, label, cls = '') => html`<button class="menu-item ${cls}" data-act="${act}" data-mode="${mode}" data-slug="${slug}">${label}</button>`;
+  return html`<details class="menu"><summary class="chip-btn" title="Case menu"><span class="dot ${st.closed ? '' : 'ok'}"></span><span>${c.details?.label || slug}</span>${st.closed ? html`<span class="muted">· closed</span>` : ''}${st.legal_hold ? html`<span class="tag hold">Hold</span>` : ''}<span class="muted">▾</span></summary>
+    <div class="menu-pop panel"><div class="muted" style="font-size:13.5px;padding:4px 10px 8px">${lifeLine(st)}</div>
+      <a class="menu-item" href="#/">All cases</a>
+      <div class="life" style="display:flex;flex-direction:column;gap:2px">
+        ${st.closed ? item('life-do', 'reopen', 'Reopen the case') : item('life-ask', 'close', 'Close the case…')}
+        ${st.legal_hold ? item('life-do', 'unhold', 'Lift the legal hold') : item('life-ask', 'hold', 'Put on legal hold…')}
+        ${st.legal_hold ? '' : item('life-ask', 'delete', 'Move to the Trash…', 'bad')}</div></div></details>`;
+}
+const closedBar = c => c.status?.closed ? html`<div style="margin:0 20px 8px;padding:10px 12px 10px 16px;border-radius:var(--r);background:var(--raise);display:flex;gap:12px;align-items:center;font-size:14.5px;flex:none">
+  <span class="dot"></span><span class="t2">Closed on ${longDay(c.status.closed)}. Searches, scans, checks and watching are off; the report and evidence stay as they are.</span>
+  <button class="btn ghost sm" style="margin-left:auto" data-act="life-do" data-mode="reopen" data-slug="${c.slug}">Reopen</button></div>` : '';
 const glows = (...specs) => raw(specs.map(([l, t, s, col]) => `<div class="glow" style="left:${l};top:${t};width:${s}px;height:${s}px;background:radial-gradient(circle,${col},transparent 65%)"></div>`).join(''));
 function mount(content) { app().innerHTML = content.s; }
 
@@ -99,7 +116,7 @@ screens.startup = async () => {
     </div></div>`);
   if (!customElements.get('fetch-hound')) { const s = document.createElement('script'); s.src = 'hound.js'; document.head.appendChild(s); }
   let checks;
-  try { const r = await api('/api/startup'); status.proxy = r.proxy; checks = r.checks; }
+  try { const r = await api('/api/startup'); status = { proxy: r.proxy, checked: true }; checks = r.checks; }
   catch (e) { checks = [{ id: 'server', label: 'Starting Hunt', ok: false, detail: e.message }]; }
   const box = $('#boot');
   for (let i = 0; i < checks.length; i++) {
@@ -159,11 +176,13 @@ const KIND_LABEL = { insurance: 'Insurance claim', background: 'Background check
 const caseRow = c => html`<a class="row" href="#/case/${c.slug}/search">
   <span class="tile-ic">⌕</span>
   <div style="flex:1;min-width:0"><div style="font-size:16.5px;font-weight:500">${c.label || c.slug}</div><div style="font-size:14px" class="muted">${[KIND_LABEL[c.kind], c.reference].filter(Boolean).join(' · ') || 'Case'}</div></div>
-  <div style="text-align:right"><div style="font-size:14px;color:var(--am)">${c.headline || ''}</div><div style="font-size:13px" class="dim">${ago(c.updated || c.created)}</div></div></a>`;
+  <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:2px"><div style="font-size:14px;color:${c.closed ? 'var(--mu)' : 'var(--am)'}">${c.headline || ''}</div>
+    <div style="display:flex;gap:6px;align-items:center">${c.closed ? html`<span class="tag">Closed</span>` : ''}${c.legal_hold ? html`<span class="tag hold">Legal hold</span>` : c.retention_due ? html`<span class="tag warn" title="Opened over 90 days ago: hold it or delete it">Past 90 days</span>` : ''}<span style="font-size:13px" class="dim">${ago(c.updated || c.created)}</span></div></div></a>`;
 
 screens.home = async () => {
   let cases = [];
-  try { [cases] = await Promise.all([api('/api/cases'), api('/api/startup').then(s => { status.proxy = s.proxy; }).catch(() => {})]); } catch (e) { fail(e); }
+  try { cases = await api('/api/cases'); } catch (e) { fail(e); }
+  if (!status.checked) api('/api/startup').then(s => { status = { proxy: s.proxy, checked: true }; if ($('#proxy-chip')) $('#proxy-chip').outerHTML = proxyChip().s; }).catch(() => {}); // slow (it probes every source): never holds the page
   mount(html`${glows(['calc(50% - 550px)', '-320px', 1100, 'rgba(163,181,242,.12)'])}${topHome()}
   <main class="screen" style="align-items:center;gap:34px;padding:40px 24px 48px">
     <div style="text-align:center"><div class="h1">What do you need to find?</div><div class="sub" style="font-size:18px;margin-top:8px">Your cases, photos and videos stay on this Mac.</div></div>
@@ -776,6 +795,7 @@ const actions = {
   },
 };
 document.addEventListener('click', e => {
+  document.querySelectorAll('details.menu[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; });
   const el = e.target.closest('[data-act]'); if (!el || el.disabled || el.getAttribute('aria-disabled') === 'true') return;
   if (el.dataset.act === 'screening') return; // handled on change
   const fn = actions[el.dataset.act]; if (fn) { if (el.tagName === 'BUTTON') e.preventDefault(); fn(el, e); }
