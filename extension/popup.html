@@ -32,11 +32,14 @@
       <label><input type="radio" name="mode" value="manual"> Only when I press Capture this</label>
     </fieldset>
 
+    <label class="check"><input type="checkbox" id="everyview"> Screenshots on every view</label>
+    <p class="hint">Without this, screenshots start once you click Hunt Capture (or press Alt+Shift+H) in a tab. Page archives are saved either way. Chrome will ask to let Hunt Capture read all sites; it still records only the sites above, and sends only to Hunt.</p>
+
     <div class="actions">
       <button id="capture" type="button" title="Alt+Shift+H">Capture this</button>
       <button id="record" type="button">Record video</button>
     </div>
-    <p class="hint">Hunt Capture records only pages you open yourself, and sends them only to Hunt on this computer.</p>
+    <p class="hint">Hunt Capture records only pages you open yourself, and sends them only to Hunt on this computer. It never records LinkedIn.</p>
 
     <h2>Checklist</h2>
     <div id="checklist"><p class="hint">Confirm the subject's accounts in Hunt to see what to open.</p></div>

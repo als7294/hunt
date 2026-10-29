@@ -1261,7 +1261,40 @@ async def capture_pair(req: Request):
 async def capture_hello(req: Request):
     cases = [{"slug": s, "label": Case.open(s).details()["label"]} for s in all_cases()]
     active = next((c for c in cases if c["slug"] == browser.active_case()), None)
-    return JSONResponse({"version": version("hunt-osint"), **extension.status(), "cases": cases, "active_case": active})
+    state = browser.capture()
+    label = next((c["label"] for c in cases if c["slug"] == state["case"]), None)
+    return JSONResponse({"version": version("hunt-osint"), **extension.status(), "cases": cases, "active_case": active,
+                         "capture": state | {"label": label}, "off_sites": sorted(extension.CAPTURE_OFF)})
+
+
+def _capture_state(b: dict) -> dict:
+    case = b.get("case") or None
+    if case is not None:
+        try:
+            Case.open(str(case))
+        except LookupError:
+            raise HTTPException(404, "no such case")
+    if b.get("on") and not case:
+        raise HTTPException(400, "choose a case to capture into")
+    return browser.set_capture(case, bool(b.get("on")))
+
+
+async def capture_state(req: Request):  # the extension's popup turned capture on or off
+    state = _capture_state(await _body(req))
+    print(f"hunt app: Hunt Capture {'on for ' + state['case'] if state['on'] else 'off'} (from the browser)", file=sys.stderr)
+    return JSONResponse(state)
+
+
+async def capture_problem(req: Request):  # the extension hit an error; Hunt shows the latest ones
+    message = str((await _body(req)).get("message") or "")[:300]
+    browser.problem(message)
+    print(f"hunt app: Hunt Capture problem: {message}", file=sys.stderr)
+    return JSONResponse({"ok": True})
+
+
+async def browser_capture(req: Request):  # Hunt's own screens turned capture on or off
+    state = _capture_state(await _body(req))
+    return JSONResponse(state)
 
 
 async def capture_signins(req: Request):
@@ -1320,8 +1353,11 @@ async def _capture_upload(req: Request, field: str, work):
             c = Case.open(str(form.get("case") or ""))
         except LookupError:
             raise HTTPException(404, "no such case")
-        if not extension.platform(form.get("url")):
-            raise HTTPException(400, "url must be a page on Facebook, Instagram, TikTok, X, LinkedIn or YouTube")
+        site = extension.platform(form.get("url"))
+        if not site:
+            raise HTTPException(400, "url must be a page on Facebook, Instagram, TikTok, X or YouTube")
+        if site in extension.CAPTURE_OFF:
+            raise HTTPException(403, f"Hunt Capture is off on {site} (its terms name browser plugins); save pages by hand")
         f = form.get(field)
         if not isinstance(f, UploadFile):
             raise HTTPException(400, f"no {field}")
@@ -1376,6 +1412,9 @@ CAPTURE_ROUTES = [
     Route("/api/capture/page", capture_page, methods=["POST"]),
     Route("/api/capture/recording", capture_recording, methods=["POST"]),
     Route("/api/capture/signins", capture_signins, methods=["POST"]),
+    Route("/api/capture/state", capture_state, methods=["POST"]),
+    Route("/api/capture/problem", capture_problem, methods=["POST"]),
+    Route("/api/browser/capture", browser_capture, methods=["POST"]),
     Route("/api/browser/status", browser_status),
     Route("/api/browser/open", browser_open, methods=["POST"]),
     Route("/api/browser/sign-out", browser_sign_out, methods=["POST"]),

@@ -1,6 +1,7 @@
-"""Hunt Capture's server half (docs/capture.md). The investigator browses Facebook, Instagram, TikTok, X,
-LinkedIn and YouTube herself, logged in as herself; the browser extension in extension/ records what she
-views into the open case, and this module turns that into evidence and posts.
+"""Hunt Capture's server half (docs/capture.md). The investigator browses Facebook, Instagram, TikTok, X and
+YouTube herself, logged in as herself; the browser extension in extension/ records what she views into the open
+case, and this module turns that into evidence and posts. LinkedIn is never recorded (CAPTURE_OFF); its parser
+reads pages she saves by hand.
 
   new_code / pair / status / forget   pairing: a one-time code shown in Hunt → a capture key the extension keeps
   problem(req)                        the check every /api/capture/* request passes (never the web app's cookie)
@@ -35,6 +36,9 @@ from .seed import now
 SITES = {"facebook.com": "Facebook", "instagram.com": "Instagram", "tiktok.com": "TikTok", "x.com": "X",
          "twitter.com": "X", "linkedin.com": "LinkedIn", "youtube.com": "YouTube"}
 KEY_FILE = HOME / "capture-key.json"
+# Never recorded: LinkedIn's terms name browser plugins (docs/research/automation-legal.md §4). There she saves pages
+# by hand. Its checklist sections stay, as links.
+CAPTURE_OFF = {"LinkedIn"}
 EXTENSION_ORIGIN = re.compile(r"chrome-extension://[a-p]{32}")  # a Chromium extension's id is 32 letters a–p
 CODE_TTL, CODE_TRIES = 300, 5
 _code: dict = {}  # the one open pairing code; in memory, so a restart closes it
@@ -237,7 +241,9 @@ def couldnt_see(case) -> list[str]:
     for a in checklist(case):
         missing = [s["label"].lower() for s in a["sections"] if not s["seen"]]
         who = f"{a['platform']} {a['account'].rstrip('/').rsplit('/', 1)[-1]}"
-        if missing and len(missing) == len(a["sections"]):
+        if a["platform"] in CAPTURE_OFF:
+            out.append(f"{who}: not recorded (Hunt Capture is off on {a['platform']}; pages saved by hand aren't tracked here)")
+        elif missing and len(missing) == len(a["sections"]):
             out.append(f"{who}: not opened while Hunt Capture was recording")
         elif missing:
             listed = missing[0] if len(missing) == 1 else ", ".join(missing[:-1]) + " and " + missing[-1]
@@ -328,8 +334,19 @@ def _json(root):
 
 
 def _media(el, ctx, skip=()) -> list[str]:
-    found = [fb._local(n.get("src"), ctx) for n in el.iter("img") if n not in skip and fb._photo(n)
-             and "profile picture" not in n.get("alt", "").lower()]
+    """Pictures the page showed, as local files from the archive. A <picture> loads one of its <source srcset>
+    images rather than the <img src> fallback (TikTok's covers, live QA), so every candidate is tried."""
+    def first(*urls):
+        return next((m for u in urls if u and (m := fb._local(u, ctx))), None)
+
+    def srcset(n):
+        return [part.strip().split(" ")[0] for part in n.get("srcset", "").split(",") if part.strip()]
+
+    found = []
+    for pic in el.iter("picture"):
+        found.append(first(*(u for s in pic.iter("source") for u in srcset(s) + [s.get("src")])))
+    found += [first(n.get("src"), *srcset(n)) for n in el.iter("img") if n not in skip and fb._photo(n)
+              and "profile picture" not in n.get("alt", "").lower()]
     found += [fb._local(n.get("poster"), ctx) for n in el.iter("video")]
     return list(dict.fromkeys(m for m in found if m))
 
@@ -457,36 +474,46 @@ def parse_tiktok(page: dict) -> list[dict]:
 
 
 def parse_x(page: dict) -> list[dict]:
-    """X's web app: each <article data-testid="tweet">: author, <time datetime> on the status link, tweetText,
-    tweetPhoto pictures, video posters, and the reply/repost/like counts in their aria-labels. A status
-    id's high bits are its time too (snowflake), for when <time> is missing."""
+    """X's web app, in both its markups. Signed in: <article data-testid="tweet"> with User-Name, <time datetime>,
+    tweetText, tweetPhoto and per-button aria-labels. Signed out (live QA, 2026-10-29): plain <article>s with no
+    test ids or <time>, the text in a dir=auto block, and the counts in one role=group aria-label ("98 replies,
+    269 reposts, 1042 likes, ..."). Either way the status link gives the post id, and the id (a snowflake) its time."""
     root, ctx = _page(page)
-    out = []
+    out, seen = [], set()
     for art in root.iter("article"):
-        if art.get("data-testid") != "tweet":
+        links = [m for a in art.iter("a") if (m := re.search(r"/(\w+)/status/(\d+)", a.get("href", "")))]
+        timed = next((a for a in art.iter("a") if re.search(r"/status/\d+", a.get("href", "")) and a.find(".//time") is not None), None)
+        if not links or (sid := (re.search(r"/(\w+)/status/(\d+)", timed.get("href")) if timed is not None else links[0])[2]) in seen:
             continue
-        status = next((a for a in art.iter("a") if re.search(r"/status/\d+/?$", a.get("href", ""))
-                       and a.find(".//time") is not None), None) \
-            or next((a for a in art.iter("a") if re.search(r"/status/\d+/?$", a.get("href", ""))), None)
-        if status is None:
-            continue
-        handle, sid = re.search(r"/(\w+)/status/(\d+)", status.get("href")).groups()
+        handle = next(m[1] for m in links if m[2] == sid)
+        seen.add(sid)
         names = _testid(art, "User-Name")
-        t = status.find(".//time")
+        named = next((fb._text(a) for a in art.iter("a") if a.get("href", "").rstrip("/").lower() in (f"/{handle.lower()}",
+                      f"https://x.com/{handle.lower()}") and fb._text(a) and not fb._text(a).startswith("@")), None)
+        t = timed.find(".//time") if timed is not None else None
         p = fb._post(source="X", url=f"https://x.com/{handle}/status/{sid}", post_id=sid,
                      account_url=f"https://x.com/{handle.lower()}",
-                     author=fb._text(next(names[0].iter("a"), names[0])).split("\n")[0] if names else handle)
+                     author=fb._text(next(names[0].iter("a"), names[0])).split("\n")[0] if names else named or handle)
         p["posted_at"] = _iso(t.get("datetime")) if t is not None else \
             datetime.fromtimestamp(((int(sid) >> 22) + 1288834974657) / 1000, UTC).isoformat()
         p["posted_at_precision"] = "second"
         p["posted_at_text"] = fb._text(t) if t is not None else None
-        if texts := _testid(art, "tweetText"):
-            p["text"] = fb._text(texts[0])
+        texts = _testid(art, "tweetText") or [n for n in art.iter("div") if n.get("dir") == "auto"]
+        if texts:
+            p["text"] = max((fb._text(n) for n in texts), key=len) or None
         photos = _testid(art, "tweetPhoto", "videoPlayer", "videoComponent")
-        p["media"] = list(dict.fromkeys(m for el in photos for m in _media(el, ctx)))
+        if photos:
+            p["media"] = list(dict.fromkeys(m for el in photos for m in _media(el, ctx)))
+        else:  # signed out, the media link is an empty overlay: take the post's own media images, not avatars
+            p["media"] = list(dict.fromkeys(m for n in art.iter("img") if re.search(r"/media/|video_thumb", n.get("src", ""))
+                                            and (m := fb._local(n.get("src"), ctx))))
         for key, testid in (("comments", "reply"), ("shares", "retweet"), ("reactions", "like")):
             if (btn := _testid(art, testid, f"un{testid}")) and (n := re.match(r"(\d[\d,.]*\s?[KkMm]?)\b",
                                                                                 btn[0].get("aria-label", ""))):
+                p[key] = fb._num(n[1])
+        group = next((n.get("aria-label", "") for n in art.iter() if n.get("role") == "group" and n.get("aria-label")), "")
+        for key, word in (("comments", "repl"), ("shares", "repost"), ("reactions", "like")):
+            if p[key] is None and (n := re.search(rf"(\d[\d,]*) {word}", group)):
                 p[key] = fb._num(n[1])
         if ctxs := _testid(art, "socialContext"):
             p["reposted_by"] = fb._text(ctxs[0]).replace("\n", " ")

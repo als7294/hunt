@@ -181,8 +181,9 @@ The browser extension that records what the investigator views while logged in a
 
 | Method | Path | Body / response |
 |---|---|---|
-| GET | `/api/browser/status` | `{facebook, instagram, tiktok, linkedin, x: "signed_in"\|"signed_out"\|"unknown", checked_at, browser: {available, running, version, profile: bool}, logins: [{platform, label, url}]}`. Sign-in states come from the Hunt Browser's extension: whether each sign-in cookie exists, never its value. Also re-points an open Hunt Browser at this Hunt's port (internal; no case or user state changes) |
+| GET | `/api/browser/status` | `{facebook, instagram, tiktok, linkedin, x: "signed_in"\|"signed_out"\|"unknown", checked_at, browser: {available, running, version, profile: bool, pinned: bool\|null}, capture: {case, on, since}, problems: [{ts, message}], logins: [{platform, label, url}]}`. `pinned`: is Hunt Capture on the toolbar, where its REC badge shows. `problems`: the extension's latest 20 errors, newest last. Sign-in states come from the Hunt Browser's extension: whether each sign-in cookie exists, never its value. Also re-points an open Hunt Browser at this Hunt's port (internal; no case or user state changes) |
 | POST | `/api/browser/open` | `{url, case?}` → `{opened, started}`. Opens an http(s) page in the Hunt Browser, starting it if needed. `case` is preselected in the extension's popup. 400 for other schemes; 404 for an unknown case; 503 when Playwright's browser isn't installed |
+| POST | `/api/browser/capture` | `{case, on}` → `{case, on, since}`. Turns Hunt Capture on (into `case`) or off. The extension mirrors it at its next page load. Capture is off whenever Hunt starts. 400 for on without a case; 404 for an unknown case |
 | POST | `/api/browser/sign-out` | `{}` → `{moved_to: "Trash"\|null, …status}`. Moves the Hunt Browser's profile (every login) to the Trash, never deletes. 409 while it's open |
 | GET | `/api/pairing` | `{paired: bool, origin?, name?, paired_at?}` |
 | POST | `/api/pairing` | `{}` → `{code: "<port>-<8 digits>", expires_in: 300}`. A one-time code for the extension's popup. Five wrong tries close it; a new one replaces it |
@@ -201,15 +202,17 @@ Anything else gets 403, 405 or 415. The key opens no other route.
 | Path | Body → response |
 |---|---|
 | `/api/capture/pair` | `{code, name?}` → `{key}`. 403 if the code is wrong, used, expired or closed |
-| `/api/capture/hello` | `{}` → `{version, paired, origin, name, paired_at, cases: [{slug, label}], active_case: {slug, label}\|null}` |
-| `/api/capture/signins` | `{facebook?, instagram?, tiktok?, linkedin?, x?: "signed_in"\|"signed_out"\|"unknown"}` → as `GET /api/browser/status`. Anything that isn't one of those states is refused (400) |
+| `/api/capture/hello` | `{}` → `{version, paired, origin, name, paired_at, cases: [{slug, label}], active_case: {slug, label}\|null, capture: {case, on, since, label}, off_sites: ["LinkedIn"]}` |
+| `/api/capture/state` | `{case, on}` → `{case, on, since}`. The popup turned capture on or off; Hunt's status follows |
+| `/api/capture/problem` | `{message}` → `{ok: true}`. An error the extension hit; listed in `/api/browser/status` |
+| `/api/capture/signins` | `{facebook?, instagram?, tiktok?, linkedin?, x?: "signed_in"\|"signed_out"\|"unknown", pinned?: bool}` → as `GET /api/browser/status`. Anything that isn't one of those states is refused (400) |
 | `/api/capture/checklist` | `{case}` → as `GET /api/cases/{slug}/checklist` |
 | `/api/capture/view` | multipart `case, url, viewed_at?, title?, kind? (view\|frame\|manual), screenshot` (JPEG or PNG) → `{post, file}`. `post` is null when that picture was already in the case |
 | `/api/capture/page` | multipart `case, url, viewed_at?, archive` (MHTML) → `{posts, added, file}` |
 | `/api/capture/recording` | multipart `case, url, started_at?, video` (WebM or MP4) → `{post, file}` |
 
 Capture uploads also share these rules:
-- `url` must be an https page on Facebook, Instagram, TikTok, X, LinkedIn or YouTube (else 400).
+- `url` must be an https page on Facebook, Instagram, TikTok, X or YouTube (else 400). LinkedIn pages get 403: Hunt Capture never records LinkedIn, whose terms name browser plugins.
 - An unknown case returns 404.
 - A file of the wrong kind returns 415.
 - Posts are stored with `origin: "captured"`, and `/posts` counts them as `counts.captured`.

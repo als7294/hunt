@@ -3,7 +3,8 @@ Playwright's browser run headless on a throwaway profile. Passes when the browse
 --load-extension, under the id Hunt computes from the manifest key, and the extension pairs itself and reports
 sign-in states to Hunt. Opens no website and uses no debugging port. Rerun after upgrading Playwright.
 
-  uv run python scripts/browser_e2e.py
+  uv run python scripts/browser_e2e.py                     # Playwright's browser, as the Hunt Browser runs it
+  uv run python scripts/browser_e2e.py "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"   # any other
 """
 
 import os
@@ -23,8 +24,8 @@ import uvicorn  # noqa: E402
 from hunt import app as server  # noqa: E402
 from hunt import browser  # noqa: E402
 
-exe = browser.chromium()
-if not exe:
+exe = Path(sys.argv[1]) if len(sys.argv) > 1 else browser.chromium()
+if not exe or not exe.is_file():
     sys.exit("no browser: run `uv run playwright install chromium`")
 sock = socket.socket()
 sock.bind(("127.0.0.1", 0))
@@ -34,7 +35,7 @@ threading.Thread(target=uvicorn.Server(uvicorn.Config(server.make_app("e2e", por
 time.sleep(1)
 profile = tempfile.mkdtemp()
 proc = subprocess.Popen([str(exe), "--headless=new", f"--user-data-dir={profile}", f"--load-extension={browser.prepare(port)}",
-                         "--no-first-run", "--no-default-browser-check", "about:blank"],
+                         "--no-first-run", "--no-default-browser-check", "--use-mock-keychain", "about:blank"],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 try:
     for _ in range(40):
@@ -42,7 +43,7 @@ try:
             break
         time.sleep(0.5)
     st = browser.status()
-    print(f"{exe.name} {st['browser']['version']}, extension id {browser.extension_id()}")
+    print(f"{exe.name} {browser._version(exe) or ''}, extension id {browser.extension_id()}")
     print("sign-in states:", {p: st[p] for p in browser.PLATFORMS})
     assert st["checked_at"], "the extension never reached Hunt: --load-extension ignored, a different id, or no pairing"
     print("ok")

@@ -43,6 +43,22 @@ the Chrome for Testing build Hunt already installs for its evidence screenshots.
 - **It follows Hunt.** Hunt binds a new port each start, so `GET /api/browser/status` (the startup
   check) re-points `pairing.json`. If Hunt issues a new key, the extension re-reads the file on its
   next 403.
+- **New code reaches the browser.** For an extension loaded with `--load-extension`, Chrome keeps
+  running the service worker it cached on the profile. A version bump doesn't change that, so an
+  updated Hunt Capture would have kept running old code (found in live QA).
+  - Tested on Chrome for Testing 156, a variant per launch:
+
+    | Change | Worker that runs |
+    |---|---|
+    | Same version | old |
+    | Version bumped | old |
+    | New worker script name | new |
+    | Worker registrations cleared | new |
+
+  - So Hunt names the copy's worker after its code (`background-<sha256[:12]>.js`) and stamps the
+    version to match.
+  - The worker also pairs and reports when it simply starts, because after a rename neither
+    `onInstalled` nor `onStartup` fires.
 
 **Observe-only.** It is a normal browser she drives:
 - No Playwright driver.
@@ -55,8 +71,10 @@ the Chrome for Testing build Hunt already installs for its evidence screenshots.
 user-agent flag.
 
 **Why Chrome for Testing, not her Chrome.**
-- Branded Chrome 137+ ignores `--load-extension`. Chrome for Testing doesn't: checked live on
-  156.0.8078.4, where `scripts/browser_e2e.py` passes.
+- Branded Chrome 137+ ignores `--load-extension`. This was confirmed on this Mac's Google Chrome
+  154.0.8037.98: `scripts/browser_e2e.py "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"`
+  fails, because the extension never loads. Chrome for Testing 156.0.8078.4 loads it, and the script
+  passes.
 - It plays the platforms' video: H.264, AAC, VP9 and AV1 are supported, but not HEVC. TikTok falls
   back to H.264.
 - It's already installed (`uv run playwright install chromium`), and it's free.
@@ -161,30 +179,63 @@ The extension never:
 - navigates, opens tabs, clicks, scrolls, types or searches
 - likes, follows, friends or messages anyone
 
-It records only pages she opens, while capture is on. It sends nothing anywhere except Hunt on
-127.0.0.1: its Content-Security-Policy is `connect-src http://127.0.0.1:*`, and it makes no request
-to any platform. There are no sock puppets: it works in her own logged-in browser.
+It records only pages she opens, while capture is on, and never LinkedIn. It sends nothing anywhere
+except Hunt on 127.0.0.1: its Content-Security-Policy is `connect-src 'self' http://127.0.0.1:*`
+(`'self'` is its own `pairing.json`). It makes no request to any platform. There are no sock
+puppets: it works in her own logged-in browser.
 
-`test_capture.py` reads the extension's code and fails on any `click()`, scroll call, tab
-navigation, `location =`, form submit, synthetic event, script injection, or `fetch` to anything but
-`http://127.0.0.1:`. It also fails on permissions like `<all_urls>`, cookies, history, webRequest
-or debugger.
+`test_capture.py` reads the extension's code and fails on any of these:
+- a `click()`, a scroll call, tab navigation, `location =`, a form submit, a synthetic event, or
+  script injection
+- a `fetch` to anything but `http://127.0.0.1:` or its own `pairing.json`
+- reading a cookie's value (only `chrome.cookies.get` for presence)
+- LinkedIn in its capture sites
+- the permissions history, webRequest, debugger, scripting, downloads or management
+- `<all_urls>` anywhere but `optional_host_permissions`, which Chrome grants only through its own
+  prompt, on her click
 
 ## What it records
 
-Capture is **off by default and whenever the browser starts**. While it's on, the toolbar shows a
-red **REC** badge, and **●** while a video is being recorded.
+Capture is **off by default, whenever the browser starts, and whenever Hunt starts**. It's turned on
+for one case, either from Hunt's own screens (`POST /api/browser/capture`) or from the extension's
+popup; each side follows the other.
+- **The badge.** While capture is on, the toolbar shows a red **REC** badge, and **●** while a video
+  is being recorded.
+- **Pinning.** Chrome shows an extension's badge only when it's pinned to the toolbar, and gives
+  extensions no way to pin themselves. The extension reports whether it is (`browser.pinned` in
+  `GET /api/browser/status`). When it's `false`, Hunt should say: "Pin Hunt Capture (the puzzle
+  icon, then the pin) so you can see when it's recording."
 
 | When | What | Throttle |
 |---|---|---|
-| A supported page finishes loading, its address changes, you switch to its tab, or you stop scrolling for 1.2 s | A viewport screenshot (`chrome.tabs.captureVisibleTab`, JPEG) | at most one per 2.5 s per tab |
-| Same, when the page is new to this tab or 20 s have passed | The page archive (`chrome.pageCapture.saveAsMHTML`): the page plus the pictures her browser already loaded | one at a time per tab |
-| A video is playing on screen | A screenshot every 2 s (the frames she watched) | at most 90 per page |
+| A supported page finishes loading, its address changes, you switch to its tab, or you stop scrolling for 1.2 s | A viewport screenshot (`chrome.tabs.captureVisibleTab`, JPEG), **once Chrome allows it** (below) | at most one per 2.5 s per tab |
+| Same, for a page new to this tab, or the same page after you've scrolled and 20 s have passed | The page archive (`chrome.pageCapture.saveAsMHTML`): the page plus the pictures her browser already loaded | one at a time per tab |
+| An archive that gave no posts (an app still drawing them) | The same page archived once more, 6 s later | once per page |
+| A video is playing on screen | A screenshot every 2 s (the frames she watched), once screenshots are allowed | at most 90 per page |
 | **Capture this** (popup or Alt+Shift+H) | Screenshot and archive, right away | none |
 | **Record video** / **Stop recording** (popup) | A recording of the tab (`chrome.tabCapture` → WebM), with its sound still playing for her | stops itself at 10 min |
 
-Sites covered: facebook.com, instagram.com, tiktok.com, x.com, twitter.com, linkedin.com and
-youtube.com, including their subdomains.
+**Screenshots need Chrome's permission; archives don't** (found in live QA). `captureVisibleTab`
+accepts only `activeTab` or `<all_urls>`; host permissions aren't enough.
+- **By default (least privilege):** screenshots start in a tab once she invokes Hunt Capture there,
+  by clicking its icon or pressing Alt+Shift+H. That's Chrome's `activeTab` grant, which lasts while
+  she stays on that site.
+- **"Screenshots on every view" (popup checkbox):** asks Chrome for `<all_urls>` through its own
+  prompt, on her click. It still records only the sites below and sends only to Hunt.
+- **Archives are saved either way.** They hold the pictures the scan reads. A view with no screenshot
+  permission reports once per tab: "No screenshot: click Hunt Capture once in this tab… The page
+  archive is still saved."
+
+**Sites recorded:** facebook.com, instagram.com, tiktok.com, x.com, twitter.com and youtube.com, and
+their subdomains.
+
+**Never LinkedIn.** Its terms name browser plugins, and it scans for extensions
+(`docs/research/automation-legal.md` §4).
+- The extension doesn't run there, and Hunt refuses LinkedIn uploads with 403.
+- LinkedIn sections stay on the checklist as links. She saves those pages by hand; the LinkedIn parser
+  is ready for that.
+- The extension still checks LinkedIn's sign-in cookie, for the status screen. That touches nothing
+  on LinkedIn.
 
 **Two modes**, chosen in the popup:
 - **Every page view I settle on** (the default).
@@ -204,24 +255,48 @@ origin="captured")`:
 The media scan runs on captured posts like any other: the next scan picks up their new media
 automatically, with no extra step. `GET /api/cases/{slug}/posts` counts them as `counts.captured`.
 
-### Videos: what's possible
+**When something fails, Hunt hears about it.** The extension sends each error to
+`POST /api/capture/problem`, and `GET /api/browser/status` lists the latest 20 as
+`problems: [{ts, message}]`. That covers a refused screenshot, Hunt unreachable, or an upload that
+failed. The capture screen should show the newest one, so a silent failure never passes for "nothing
+to capture".
 
-Facebook, Instagram, X and most TikTok players stream video through `blob:` / Media Source
-Extensions. Neither a page archive nor anything the extension may do can save those bytes, and the
-extension may not fetch from the platforms at all. What works:
+### Videos: what can and can't be saved
 
-1. **Frames as she watches (on by default).** A screenshot every 2 s while a video plays on screen.
-   The media scan (CLIP, then the vision model) works on frames, so "lifting at 0:16" is found the
-   same way.
-2. **Record video (on demand).** `chrome.tabCapture` records the tab exactly as she sees and hears
-   it, stopping at her click or after 10 minutes. This is the faithful copy for evidence.
-3. **Rejected: `chrome.debugger`** to pull the MSE segments. It shows a "being debugged" banner,
-   reads all network traffic, and needs a far broader permission.
-4. **Rejected: re-downloading the video URL.** It would make the extension talk to the platform, and
-   the signed CDN links are tied to her session.
+Facebook, Instagram, X and most TikTok players stream video through `blob:` URLs fed by Media Source
+Extensions: the page's own code fetches segments and appends them to the player.
 
-**Video posters** (the still shown before playing) do come through in the archive, and become the
-post's picture.
+**What the extension can't save:**
+- **The video file itself.** A page archive never contains it (`pageCapture` saves the document and
+  its cached images, not media streams).
+- **The segments.** Chrome gives extensions no way to read response bodies except `chrome.debugger`.
+- **Anything it would have to fetch.** It may not fetch from the platforms at all.
+
+**What works:**
+1. **Frames as she watches.** A screenshot every 2 s while a video plays on screen, once screenshots
+   are allowed (above). The media scan (CLIP, then the vision model) works on frames, so "lifting at
+   0:16" is found the same way. Frames are what she saw, at her pace; skipped parts are missing.
+2. **Record video (on demand, the faithful copy).** `chrome.tabCapture` records the tab exactly as
+   she sees and hears it, from her click to her stop (or 10 minutes). It needs her click each time
+   (Chrome's rule), and the tab must stay in front.
+3. **"Capture this" on a paused frame** gives one screenshot plus the archive, with the poster image.
+4. **Posters.** The still shown before playing comes through in the archive, and becomes the post's
+   picture.
+
+**Possible, not built: copying the segments the player appends.** A main-world content script could
+wrap `SourceBuffer.appendBuffer` to keep a copy of each segment as the player feeds it. That sends no
+request, and Hunt could join the video and audio tracks with ffmpeg. But it changes the page's own
+JavaScript, which the platform can detect. It also breaks on quality switches and encrypted
+streams. Decide it with the research's "never initiates a request" test in mind before building.
+
+**Rejected:**
+- **`chrome.debugger`** (pull the segments from the network log): a "being debugged" banner, every
+  request readable, and a far broader permission.
+- **Re-downloading the video URL:** it would make the extension talk to the platform, and the signed
+  CDN links are tied to her session.
+
+**Not verified live.** Frames and recording need her clicks (screenshot permission, Record), which
+QA couldn't give. The code paths are covered by `test_capture.py` and the manual test plan.
 
 ## Pairing and the security model
 
@@ -260,18 +335,37 @@ That's a one-line change I didn't make, because `serve()` isn't mine.
 
 ## Reading posts from captured pages
 
+The parsers are server-side (`hunt/extension.py`, and `hunt.facebook` for Facebook). They read the
+archive the extension sends, not the live DOM. Each turns a viewed post into
+`{url, posted_at, text, media: [local files], …}` for `posts.add_posts(..., origin="captured")`, so
+captured posts are scanned like fetched ones.
+
+**Chrome's page archives contain no `<script>` contents** (checked live). So the embedded JSON paths
+below never fire on Hunt Capture archives. They do fire on pages saved with Save Page As, which keeps
+scripts. On captures, times come from what the page shows, `<time>`, or a post id.
+
 | Platform | Anchors (no class names) | Gets |
 |---|---|---|
-| Facebook | `hunt.facebook.parse_saved` ([facebook.md](facebook.md)) | everything listed there |
-| Instagram | embedded API JSON (`code`, `taken_at`, `caption`, `user`, `location`, counts); `<article>` with `<time datetime>`, `/explore/locations/` links, `h1` or the longest `dir=auto` caption; profile grid links to `/p/` and `/reel/`, whose alt text carries "Photo by X on October 25, 2026" | URL, exact or day time, caption, author, account, user id, place, likes, comments, pictures |
-| TikTok | `__UNIVERSAL_DATA_FOR_REHYDRATION__` JSON (`id`, `desc`, `createTime`, `author`, `stats`, `poi`); profile tiles linking `/@user/video/<id>` (the id's high 32 bits are its posting time); video pages' `data-e2e` description and counts | URL, exact time, description, author, place, likes, comments, shares, cover |
-| X | `article[data-testid=tweet]`: `User-Name`, `<time datetime>` on the `/status/` link, `tweetText`, `tweetPhoto`, video posters, `reply`/`retweet`/`like` aria-labels, `socialContext` ("reposted"). The status id is a snowflake, so the time is there even without `<time>` | URL, exact time, text, author, pictures, counts, `reposted_by` |
-| LinkedIn | `data-urn="urn:li:activity:<id>"` (the id's top 41 bits are the posting time in ms), the actor's `/in/` link, the longest `dir=ltr` text, `aria-label` counts | URL, exact time, text, author, pictures, reactions, comments, reposts; "starting a new position…" as `life_event` (→ `other_job`) |
-| YouTube | none: uploads come from its RSS (`posts.collect`) | the screenshots and archive are still evidence |
+| Facebook | `hunt.facebook.parse_saved` ([facebook.md](facebook.md)) | everything listed there; on captures, times as displayed ("1h" → hour precision) |
+| Instagram | `<article>` with `<time datetime>`, `/explore/locations/` links, `h1` or the longest `dir=auto` caption; profile grid links to `/p/` and `/reel/`, whose alt text carries "Photo by X on October 25, 2026"; embedded API JSON on saved pages | URL, exact or day time, caption, author, account, user id, place, likes, comments, pictures, `alt` (Instagram's own image description, which `facebook.categories` maps to scan categories) |
+| TikTok | profile tiles linking `/@user/video/<id>` (the id's high 32 bits are its posting time); covers from `<picture><source srcset>` (what the browser actually loads), else `<img src>`; video pages' `data-e2e` description and counts; `__UNIVERSAL_DATA_FOR_REHYDRATION__` JSON on saved pages | URL, exact time, description, author, place, likes, comments, shares, cover |
+| X | **Signed in:** `article[data-testid=tweet]`, with `User-Name`, `<time datetime>` on the `/status/` link, `tweetText`, `tweetPhoto`, video posters, `reply`/`retweet`/`like` aria-labels, and `socialContext` ("reposted"). **Signed out**, a different markup: plain `<article>`, the text in `dir=auto`, counts in one `role=group` aria-label ("98 replies, 269 reposts, 1042 likes…"), pictures from `pbs.twimg.com/media/`. Either way the status id is a snowflake, so the time is exact without `<time>` | URL, exact time, text, author, pictures, counts, `reposted_by` |
+| LinkedIn | `data-urn="urn:li:activity:<id>"` (the id's top 41 bits are the posting time in ms), the actor's `/in/` link, the longest `dir=ltr` text, `aria-label` counts. For pages she saves by hand; Hunt Capture never records LinkedIn | URL, exact time, text, author, pictures, reactions, comments, reposts; "starting a new position…" as `life_event` (→ `other_job`) |
+| YouTube | none: uploads come from its RSS (`posts.collect`) | the archive is still evidence |
 
-**Tested on** `fixtures/capture/*.mhtml`. These are fictional pages in the format
-`chrome.pageCapture` writes, including posts known only from JSON, only from DOM, or only from an
-id. Facebook is covered by `fixtures/facebook/`.
+**Tested on** `fixtures/capture/`:
+- **Fictional pages** (`instagram_*`, `tiktok_*`, `x_profile`, `linkedin_activity`) in the format
+  `chrome.pageCapture` writes. They include posts known only from JSON, only from DOM, or only from
+  an id.
+- **Real markup** (`nasa_instagram`, `nasa_tiktok`, `nasa_x`, `nasa_facebook`). These are NASA's
+  public accounts as the Hunt Browser captured them signed out on 2026-10-29, trimmed to the post
+  elements the parsers read:
+  - sidebars and suggested accounts dropped
+  - Facebook's comment, which carried a private person's name, removed
+  - pictures re-encoded as 64 px thumbnails
+
+  They caught TikTok's `<picture>` covers and signed-out X's markup.
+- Facebook's fictional pages are in `fixtures/facebook/`.
 
 ## The guided checklist
 
@@ -323,6 +417,7 @@ Full shapes are in [api.md](api.md#hunt-capture).
 **For the web app (cookie Guard):**
 - `GET /api/browser/status`
 - `POST /api/browser/open`
+- `POST /api/browser/capture` (on or off, for a case)
 - `POST /api/browser/sign-out`
 - `GET`/`POST /api/pairing`
 - `POST /api/pairing/forget`
@@ -330,13 +425,24 @@ Full shapes are in [api.md](api.md#hunt-capture).
 - `GET /api/cases/{slug}/captures`
 
 **For the extension (key Guard):** POST
-`/api/capture/pair | hello | checklist | view | page | recording | signins`.
+`/api/capture/pair | hello | checklist | view | page | recording | signins | state | problem`.
 
 ## Hunt app screens (for the main session to build)
 
-**Browser capture**, in settings or the case header:
-- **Not paired:** "Hunt Capture records the pages you open on Facebook, Instagram, TikTok, X,
-  LinkedIn and YouTube into your case. Install it from the `extension` folder (chrome://extensions →
+**Capture switch**, in the case header and beside the checklist: **Start capturing** /
+**Stop capturing** → `POST /api/browser/capture {case, on}`.
+- Show "Recording into {case}" with a red dot while `GET /api/browser/status`'s `capture.on` is true.
+  The extension mirrors it on its next page load, and her popup toggles come back the same way.
+- If `browser.pinned` is false, add "Pin Hunt Capture to see its REC badge in the browser (puzzle
+  icon → pin)."
+- Show the newest `problems` entry under the switch, for example "No screenshot: click Hunt Capture
+  once in this tab…".
+- **Open** links in the checklist call `POST /api/browser/open {url, case}`, so each opens in the
+  Hunt Browser on her click.
+
+**Browser capture** (only for an everyday browser; the Hunt Browser pairs itself), in settings:
+- **Not paired:** "Hunt Capture records the pages you open on Facebook, Instagram, TikTok, X and
+  YouTube into your case (never LinkedIn). Install it from the `extension` folder (chrome://extensions →
   Developer mode → Load unpacked)."
   - Button: **Pair a browser** → `POST /api/pairing`.
   - Show the code large, with a **Copy** button and a 5-minute countdown. On expiry: "That code
@@ -348,8 +454,9 @@ Full shapes are in [api.md](api.md#hunt-capture).
 
 **Checklist**, on the person view and the posts step: `GET /api/cases/{slug}/checklist`.
 - One block per account: platform icon and handle.
-- Each section is a row with a tick or an empty circle, its label, and "Open" (a link,
-  `target=_blank rel=noopener`).
+- Each section is a row with a tick or an empty circle, its label, and "Open" (opens it in the Hunt
+  Browser through `/api/browser/open`).
+- For LinkedIn sections: "Save this page by hand; Hunt Capture doesn't record LinkedIn."
 - Seen rows show `seen_at` and link their evidence.
 - Unticked rows read as "not opened yet". The report's "What we couldn't see" shows the same.
 - Empty state: "Confirm the subject's accounts in Is it him? to see what to open."
@@ -359,7 +466,7 @@ is open.
 - Each row: time, platform, kind (screenshot, page, video frame, recording), the URL, and for pages
   "{posts} posts read, {added} new".
 - Thumbnail or evidence link from `file` (`/evidence/{slug}/{basename}`).
-- Empty state: "Nothing captured yet. Turn on capture in the Hunt Capture popup, then browse."
+- Empty state: "Nothing captured yet. Start capturing, then browse in the Hunt Browser."
 
 ## Safari
 
@@ -381,12 +488,78 @@ pattern too. Not built.
   until `serve()` remembers its port. The Hunt Browser doesn't have this problem.
 - **Only what was on screen and loaded.** Scroll to load more; open "See more" and comments before
   capturing.
-- **Screenshots are of the visible tab only.** A background tab is skipped; switching to it
-  captures it.
+- **Screenshots need her click** in each tab (`activeTab`), unless she allowed "Screenshots on every
+  view". Archives don't. And they're of the visible tab only: a background tab is skipped until she
+  switches to it.
+- **Pinning is hers.** Chrome lets no extension pin itself, so the REC badge shows only after she
+  pins Hunt Capture. Hunt can see whether she has (`browser.pinned`).
+- **Archives hold what the page had loaded,** and no scripts. Lazy-loaded pictures below the fold
+  aren't in them (17 of NASA's 31 TikTok covers were), and embedded JSON isn't either.
 - **Recording needs her click each time** (Chrome's rule for tab capture). The tab must stay in
   front.
 - **Parsers follow today's markup** and fail soft. When a platform changes, the archive and
   screenshot are still kept, even if fewer posts are read.
+
+## Live QA (2026-10-29)
+
+**Setup.**
+- A Hunt server run with `HUNT_HOME` in scratch, never the real `~/Hunt`. A QA case with NASA's
+  public accounts confirmed as "him", so the checklist had accounts.
+- The Hunt Browser opened through `POST /api/browser/open`, on this Mac (macOS, Apple silicon).
+- Signed out throughout; no account was ever signed in to.
+- Capture turned on with `POST /api/browser/capture`, as Hunt's switch would, because the popup needs
+  a person's click.
+- QA could watch the window (read-only screen access) but not click or scroll it, as intended:
+  nothing but a person drives the Hunt Browser.
+
+**What was confirmed:**
+- **The browser.** Chrome for Testing 156.0.8078.4 starts as a plain process with only the documented
+  arguments. It has no listening TCP port (`lsof`), so no remote debugging.
+- **The notice.** Google's "Chrome for Testing … is only for automated testing" bar shows under the
+  address bar.
+- **Branded Chrome.** This Mac's Google Chrome 154.0.8037.98 ignores `--load-extension`, tested
+  headless with `scripts/browser_e2e.py`.
+- **Pairing.** The extension loads under the expected id and pairs itself. Sign-in states arrive:
+  every platform `signed_out`, correctly, since nobody signed in.
+- **Pinning.** The extension isn't pinned by default (`pinned: false`), so the REC badge isn't visible
+  until she pins it.
+- **Archives.** Each one lands as hashed evidence with the page's `url` and `viewed_at`. All 23
+  evidence files re-hash to their names (`Case.verify`).
+- **Checklist.** Posts ticked for every visited profile. LinkedIn was reported as "not recorded".
+
+**What a signed-out visitor's capture got:**
+
+| Account | Archive | Posts read | Notes |
+|---|---|---|---|
+| Instagram @nasa | 3 MB | 12 | Grid tiles: URL, day-precision date from the alt text, picture. No captions (signed-out grids have none) |
+| TikTok @nasa | yes | 31 | Exact times from the video ids, captions from the alt text; 17 covers, the rest never loaded |
+| X @NASA | yes | 5 | After the 6 s retry. Exact times (snowflake ids), text, reply/repost/like counts, 2 pictures |
+| Facebook NASA | yes | 1 | Behind the login modal: one post, with text, picture, reaction count and "1h" time |
+| YouTube @NASA | yes | 0 | By design: no parser; uploads come from RSS |
+| LinkedIn NASA | none | — | Correct: Hunt Capture never records LinkedIn |
+
+**What broke, and was fixed:**
+1. **Chrome kept running the old service worker** after the extension's code changed, even with a
+   version bump. Hunt now names the copy's worker after its code (see the Hunt Browser section).
+2. **Screenshots need `activeTab` or `<all_urls>`.** Host permissions aren't enough, and a refused
+   screenshot also blocked the archive. Now the archive is always taken, screenshots follow her click
+   or her opt-in, and the reason reaches Hunt.
+3. **Errors were silent.** Now they reach Hunt (`problems` in the status).
+4. **TikTok covers were missing:** the browser loads `<picture><source srcset>`, not the `<img>`.
+5. **Signed-out X uses different markup,** and draws its timeline after the page's "complete"
+   event. The parser now reads both markups, and an archive with no posts is retried once.
+6. **Facebook was archived twice** for one visit. The same page is now archived again only after she
+   scrolls.
+7. **The REC badge was invisible unpinned.** Pinning is now reported, so Hunt can prompt.
+8. **Category reasons said "Facebook"** for Instagram and LinkedIn tags. They now name the post's
+   platform.
+
+**Not verifiable by QA, by design** (each needs her click; see the manual test plan):
+- the popup itself
+- screenshots under `activeTab` or the opt-in
+- frame screenshots while a video plays
+- Record video
+- signing in, and a real session's sign-in status
 
 ## Manual test plan
 
@@ -396,34 +569,41 @@ Use test accounts you own, or public organisation pages, never a private person.
 1. **Start and look.** Start `uv run hunt app`. `GET /api/browser/status`, or the startup check
    screen, shows every platform `unknown` and the browser `available` with its version.
 2. **Sign in.** `POST /api/browser/open {url: "https://www.facebook.com/login/"}`.
-   - Google Chrome for Testing opens a window with no automation infobar.
+   - Google Chrome for Testing opens with Google's testing notice under the address bar.
    - The first time, macOS asks about "Google Chrome for Testing Safe Storage": choose Always Allow.
-   - The toolbar shows Hunt Capture with no badge.
    - Sign in to a test account. Within a few seconds the status shows `facebook: signed_in`.
-3. **Logins persist.** Quit the Hunt Browser and open it again with `/api/browser/open`. You're still
+3. **Pin.** Click the puzzle icon, then pin Hunt Capture. The status shows `browser.pinned: true` at
+   the next report (open the popup to send one).
+4. **Logins persist.** Quit the Hunt Browser and open it again with `/api/browser/open`. You're still
    signed in, and capture is off.
-4. **Capture.** Create a case and confirm the test account as "him". Open its profile from Hunt
-   (`/api/browser/open {url, case}`).
-   - The popup preselects the case. **Start capturing**: the badge shows REC.
-   - Wait 3 s, then scroll a screen and stop. In Hunt's capture feed a screenshot and a page appear,
-     and the checklist ticks Posts.
-5. **Sections and other sites.** Open the Photos tab: Photos ticks. Open example.com: nothing is
-   captured.
-6. **Video.** Play a video for 10 s: about 5 video-frame screenshots arrive. Then **Record video**,
-   play 15 s, and **Stop recording**: a recording arrives, and plays in Hunt with sound.
-7. **Manual mode.** Switch to **Only when I press Capture this**. Scrolling now records nothing;
-   Alt+Shift+H records one screenshot and one page.
-8. **Off.** **Stop capturing**: the badge clears. Quit and reopen the browser: capture is off.
-9. **Hunt restarts.** Restart `hunt app` while the Hunt Browser stays open, and load the startup
-   check. The next capture still arrives, because the browser was re-pointed at the new port.
-10. **Sign out.** Sign out of Facebook inside the Hunt Browser: the status turns `signed_out`.
+5. **Capture from Hunt.** Create a case and confirm the test account as "him".
+   `POST /api/browser/capture {case, on: true}`, then open the profile with
+   `/api/browser/open {url, case}`.
+   - The badge shows REC.
+   - Within about 10 s the capture feed shows a page, with posts read, and the checklist ticks Posts.
+   - Without a screenshot, `problems` says "No screenshot: click Hunt Capture once in this tab…".
+6. **Screenshots.** Click Hunt Capture's icon on that tab, then scroll a screen and stop: a
+   screenshot arrives. Or tick "Screenshots on every view" in the popup and accept Chrome's prompt:
+   screenshots then arrive on every settled view, in every tab.
+7. **From the popup.** Stop capturing in the popup: Hunt's status shows `capture.on: false`. Start
+   it again in Hunt: the badge returns at the next page load.
+8. **Sections and other sites.** Open the Photos tab: Photos ticks. Open example.com: nothing is
+   captured. Open a LinkedIn page: nothing is captured, and the popup says LinkedIn is never
+   recorded.
+9. **Video.** With screenshots allowed, play a video for 10 s: about 5 video-frame screenshots
+   arrive. Then **Record video**, play 15 s, and **Stop recording**: a recording arrives, and plays in
+   Hunt with sound.
+10. **Manual mode.** Switch to **Only when I press Capture this**. Scrolling now records nothing;
+    Alt+Shift+H records one screenshot and one page.
+11. **Hunt restarts.** Restart `hunt app` while the Hunt Browser stays open, and load the startup
+    check. The next capture still arrives, because the browser was re-pointed at the new port.
+12. **Hunt updates.** Change anything in `extension/` (or upgrade Hunt), quit the Hunt Browser, and
+    reopen it from Hunt. The new code runs: check the popup, or a `problems` message.
+13. **Sign out.** Sign out of Facebook inside the Hunt Browser: the status turns `signed_out`.
     `POST /api/browser/sign-out` while it's open returns 409. Quit it and retry: the profile is in
     the Trash, and every platform reads `unknown`.
-11. **Scan.** Run a scan in Hunt. Captured posts' pictures and frames are scanned, and
+14. **Scan.** Run a scan in Hunt. Captured posts' pictures and frames are scanned, and
     `counts.captured` counts them.
-12. **Traffic.** In DevTools for the extension's service worker, Network shows requests only to
+15. **Traffic.** In DevTools for the extension's service worker, Network shows requests only to
     `127.0.0.1:<port>` and the extension's own `pairing.json`. Throughout, nothing moved the page,
     opened a tab or clicked by itself.
-13. **Everyday browser (optional).** Load `extension/` unpacked in Chrome, Edge or Brave, and pair it
-    with the code from Hunt's *Browser capture*. The same capture steps work. The Hunt Browser takes
-    the pairing back the next time it's opened.

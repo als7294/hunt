@@ -1,7 +1,7 @@
 // Hunt Capture's service worker (docs/capture.md).
 //
-// While capture is on, it records the pages you open yourself on Facebook, Instagram, TikTok, X, LinkedIn
-// and YouTube: a screenshot of what's on screen when a view settles, and an MHTML archive of the page
+// While capture is on, it records the pages you open yourself on Facebook, Instagram, TikTok, X and YouTube
+// (never LinkedIn, whose terms name browser plugins): a screenshot of what's on screen when a view settles, and an MHTML archive of the page
 // (chrome.pageCapture: the page and the pictures your browser already loaded). Everything goes only to
 // Hunt on this computer (127.0.0.1; the extension's CSP allows nothing else). It never navigates, clicks,
 // scrolls, types, searches, likes, follows or messages, and has no code that could.
@@ -10,11 +10,12 @@
 // platforms you're signed in to: from whether each sign-in cookie exists. It never reads, keeps or sends a
 // cookie's value.
 
-const SITE = /^https:\/\/([a-z0-9-]+\.)*(facebook|instagram|tiktok|x|twitter|linkedin|youtube)\.com\//i;
+const SITE = /^https:\/\/([a-z0-9-]+\.)*(facebook|instagram|tiktok|x|twitter|youtube)\.com\//i;  // never LinkedIn
 const SHOT_GAP = 2500;   // ms between automatic screenshots of one tab (Chrome allows 2 a second)
 const FRAME_GAP = 2000;  // ms between screenshots while a video plays
 const MAX_FRAMES = 90;   // per page, so a long video doesn't flood the case
 const PAGE_GAP = 20000;  // ms before the same page is archived again
+const RETRY_MS = 6000;   // a page that gave no posts is archived once more after this, for apps that draw late
 const CODE = /^(\d{2,5})-(\d{8})$/;
 const SIGN_IN = {  // platform → [site, the cookie that exists only while signed in]
   facebook: ["https://www.facebook.com/", "c_user"],
@@ -47,9 +48,9 @@ async function call(path, body, again) {
       headers: { ...(s.key ? { "x-hunt-key": s.key } : {}), ...(json ? { "content-type": "application/json" } : {}) },
       body: json ? JSON.stringify(body || {}) : body,
     });
-  } catch {
+  } catch (error) {
     if (again && await autopair()) return call(path, body, false);  // Hunt restarted on a new port
-    throw new Error("Hunt isn't reachable. Is `hunt app` running? If it restarted, pair again with its new code.");
+    throw new Error(`Hunt isn't reachable (${error.message}). Is \`hunt app\` running? If it restarted, pair again with its new code.`);
   }
   if (r.status === 403 && again && await autopair()) return call(path, body, false);  // Hunt issued a new key
   const data = await r.json().catch(() => ({}));
@@ -89,8 +90,19 @@ function reportSignIns(wait = 2000) {
   clearTimeout(signInTimer);
   signInTimer = setTimeout(async () => {
     const s = await get();
-    if (s.key || s.port) await api("signins", await signIns()).catch(problem);
+    const { isOnToolbar } = await chrome.action.getUserSettings();  // the REC badge only shows when pinned
+    if (s.key || s.port) await api("signins", { ...(await signIns()), pinned: isOnToolbar }).catch(problem);
   }, wait);
+}
+
+// Capture can be turned on or off from Hunt's own screens too: follow Hunt's state.
+async function follow() {
+  const { capture } = await api("hello");
+  const s = await get();
+  if (capture && (capture.on !== s.on || (capture.case && capture.case !== s.case))) {
+    await set({ on: capture.on, ...(capture.case ? { case: capture.case, caseLabel: capture.label || capture.case } : {}) });
+    await badge();
+  }
 }
 
 async function badge() {
@@ -105,7 +117,9 @@ async function badge() {
 
 async function problem(error) {
   console.warn("Hunt Capture:", error);
-  await chrome.storage.session.set({ lastError: `${new Date().toLocaleTimeString()}: ${error.message || error}` });
+  const message = String(error && error.message || error).slice(0, 300);
+  await chrome.storage.session.set({ lastError: `${new Date().toLocaleTimeString()}: ${message}` });
+  call("problem", { message }, false).catch(() => {});  // so Hunt can show that capture is failing, and why
 }
 
 function blobOf(dataUrl) {  // a data: URL → Blob, without fetch (the CSP allows only 127.0.0.1)
@@ -140,12 +154,20 @@ async function archive(tab, force) {
   const s = await get();
   const t = (tabs[tab.id] ||= { shot: 0, page: 0, url: "", frames: 0, busy: false });
   const now = Date.now();
-  if (t.busy || (!force && t.url === tab.url && now - t.page < PAGE_GAP)) return null;
+  // the same page again only after you scrolled (new posts loaded) and PAGE_GAP passed; a new page at once
+  if (t.busy || (!force && t.url === tab.url && (!t.scrolled || now - t.page < PAGE_GAP))) return null;
   t.busy = true;
   try {
     const mhtml = await chrome.pageCapture.saveAsMHTML({ tabId: tab.id });
     const done = await api("page", form(s, tab, now, { archive: [mhtml, "page.mhtml"] }));
-    Object.assign(t, { page: now, url: tab.url });
+    Object.assign(t, { page: now, url: tab.url, scrolled: false });
+    if (done.posts === 0 && t.retried !== tab.url) {  // an app still drawing its posts (X, live QA): archive once more
+      t.retried = tab.url;
+      setTimeout(async () => {
+        const again = await chrome.tabs.get(tab.id).catch(() => null);
+        if (again && again.url === tab.url && (await get()).on) archive(again, true).catch(problem);
+      }, RETRY_MS);
+    }
     return done;
   } finally {
     t.busy = false;
@@ -153,12 +175,24 @@ async function archive(tab, force) {
 }
 
 // A meaningful view of a page you opened: a screenshot, and the page's archive when it's new to Hunt.
+// Screenshots need Chrome's activeTab grant (your click on Hunt Capture, or Alt+Shift+H, in that tab) unless you
+// allowed "Screenshots on every view" in the popup; the archive needs neither, so it's taken either way.
+const warned = new Set();  // tabs already told about the missing screenshot permission
 async function view(tabId, kind) {
   const s = await get();
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!s.on || !s.case || !tab || !tab.active || !SITE.test(tab.url || "")) return null;
   if (s.mode === "manual" && kind !== "manual") return null;
-  await shot(tab, kind);
+  try {
+    await shot(tab, kind);
+  } catch (error) {
+    if (!/activeTab|all_urls/.test(error.message)) throw error;
+    if (kind === "frame") return null;
+    if (!warned.has(tabId)) {
+      warned.add(tabId);
+      await problem(new Error("No screenshot: click Hunt Capture once in this tab (or allow screenshots on every view in its popup). The page archive is still saved."));
+    }
+  }
   return kind === "frame" ? null : archive(tab, kind === "manual");
 }
 
@@ -196,9 +230,11 @@ async function handle(msg) {
       return s.case ? api("checklist", { case: s.case }) : { accounts: [] };
     case "case":
       await set({ case: msg.slug, caseLabel: msg.label, on: s.on && msg.slug === s.case });
+      await api("state", { case: msg.slug, on: s.on && msg.slug === s.case }).catch(problem);  // keep Hunt in step
       return badge();
     case "toggle":
       await set({ on: Boolean(msg.on) && Boolean(s.case) });
+      await api("state", { case: s.case, on: Boolean(msg.on) && Boolean(s.case) }).catch(problem);
       if (msg.on) soon((await activeTab())?.id, "view", 200);
       return badge();
     case "mode":
@@ -256,11 +292,15 @@ chrome.runtime.onInstalled.addListener(async () => {
   await badge();
   reportSignIns(0);
 });
+// Also whenever this worker starts: when Hunt replaces the worker with new code, neither event above fires.
+autopair().then(badge).then(() => reportSignIns(), problem);
 const WATCHED = new Set(Object.values(SIGN_IN).map(([, name]) => name));
 chrome.cookies.onChanged.addListener(({ cookie }) => { if (WATCHED.has(cookie.name)) reportSignIns(); });
 
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
-  if ((info.status === "complete" || info.url) && SITE.test(tab.url || "")) soon(tabId, "view", 2000);
+  if ((info.status === "complete" || info.url) && SITE.test(tab.url || "")) {
+    follow().catch(() => {}).finally(() => soon(tabId, "view", 2000));
+  }
 });
 chrome.tabs.onActivated.addListener(({ tabId }) => soon(tabId, "view", 1000));
 
@@ -272,7 +312,10 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (sender.id !== chrome.runtime.id || msg.target === "offscreen") return false;
   if (sender.tab) {  // a content script: it may only ask whether capture is on, or report a view
     if (msg.type === "on?") { get().then((s) => reply({ on: s.on })); return true; }
-    if (msg.type === "settled") soon(sender.tab.id, "view", 300);
+    if (msg.type === "settled") {
+      (tabs[sender.tab.id] ||= { shot: 0, page: 0, url: "", frames: 0, busy: false }).scrolled = true;
+      soon(sender.tab.id, "view", 300);
+    }
     if (msg.type === "frame") view(sender.tab.id, "frame").catch(problem);
     return false;
   }

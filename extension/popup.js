@@ -43,6 +43,7 @@ async function render() {
   $("capture").disabled = $("record").disabled = !s.on;
   $("record").textContent = s.recording ? "Stop recording" : "Record video";
   for (const r of document.querySelectorAll("input[name=mode]")) r.checked = r.value === s.mode;
+  $("everyview").checked = await chrome.permissions.contains({ origins: ["<all_urls>"] });
   await renderChecklist();
 }
 
@@ -113,6 +114,11 @@ $("record").addEventListener("click", async () => {
     }
     await render();
   } catch (err) { showError(err); }
+});
+
+$("everyview").addEventListener("change", async (e) => {  // Chrome asks her; nothing is granted without that prompt
+  const origins = { origins: ["<all_urls>"] };
+  e.target.checked = e.target.checked ? await chrome.permissions.request(origins) : !(await chrome.permissions.remove(origins));
 });
 
 $("unpair").addEventListener("click", async () => {

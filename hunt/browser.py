@@ -41,6 +41,10 @@ BINARIES = ("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Test
             "chrome", "chrome.exe")
 _proc: subprocess.Popen | None = None
 _active: str | None = None  # the case the browser was last opened for; the extension preselects it
+# Capture on or off, and into which case: set from Hunt's screens or the extension's popup, mirrored by the other.
+# In memory, so capture is off whenever Hunt starts.
+_capture: dict = {"case": None, "on": False, "since": None}
+_problems: list[dict] = []  # the extension's latest errors, newest last, so Hunt can say capture is failing
 
 
 def chromium() -> Path | None:
@@ -78,6 +82,7 @@ def prepare(port: int) -> Path:
     if not running():
         shutil.rmtree(EXTENSION_DIR, ignore_errors=True)
         shutil.copytree(SOURCE, EXTENSION_DIR)
+        _stamp(EXTENSION_DIR)
     pairing, origin = EXTENSION_DIR / "pairing.json", f"chrome-extension://{extension_id()}"
     try:
         key = json.loads(pairing.read_text())["key"]
@@ -89,6 +94,24 @@ def prepare(port: int) -> Path:
     with os.fdopen(fd, "w") as f:
         json.dump({"port": port, "key": key, "hunt_browser": True}, f)
     return EXTENSION_DIR
+
+
+def _stamp(folder: Path) -> None:
+    """Name the copy's service worker after its code, and give it a matching version. For an extension loaded
+    with --load-extension, Chrome keeps running the worker script it cached on that profile, even after a version
+    bump; only a new script name makes it load the new code (tested on Chrome for Testing 156, 2026-10-29)."""
+    digest = hashlib.sha256()
+    for f in sorted(SOURCE.rglob("*")):
+        if f.is_file():
+            digest.update(f.relative_to(SOURCE).as_posix().encode() + b"\0" + f.read_bytes())
+    code = digest.hexdigest()
+    manifest = json.loads((folder / "manifest.json").read_text())
+    worker = f"background-{code[:12]}.js"
+    (folder / manifest["background"]["service_worker"]).rename(folder / worker)
+    manifest["background"]["service_worker"] = worker
+    base = ".".join(manifest["version"].split(".")[:3])
+    manifest["version"] = f"{base}.{int(code, 16) % 65535 + 1}"  # Chrome: up to 4 parts, each ≤ 65535
+    (folder / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
 
 
 def repoint(port: int) -> None:
@@ -131,11 +154,31 @@ def active_case() -> str | None:
     return _active
 
 
+def capture() -> dict:
+    return dict(_capture)
+
+
+def set_capture(case: str | None, on: bool) -> dict:
+    """Turn capture on (into `case`) or off. Off without a case."""
+    global _active
+    on = bool(on) and bool(case)
+    _capture.update(case=case or _capture["case"], on=on, since=now())
+    _active = _capture["case"] or _active
+    return capture()
+
+
+def problem(message: str) -> None:
+    _problems.append({"ts": now(), "message": str(message)[:300]})
+    del _problems[:-20]
+
+
 def record(signins: dict) -> dict:
     """The extension's report: for each platform, does its sign-in cookie exist. States only, never cookie values."""
     clean = {p: signins[p] for p in PLATFORMS if signins.get(p) in STATES}
     if not clean:
         raise ValueError(f"expected {{platform: {'|'.join(STATES)}}} for {', '.join(PLATFORMS)}")
+    if isinstance(signins.get("pinned"), bool):  # is Hunt Capture on the toolbar, where its REC badge shows
+        clean["pinned"] = signins["pinned"]
     ROOT.mkdir(parents=True, exist_ok=True)
     tmp = STATUS.with_suffix(".part")
     tmp.write_text(json.dumps(clean | {"checked_at": now()}))
@@ -144,15 +187,18 @@ def record(signins: dict) -> dict:
 
 
 def status() -> dict:
-    """{facebook…x: signed_in|signed_out|unknown, checked_at, browser: {available, running, version, profile},
-    logins: [{platform, label, url}]} for the onboarding and startup screens."""
+    """{facebook…x: signed_in|signed_out|unknown, checked_at, browser: {available, running, version, profile, pinned},
+    capture: {case, on, since}, problems: [{ts, message}], logins: [{platform, label, url}]} for the onboarding and
+    startup screens."""
     try:
         saved = json.loads(STATUS.read_text())
     except (OSError, ValueError):
         saved = {}
     exe = chromium()
     return ({p: saved.get(p, "unknown") for p in PLATFORMS} | {"checked_at": saved.get("checked_at")}
-            | {"browser": {"available": bool(exe), "running": running(), "version": _version(exe), "profile": PROFILE.exists()},
+            | {"browser": {"available": bool(exe), "running": running(), "version": _version(exe), "profile": PROFILE.exists(),
+                           "pinned": saved.get("pinned")},
+               "capture": capture(), "problems": list(_problems),
                "logins": [{"platform": p, "label": label, "url": url} for p, (label, url) in PLATFORMS.items()]})
 
 

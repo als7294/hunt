@@ -890,14 +890,15 @@ PLACES = {  # folded check-in place names
 
 
 def categories(post: dict) -> list[tuple[str, str]]:
-    """[(scan category key, why)] that a post's own Facebook tags point to: its feeling/activity tag,
-    life event and check-in. The scan's keyword pass already reads the post text, so text isn't used."""
+    """[(scan category key, why)] that a post's own tags point to: its feeling/activity tag, life event and check-in,
+    and Instagram's automatic image description ("May be an image of 1 person, lifting weights and gym"). The scan's
+    keyword pass already reads the post text, so text isn't used."""
     out = {}
     for field, label, table in (("activity", "feeling/activity", WORDS), ("life_event", "life event", WORDS),
-                                ("place", "check-in", PLACES)):
+                                ("place", "check-in", PLACES), ("alt", "image description", WORDS)):
         if value := post.get(field):
             folded = _fold(value)
             for key, rx in table.items():
                 if key not in out and rx.search(folded):
-                    out[key] = f'Facebook {label}: "{value}"'
+                    out[key] = f'{post.get("source") or "Facebook"} {label}: "{value}"'
     return list(out.items())

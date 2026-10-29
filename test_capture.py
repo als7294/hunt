@@ -78,8 +78,32 @@ assert job["posted_at"] == "2026-09-15T09:30:00+00:00"  # from the activity id
 assert job["life_event"].startswith("I'm happy to share that I'm starting a new position as Crew Lead")
 assert (job["reactions"], job["comments"], job["shares"], len(job["media"])) == (112, 14, 2, 1)  # not the 48px avatar
 assert bank["text"].startswith("Weekend volunteering") and bank["posted_at"] == "2026-08-03T17:05:30+00:00"
-assert ("other_job", f'Facebook life event: "{job["life_event"]}"') in __import__("hunt.facebook").facebook.categories(job)
+assert ("other_job", f'LinkedIn life event: "{job["life_event"]}"') in __import__("hunt.facebook").facebook.categories(job)
 assert ext.parse("YouTube", FIX / "x_profile.mhtml") == []  # YouTube uploads come from its RSS feed
+
+# --- Real markup: NASA's public accounts captured signed out by the Hunt Browser on 2026-10-29, trimmed to the
+# post elements (comments and sidebars removed, pictures as thumbnails). Each caught a bug the fictional pages didn't.
+live = {plat: parsed(plat, f"nasa_{plat.lower()}.mhtml") for plat in ("Instagram", "TikTok", "X", "Facebook")}
+ig = live["Instagram"]  # signed out: grid tiles only, no captions; the alt text carries the date
+assert len(ig) == 12 and all(p["url"].startswith(("https://www.instagram.com/p/", "https://www.instagram.com/reel/")) for p in ig)
+assert all(p["posted_at_precision"] == "day" and p["media"] and p["account_url"] == "https://www.instagram.com/nasa/" for p in ig)
+assert ig[0]["alt"].startswith("Video by NASA on October 10, 2026") and not any(p["text"] for p in ig)
+tt = live["TikTok"]  # covers come from <picture><source srcset>, not the <img src> fallback
+assert len(tt) == 31 and all(p["posted_at_precision"] == "second" and p["text"] for p in tt)
+assert sum(bool(p["media"]) for p in tt) == 17  # the rest were below the fold, never loaded, so never archived
+assert tt[0]["url"] == "https://www.tiktok.com/@nasa/video/7665075736742530317" and tt[0]["posted_at"] == "2026-07-21T20:08:37+00:00"
+xs = live["X"]  # signed out: no data-testid, no <time>; the snowflake id and one role=group aria-label instead
+assert len(xs) == 5 and xs[0]["url"] == "https://x.com/NASA/status/2115900247230537920"
+assert xs[0]["posted_at"].startswith("2026-10-29T20:15:05") and (xs[0]["comments"], xs[0]["shares"], xs[0]["reactions"]) == (98, 269, 1042)
+assert xs[0]["text"].startswith("Your name could fly on Saturn’s largest moon.") and xs[0]["author"] == "NASA"
+assert [bool(p["media"]) for p in xs] == [True, False, True, False, False]  # media images, never the avatar
+[fbp] = live["Facebook"]  # behind the login modal: one post, its time as displayed ("1h"); no embedded JSON in MHTML
+assert fbp["text"].startswith("Welcome to the Artemis Accords, Vietnam") and fbp["reactions"] == 859 and len(fbp["media"]) == 1
+assert (fbp["posted_at_precision"], fbp["author"]) == ("hour", "NASA - National Aeronautics and Space Administration")
+assert "<script" not in (FIX / "nasa_facebook.mhtml").read_text(errors="replace")  # pageCapture drops scripts
+assert "Gligic" not in (FIX / "nasa_facebook.mhtml").read_text(errors="replace")  # a private commenter: removed
+assert __import__("hunt.facebook").facebook.categories({"source": "Instagram", "alt": "May be an image of 1 person, "
+                                                        "lifting weights and gym"})[0][1].startswith("Instagram image description")
 
 # --- Where a page is, and the checklist's sections ------------------------------------------------
 assert ext.platform("https://m.facebook.com/x") == "Facebook" and ext.platform("http://x.com/a") is None
@@ -160,6 +184,7 @@ r = view("https://www.facebook.com/dorian.vell/photos")
 assert r.status_code == 200 and r.json()["post"], r.text
 assert view("https://www.facebook.com/dorian.vell/photos").json()["post"] is None  # the same screenshot: nothing new
 assert view("https://example.com/").status_code == 400
+assert view("https://www.linkedin.com/in/dorian-vell/").status_code == 403  # never recorded: its terms name plugins
 assert view("https://www.facebook.com/x", case_slug="nope").status_code == 404
 assert view("https://www.facebook.com/x", data=b"<svg onload=alert(1)>").status_code == 415
 assert c.post("/api/capture/view", data={"case": slug, "url": "https://x.com/a"}, files={"screenshot": ("s.jpg", shot, "image/jpeg")},
@@ -202,8 +227,9 @@ assert c.get(f"/api/cases/{slug}/checklist").json() == {"accounts": []}  # nothi
 case.decide("https://www.facebook.com/dorian.vell", "him")
 case.decide("https://x.com/dvell", "him")
 case.decide("https://www.instagram.com/someone.else/", "not him")
+case.decide("https://www.linkedin.com/in/dorian-vell/", "him")
 accounts = {a["platform"]: a for a in c.get(f"/api/cases/{slug}/checklist").json()["accounts"]}
-assert set(accounts) == {"Facebook", "X"}
+assert set(accounts) == {"Facebook", "X", "LinkedIn"}
 seen = {s["key"]: s["seen"] for s in accounts["Facebook"]["sections"]}
 assert seen == {"posts": True, "photos": True, "tagged": False, "videos": False, "reels": False, "checkins": False,
                 "about": False, "friends": False}
@@ -215,14 +241,16 @@ assert c.post("/api/capture/checklist", content=json.dumps({"case": "nope"}), he
 assert ext.couldnt_see(case) == [
     "Facebook dorian.vell: tagged photos, videos, reels, check-ins, about and public friends were not opened while "
     "Hunt Capture was recording",
-    "X dvell: replies, media, followers and following were not opened while Hunt Capture was recording"]
+    "X dvell: replies, media, followers and following were not opened while Hunt Capture was recording",
+    "LinkedIn dorian-vell: not recorded (Hunt Capture is off on LinkedIn; pages saved by hand aren't tracked here)"]
 
 # --- The Hunt Browser: launched observe-only, paired by Hunt, sign-in states only ---------------------
 assert browser.extension_id() == "ohkkgdkpojhdjabmfgbkjffmaaacpogh"  # what Chrome for Testing 156 assigned (checked live)
 st = c.get("/api/browser/status").json()
 assert {k: st[k] for k in browser.PLATFORMS} == dict.fromkeys(browser.PLATFORMS, "unknown") and st["checked_at"] is None
 assert [l["platform"] for l in st["logins"]] == ["facebook", "instagram", "tiktok", "linkedin", "x"]
-assert all(l["url"].startswith("https://") for l in st["logins"]) and set(st["browser"]) == {"available", "running", "version", "profile"}
+assert all(l["url"].startswith("https://") for l in st["logins"]) and set(st["browser"]) == {"available", "running", "version", "profile", "pinned"}
+assert st["capture"] == {"case": None, "on": False, "since": None}  # off whenever Hunt starts
 launched = []
 browser.chromium = lambda: Path("/Applications/Fake Browser.app/Contents/MacOS/Fake Browser")
 browser.subprocess.Popen = lambda args, **kw: launched.append((args, kw)) or type("P", (), {"poll": lambda self: None})()
@@ -236,7 +264,13 @@ assert not any(re.search(r"remote-debugging|automation|headless|disable-blink|us
 pairing = json.loads((browser.EXTENSION_DIR / "pairing.json").read_text())
 assert pairing["port"] == PORT and ext.holds(f"chrome-extension://{browser.extension_id()}", pairing["key"])
 assert oct((browser.EXTENSION_DIR / "pairing.json").stat().st_mode)[-3:] == "600"
-assert (browser.EXTENSION_DIR / "manifest.json").read_text() == (HERE / "extension" / "manifest.json").read_text()
+copied, source = (json.loads((d / "manifest.json").read_text()) for d in (browser.EXTENSION_DIR, HERE / "extension"))
+worker = copied["background"]["service_worker"]  # named after its code, so Chrome loads new code, not its cached worker
+assert re.fullmatch(r"background-[0-9a-f]{12}\.js", worker) and not (browser.EXTENSION_DIR / "background.js").exists()
+assert (browser.EXTENSION_DIR / worker).read_text() == (HERE / "extension" / "background.js").read_text()
+assert copied | {"version": source["version"], "background": source["background"]} == source
+assert re.fullmatch(rf"{re.escape(source['version'])}\.\d+", copied["version"])
+assert all(0 <= int(n) <= 65535 for n in copied["version"].split("."))  # a new version per code change: Chrome re-reads it
 assert c.get("/api/pairing").json()["name"] == "Hunt Browser"  # it took the pairing; the old key is void
 assert c.post("/api/capture/hello", content="{}", headers=KEYED).status_code == 403
 HB = {"origin": f"chrome-extension://{browser.extension_id()}", "content-type": "application/json", "x-hunt-key": pairing["key"]}
@@ -252,9 +286,20 @@ assert c.post("/api/browser/open", content=json.dumps({"url": "https://x.com/", 
 assert bare.post("/api/browser/open", content=json.dumps({"url": "https://x.com/"}), headers={**HB}).status_code == 403  # web only
 browser.chromium = lambda: None
 assert c.post("/api/browser/open", content=json.dumps({"url": "https://x.com/"}), headers=OPEN).status_code == 503
+# capture on and off: from Hunt's screens or from the popup, each mirrored to the other through hello
+cap = lambda body, h=OPEN, path="/api/browser/capture": c.post(path, content=json.dumps(body), headers=h)
+assert cap({"on": True}).status_code == 400 and cap({"case": "nope", "on": True}).status_code == 404
+assert cap({"case": slug, "on": True}).json()["on"] is True
+assert c.post("/api/capture/hello", content="{}", headers=HB).json()["capture"] | {"since": None} == \
+    {"case": slug, "on": True, "since": None, "label": "capture test"}
+assert cap({"case": slug, "on": False}, HB, "/api/capture/state").json() == c.get("/api/browser/status").json()["capture"]
+assert c.get("/api/browser/status").json()["capture"]["on"] is False
+assert c.post("/api/capture/hello", content="{}", headers=HB).json()["off_sites"] == ["LinkedIn"]
+assert bare.post("/api/browser/capture", content=json.dumps({"case": slug, "on": True}), headers=HB).status_code == 403
 # sign-in states: presence only; anything that isn't a state (a cookie value, say) is refused
 signin = lambda body, h=HB: c.post("/api/capture/signins", content=json.dumps(body), headers=h)
-assert signin({"facebook": "signed_in", "x": "signed_out", "myspace": "signed_in"}).status_code == 200
+assert signin({"facebook": "signed_in", "x": "signed_out", "myspace": "signed_in", "pinned": True}).status_code == 200
+assert c.get("/api/browser/status").json()["browser"]["pinned"] is True
 st = c.get("/api/browser/status").json()
 assert (st["facebook"], st["x"], st["instagram"]) == ("signed_in", "signed_out", "unknown") and st["checked_at"]
 assert "myspace" not in json.loads(browser.STATUS.read_text())
@@ -292,8 +337,12 @@ for name, js in code.items():
         assert target.startswith(("http://127.0.0.1:", 'chrome.runtime.getURL("pairing.json"')), (name, target)
 assert "fetch(" not in code["content.js"] and "chrome.storage" not in code["content.js"]
 manifest = json.loads((HERE / "extension" / "manifest.json").read_text())
+assert "linkedin" not in re.search(r"const SITE = (.*)", code["background.js"])[1]  # never recorded
+assert not any("linkedin" in m for c in manifest["content_scripts"] for m in c["matches"])
 assert manifest["content_security_policy"]["extension_pages"].endswith("connect-src 'self' http://127.0.0.1:*")
-assert manifest["manifest_version"] == 3 and "<all_urls>" not in json.dumps(manifest)
+assert manifest["manifest_version"] == 3 and "<all_urls>" not in json.dumps({k: v for k, v in manifest.items()
+                                                                            if k != "optional_host_permissions"})
+assert manifest["optional_host_permissions"] == ["<all_urls>"]  # only through Chrome's prompt, on her click
 assert not {"history", "webRequest", "debugger", "scripting", "downloads", "management"} & set(manifest["permissions"])
 # cookies: only whether a sign-in cookie exists; no cookie's value is ever read, kept or sent
 assert not re.search(r"\.value\b|getAll", code["background.js"]) and "cookies" not in code["popup.js"] + code["content.js"]
