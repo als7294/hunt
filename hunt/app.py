@@ -34,7 +34,7 @@ from starlette.background import BackgroundTask
 from starlette.datastructures import MutableHeaders, UploadFile
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from starlette.responses import HTMLResponse, FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -60,6 +60,13 @@ VERDICTS = [label for _, label in ICD203]
 
 # --- security -------------------------------------------------------------------------------
 
+# What a tab from an earlier start of Hunt shows: each start has its own sign-in link (no script, no outside links)
+SIGNED_OUT = ("<!doctype html><meta charset=utf-8><title>Hunt</title><body style=\"font:16px/1.5 system-ui;background:#131418;"
+              "color:#F1F2F4;max-width:34em;margin:15vh auto;padding:0 24px\"><h1 style=\"font-size:24px\">Open Hunt again</h1>"
+              "<p>This tab is from an earlier start of Hunt, and each start has its own sign-in. Open Hunt from the Dock or "
+              "Applications, or use the link <code>hunt app</code> printed in Terminal.</p>")
+
+
 class Guard:
     """docs/api.md "Security rules", on every request before any route runs."""
 
@@ -82,6 +89,8 @@ class Guard:
 
         if problem := self.problem(Request(scope)):
             status, message = problem
+            if scope["method"] == "GET" and not scope["path"].startswith("/api/") and message.startswith("not signed in"):
+                return await HTMLResponse(SIGNED_OUT, status)(scope, receive, secured)  # a page load in a stale tab
             return await JSONResponse({"error": message}, status)(scope, receive, secured)
         await self.app(scope, receive, secured)
 
