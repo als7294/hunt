@@ -22,6 +22,7 @@ ENTITIES = 5  # filers looked up in detail (one request each)
 FILINGS = 30  # full-text hits kept, in EDGAR's relevance order; a common name matches thousands
 UA = "Hunt/0.1 (open-source OSINT tool)"
 KEY = "HUNT_SEC_UA"  # not a key: who is asking
+KEY_FREE = "no sign-up: your firm and contact email, as SEC fair access asks"
 HEALTH = SEARCH + "?keysTyped=sec"
 
 

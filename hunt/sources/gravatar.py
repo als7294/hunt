@@ -15,6 +15,8 @@ NAME = "gravatar"
 KINDS = {"email"}
 API = "https://api.gravatar.com/v3/profiles/"
 KEY = "HUNT_GRAVATAR_KEY"
+KEY_URL = "https://gravatar.com/developers/"
+KEY_FREE = "1,000 profile lookups an hour (logged out: 100), and every verified account instead of 4"
 HEALTH = "https://api.gravatar.com/v3/openapi"  # spends no profile lookup
 
 

@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore", message="Using `httpx` with")  # Starlette pre
 from starlette.testclient import TestClient  # noqa: E402
 
 from hunt import app as server
-from hunt import inbox, pack, recheck, scan, seen, watch
+from hunt import browser, inbox, pack, recheck, scan, seen, setup, watch
 from hunt.case import Case
 from hunt.seed import Finding, Seed
 
@@ -85,7 +85,7 @@ assert not list(case.dir.glob(".bundle-*"))
 
 # Check again: a job over the accounts marked as the subject's; its changes listed with citations
 r = c.post(f"/api/cases/{case.name}/recheck", json={}, headers=JSON)
-assert r.status_code == 409 and "as him" in r.json()["error"]
+assert r.status_code == 409 and "as the subject’s" in r.json()["error"]
 bsky = "https://bsky.app/profile/kestrel_vane88"
 case.add_finding(Finding("maigret", Seed("username", "kestrel_vane88"), "Bluesky", bsky, {}))
 case.decide(bsky, "him")
@@ -206,4 +206,49 @@ r = c.post("/api/seen-before", json={"seeds": ["@kestrel_vane88"], "kind": "insu
 assert [m["case"] for m in r["matches"]] == sorted([again.name, case.name]), r
 assert not c.post("/api/seen-before", json={"seeds": ["kestrel_vane88"], "kind": "background"}, headers=JSON).json()["checked"]
 assert c.post("/api/seen-before", json={"seeds": "kestrel_vane88"}, headers=JSON).status_code == 400
+
+# First-run setup: sizes shown first; a download starts only for the size the investigator accepted
+async def planned():
+    return [{"id": "model", "label": "Vision model", "installable": True, "size": 3000, "detail": "local"},
+            {"id": "ollama", "label": "Ollama", "installable": False, "size": None, "detail": "Download Ollama first"}]
+
+
+async def installing(item, size, emit):
+    emit({"type": "progress", "item": item, "done": size, "total": size, "message": "success"})
+
+
+setup.plan, setup.install = planned, installing
+setup.doctor = lambda: [{"id": "python", "label": "Python", "ok": True, "detail": "3.12", "fix": ""}]
+r = c.get("/api/setup").json()
+assert [i["id"] for i in r["items"]] == ["model", "ollama"] and r["doctor"][0]["ok"] and r["version"]
+assert c.post("/api/setup/model", json={"size": 2999}, headers=JSON).status_code == 400
+assert c.post("/api/setup/model", json={}, headers=JSON).status_code == 400
+assert c.post("/api/setup/ollama", json={"size": 0}, headers=JSON).json()["error"] == "Download Ollama first"
+assert c.post("/api/setup/chromium", json={"size": 1}, headers=JSON).status_code == 404
+job = c.post("/api/setup/model", json={"size": 3000}, headers=JSON).json()["job"]
+for _ in range(100):
+    with c.stream("GET", f"/api/jobs/{job}/events") as r:
+        sent = [json.loads(line[6:]) for line in r.read().decode().splitlines() if line.startswith("data: ")]
+    if sent and sent[-1]["type"] in ("done", "error"):
+        break
+    time.sleep(0.05)
+assert [e["type"] for e in sent] == ["progress", "done"] and sent[0]["done"] == 3000, sent
+
+# Check again on login-walled platforms: the worklist opens one account per click in the Hunt Browser
+opened = []
+browser.open_url = lambda url, port, slug=None: opened.append((url, port, slug)) or {"opened": url, "started": True}
+ig = "https://www.instagram.com/kestrel_vane88/"
+case.decide(ig, "him")
+r = c.get(f"/api/cases/{case.name}/worklist").json()
+assert [w["platform"] for w in r["worklist"]] == ["Instagram"] and r["uncompared_captures"] == 0, r
+r = c.post(f"/api/cases/{case.name}/worklist/open", json={"account": ig}, headers=JSON)
+assert r.status_code == 200 and opened == [(ig, PORT, case.name)], r.text
+assert c.post(f"/api/cases/{case.name}/worklist/open", json={"account": "https://example.com/x"}, headers=JSON).status_code == 404
+assert c.post(f"/api/cases/{case.name}/captures/compare", json={}, headers=JSON).json() == {"changes": []}
+
+# Minimisation: only after the retention date, only the shown count and size
+r = c.get(f"/api/cases/{case.name}/minimise").json()
+assert not r["ready"] and "retention period ends" in r["why"]
+assert c.post(f"/api/cases/{case.name}/minimise", json={"count": 0, "bytes": 0}, headers=JSON).status_code == 409
+assert c.post(f"/api/cases/{case.name}/minimise", json={"count": "all"}, headers=JSON).status_code == 400
 print("ok")

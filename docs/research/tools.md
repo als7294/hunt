@@ -152,9 +152,28 @@ ArcGIS Hub portals would need a second engine (`FeatureServer/0/query`); none of
 - `detail`: "ok", "rate-limited right now", "refused (403)", "not found (404)", "server error 5xx" or "unreachable (…)"
 - `checks`: one per probed URL, with status and milliseconds
 - `key`: the env var name; `key_set`, `key_required`
+- `key_status`: "none needed", "set", "not set (required)", "not set (free key available)" or "not set (optional)"
+- `key_url` (where to get the free key) and `key_free` (what it unlocks): the same facts as the Free keys table below
 - `ready`: reachable, or nothing to reach, and no required key missing
 
 Each probe is a HEAD through `HUNT_PROXY` (a GET when HEAD isn't served), with an 8-second timeout, to a URL that spends no quota: GitHub's `/rate_limit`, FEC's docs page, each Socrata table's metadata. A row never contains a key's value. Live on 2026-10-29: 18 of 19 ready; CourtListener wasn't, because it has no token.
+
+## Free keys
+
+Every key is optional except CourtListener's, and all are off until the investigator sets the env var. Each is free. `health()` carries the same facts per source (`key_status`, `key_url`, `key_free`), so the setup screen can show them live.
+
+| Source(s) | What a free key unlocks | Get it | Env var | Free limit |
+|---|---|---|---|---|
+| GitHub (`github`) | More profile reads and searches | [Fine-grained token](https://github.com/settings/personal-access-tokens/new), no permissions needed | `HUNT_GITHUB_TOKEN` | 5,000 requests/hr, 30 searches/min (logged out: 60/hr, 10/min) |
+| Gravatar (`gravatar`) | More lookups, and every verified account instead of 4 | [Developer dashboard](https://gravatar.com/developers/) → Create New Application | `HUNT_GRAVATAR_KEY` | 1,000 lookups/hr (logged out: 100) |
+| OpenFEC (`fec`) | Its own quota instead of the shared `DEMO_KEY` | [api.data.gov sign-up](https://api.data.gov/signup/), approved instantly | `HUNT_FEC_KEY` | 1,000 requests/hr (DEMO_KEY: about 10) |
+| CourtListener (`courtlistener`) | The source runs at all; without a token it is skipped | Free account, then [your token](https://www.courtlistener.com/profile/api-token/) | `HUNT_COURTLISTENER_TOKEN` | Reportedly 5/min, 50/hr, 125/day since 2026-05-07; the profile page shows your actual usage |
+| State portals (`licences`, `businesses`, `fmcsa`) | A token's own quota instead of a shared per-IP pool | Free account on any Data & Insights portal, then Developer Settings → Create New App Token (e.g. [data.texas.gov](https://data.texas.gov/profile/edit/developer_settings)) | `HUNT_SOCRATA_TOKEN` | About 1,000 requests/hr per token. Socrata documents tokens as working across its portals; if one portal rejects it, the note says so |
+| SEC EDGAR (`edgar`) | Nothing to unlock; SEC asks callers to say who they are | No sign-up: set it to your firm and a contact email | `HUNT_SEC_UA` | 10 requests/s either way |
+
+Not listed:
+- YouTube Data API: Hunt reads no YouTube key.
+- SerpApi, Google Programmable Search, Apify: no Hunt source uses them, and the image-search and social-scraping work they would serve was dropped.
 
 ## Records in the app (for the frontend)
 

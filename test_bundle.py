@@ -19,7 +19,7 @@ os.environ["HUNT_HOME"] = tempfile.mkdtemp()  # before importing hunt: never tou
 
 from PIL import Image
 
-from hunt import bundle, inbox, notes, posts
+from hunt import bundle, extension, inbox, notes, posts, scan
 from hunt.case import Case
 from hunt.seed import Finding, Seed
 
@@ -52,6 +52,17 @@ inbox.take(case, items)
 
 notes.add(case, "Client says the claimant moved in May.")
 notes.add(case, "Client says the claimant moved in June.", replaces=1)
+# A page she viewed in the Hunt Browser (no capture record from Hunt Capture yet), and a frame the scan flagged
+shot = tmp / "view.png"
+shot.write_bytes(image("white", "PNG") + b"view")
+extension.add_view(case, "https://www.instagram.com/kestrel_vane88/", shot, "2026-10-02T09:00:00+00:00", "Profile")
+(tmp / "run.mp4").write_bytes(b"made-up video of a run")
+[run_post] = posts.add_files(case, [tmp / "run.mp4"], "TikTok", "2026-04-02T08:00:00")
+case.db.executescript(scan.SCHEMA)
+frame_sha, frame = case._store(image("gray", "JPEG"), "jpg")
+video_id = case.rows("select id from media where post_id = ?", run_post)[0]["id"]
+case.db.execute("insert into hits (post_id, media_id, category, what, t0, t1, verdict, status, file) "
+                "values (?, ?, 'sport', 'running', 3, 8, 'likely', 'kept', ?)", (run_post, video_id, frame))
 bad_sha, bad = case._store(b"original bytes", "txt")
 (case.dir / bad).write_bytes(b"edited later")  # tampered after it was saved
 
@@ -77,7 +88,7 @@ by_sha = {r["sha256"]: r for r in rows}
 assert all(dated[f"exhibits/{r['exhibit']}"][0] >= 2026 for r in rows)  # dated when saved, not 1980
 by_what = {r["what"]: r for r in rows}
 
-video = next(r for r in rows if r["exhibit"].endswith(".mp4"))
+video = next(r for r in rows if r["original_name"].startswith("SnapTik"))
 assert video["exhibit"] == f"2024-03-28_tiktok_kestrel_vane88_{video['sha256'][:8]}.mp4", video
 assert video["url"] == f"https://www.tiktok.com/@kestrel_vane88/video/{tiktok_id}" and video["source"] == "TikTok"
 assert video["original_name"] == f"SnapTik.App_{tiktok_id}.mp4" and video["what"] == "file the investigator saved"
@@ -91,9 +102,30 @@ avatar = by_what["profile photo"]
 assert avatar["exhibit"].endswith(".png") and avatar["url"] == "https://cdn.example/avatar/1"  # .img given its real type
 assert by_sha[bad_sha]["hash_ok"].startswith("NO") and made["changed"] == [by_sha[bad_sha]["exhibit"]]
 assert all(r["hash_ok"] == "yes" for r in rows if r["sha256"] != bad_sha)
+lead = by_sha[frame_sha]
+assert lead["role"] == "lead" and "a lead, not evidence" in lead["what"] and lead["exhibit"].startswith("2026-04-02_tiktok_frame_")
+assert {r["role"] for r in rows if r["sha256"] != frame_sha} == {"evidence"}
+assert {r["collected"] for r in rows if r["sha256"] != bad_sha} == {bundle.READ, bundle.CAPTURED, bundle.ADDED,
+                                                                   lead["collected"]}  # bad: an unrecorded file
+view = next(r for r in rows if r["collected"] == bundle.CAPTURED)
+assert view["url"] == "https://www.instagram.com/kestrel_vane88/" and view["saved_at"] == "2026-10-02T09:00:00+00:00"
+assert (view["viewed_as"], view["audience"], view["tool_version"]) == ("", "", "")
+assert "How the evidence was collected" in readme and "902(13)" in readme and "leads the investigator reviewed" in readme
+assert "1 of 1 captured files lack them" in readme and "the account it was\nviewed from" not in readme  # never claimed
 assert "WARNING: 1 files" in readme and "Insurer XYZ claim 123" in readme
 assert [(n["cite"], n["replaces"], n["replaced_by"]) for n in noted] == [("N-1", "", "N-2"), ("N-2", "N-1", "")]
 assert [e["action"] for e in log][:1] == ["case opened"] and any(e["action"] == "inbox import" for e in log)
+
+# Once Hunt Capture sends the capture record, the manifest carries it and the README may say so
+case.audit("capture view", {"file": f"evidence/{view['sha256']}.png", "url": view["url"], "platform": "Instagram",
+                            "viewed_as": "logged in as laura.example", "audience": "Public", "hunt_version": "0.1.0",
+                            "capture_version": "1.2"})
+with zipfile.ZipFile(bundle.make(case, out)["path"]) as z:
+    again = {r["sha256"]: r for r in csv.DictReader(io.StringIO(z.read("manifest.csv").decode()))}
+    readme2 = z.read("README.txt").decode()
+assert (again[view["sha256"]]["viewed_as"], again[view["sha256"]]["audience"], again[view["sha256"]]["tool_version"]) == (
+    "logged in as laura.example", "Public", "Hunt 0.1.0 · Hunt Capture 1.2")
+assert "the account it was\nviewed from" in readme2 and "lack them" not in readme2
 
 # The standard tool agrees: every exhibit checks out except the one edited after it was saved
 check = subprocess.run(["shasum", "-a", "256", "-c", "SHA256SUMS"], cwd=unzipped, capture_output=True, text=True)

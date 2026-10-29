@@ -25,7 +25,7 @@ Errors are `{"error": "message"}` with a 4xx or 5xx status.
 ## Cases
 | Method | Path | Body / response |
 |---|---|---|
-| GET | `/api/startup` | `{version, proxy: bool, checks: [{id, label, ok, detail, items?}]}`. Check ids, in order: `cases`, `evidence` (re-hash; quick for unchanged files), `ai` (Ollama `/api/tags` lists `HUNT_VLM`; the model isn't loaded), `network`, `proxy`, `sources` (`hunt.sources.health()`: "N of M ready; K of L keys set"; `items: [{source, ready, reachable, key, key_set, key_required, detail}]`), any **Hunt Browser rows**, then `retention` (cases past 90 days without a legal hold; `items: [{slug, label, created}]`, each to be deleted or held) |
+| GET | `/api/startup` | `{version, proxy: bool, checks: [{id, label, ok, detail, items?}]}`. Check ids, in order: `cases`, `evidence` (re-hash; quick for unchanged files), `ai` (Ollama `/api/tags` lists `HUNT_VLM`; the model isn't loaded), `network`, `proxy`, `sources` (`hunt.sources.health()`: "N of M ready; K of L keys set"; `items: [{source, ready, reachable, key, key_set, key_required, detail}]`), `browser` (the Hunt Browser and its sign-ins; below), then `retention` (cases past 90 days without a legal hold; `items: [{slug, label, created}]`, each to be deleted or held) |
 | GET | `/api/cases` | `[{slug, label, kind, reference, tool, created, updated, headline, closed, legal_hold, retention_due}]`, newest first. `headline` reads like "9 flagged posts" or "Confirmed · report ready" |
 | POST | `/api/cases` | `{label, seeds: [str], kind: "insurance"\|"background"\|"diligence"\|"journalism", reference?, purpose (required: who asked and why it's lawful), injury_date?: "YYYY-MM-DD", limits?: str, look_for: [category key or custom text], tool: "person"}` plus any **report header fields** (below) → `201 {slug}`. A label that's already taken gets a `-2` suffix; nothing is ever merged |
 | GET | `/api/cases/{slug}` | `{slug, details: {label, kind, reference, purpose, injury_date, limits, look_for, tool, created, client, adjuster, file_number, assignment_date, subject_dob, recommendations}, seeds: [{kind, value}], steps: {search, identity, posts, report}` (each `"todo"`, `"running"` or `"done"`), `status: {closed, legal_hold, retention_ends, retention_due}, active_job: {id, kind} \| null, counts: {accounts, flagged, evidence}}` |
@@ -52,6 +52,7 @@ Event `data` is JSON with a `type`:
 - **`scan`:** `{checked, total, photos, videos, found, eta_s, media_id}` (`eta_s` is from the measured rate, null until known; `media_id` is the file just checked, null on other updates)
 - **`hit`:** a hit object (below)
 - **`change`:** `{change, account, …, audit}`, from a re-check (see "Check again" below)
+- **`progress`:** `{item: "model"|"chromium", done, total, message}` (bytes), from a setup download
 - **`log`:** `{message}`
 - **`done`:** `{ok: true}`
 - **`error`:** `{message}`
@@ -59,7 +60,7 @@ Event `data` is JSON with a `type`:
 ## Is it him?
 | Method | Path | Body / response |
 |---|---|---|
-| GET | `/api/cases/{slug}/person` | `{accounts: [{url, site, handle, verdict, probability, reasons: [str], decision, avatar: url\|null}], summary: [{tag, text, count}], weakest_verdict, namesakes: [{url, site, label, why: [str], decision}], decision: "him"\|"not him"\|"unsure"\|null}`. **The person** = candidates at "likely" or better, minus `not him`, plus `him`. **Namesakes** = name matches below 0.2 |
+| GET | `/api/cases/{slug}/person` | `{accounts: [{url, site, handle, verdict, probability, reasons: [str], decision, avatar: url\|null}], summary: [{tag, text, count}], weakest_verdict, namesakes: [{url, site, label, why: [str], decision}], records: [{url, site, source, summary, attrs, verdict, probability, reasons, name_only, decision, fetched}], coverage: [{source, status, found, note}], decision: "him"\|"not him"\|"unsure"\|null}`. **The person** = candidates at "likely" or better, minus `not him`, plus `him`. Public records in the person (`fec`, `edgar`, `npi`, `courtlistener`, `licences`, `businesses`, `fmcsa`) are in `records`, not `accounts`; `name_only` is true when only the name agrees. `coverage` is every records run, with its note on what was searched. **Namesakes** = name matches below 0.2 |
 | POST | `/api/cases/{slug}/decisions` | `{url?, decision: "him"\|"not him"\|"unsure", note?}`. Without `url`, the decision applies to every account in the person. Append-only; the latest wins; audited |
 
 ## Posts and media scan
@@ -67,6 +68,7 @@ Event `data` is JSON with a `type`:
 |---|---|---|
 | POST | `/api/cases/{slug}/media` | `multipart/form-data`: `files[]`, `platform?`, `posted_at?` → `{added: n}`. Uploads are streamed and hashed. HEIC is converted with `sips`; SVG is rejected |
 | POST | `/api/cases/{slug}/facebook` | `multipart/form-data`: `files[]`, `saved_at?` (ISO) → `{added, posts, pages, screenshots, skipped: [name]}`. Details below |
+| POST | `/api/cases/{slug}/preview` | `{url}` (a confirmed account's https address) → whatever `hunt.public.preview(case, url)` returns, at least `{note}` (e.g. "12 posts shown logged out; the rest need the Hunt Browser"). Read public preview, on her click, one account at a time. 501 until `hunt/public.py` exists; 409 on a closed case |
 | GET | `/api/cases/{slug}/facebook/links` | `{links: [{label, url}]}`: Facebook search and `site:facebook.com` search-engine links for the case's seeds. For the investigator to open in their own browser; Hunt never requests them |
 | GET | `/api/cases/{slug}/posts` | `{counts: {read_automatically, added_by_you, captured, flagged, by_category: {}}, weekly: [{week: "YYYY-Www", posts, flagged}], hits: [hit], posts: [post]}` |
 | POST | `/api/cases/{slug}/hits/{id}` | `{status: "kept"\|"not relevant"\|"in report"}` → hit |
@@ -82,9 +84,10 @@ Machine verdicts never exceed "likely". Only the investigator's Keep raises an i
 days from opening (`RETENTION_DAYS` in `hunt/case.py`); `retention_ends` is null under a hold. `hunt/watch.py` stops
 watching on the same two rules.
 
-**Hunt Browser rows on the startup page.** Once a `hunt/browser.py` exists, `/api/startup` calls its `status()` (sync or
-async). It should return `[{id, label, ok, detail}]`, e.g. one row per site the investigator is signed in to in Hunt
-Browser, and appends them after `sources`. Until then there are no rows.
+**The Hunt Browser row on the startup page.** `/api/startup` turns `hunt.browser.status()` into one check after
+`sources`: `{id: "browser", label: "Hunt Browser <version>", ok, detail, items: [{platform, label, url, state:
+"signed_in"|"signed_out"|"unknown"}], checked_at}`. Being signed out isn't a failure (each platform is optional);
+`ok` is false only when the browser isn't installed or its status can't be read.
 
 **Every source run is in the case log.** `Case.add_run` also writes a `source run` audit entry, and the run keeps its
 row id, so the report cites a run as `M-a<id>`, which is in the evidence bundle's `audit-log.csv`. Runs recorded before
@@ -115,6 +118,17 @@ reference number; `injury_date` is the date of injury or loss.
 | POST | `/api/settings` | Any of the fields above as strings (≤ 500 characters; `""` clears one; `timezone` must be an IANA zone name); `{logo: null}` removes the logo → the settings |
 | POST | `/api/settings/logo` | `multipart/form-data` with one `file`: PNG or JPEG under 2 MB (SVG and everything else get 415) → the settings |
 | GET | `/api/settings/logo` | The logo image, or 404 |
+
+## Free keys (one set per investigator, under `HUNT_HOME`)
+| Method | Path | Body / response |
+|---|---|---|
+| GET | `/api/keys` | `{keys: [{key, label, sources: [source], required, url, free, set, where: "saved"\|"environment"\|null}]}`, one row per env var (the state portals share `HUNT_SOCRATA_TOKEN`). Never a value |
+| POST | `/api/keys` | `{<env var>: value}`; `""` removes one → as GET. 400 for a key Hunt doesn't use, a value over 500 characters, or a key set in the shell that started Hunt (the shell wins; change it there) |
+
+`hunt/keys.py` keeps them in `HUNT_HOME/keys.json` (mode 0600) and puts them into the server's environment, where the
+sources read them. Which keys exist comes from the source modules' `KEY`, `KEY_REQUIRED`, `KEY_URL` and `KEY_FREE`; a
+key read elsewhere in Hunt (not by a source) is added to `keys.EXTRA = {env var: {label, url, free}}`. Every key is
+optional except CourtListener's, and Hunt works fully without any.
 
 ## Report
 Laid out like an insurance / online-activity investigation report (`docs/research/report-format.md`).
@@ -214,16 +228,16 @@ Capture uploads also share these rules:
 - A file of the wrong kind returns 415.
 - Posts are stored with `origin: "captured"`, and `/posts` counts them as `counts.captured`.
 
-## Quality of life: the Downloads inbox, the evidence bundle, links, Check again, notes, watching, moving cases, seen before
+## Quality of life: the Downloads inbox, the evidence bundle, links, Check again, notes, watching, moving cases, seen before, setup
 See [qol.md](qol.md) for the screens that use these.
 
 | Method | Path | Body / response |
 |---|---|---|
 | GET | `/api/cases/{slug}/inbox?folder=&days=7` | `{folder, days, files: [inbox file]}`, newest first. `folder` defaults to `~/Downloads` and must be an absolute path to a folder; `days` is 0–365. Only photos and videos directly in the folder are listed. Nothing changes on disk |
 | POST | `/api/cases/{slug}/inbox` | `{folder?, days?, take: [{id, url?, platform?, handle?, posted_at?}], keep?: false}` → `{files: [inbox file + result, trashed]}`. Re-lists the folder and files the chosen ids through `posts.add_files`. The client never sends paths. An id that's gone returns 409. Each original goes to the Trash once its bytes are in the evidence, unless `keep`. Audited as `inbox import` |
-| GET | `/api/cases/{slug}/evidence.zip` | Download: `exhibits/`, `manifest.csv`, `SHA256SUMS`, `audit-log.csv`, `notes.csv`, `README.txt`. Header `x-bundle-sha256` carries the zip's hash, which is also audited as `evidence exported` |
+| GET | `/api/cases/{slug}/evidence.zip` | Download: `exhibits/`, `manifest.csv` (now also `role`: evidence or lead, `collected`: read by Hunt / captured in the Hunt Browser / added by the investigator, and the capture record `viewed_as`, `audience`, `tool_version`), `SHA256SUMS`, `audit-log.csv`, `notes.csv`, and `README.txt` (with the collection process for an FRE 902(13) certification). Header `x-bundle-sha256` carries the zip's hash, which is also audited as `evidence exported` |
 | GET | `/api/unfurl?url=` | `{platform, handle, post_id, posted_at, url}`. Works offline. `url` comes back without tracking parameters. `posted_at` is read from TikTok and X post ids |
-| POST | `/api/cases/{slug}/recheck` | `{}` → `{job}`. **Check again:** the accounts marked `him` (not email hits) are looked at again. Returns 409 if none are marked, or if the case already has an active job. Takes the heavy lock only while capturing screenshots |
+| POST | `/api/cases/{slug}/recheck` | `{}` → `{job}`. **Check again:** the accounts marked `him` (not email hits) are looked at again. Instagram, Facebook, X and LinkedIn are never fetched or screenshotted by Hunt (their robots.txt denies unnamed bots): for those, the job compares any captures not yet compared and points to the worklist. The `recheck` summary gains `worklist` (how many accounts are hers to open). Returns 409 if none are marked, or if the case already has an active job. Takes the heavy lock only while capturing screenshots |
 | GET | `/api/cases/{slug}/changes` | `{checks: [{cite, ts, change: "recheck", accounts, new_posts, changes, captured}], changes: [change]}`, newest first. `cite` is the report's `M-a<audit rowid>` |
 | GET | `/api/cases/{slug}/watch` | `{on, every_days, started, last, next, status, stopped, why, unseen_alerts, background}`. `status`: `ok`, `waiting: on battery`, `waiting: the Mac is busy`, `waiting: the Mac is in use`, or `failed: …`. `why` is why watching stopped: `turned off`, `the case is closed`, or the retention period ended. `background` is whether the LaunchAgent is installed |
 | POST | `/api/cases/{slug}/watch` | `{on: bool, every_days?: 1\|3\|7}` (default 7) → the same state. The first check is one interval away; changing `every_days` while on counts from the last check. Returns 409 if no account is marked `him`, or the case can't be watched any more. Audited as `watch on` / `watch off` |
@@ -236,6 +250,13 @@ See [qol.md](qol.md) for the screens that use these.
 | POST | `/api/case-archives/unpack` | `{name, folder?, passphrase, replace?: false}` → `{slug, files, replaced, sha256, manifest_sha256}`. Every file is checked against the manifest before the case is put in place. A case with the same name here is kept, and the new one gets `-2`; with `replace`, the one here goes to the Trash first. Returns 400 for a wrong passphrase, a file that doesn't match, or a file that isn't in the manifest; nothing is changed. Returns 409 with `replace` while any job runs. Audited as `case unpacked`; watching is turned off on arrival |
 | GET | `/api/cases/{slug}/seen-before?screening=0\|1` | `{checked, why, skipped_screenings, matches: [{case, label, kind, created, strong, on: [{kind: "username"\|"email"\|"phone"\|"url"\|"address"\|"name"\|"file", value}]}]}`, strongest first. Local and read-only, and never merges anything. A `background` case, or `screening=1`, gives `checked: false` with `why`. `background` cases never appear in others' matches |
 | POST | `/api/seen-before` | `{seeds: [str], kind?}` → the same, for the new-case form before the case exists. `kind: "background"` gives `checked: false` |
+| GET | `/api/setup` | `{version, doctor: [{id, label, ok, detail, fix}], items: [{id: "ollama"\|"model"\|"chromium", label, installable, size, detail}]}`. `doctor` rows: `python`, `uv`, `hunt`, `ollama`, `model`, `chromium`, `capture`, `ffmpeg`, `disk`, `home`, `launcher`. `items` is only what's missing; `size` is the download size in bytes (null if it can't be read, which also makes `installable` false). Ollama itself is never installable here: its `detail` says where to get it |
+| POST | `/api/setup/{item}` | `{size}` → `{job}`. `size` must equal the `size` the client showed and the investigator accepted; otherwise 400. Returns 404 if the item isn't missing, 409 if it can't be installed here or a download is already running. The job streams `progress` events: the model is pulled through the local Ollama's `/api/pull`, the browser with `playwright install chromium` |
+| GET | `/api/cases/{slug}/worklist` | `{worklist: [{account, platform: "Facebook"\|"Instagram"\|"TikTok"\|"X"\|"LinkedIn", last_opened, last_capture, warning}], uncompared_captures}`. Check again on login-walled platforms: the subject's confirmed accounts there, for the investigator to open one by one. `warning` is set when a LinkedIn profile was opened in the last 7 days |
+| POST | `/api/cases/{slug}/worklist/open` | `{account, confirmed?: false}` → `{opened, started, warning}`. Her click: audited as `worklist open`, then the account opens in the Hunt Browser (one click, one page load). With a pacing warning and no `confirmed: true`, returns 409 with the warning and opens nothing. Returns 404 for an account that isn't on the worklist |
+| POST | `/api/cases/{slug}/captures/compare` | `{}` → `{changes: [change]}`. Compares every page capture not yet compared with the last capture of the same page: `posts gone`, `post back`, `profile changed` (`field: "page title"`), `account gone` / `account back`, each with `"via": "capture"` and audited. The Check again job runs this too; the capture route should call it after each page capture (docs/qol.md) |
+| GET | `/api/cases/{slug}/minimise` | `{ready, why, files: [{file, sha256, bytes, post, kind, source, posted_at}], count, bytes}`. After the retention date, and never on legal hold: raw media of posts that no kept or reported hit and no note points to, plus frames of flags nobody kept |
+| POST | `/api/cases/{slug}/minimise` | `{count, bytes}` (exactly what was shown) → `{count, bytes, trashed_as}`. Moves those files to the Trash as one folder. Audited as `media minimised`, with every file's hash. Returns 409 before the retention date, on legal hold, for a different count or size, or while a job runs |
 | GET | `/api/cases/{slug}/notes?about=&ref=` | `{notes: [note]}`, oldest first, optionally only the notes about one thing. Returns 400 for an unknown `about` or a bad `ref` |
 | POST | `/api/cases/{slug}/notes` | `{text, about?: "case"\|"account"\|"post"\|"hit", ref?, replaces?: note id}` → `201 note`. A correction (`replaces`) keeps the old note's subject; a note can only be replaced once. Returns 400 for empty text (or more than 20,000 characters), an unknown subject, or a note that's already replaced. Audited as `note`, with its text |
 

@@ -442,6 +442,11 @@ assert not rows["licences"]["reachable"] and "7358-krk7.json: not found (404)" i
 assert rows["businesses"]["ready"] and len(rows["businesses"]["checks"]) == len(businesses.DATASETS)
 assert rows["courtlistener"]["reachable"] and not rows["courtlistener"]["ready"]  # its key is required and unset
 assert rows["phonenumbers"]["reachable"] is None and rows["phonenumbers"]["ready"]
+assert {k: rows[k]["key_status"] for k in ("github", "courtlistener", "fec", "edgar", "phonenumbers")} == {
+    "github": "set", "courtlistener": "not set (required)", "fec": "not set (free key available)",
+    "edgar": "not set (optional)", "phonenumbers": "none needed"}
+assert rows["fec"]["key_url"] == fec.KEY_URL and rows["licences"]["key_free"] == _socrata.KEY_FREE
+assert all(r["key_url"].startswith("https://") for r in rows.values() if r["key_status"].endswith("free key available)"))
 assert next(r for r in seen if r.url.host == "efts.sec.gov").headers["user-agent"] == edgar.UA
 
 

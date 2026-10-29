@@ -73,7 +73,7 @@ shot = []
 
 async def screenshots(urls):
     shot.append(urls)
-    return {u: RuntimeError("blocked") if "instagram" in u else (b"\x89PNG fake", "<html>page</html>") for u in urls}
+    return {u: (b"\x89PNG fake", "<html>page</html>") for u in urls}
 
 
 recheck.screenshots = screenshots
@@ -109,7 +109,7 @@ def changed(events) -> list:
 s, ev = look(name="Alice E.", avatar="a2", feed=[P1, P3], mastodon=False)
 assert changed(ev) == [("profile changed", "name"), ("profile changed", "profile photo"), ("account gone", None),
                        ("posts gone", None)], changed(ev)
-assert s == {"accounts": 3, "new_posts": 0, "changes": 4, "captured": 2}, s
+assert s == {"accounts": 3, "new_posts": 0, "changes": 4, "captured": 2, "worklist": 1}, s
 name, photo, gone_acct, gone_posts = [e for e in ev if e["type"] == "change"]
 assert (name["before"], name["after"]) == ("Alice Example", "Alice E.")
 assert photo["before_sha256"] != photo["after_sha256"] and photo["after"].endswith("a2.jpg")
@@ -119,10 +119,11 @@ assert [p["url"] for p in gone_posts["posts"]] == [p2] and not gone_posts["none_
 assert gone_posts["posts"][0]["last_seen"] == first_seen[p2]
 logged = {r["rowid"]: r for r in case.rows("select rowid, action, detail from audit")}
 assert all(logged[e["audit"]]["action"] == e["change"] for e in ev if e["type"] == "change")
-assert any(e["type"] == "log" and "can't read this site's profiles" in e["message"] for e in ev)
-assert shot[-1] == [a["url"] for a in accounts] and len(case.rows("select 1 from captures")) == 4  # page + html, twice
+assert any(e["type"] == "log" and "open them from the worklist" in e["message"] for e in ev)
+assert shot[-1] == [a["url"] for a in accounts[:2]]  # never Instagram headless: its robots.txt denies unnamed bots
+assert len(case.rows("select 1 from captures")) == 4  # page + html, twice
 assert json.loads(logged[max(logged)]["detail"]) == s and logged[max(logged)]["action"] == "recheck"
-assert case.rows("select detail from audit where action = 'recapture'")[-1]["detail"] == '{"attempted": 3, "saved": 2}'
+assert case.rows("select detail from audit where action = 'recapture'")[-1]["detail"] == '{"attempted": 2, "saved": 2}'
 
 # 2. The post and the Mastodon account are back; the profile matches this time's earlier look
 s, ev = look(feed=[P1, P2, P3], mastodon=True)
