@@ -39,7 +39,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from . import report, search, sources, vlm
-from . import bundle, inbox, notes, pack, recheck, seen, setup, watch  # docs/qol.md
+from . import bundle, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
 from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, RETENTION_DAYS, Case, all_cases  # watch.py reads RETENTION_DAYS here
@@ -1115,6 +1115,55 @@ async def post_setup(req: Request):
     return JSONResponse({"job": job.id})
 
 
+async def get_worklist(req: Request):
+    c = _case(req)
+    done = c.rows("select coalesce(max(audit), 0) as n from captured_pages") if c.rows(
+        "select 1 from sqlite_master where name = 'captured_pages'") else [{"n": 0}]
+    pending = c.db.execute("select count(*) from audit where action = 'capture page' and rowid > ?", (done[0]["n"],)).fetchone()[0]
+    return JSONResponse({"worklist": recheck.worklist(c), "uncompared_captures": pending})
+
+
+async def post_worklist_open(req: Request):
+    c = _case(req)
+    b = await _body(req)
+    if not isinstance(b.get("account"), str) or not isinstance(b.get("confirmed", False), bool):
+        raise HTTPException(400, "account must be the account's URL, and confirmed true or false")
+    try:
+        item = recheck.open_from_worklist(c, b["account"], b.get("confirmed", False))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:  # a pacing warning: shown, then sent again with confirmed: true
+        raise HTTPException(409, str(e))
+    try:
+        opened = await asyncio.to_thread(browser.open_url, item["url"], req.url.port, c.name)
+    except (ValueError, LookupError) as e:
+        raise HTTPException(409, str(e))
+    return JSONResponse(opened | {"warning": item["warning"]})
+
+
+async def post_compare(req: Request):
+    return JSONResponse({"changes": await asyncio.to_thread(recheck.diff_captures, _case(req))})
+
+
+async def get_minimise(req: Request):
+    return JSONResponse(await asyncio.to_thread(minimise.plan, _case(req)))
+
+
+async def post_minimise(req: Request):
+    c = _case(req)
+    b = await _body(req)
+    if type(b.get("count")) is not int or type(b.get("bytes")) is not int:
+        raise HTTPException(400, "send count and bytes: the numbers shown to the investigator")
+    if _active(req, c.name):
+        raise HTTPException(409, "this case has a job running")
+    try:
+        return JSONResponse(await asyncio.to_thread(minimise.purge, c, b["count"], b["bytes"]))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    except OSError as e:
+        raise HTTPException(409, f"nothing was moved: {e}")
+
+
 def _watching(app):
     @asynccontextmanager
     async def lifespan(_):
@@ -1146,6 +1195,11 @@ QOL_ROUTES = [
     Route("/api/seen-before", post_seen, methods=["POST"]),
     Route("/api/setup", get_setup),
     Route("/api/setup/{item}", post_setup, methods=["POST"]),
+    Route("/api/cases/{slug}/worklist", get_worklist),
+    Route("/api/cases/{slug}/worklist/open", post_worklist_open, methods=["POST"]),
+    Route("/api/cases/{slug}/captures/compare", post_compare, methods=["POST"]),
+    Route("/api/cases/{slug}/minimise", get_minimise),
+    Route("/api/cases/{slug}/minimise", post_minimise, methods=["POST"]),
 ]
 
 

@@ -6,6 +6,7 @@ hunt watch [--case NAME (--every 1|3|7 | --off)] [--background on|off]
 hunt pack --case NAME [--out DIR]          hunt unpack FILE [--replace]
 hunt seen [SEED...] [--case NAME] [--screening]
 hunt doctor | hunt setup [--launcher] | hunt update | hunt uninstall
+hunt minimise --case NAME
 hunt app
 
 search fans each seed out to every source that handles its kind, scores every
@@ -19,7 +20,8 @@ agent runs), or turns watching on and off. pack locks a whole case in an encrypt
 computer, and unpack brings one in after checking every file's hash. seen looks for the subject in
 the other cases on this computer. doctor checks what Hunt needs and says how to fix what's missing;
 setup puts Hunt in Applications and downloads what's missing, showing each size and asking first;
-update and uninstall do what they say (uninstall moves things to the Trash). app opens the Hunt app in
+update and uninstall do what they say (uninstall moves things to the Trash). minimise, once a case's
+retention period is over, moves the raw media nobody kept or cited to the Trash. app opens the Hunt app in
 your browser, served only to this machine.
 """
 
@@ -33,7 +35,7 @@ from datetime import date
 from importlib.metadata import version
 from pathlib import Path
 
-from . import bundle, inbox, pack, photo, recheck, search, seen, setup, watch
+from . import bundle, inbox, minimise, pack, photo, recheck, search, seen, setup, watch
 from .case import HOME, Case, all_cases
 from .search import build  # noqa: F401  (re-exported: tests and older callers import it from here)
 from .seed import detect, now
@@ -94,6 +96,9 @@ def main():
                     help="make Hunt.app again, e.g. after changing HUNT_PROXY (the old one goes to the Trash)")
     sub.add_parser("update", parents=[proxy], help="update Hunt to the latest version")
     sub.add_parser("uninstall", parents=[proxy], help="remove Hunt from this Mac (asks before moving your cases to the Trash)")
+    mn = sub.add_parser("minimise", parents=[proxy],
+                        help="after retention: move the raw media nobody kept or cited to the Trash (asks first)")
+    mn.add_argument("--case", required=True)
     sub.add_parser("app", parents=[proxy], help="open the Hunt app in your browser (this machine only)")
     args = ap.parse_args()
 
@@ -104,9 +109,9 @@ def main():
         return serve()
     if args.cmd == "watch":
         return watch_cmd(args)
-    if args.cmd in ("pack", "unpack", "seen", "doctor", "setup", "update", "uninstall"):
+    if args.cmd in ("pack", "unpack", "seen", "doctor", "setup", "update", "uninstall", "minimise"):
         return {"pack": pack_cmd, "unpack": unpack_cmd, "seen": seen_cmd, "doctor": doctor_cmd, "setup": setup_cmd,
-                "update": update_cmd, "uninstall": uninstall_cmd}[args.cmd](args)
+                "update": update_cmd, "uninstall": uninstall_cmd, "minimise": minimise_cmd}[args.cmd](args)
     try:
         case = Case(args.case, args.purpose)
     except ValueError as e:
@@ -319,3 +324,21 @@ def _progress(e: dict):
         print(f"\r  {e['done'] / 2**20:,.0f} of {e['total'] / 2**20:,.0f} MB", end="", file=sys.stderr, flush=True)
     elif e["type"] == "log":
         print(f"\n  {e['message']}", file=sys.stderr)
+
+
+def minimise_cmd(args):
+    try:
+        case = Case(args.case, create=False)
+    except LookupError as e:
+        raise SystemExit(str(e))
+    p = minimise.plan(case)
+    if not p["ready"]:
+        raise SystemExit(f"Nothing to remove: {p['why']}.")
+    if not p["files"]:
+        return print("Every photo and video in this case is kept, reported or noted: nothing to remove.")
+    for f in p["files"]:
+        print(f"  {f['file']}  {f['kind']}  {f['bytes'] / 1e6:.1f} MB")
+    if _yes(f"Move these {p['count']} files ({p['bytes'] / 1e6:.1f} MB) to the Trash? Nobody kept, reported or noted "
+            "them. The case and everything kept stay. [y/N] "):
+        done = minimise.purge(case, p["count"], p["bytes"])
+        print(f"Moved to the Trash as \"{done['trashed_as']}\". Empty the Trash to finish removing them.")

@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore", message="Using `httpx` with")  # Starlette pre
 from starlette.testclient import TestClient  # noqa: E402
 
 from hunt import app as server
-from hunt import inbox, pack, recheck, scan, seen, setup, watch
+from hunt import browser, inbox, pack, recheck, scan, seen, setup, watch
 from hunt.case import Case
 from hunt.seed import Finding, Seed
 
@@ -233,4 +233,22 @@ for _ in range(100):
         break
     time.sleep(0.05)
 assert [e["type"] for e in sent] == ["progress", "done"] and sent[0]["done"] == 3000, sent
+
+# Check again on login-walled platforms: the worklist opens one account per click in the Hunt Browser
+opened = []
+browser.open_url = lambda url, port, slug=None: opened.append((url, port, slug)) or {"opened": url, "started": True}
+ig = "https://www.instagram.com/kestrel_vane88/"
+case.decide(ig, "him")
+r = c.get(f"/api/cases/{case.name}/worklist").json()
+assert [w["platform"] for w in r["worklist"]] == ["Instagram"] and r["uncompared_captures"] == 0, r
+r = c.post(f"/api/cases/{case.name}/worklist/open", json={"account": ig}, headers=JSON)
+assert r.status_code == 200 and opened == [(ig, PORT, case.name)], r.text
+assert c.post(f"/api/cases/{case.name}/worklist/open", json={"account": "https://example.com/x"}, headers=JSON).status_code == 404
+assert c.post(f"/api/cases/{case.name}/captures/compare", json={}, headers=JSON).json() == {"changes": []}
+
+# Minimisation: only after the retention date, only the shown count and size
+r = c.get(f"/api/cases/{case.name}/minimise").json()
+assert not r["ready"] and "retention period ends" in r["why"]
+assert c.post(f"/api/cases/{case.name}/minimise", json={"count": 0, "bytes": 0}, headers=JSON).status_code == 409
+assert c.post(f"/api/cases/{case.name}/minimise", json={"count": "all"}, headers=JSON).status_code == 400
 print("ok")

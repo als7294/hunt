@@ -161,6 +161,10 @@ Hunt grades how likely each account is to be the subject's. It uses the wording 
   - Paste the post's link to attach it.
   - Filed files go into the case as evidence. The originals go to the Trash, never deleted, so you can put them back.
 - **Check again.** Looks at the confirmed accounts again: new posts, posts that disappeared (with when each was last seen), name, bio or profile photo changes, and accounts that vanished. Each change is logged and can be cited.
+  - **On Instagram, Facebook, X, LinkedIn and TikTok, Hunt doesn't visit the sites itself.** Check again gives you a **worklist**: open each account from it in the Hunt Browser, with Hunt Capture on.
+  - **Hunt compares what you capture with your last visit:** posts gone or back, a changed name, an account that went private or disappeared.
+  - **A post you simply didn't scroll to is never called gone.**
+  - **LinkedIn can show members who viewed them.** Hunt warns you before you open the same LinkedIn profile twice in a week.
 - **Watch this subject.** Turn it on for a case, every day, every 3 days or every week:
   - Hunt checks again, scans what's new, and sends you a notification ("Vance claim: 2 new flagged posts") that contains counts only, never what was posted.
   - It waits while your Mac is on battery, busy or in use, so it doesn't slow you down.
@@ -185,11 +189,11 @@ Hunt grades how likely each account is to be the subject's. It uses the wording 
 | In the zip | What it is |
 |---|---|
 | `exhibits/` | Every evidence file, under a readable name |
-| `manifest.csv` | What each exhibit is, where it came from, when it was posted and saved, its original name, and its **SHA-256 fingerprint** |
+| `manifest.csv` | What each exhibit is, how it was collected (read by Hunt, captured in the Hunt Browser, or added by you), where it came from, when it was posted and saved, its original name, its **SHA-256 fingerprint**, and whether it's evidence or a **lead** (a frame Hunt's scan picked out of a video: the video is the evidence) |
 | `SHA256SUMS` | The same fingerprints, in a standard format |
 | `audit-log.csv` | The case's log: every search, decision, import and export, with times |
 | `notes.csv` | Your notes, corrections included |
-| `README.txt` | The case, its purpose, and how to check the bundle |
+| `README.txt` | The case, its purpose, how to check the bundle, and how the evidence was collected, written so a qualified person can certify it (FRE 902(13) and (14)) |
 
 **How the recipient checks it,** on any computer, in the unzipped folder:
 
@@ -225,7 +229,10 @@ The reasoning, with sources, is in [legal.md](research/legal.md). It's engineeri
   - the requests to the sites being checked (through your proxy, if you set one)
   - place names, never people's names, sent to OpenStreetMap to compare locations
   - the downloads you approve in setup
-- **Retention:** cases are due for deletion **90 days** after you open them, unless you put them on **legal hold**. Hunt reminds you; deleting moves a case to the Trash.
+- **Retention:** cases are due for deletion **90 days** after you open them, unless you put them on **legal hold**. Hunt reminds you, and offers three choices:
+  - **Delete the case:** it goes to the Trash.
+  - **Put it on legal hold:** nothing is removed.
+  - **Remove unused media and keep the case:** the photos and videos nobody kept, reported or noted go to the Trash. Empty the Trash to finish removing them.
 
 ## 10. Updating, checking and removing Hunt
 
