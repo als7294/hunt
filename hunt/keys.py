@@ -9,6 +9,7 @@ Which keys exist comes from the sources' KEY / KEY_REQUIRED / KEY_URL / KEY_FREE
 source module declares (a reader elsewhere in Hunt) goes in EXTRA: {env var: {label, url, free}}.
 """
 
+import importlib
 import json
 import os
 
@@ -21,11 +22,17 @@ LABEL = {"github": "GitHub", "gravatar": "Gravatar", "fec": "OpenFEC", "courtlis
          "licences": "State open-data portals", "businesses": "State open-data portals", "fmcsa": "State open-data portals",
          "edgar": "SEC EDGAR"}
 EXTRA: dict[str, dict] = {}
+READERS = ("public", "vendor")  # Hunt modules outside sources/ that add their key to EXTRA when imported
 _shell = {k for k in os.environ if k.startswith("HUNT_")}  # set before Hunt started: the shell's, not ours
 
 
 def known() -> dict[str, dict]:
     """{env var: {label, sources, required, url, free}}, one entry per key (the state portals share one)."""
+    for name in READERS:  # so their keys are listed, and loaded at start, before anything else imports them
+        try:
+            importlib.import_module(f"hunt.{name}")
+        except ImportError:
+            pass
     out = {}
     for src in sources.SOURCES:
         if key := getattr(src, "KEY", None):
