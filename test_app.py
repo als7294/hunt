@@ -275,7 +275,7 @@ r = c.get("/api/cases/vance-claim/report.json?screening=1").json()
 assert r["report"]["screening"] and all(m["ok"] for m in r["manifest"])
 assert c.get("/api/cases/vance-claim/report.docx").status_code == 404
 cases = c.get("/api/cases").json()
-assert cases[0]["headline"] in ("Confirmed · report ready", "Report ready"), cases
+assert next(x for x in cases if x["slug"] == "vance-claim")["headline"] in ("Confirmed · report ready", "Report ready"), cases
 assert c.get("/api/cases/vance-claim").json()["steps"] == {"search": "done", "identity": "done", "posts": "done",
                                                             "report": "done"}
 # --- Facebook: saved pages (with their _files folder), screenshots, the investigator's links -----------
