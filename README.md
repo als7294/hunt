@@ -95,10 +95,14 @@ Investigators juggle dozens of single-purpose tools, copy results between them b
 
 ## Responsible use
 
-Hunt is for lawful, purpose-bound investigations. These guardrails are built in, not bolted on:
+Hunt is for lawful, purpose-bound investigations. These guardrails are built in, not bolted on. The full list, with the reasoning behind each, is [Hunt's rules](docs/research/legal.md#hunts-rules).
 
+- **No software-caused request to a login-walled platform.** On Facebook, Instagram, TikTok, X and LinkedIn, the investigator browses herself, under her own account. Hunt only records what she opens. Hunt never logs in and never drives her account.
+- **Her own real account only:** no fake accounts, sock puppets or pretexting.
+- **Never contact the subject or associates:** no following, friending, liking or messaging, and no checks that could notify anyone.
+- **Never get around a limit:** no CAPTCHA solving, and no proxies, IP rotation or spoofing to get past a block. Hunt stops at the first refusal, and stops on any sign that a platform has revoked access.
+- **No face search.**
 - A purpose statement and audit log for every case
-- Passive, logged-out collection only: no following, messaging or sock-puppet automation
 - A minors flag
 - Per-source rate limits
 - Per-case retention and purge
@@ -114,7 +118,9 @@ Hunt uses free and open sources only. It **complements** licensed data-broker to
 |---|---|
 | [tools.md](docs/research/tools.md) | Open-source tools and free APIs to build on, with licences and maintenance status |
 | [pain-points.md](docs/research/pain-points.md) | What investigators struggle with, and what a good report contains |
-| [legal.md](docs/research/legal.md) | FCRA, DPPA/GLBA, state data broker laws, scraping case law, biometrics |
+| [legal.md](docs/research/legal.md) | FCRA, DPPA/GLBA, state data broker laws, scraping case law, biometrics, and Hunt's rules |
+| [automation-legal.md](docs/research/automation-legal.md) | How far collection from Facebook, Instagram and TikTok can lawfully be automated, platform by platform |
+| [for-counsel.md](docs/for-counsel.md) | Two pages for a lawyer: what Hunt does and doesn't do, and the open questions |
 | [geolocation.md](docs/research/geolocation.md) | Local photo geolocation models and on-device ML |
 
 ## Credits
