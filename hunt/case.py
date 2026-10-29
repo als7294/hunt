@@ -17,7 +17,10 @@ from typing import BinaryIO
 from .seed import Finding, Seed, now
 
 HOME = Path(os.environ.get("HUNT_HOME", Path.home() / "Hunt"))
-DETAILS = ("label", "kind", "reference", "injury_date", "limits", "look_for", "tool")
+DETAILS = ("label", "kind", "reference", "injury_date", "limits", "look_for", "tool",
+           # the report's header block and conclusion (docs/research/report-format.md)
+           "client", "adjuster", "file_number", "assignment_date", "subject_dob", "recommendations")
+DATES = ("injury_date", "assignment_date", "subject_dob")  # YYYY-MM-DD
 DECISIONS = ("him", "not him", "unsure")
 EVIDENCE_NAME = re.compile(r"^[0-9a-f]{64}\.\w{2,5}$")
 
@@ -89,12 +92,13 @@ class Case:
         return row[0] if row else None
 
     def set_details(self, **details):
-        """label, kind, reference, injury_date, limits, look_for (a list), tool."""
+        """Any of DETAILS; look_for is a list. '' clears a field."""
         unknown = set(details) - set(DETAILS)
         if unknown:
             raise ValueError(f"unknown case details: {sorted(unknown)}")
         self.db.executemany("insert or replace into meta values (?, ?)",
                             [(k, json.dumps(v) if k == "look_for" else v) for k, v in details.items() if v is not None])
+        self.db.executemany("delete from meta where key = ?", [(k,) for k, v in details.items() if v == ""])
 
     def details(self) -> dict:
         d = {k: self.meta(k) for k in (*DETAILS, "purpose", "created")}
