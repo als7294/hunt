@@ -34,7 +34,11 @@ from .match import verdict
 from .seed import now
 
 CLIP_MODEL = "openai/clip-vit-large-patch14"
-CLIP_MIN = 0.3  # a category's share against the negatives; low, for recall (scripts/eval_scan.py)
+# A frame is a candidate for a category when its share against the negatives reaches CLIP_MIN and the
+# category is among the frame's TOP_CATS best. On 32 labelled Commons photos (scripts/eval_scan.py) recall
+# held at 30/32 from 0.2 to 0.6 and fell after; 0.5 with the top-3 cap cut vision-model calls from 4.2 to
+# 2.3 per photo at the same recall. ponytail: a small set; re-tune on real case photos.
+CLIP_MIN, TOP_CATS = 0.5, 3
 BATCH = 8
 HEAD_S, TAIL_FRAMES = 180, 60  # 1 frame/s over the first 3 minutes, then 60 spread over the rest
 FRAME_SIDE = 640
@@ -180,7 +184,7 @@ async def run(case, look_for: list[str], limits: str, injury_date: str | None, e
             for c in cats:
                 if (m["id"], c) in seen and not check_everything:
                     continue
-                stretches = ranges([t for t, s in zip(frames[m["id"]], scores[m["id"]]) if s[c] >= CLIP_MIN],
+                stretches = ranges([t for t, s in zip(frames[m["id"]], scores[m["id"]]) if candidate(s, c)],
                                    m["kind"] == "video")
                 if check_everything and not stretches:
                     stretches = ranges(frames[m["id"]], m["kind"] == "video", spread=True)
@@ -271,6 +275,11 @@ def timing(posted_at: str | None, injury_date: str | None) -> tuple[str | None, 
         return None, None
     days = (date.fromisoformat(posted_at[:10]) - date.fromisoformat(injury_date)).days
     return ("after" if days >= 0 else "before"), days
+
+
+def candidate(shares: dict[str, float], category: str) -> bool:
+    """Should the vision model look at this frame for this category?"""
+    return shares[category] >= CLIP_MIN and category in sorted(shares, key=shares.get, reverse=True)[:TOP_CATS]
 
 
 def capped(p: float) -> tuple[float, str]:
