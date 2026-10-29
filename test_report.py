@@ -257,6 +257,19 @@ assert rep["checks"]["tampered"] == [img], rep["checks"]
 assert not next(m for m in report.to_json(case, rep)["manifest"] if m["file"] == img)["ok"]
 assert "Changed since saved" in report.to_html(case, rep)
 
+# A note on a reported item is printed with it, cited to the note; screening drops one in protected words
+from hunt import notes  # noqa: E402
+shown = next(h for h in hits if h["status"] in ("kept", "in report"))
+case.db.executescript(notes.SCHEMA)  # this file's hits are fixtures, not rows notes.add could check against
+for words in ("The backpack looks heavy; the trail is steep.", "She mentioned her disability in the caption."):
+    case.db.execute("insert into notes values (null, '2026-04-02T10:00:00+00:00', 'hit', ?, ?, null)", (str(shown["id"]), words))
+n1, n2 = notes.list_notes(case, "hit", str(shown["id"]))[-2:]
+rep = compose()
+said = [x for x in rep["sentences"] if x["cites"] in ([n1["cite"]], [n2["cite"]])]
+assert len(said) == 2 and "The backpack looks heavy" in said[0]["text"], said
+assert f"[Note {n1['id']}]" in report.to_html(case, rep) or f"Note {n1['id']}" in report.to_html(case, rep)
+assert not any(n2["cite"] in x["cites"] for x in compose(screening=True)["sentences"])
+
 # A case known only by a username: no "the subject, the subject", the header names the case, and accounts she
 # ruled out are cited to her decisions (they're in no table, so an account id couldn't be looked up)
 handle = Case.create("example handle", "Test: a public organisation's handle", kind="background", tool="person")

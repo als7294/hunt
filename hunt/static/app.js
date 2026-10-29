@@ -1036,6 +1036,7 @@ function citeLabel(id, r) {
   const p = r.presence.find(x => x.id === id); if (p) return [`Acct. ${p.row}`, `p-${id}`];
   const rec = (r.records || []).find(x => x.id === id); if (rec) return [`Rec. ${rec.row}`, `r-${id}`];
   const i = r.log.findIndex(x => x.id === id); if (i >= 0) return [`Log ${i + 1}`, `l-${id}`];
+  if (id.startsWith('N-')) return [`Note ${id.slice(2)}`, '']; // her note, printed with the item; in the bundle's notes.csv
   return [id, ''];
 }
 screens.report = async slug => {

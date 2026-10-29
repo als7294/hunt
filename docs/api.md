@@ -160,8 +160,9 @@ runs (political affiliation); NPI registry records and runs (health); and court 
 suit is about health or politics. It says so in its disclaimers.
 
 Citation ids: `E-<hit id>` (a kept item), `A-<finding id>` (an account), `M-<run rowid>` (a source run), `M-a<audit rowid>`
-(a case-log entry: purpose, decisions, captures, the scan). The exports print them as "Ex. n" (an exhibit), "Acct. n" (a
-row of the presence table), "Rec. n" (a row of the public records table) or "Log n" (Appendix B).
+(a case-log entry: purpose, decisions, captures, the scan), `N-<note id>` (the investigator's note on a reported item,
+printed under it; in the bundle's `notes.csv`). The exports print them as "Ex. n" (an exhibit), "Acct. n" (a row of the
+presence table), "Rec. n" (a row of the public records table), "Log n" (Appendix B) or "Note n".
 
 ## Python interface between the server and the scan modules
 `hunt/posts.py` and `hunt/scan.py` own their tables (`posts`, `media`, `post_extra`, `hits`) and create them on first use. `emit(event: dict)` is a plain, non-blocking callable.
