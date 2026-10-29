@@ -39,6 +39,7 @@ const ago = iso => { if (!iso) return ''; const d = asDate(iso), n = (Date.now()
 const evidenceUrl = (slug, file) => file ? `/evidence/${encodeURIComponent(slug)}/${encodeURIComponent(String(file).split('/').pop())}` : '';
 const pct = p => p == null ? '' : `${Math.round(p * 100)}%`;
 const VERDICT_COLOR = { 'almost certain': 'var(--gr)', 'very likely': 'var(--gr)', likely: 'var(--gr)', 'roughly even chance': 'var(--am)', unlikely: 'var(--mu)', 'very unlikely': 'var(--dim)', 'almost no chance': 'var(--dim)' };
+const capped = v => ['almost certain', 'very likely'].includes(v) ? 'likely' : v; // a machine verdict never reads stronger than "likely"
 const LOGIN_ONLY = /instagram|facebook|tiktok|strava|twitter|^x$|linkedin|snapchat|threads/i; // posts need a login: investigator adds them
 
 /* ---------- seeds (mirrors hunt/seed.py detect(), for pill colours only; the server decides) ---------- */
@@ -76,7 +77,7 @@ function topCase(c, now) {
       const done = steps[k] === 'done' && i !== idx, on = i === idx;
       return html`${i ? html`<div class="step-link ${i <= idx ? 'done' : ''}"></div>` : ''}<a class="step ${on ? 'now' : done ? 'done' : ''}" href="#/case/${c.slug}/${k}"><span class="n">${done ? '✓' : i + 1}</span>${label}${k === 'posts' && c.counts?.flagged ? html` <span class="count">${c.counts.flagged}</span>` : ''}</a>`;
     })}</nav>
-    ${caseMenu(c)}
+    <button class="chip-btn" data-act="note-open" data-about="case" data-title="Case notes" style="margin-right:8px" title="Case notes: what you saw, did or decided">Notes</button>${caseMenu(c)}
   </header>${closedBar(c)}`;
 }
 // The case pill opens the case menu: where the case stands, and closing, holding or deleting it
@@ -258,6 +259,7 @@ function drawWizard() {
         <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:14px" class="t2">
           <span><span style="color:var(--gr)">●</span> Public posts only</span><span><span style="color:var(--gr)">●</span> Blurs photos that may show children</span><span><span style="color:var(--gr)">●</span> Asks before keeping past 90 days</span>
         </div>
+        <div id="wiz-seen"></div>
         <button class="btn primary" data-act="wiz-start" ${step < 3 ? 'disabled' : ''} style="align-self:flex-start;margin-top:6px">Start searching →</button>
         <span id="wiz-hint" class="muted" style="font-size:14px">${wizHint(step)}</span>
       </div>
@@ -270,6 +272,7 @@ function drawWizard() {
   if (w.seeds.length) input.placeholder = 'Add another…';
   $('#wiz').addEventListener('submit', e => e.preventDefault());
   if (document.activeElement === document.body) input.focus();
+  wizSeen();
 }
 const lookFor = w => html`<div style="display:flex;flex-direction:column;gap:8px"><span style="font-size:15px;font-weight:500">What should Hunt look for in their posts?</span>
   <div style="display:flex;flex-wrap:wrap;gap:7px">${LOOK_FOR.map(([k, label]) => html`<button type="button" class="tick ${w.look_for.includes(k) ? 'on' : ''}" data-act="wiz-look" data-key="${k}">${w.look_for.includes(k) ? '✓ ' : ''}${label}</button>`)}
@@ -287,6 +290,7 @@ function addSeeds(text) {
   refreshSeeds();
 }
 function refreshSeeds() {
+  wizSeen();
   $('#seed-pills').innerHTML = fmt(wiz.seeds.map(s => seedPill(s, seedKind(s), true)));
   $('#seed-in').placeholder = wiz.seeds.length ? 'Add another…' : 'Paste anything… a name, email, phone, username or profile link';
   refreshStart();
@@ -296,7 +300,11 @@ function refreshStart() {
   if (b) b.disabled = step < 3;
   $('#wiz-steps').innerHTML = fmt(wizPills(step)); $('#wiz-hint').textContent = wizHint(step);
 }
-document.addEventListener('toggle', e => { if (e.target.id === 'wiz-header' && wiz) wiz.headerOpen = e.target.open; }, true);
+document.addEventListener('toggle', e => {
+  if (e.target.id === 'wiz-header' && wiz) wiz.headerOpen = e.target.open;
+  if (e.target.id === 'alerts' && e.target.open) api(`/api/cases/${encodeURIComponent(e.target.dataset.slug)}/alerts/seen`, { method: 'POST', body: {} }).catch(() => {});
+}, true);
+document.addEventListener('keydown', e => { if (e.target.id === 'note-text' && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveNote(); } });
 document.addEventListener('keydown', e => {
   if (e.target.id === 'custom-in' && e.key === 'Enter') { e.preventDefault(); const v = e.target.value.trim(); if (v && !wiz.custom.includes(v)) wiz.custom.push(v); drawWizard(); $('#custom-in')?.focus(); }
 });
@@ -332,7 +340,7 @@ async function showResults(slug, cl) {
     const p = await api(`/api/cases/${encodeURIComponent(slug)}/person`);
     const accounts = p.accounts.map(a => ({ ...a, handle: a.handle || handleOf(a.url) }));
     cl.update({ stage: 'done', accounts, namesakes: p.namesakes.map(n => ({ label: n.label, why: n.why?.[0] })),
-      badges: p.summary.map(s => s.text), headline: accounts.length ? `${accounts.length} account${accounts.length > 1 ? 's' : ''}, each ${p.weakest_verdict || 'likely'} or better` : 'No likely accounts yet' });
+      badges: p.summary.map(s => s.text), headline: accounts.length ? `${accounts.length} account${accounts.length > 1 ? 's' : ''}, each ${capped(p.weakest_verdict) || 'likely'} or better` : 'No likely accounts yet' });
   } catch (e) { fail(e); }
 }
 function watchSearch(slug, job, cl) {
@@ -368,14 +376,15 @@ screens.identity = async slug => {
         <div style="width:96px;height:96px;border-radius:50%;overflow:hidden;flex:none;box-shadow:0 0 0 3px var(--raise)">${avatar ? html`<img src="${avatar}" alt="" style="width:100%;height:100%;object-fit:cover">` : html`<div class="thumb" style="height:96px;display:flex;align-items:center;justify-content:center;color:var(--mu);font-size:13px">photo</div>`}</div>
         <div style="flex:1;min-width:0"><div class="h2" style="font-size:30px">${c.details.label}</div><div class="sub" style="margin-top:4px">${n} account${n > 1 ? 's' : ''}</div>
           <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">${accts.map(a => html`<span class="acct"><span class="dot" style="background:${siteColor(a.site)}"></span>${a.site}</span>`)}</div></div>
-        <div class="ring" style="--p:${Math.round(low * 100)}"><div><span style="font-weight:600;font-size:30px">${n}</span><span class="verdict">each ${weakest || 'likely'}<br>or better</span></div></div>
+        <div class="ring" style="--p:${Math.round(low * 100)}"><div><span style="font-weight:600;font-size:30px">${n}</span><span class="verdict">each ${capped(weakest) || 'likely'}<br>or better</span></div></div>
       </div>
       <div style="display:flex;flex-direction:column;gap:8px">${p.summary.map(s => html`<div class="reason"><span class="ic">✓</span><span>${s.text}</span></div>`)}</div>
       <details style="border-radius:14px;background:rgba(255,255,255,.02);padding:4px 12px"><summary class="muted" style="cursor:pointer;padding:8px 4px">Each account, with its own reasons</summary>
         <div style="display:flex;flex-direction:column;gap:6px;padding:6px 0 10px">${accts.map(a => html`<div style="display:flex;gap:12px;align-items:flex-start;padding:10px;border-radius:12px;background:var(--panel)">
           <span class="dot" style="margin-top:7px;background:${siteColor(a.site)}"></span>
-          <div style="flex:1;min-width:0"><div><b>${a.site}</b> <span class="muted">${a.handle || handleOf(a.url)}</span> · <span style="color:${VERDICT_COLOR[a.verdict] || 'var(--t2)'}">${pct(a.probability)} ${a.verdict}</span>${a.decision ? html` · <span class="muted">you said: ${a.decision === 'him' ? 'them' : a.decision === 'not him' ? 'not them' : 'unsure'}</span>` : ''}</div>
+          <div style="flex:1;min-width:0"><div><b>${a.site}</b> <span class="muted">${a.handle || handleOf(a.url)}</span> · <span style="color:${VERDICT_COLOR[a.verdict] || 'var(--t2)'}">${pct(a.probability)} ${capped(a.verdict)}</span>${a.decision ? html` · <span class="muted">you said: ${a.decision === 'him' ? 'them' : a.decision === 'not him' ? 'not them' : 'unsure'}</span>` : ''}</div>
             <div class="muted" style="font-size:13.5px">${a.reasons.join(' · ')}</div></div>
+          <button class="btn ghost sm" data-act="note-open" data-about="account" data-ref="${a.url}" data-title="Notes on the ${a.site} account">Note</button>
           <button class="btn ghost sm" data-act="decide" data-url="${a.url}" data-decision="not him">Not them</button></div>`)}</div></details>
       <div style="display:flex;gap:10px">
         <button class="btn good" data-act="decide-all" data-decision="him">Yes, it’s them</button>
@@ -390,7 +399,9 @@ screens.identity = async slug => {
         <div style="flex:1;min-width:0"><div style="font-weight:500">${ns.label}</div><div class="muted" style="font-size:14px">${[ns.site, ...(ns.why || [])].filter(Boolean).join(' · ')}</div></div>
         <button class="btn ghost sm" data-act="decide" data-url="${ns.url}" data-decision="not him">${ns.decision === 'not him' ? '✓ Not them' : 'Not them'}</button></div>`)}
     </div>` : ''}
+    <div id="seen-here" style="width:min(880px,100%)"></div>
   </main>`);
+  api(`/api/cases/${encodeURIComponent(slug)}/seen-before`).then(r => { if ($('#seen-here')) $('#seen-here').innerHTML = seenBox(r, slug).s; }).catch(() => {});
 };
 
 /* Find a person, 3a: analysing photos and videos. Starts by itself once the investigator confirms it's them */
@@ -517,9 +528,135 @@ function watchScan(slug, job) {
   });
 }
 
+/* Keeping watch (docs/qol.md E, G): Check again, and Watch this subject */
+const RECHECK_STAGE = { rechecking: 'Looking at profiles again', collecting: 'Reading posts again', capturing: 'Taking new screenshots', scanning: 'Checking new photos and videos' };
+const WATCH_STATUS = { 'waiting: on battery': 'Waiting until the Mac is plugged in', 'waiting: the Mac is busy': 'Waiting until the Mac is less busy', 'waiting: the Mac is in use': 'Waiting until you step away' };
+const ALERT_IC = { flagged: '●', 'posts gone': '!', 'no posts': '!', 'account gone': '!' };
+const platformOf = url => { try { const u = new URL(url), h = u.hostname.replace(/^(www|m)\./, '');
+  return { 'bsky.app': 'Bluesky', 'youtube.com': 'YouTube', 'facebook.com': 'Facebook', 'instagram.com': 'Instagram', 'tiktok.com': 'TikTok', 'x.com': 'X', 'twitter.com': 'X', 'linkedin.com': 'LinkedIn' }[h] || (/^\/@/.test(u.pathname) ? 'Mastodon' : h); } catch { return url; } };
+const when = iso => iso ? new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+let rescan = null; // a case whose re-check found new posts, offered "Scan new posts"
+function changeLine(slug, x) {
+  const p = platformOf(x.account), n = x.posts?.length || 0, warn = (x.change === 'posts gone' && x.none_left) || x.change === 'account gone';
+  const lastSeen = x.posts && day(x.posts.map(q => q.last_seen).sort().at(-1));
+  const text = x.change === 'posts gone' ? (x.none_left ? `${p} shows no posts any more: made private, or emptied` : `${n} post${n > 1 ? 's' : ''} on ${p} ${n > 1 ? 'are' : 'is'} gone, last seen ${lastSeen}`)
+    : x.change === 'profile changed' ? (x.field === 'profile photo' ? `Profile photo on ${p} changed` : `${x.field[0].toUpperCase() + x.field.slice(1)} on ${p} changed: ‘${x.before ?? ''}’ → ‘${x.after ?? ''}’`)
+    : x.change === 'account gone' ? `The ${p} account can’t be found at its address any more (last seen ${day(x.last_seen)})`
+    : x.change === 'account back' ? `The ${p} account can be found again (missing on ${day(x.missing_on)})`
+    : x.change === 'post back' ? `A post on ${p} that was gone is back` : x.change;
+  return html`<div class="reason ${warn ? 'warn' : ''}" style="align-items:flex-start;gap:12px"><span class="ic">${warn ? '!' : '•'}</span>
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px"><span>${text}</span>
+      ${x.change === 'profile changed' && x.field !== 'profile photo' && x.before_seen ? html`<span class="muted" style="font-size:13px">was ‘${x.before ?? ''}’ on ${day(x.before_seen)}</span>` : ''}
+      ${x.field === 'profile photo' ? html`<div style="display:flex;gap:8px;align-items:center">${[x.before_sha256, x.after_sha256].map((sha, i) => sha ? html`<img class="thumb" src="/evidence/${encodeURIComponent(slug)}/${sha}.img" alt="${i ? 'After' : 'Before'}" style="width:56px;height:56px">` : html`<span class="thumb" style="width:56px;height:56px"></span>`)}<span class="muted" style="font-size:13px">before · after</span></div>` : ''}
+      ${x.change === 'posts gone' && n ? html`<details><summary class="muted" style="cursor:pointer;font-size:13px">Each post (still kept in the case)</summary>${x.posts.map(q => html`<div style="font-size:13px" class="t2">${day(q.posted_at)} · last seen ${day(q.last_seen)} · ${/^https?:\/\//.test(q.url || '') ? html`<a href="${q.url}" target="_blank" rel="noopener noreferrer" style="color:var(--ac)">the post</a>` : 'no link'}</div>`)}</details>` : ''}
+      <span class="dim" style="font-size:12.5px">${when(x.ts)} · ${x.cite}</span></div>
+    <button class="btn ghost sm" data-act="note-open" data-about="account" data-ref="${x.account}" data-title="Notes on the ${p} account">Note</button></div>`;
+}
+function recheckCard(slug, ch) {
+  const last = ch.checks[0];
+  return html`<div class="panel" id="recheck" style="padding:18px;display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><b>Check again</b><div class="muted" style="font-size:13.5px;margin-top:2px">Look at the subject’s confirmed accounts again: new posts, deleted posts, profile changes.</div></div>
+      <button class="btn sm" data-act="recheck" data-slug="${slug}">Check again</button></div>
+    <div id="recheck-state" class="t2" style="font-size:14px">${last ? html`Last checked ${when(last.ts)}: ${last.new_posts} new post${last.new_posts === 1 ? '' : 's'}, ${last.changes} change${last.changes === 1 ? '' : 's'}` : html`<span class="muted">Not checked again yet</span>`}
+      ${rescan === slug ? html` · <button data-act="scan-new" data-slug="${slug}" style="color:var(--ac)">Scan new posts →</button>` : ''}</div>
+    <div id="recheck-bar" class="bar hidden"><i></i></div>
+    <div id="changes" style="display:flex;flex-direction:column;gap:6px">${ch.changes.slice(0, 4).map(x => changeLine(slug, x))}
+      ${ch.changes.length > 4 ? html`<details><summary class="muted" style="cursor:pointer;font-size:13.5px">${ch.changes.length - 4} earlier changes</summary><div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">${ch.changes.slice(4).map(x => changeLine(slug, x))}</div></details>` : ''}
+      ${last && !ch.changes.some(x => x.ts >= last.ts) ? html`<span class="muted" style="font-size:13.5px">Nothing changed at the last check.</span>` : ''}</div>
+    ${last ? html`<span class="dim" style="font-size:12.5px">Instagram, TikTok, Facebook and X can’t be read logged out. Hunt took a new dated screenshot of each to compare.</span>` : ''}</div>`;
+}
+function watchCard(slug, w, al) {
+  const unseen = al.alerts.filter(a => !a.seen).length;
+  const line = w.on ? [w.last ? `Last checked ${when(w.last)}` : 'Not checked yet', w.next ? `next ${day(w.next)}` : ''].filter(Boolean).join(' · ')
+    : w.stopped && w.why && w.why !== 'turned off' ? `Stopped: ${w.why}` : '';
+  const st = w.on && w.status && w.status !== 'ok' ? (WATCH_STATUS[w.status] || (/^failed/.test(w.status) ? 'The last check failed; trying again within the hour' : w.status)) : '';
+  return html`<div class="panel" id="watch" style="padding:18px;display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <label style="display:flex;gap:10px;align-items:center;cursor:pointer"><input type="checkbox" id="watch-on" data-slug="${slug}" ${w.on ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--ac)"><b>Watch this subject</b></label>
+      <select class="input" id="watch-every" data-slug="${slug}" style="width:auto;padding:7px 10px;font-size:14px" aria-label="How often">${[[1, 'Every day'], [3, 'Every 3 days'], [7, 'Every week']].map(([d, l]) => html`<option value="${d}" ${(w.every_days || 7) === d ? 'selected' : ''}>${l}</option>`)}</select></div>
+    <div class="muted" style="font-size:13.5px">Hunt checks the subject’s accounts again, scans what’s new and tells you when something changes.</div>
+    ${line || st ? html`<div style="font-size:14px" class="t2">${line}${st ? html`<div style="color:var(--am)" title="${w.status}">${st}</div>` : ''}</div>` : ''}
+    <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:14px"><input type="checkbox" id="watch-bg" ${w.background ? 'checked' : ''} style="width:16px;height:16px;margin-top:2px;accent-color:var(--ac)">
+      <span>Keep watching when Hunt is closed<br><span class="muted" style="font-size:13px">Runs hourly in the background at low priority, only when the Mac is plugged in and idle. Applies to every watched case. Turn off to remove it completely.</span></span></label>
+    ${al.alerts.length ? html`<details id="alerts" data-slug="${slug}" ${unseen ? '' : ''}><summary style="cursor:pointer;font-size:14.5px">Alerts${unseen ? html` <span class="tag warn">${unseen} new</span>` : html` <span class="muted">(${al.alerts.length})</span>`}</summary>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">${al.alerts.map(a => html`<a class="reason ${a.kind === 'flagged' ? '' : 'warn'}" href="${a.kind === 'flagged' ? `#/case/${slug}/posts` : '#recheck'}" data-act="${a.kind === 'flagged' ? '' : 'jump'}" data-id="recheck" style="${a.seen ? '' : 'box-shadow:inset 0 0 0 1px var(--am)'}"><span class="ic">${ALERT_IC[a.kind] || '•'}</span><span style="flex:1">${a.text} <span class="dim" style="font-size:12.5px">${when(a.ts)} · ${a.cite}</span></span></a>`)}</div></details>` : ''}
+    <span class="dim" style="font-size:12.5px">Notifications show counts only, never what was posted. To hide them on the lock screen: System Settings → Notifications → Show previews: When unlocked.</span></div>`;
+}
+function watchRecheck(slug, job, label) {
+  stopLive();
+  const state = $('#recheck-state'), bar = $('#recheck-bar');
+  bar?.classList.remove('hidden'); if (state) state.textContent = label || 'Starting…';
+  let fresh = 0;
+  live.es = follow(job, ev => {
+    if (ev.type === 'stage' && RECHECK_STAGE[ev.stage] && state) { state.textContent = (label ? label + ': ' : '') + RECHECK_STAGE[ev.stage]; bar.firstElementChild.style.transform = `scaleX(${({ rechecking: .2, collecting: .5, capturing: .8, scanning: .9 })[ev.stage]})`; }
+    if (ev.type === 'change') { fresh++; $('#changes')?.insertAdjacentHTML('afterbegin', changeLine(slug, { ...ev, ts: new Date().toISOString(), cite: `M-a${ev.audit}` }).s); }
+    if (ev.type === 'log') console.info(ev.message);
+    if (ev.type === 'error') fail(new Error(ev.message));
+    if (ev.type === 'done') { stopLive(); api(`/api/cases/${encodeURIComponent(slug)}/changes`).then(ch => { const last = ch.checks[0]; if (last?.new_posts) rescan = slug;
+      toast(last ? `Checked again: ${last.new_posts} new post${last.new_posts === 1 ? '' : 's'}, ${last.changes} change${last.changes === 1 ? '' : 's'}` : 'Checked again'); render(); }).catch(() => render()); }
+  });
+}
+
+/* Notes (docs/qol.md F): append-only. A correction is a new note that replaces an earlier one, which stays. */
+let notesFor = null; // {slug, about, ref, title, replaces}
+async function openNotes(slug, about = 'case', ref = null, title = 'Case notes', prefill = '') {
+  notesFor = { slug, about, ref, title, replaces: null };
+  let d = $('#notes'); if (!d) { d = document.createElement('aside'); d.id = 'notes'; d.className = 'drawer panel'; d.setAttribute('aria-label', 'Notes'); document.body.appendChild(d); }
+  d.innerHTML = html`<div class="muted">Loading notes…</div>`.s;
+  const q = about === 'case' ? '' : '?' + new URLSearchParams({ about, ref });
+  let list = []; try { list = (await api(`/api/cases/${encodeURIComponent(slug)}/notes${q}`)).notes; } catch (e) { fail(e); }
+  const byId = new Map(list.map(n => [n.id, n])), earlier = n => { const out = []; for (let x = byId.get(n.replaces); x; x = byId.get(x.replaces)) out.push(x); return out; };
+  d.innerHTML = html`<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:17px">${title}</b><button class="btn ghost sm" data-act="notes-close" aria-label="Close notes">×</button></div>
+    <div style="flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:8px">${list.filter(n => !n.replaced_by).map(n => html`<div class="card" style="padding:12px;background:var(--panel-2);display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span><span class="mono" style="color:var(--ac)">${n.cite}</span> <span class="muted">${when(n.ts)}${about === 'case' && n.about !== 'case' ? ` · on a${n.about === 'account' ? 'n' : ''} ${n.about}` : ''}</span></span><button data-act="notes-correct" data-id="${n.id}" style="color:var(--ac);font-size:13px">Correct</button></div>
+      <div style="white-space:pre-wrap;overflow-wrap:anywhere">${n.text}</div>
+      ${earlier(n).map(x => html`<details><summary class="dim" style="cursor:pointer;font-size:12.5px">Earlier version · ${x.cite}</summary><div class="muted" style="white-space:pre-wrap;text-decoration:line-through;font-size:13.5px">${x.text}</div></details>`)}</div>`)}
+      ${list.length ? '' : html`<div class="muted" style="font-size:14px">No notes yet.</div>`}</div>
+    <div id="note-replacing" class="muted hidden" style="font-size:13px"></div>
+    <textarea class="input" id="note-text" rows="4" style="resize:vertical" placeholder="What you saw, did or decided, and why. Keep what you saw apart from what you think it means.">${prefill}</textarea>
+    <div style="display:flex;gap:8px;align-items:center"><button class="btn primary sm" data-act="notes-save">Save</button><span class="dim" style="font-size:12.5px">⌘↩</span></div>
+    <span class="dim" style="font-size:12.5px">Notes can’t be deleted; correct one instead. They’re part of the case record.</span>`.s;
+  d.querySelector('#note-text').focus(); window.__notes = byId;
+}
+async function saveNote() {
+  const { slug, about, ref, replaces, title } = notesFor, text = $('#note-text').value;
+  try { await api(`/api/cases/${encodeURIComponent(slug)}/notes`, { method: 'POST', body: replaces ? { text, replaces } : about === 'case' ? { text } : { text, about, ref } });
+    toast('Note saved. It’s in the case log.'); openNotes(slug, about, ref, title); refreshNoteCounts(slug); } catch (e) { fail(e); }
+}
+async function refreshNoteCounts(slug) { // the "Note" buttons on hits show how many there are
+  const btns = document.querySelectorAll('[data-act="note-open"][data-about="hit"]'); if (!btns.length) return;
+  const all = await api(`/api/cases/${encodeURIComponent(slug)}/notes`).catch(() => ({ notes: [] }));
+  btns.forEach(b => { const n = all.notes.filter(x => x.about === 'hit' && x.ref === b.dataset.ref && !x.replaced_by).length; b.textContent = n ? `${n} note${n > 1 ? 's' : ''}` : 'Note'; });
+}
+
+/* Have we seen this person before? (docs/qol.md I): local, read-only, nothing merged or blocked */
+const ON_WORDS = { username: 'the username', email: 'the email', phone: 'the phone', url: 'the link', address: 'the address', name: 'the name', file: 'the same photo or video' };
+function seenBox(r, slug) {
+  if (!r) return '';
+  if (!r.checked) return html`<div class="muted" style="font-size:13.5px">${r.why}</div>`;
+  if (!r.matches.length) return r.skipped_screenings ? html`<div class="dim" style="font-size:13px">${r.skipped_screenings} employment screening${r.skipped_screenings > 1 ? 's' : ''} on this computer ${r.skipped_screenings > 1 ? 'weren’t' : 'wasn’t'} looked at.</div>` : '';
+  return html`<div style="padding:14px 16px;border-radius:var(--r-lg);background:var(--violet-bg);display:flex;flex-direction:column;gap:8px">
+    <b style="font-size:15px">You may have looked into this person before</b>
+    ${r.matches.map(m => html`<div style="display:flex;gap:10px;align-items:flex-start;${m.strong ? '' : 'opacity:.75'}"><div style="flex:1;min-width:0;font-size:14.5px">
+      <a href="#/case/${m.case}/search" style="color:var(--violet);font-weight:500">${m.label || m.case}</a> <span class="muted">(${(KIND_LABEL[m.kind] || m.kind || 'case').toLowerCase()}, opened ${longDay(m.created)})</span>
+      <div class="t2" style="font-size:13.5px">${m.strong ? 'shares ' : ''}${m.on.map(o => o.kind === 'name' ? `same name only (${o.value}): could be someone else` : o.kind === 'file' ? ON_WORDS.file : `${ON_WORDS[o.kind] || o.kind} ${o.value}`).join('; ')}</div></div>
+      ${slug ? html`<button class="btn ghost sm" data-act="note-open" data-about="case" data-prefill="Seen before in ${m.label || m.case}: " data-title="Case notes">Note</button>` : ''}</div>`)}
+    <span class="muted" style="font-size:12.5px">Nothing is merged or blocked: you decide.${r.skipped_screenings ? ` ${r.skipped_screenings} employment screening${r.skipped_screenings > 1 ? 's' : ''} on this computer ${r.skipped_screenings > 1 ? 'weren’t' : 'wasn’t'} looked at.` : ''}</span></div>`;
+}
+let seenTimer;
+function wizSeen() { // the new-case form, as seeds are added (debounced)
+  clearTimeout(seenTimer); seenTimer = setTimeout(async () => {
+    const box = $('#wiz-seen'); if (!box) return;
+    if (!wiz.seeds.length) { box.innerHTML = ''; return; }
+    try { box.innerHTML = seenBox(await api('/api/seen-before', { method: 'POST', body: { seeds: wiz.seeds, kind: wiz.kind } })).s; } catch (e) { box.innerHTML = ''; }
+  }, 450);
+}
+
 /* Find a person, 3b: posts */
 screens.posts = async slug => {
-  const [c, d] = await Promise.all([loadCase(slug), api(`/api/cases/${encodeURIComponent(slug)}/posts`).catch(() => ({ hits: [], posts: [], weekly: [], counts: {} }))]);
+  const base = `/api/cases/${encodeURIComponent(slug)}`;
+  const [c, d, ch, w, al] = await Promise.all([loadCase(slug), api(`${base}/posts`).catch(() => ({ hits: [], posts: [], weekly: [], counts: {} })),
+    api(`${base}/changes`).catch(() => ({ checks: [], changes: [] })), api(`${base}/watch`).catch(() => ({})), api(`${base}/alerts`).catch(() => ({ alerts: [] }))]);
   const hits = d.hits.filter(h => h.status !== 'not relevant'), sel = hits[0], look = [...(c.details.look_for || [])].map(k => lookLabel(k).toLowerCase());
   mount(html`${topCase(c, 'posts')}<main class="screen" style="padding:8px 24px 24px;gap:16px">
     <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap">
@@ -532,6 +669,7 @@ screens.posts = async slug => {
     <div id="add-posts" class="hidden"><div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px">${dropZone(slug)}
       <div class="muted" style="font-size:14px">Instagram, Facebook, TikTok and Strava only show posts to logged-in users, and Hunt never logs in. Save the posts you need there (screenshots, photos, videos) and add them here; Hunt checks them straight away.</div></div></div>
     <div id="inbox" class="hidden"></div>
+    ${c.steps.identity === 'done' ? html`<div class="two-up" style="gap:16px;align-items:start">${recheckCard(slug, ch)}${watchCard(slug, w, al)}</div>` : ''}
     ${weeklyChart(d.weekly || [], c.details.injury_date)}
     <div class="split" style="--side:460px">
       <div style="display:flex;flex-direction:column;gap:8px;overflow:auto">${hits.length ? hits.map(h => html`<button class="row" data-act="pick-hit" data-id="${h.id}" style="text-align:left;${sel && h.id === sel.id ? 'box-shadow:inset 0 0 0 1.5px var(--ac)' : ''}">
@@ -542,6 +680,8 @@ screens.posts = async slug => {
       <div id="hit-detail">${sel ? hitDetail(slug, c, sel) : ''}</div>
     </div></main>`);
   window.__hits = hits; window.__case = c;
+  refreshNoteCounts(slug);
+  if (['recheck', 'watch'].includes(c.active_job?.kind)) watchRecheck(slug, c.active_job.id, c.active_job.kind === 'watch' ? 'Checking again (watching)' : '');
 };
 function hitDetail(slug, c, h) {
   const src = evidenceUrl(slug, h.file), blur = h.blur || h.child_visible;
@@ -558,6 +698,7 @@ function hitDetail(slug, c, h) {
       <button class="btn primary sm" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="in report">${h.status === 'in report' ? '✓ In the report' : 'Add to report'}</button>
       <button class="btn ghost sm" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="not relevant">Not relevant</button>
       ${h.url ? html`<a class="btn ghost sm" href="${/^https?:\/\//.test(h.url) ? h.url : '#'}" target="_blank" rel="noopener noreferrer" title="Opens the live post in your own browser, not through Hunt’s proxy">Open the post</a>` : ''}
+      <button class="btn ghost sm" data-act="note-open" data-about="hit" data-ref="${h.id}" data-title="Notes on this item">Note</button>
       <span class="btn ghost sm soon" aria-disabled="true" title="Coming soon">Locate this photo →</span></div>
   </div>`;
 }
@@ -757,7 +898,7 @@ const actions = {
     try { await api(`/api/cases/${encodeURIComponent(el.dataset.slug)}/hits/${encodeURIComponent(el.dataset.id)}`, { method: 'POST', body: { status: el.dataset.status } }); render(); } catch (e) { fail(e); }
   },
   'pick-hit': el => { const h = window.__hits.find(x => String(x.id) === el.dataset.id); $('#hit-detail').innerHTML = hitDetail(route().slug, window.__case, h).s;
-    document.querySelectorAll('[data-act="pick-hit"]').forEach(b => b.style.boxShadow = b === el ? 'inset 0 0 0 1.5px var(--ac)' : ''); },
+    document.querySelectorAll('[data-act="pick-hit"]').forEach(b => b.style.boxShadow = b === el ? 'inset 0 0 0 1.5px var(--ac)' : ''); refreshNoteCounts(route().slug); },
   cite: el => { const t = el.dataset.target && document.getElementById(el.dataset.target); t?.scrollIntoView({ behavior: 'smooth', block: 'center' }); t?.animate([{ background: 'var(--ac-bg)' }, { background: 'transparent' }], 1200); },
   jump: (el, e) => { e.preventDefault(); document.getElementById(el.dataset.id)?.scrollIntoView({ behavior: 'smooth' }); },
   'details-edit': () => { $('#report-head').innerHTML = detailsForm(window.__case).s; $('#report-head').scrollIntoView({ behavior: 'smooth' }); $('#details-form [name="client"]').focus(); },
@@ -776,6 +917,17 @@ const actions = {
   },
   'logo-remove': async () => { try { await api('/api/settings', { method: 'POST', body: { logo: null } }); render(); } catch (e) { fail(e); } },
   back: (el, e) => { e.preventDefault(); location.hash = lastHash || '#/'; },
+  recheck: async el => {
+    const slug = el.dataset.slug; el.disabled = true;
+    try { watchRecheck(slug, (await api(`/api/cases/${encodeURIComponent(slug)}/recheck`, { method: 'POST', body: {} })).job); }
+    catch (e) { el.disabled = false; fail(e.status === 409 && /mark/i.test(e.message) ? new Error('Mark the subject’s accounts on Is it them? first.') : e); }
+  },
+  'scan-new': async el => { rescan = null; if (await startScan(el.dataset.slug)) location.hash = `#/case/${el.dataset.slug}/scan`; },
+  'note-open': el => openNotes(route().slug, el.dataset.about, el.dataset.ref ?? null, el.dataset.title || 'Notes', el.dataset.prefill || ''),
+  'notes-close': () => { $('#notes')?.remove(); notesFor = null; },
+  'notes-save': () => saveNote(),
+  'notes-correct': el => { const n = window.__notes.get(+el.dataset.id); notesFor.replaces = n.id; $('#note-text').value = n.text; $('#note-text').focus();
+    const r = $('#note-replacing'); r.textContent = `Correcting ${n.cite}: the old text stays in the record.`; r.classList.remove('hidden'); },
   'browser-open': async el => {
     try { await api('/api/browser/open', { method: 'POST', body: { url: el.dataset.url, ...(el.dataset.case ? { case: el.dataset.case } : {}) } }); toast('Opened in the Hunt Browser. Hunt never sees your password.'); }
     catch (e) { fail(e.status === 503 ? new Error('Install the Hunt Browser first: uv run playwright install chromium') : e); }
@@ -803,6 +955,16 @@ document.addEventListener('click', e => {
 document.addEventListener('change', async e => {
   if (e.target.dataset.act === 'screening') { sessionStorage.setItem('hunt-screening', e.target.checked ? '1' : '0'); render(); }
   if (e.target.id === 'up-files') upload(e.target.dataset.slug, e.target.files);
+  if (e.target.id === 'watch-on' || e.target.id === 'watch-every') {
+    const slug = e.target.dataset.slug, on = $('#watch-on').checked;
+    if (e.target.id === 'watch-every' && !on) return;
+    try { await api(`/api/cases/${encodeURIComponent(slug)}/watch`, { method: 'POST', body: { on, every_days: +$('#watch-every').value } }); toast(on ? 'Watching this subject.' : 'Stopped watching.'); render(); }
+    catch (err) { if (e.target.id === 'watch-on') e.target.checked = !on; fail(err); }
+  }
+  if (e.target.id === 'watch-bg') {
+    try { await api('/api/watch/background', { method: 'POST', body: { on: e.target.checked } }); toast(e.target.checked ? 'Hunt will keep watching while it’s closed.' : 'Background watching removed.'); }
+    catch (err) { e.target.checked = !e.target.checked; fail(err); }
+  }
   if (e.target.id === 'logo-file' && e.target.files[0]) {
     const form = new FormData(); form.append('file', e.target.files[0]);
     try { await api('/api/settings/logo', { method: 'POST', form }); render(); } catch (err) { fail(err); }
@@ -850,6 +1012,7 @@ let lastHash = '', hereHash = ''; // where "← Back" goes
 async function render() {
   if (location.hash !== hereHash) [lastHash, hereHash] = [hereHash, location.hash];
   const r = route(); if (!['search', 'scan'].includes(r.name)) stopLive();
+  if (notesFor && notesFor.slug !== r.slug) actions['notes-close']();
   const fn = screens[r.name] || screens.home;
   try { await fn(r.slug); } catch (e) { fail(e); if (r.slug && r.name !== 'search') location.hash = `#/case/${r.slug}/search`; }
 }

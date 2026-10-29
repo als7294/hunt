@@ -543,7 +543,7 @@ async def start_scan(req: Request):
     accounts = [{"url": x["url"], "site": x["site"]} for x in (await search.snapshot(c))["candidates"]
                 if x["decision"] == "him"]
     if not accounts:
-        raise HTTPException(409, "mark at least one account as him first")
+        raise HTTPException(409, "mark at least one account as the subject’s on Is it them? first")
     d = c.details()
 
     async def work(job):
@@ -947,7 +947,7 @@ async def start_recheck(req: Request):
     c = _case(req)
     accounts = await recheck.confirmed(c)
     if not accounts:
-        raise HTTPException(409, "mark at least one account as him first")
+        raise HTTPException(409, "mark at least one account as the subject’s on Is it them? first")
 
     async def work(job):
         await recheck.run(c, accounts, job.emit, job.pause)
@@ -995,7 +995,7 @@ async def post_watch(req: Request):
     if not b["on"]:
         return JSONResponse(watch.stop(c, "turned off"))
     if not await recheck.confirmed(c):
-        raise HTTPException(409, "mark at least one account as him first")
+        raise HTTPException(409, "mark at least one account as the subject’s on Is it them? first")
     try:
         return JSONResponse(watch.start(c, every))
     except ValueError as e:
