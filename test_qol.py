@@ -8,6 +8,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import time
 import warnings
@@ -21,7 +22,7 @@ warnings.filterwarnings("ignore", message="Using `httpx` with")  # Starlette pre
 from starlette.testclient import TestClient  # noqa: E402
 
 from hunt import app as server
-from hunt import inbox, recheck
+from hunt import inbox, recheck, scan, watch
 from hunt.case import Case
 from hunt.seed import Finding, Seed
 
@@ -95,7 +96,9 @@ async def fake_run(case, accounts, emit, pause=None):
     given.append(accounts)
     detail = {"account": accounts[0]["url"], "none_left": True, "posts": []}
     emit({"type": "change", "change": "posts gone", **detail, "audit": case.audit("posts gone", detail)})
-    case.audit("recheck", {"accounts": 1, "new_posts": 0, "changes": 1, "captured": 0})
+    summary = {"accounts": 1, "new_posts": 0, "changes": 1, "captured": 0}
+    case.audit("recheck", summary)
+    return summary
 
 
 recheck.run = fake_run
@@ -127,4 +130,39 @@ listed = c.get(notes_api).json()["notes"]
 assert [(n["cite"], n["replaced_by"]) for n in listed] == [("N-1", 3), ("N-2", None), ("N-3", None)]
 assert [n["cite"] for n in c.get(f"{notes_api}?about=account&ref={quote(bsky)}").json()["notes"]] == ["N-2"]
 assert c.get(f"{notes_api}?about=account&ref=kestrel").status_code == 400
+
+# Watch this subject: per-case settings, a round run as an app job, alerts, the background agent
+notified = []
+watch._notify, watch._on_battery, watch._load, watch._idle_s = notified.append, lambda: False, lambda: 0.0, lambda: 1e9
+watch.AGENTS = Path(tempfile.mkdtemp()) / "LaunchAgents"
+watch._launchctl = lambda *a: subprocess.CompletedProcess(a, 0, "", "")  # never the real launchctl
+watch_api = f"/api/cases/{case.name}/watch"
+assert c.get(watch_api).json()["on"] is False
+assert c.post(watch_api, json={"on": True, "every_days": 2}, headers=JSON).status_code == 400
+assert c.post(watch_api, json={"on": True, "every_days": True}, headers=JSON).status_code == 400
+r = c.post(watch_api, json={"on": True, "every_days": 1}, headers=JSON)
+assert r.status_code == 200 and r.json()["on"] and r.json()["every_days"] == 1, r.text
+hits = []
+
+
+async def scanned(*a, **kw):
+    hits.append({"id": 7, "post_id": 1})
+
+
+scan.run, scan.hits = scanned, lambda c: list(hits)
+case.db.execute("update watch set next = '2026-01-01T00:00:00+00:00'")
+lines = c.portal.call(watch.tick, lambda one: server._watch_job(c.app.app, one))
+assert lines == ["Vance claim: 0 new posts, 1 newly flagged, 1 changes"], lines
+[ran] = [j for j in c.app.app.state.jobs.values() if j.kind == "watch"]
+assert ran.state == "done" and c.get(f"/api/cases/{case.name}").json()["active_job"] is None
+assert notified == ["Vance claim: 1 new flagged post; Bluesky shows no posts any more (made private, or emptied)"]
+alerts = c.get(f"/api/cases/{case.name}/alerts").json()["alerts"]
+assert [a["kind"] for a in alerts] == ["no posts", "flagged"] and c.get(watch_api).json()["unseen_alerts"] == 2
+assert c.post(f"/api/cases/{case.name}/alerts/seen", json={}, headers=JSON).json() == {"marked": 2}
+assert c.post("/api/watch/background", json={"on": "yes"}, headers=JSON).status_code == 400
+assert c.post("/api/watch/background", json={"on": True}, headers=JSON).json() == {"on": True}
+assert c.get("/api/watch/background").json() == {"on": True} and c.get(watch_api).json()["background"]
+assert c.post("/api/watch/background", json={"on": False}, headers=JSON).json() == {"on": False}
+r = c.post(watch_api, json={"on": False}, headers=JSON)
+assert r.json()["on"] is False and r.json()["why"] == "turned off"
 print("ok")

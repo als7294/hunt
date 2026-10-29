@@ -22,6 +22,7 @@ import threading
 import time
 import webbrowser
 from collections import Counter
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import date, datetime, timedelta, timezone
 from importlib.metadata import version
@@ -38,7 +39,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from . import report, search, vlm
-from . import bundle, inbox, notes, recheck  # docs/qol.md
+from . import bundle, inbox, notes, recheck, watch  # docs/qol.md
 from .case import DECISIONS, EVIDENCE_NAME, HOME, Case, all_cases
 from .match import ICD203
 from .seed import detect
@@ -764,9 +765,7 @@ async def unfurl(req: Request):
 
 async def start_recheck(req: Request):
     c = _case(req)
-    accounts = [{"url": x["url"], "site": x["site"], "finding_id": x["finding_ids"][0]}
-                for x in (await search.snapshot(c))["candidates"]
-                if x["decision"] == "him" and x["seed"]["kind"] != "email"]  # email hits are site homepages
+    accounts = await recheck.confirmed(c)
     if not accounts:
         raise HTTPException(409, "mark at least one account as him first")
 
@@ -803,6 +802,85 @@ async def post_note(req: Request):
         raise HTTPException(400, str(e))
 
 
+async def get_watch(req: Request):
+    return JSONResponse(watch.state(_case(req)))
+
+
+async def post_watch(req: Request):
+    c = _case(req)
+    b = await _body(req)
+    every = b.get("every_days", 7)
+    if not isinstance(b.get("on"), bool) or type(every) is not int:
+        raise HTTPException(400, "on must be true or false, and every_days a number of days")
+    if not b["on"]:
+        return JSONResponse(watch.stop(c, "turned off"))
+    if not await recheck.confirmed(c):
+        raise HTTPException(409, "mark at least one account as him first")
+    try:
+        return JSONResponse(watch.start(c, every))
+    except ValueError as e:
+        raise HTTPException(400 if "every_days" in str(e) else 409, str(e))
+
+
+async def get_alerts(req: Request):
+    return JSONResponse({"alerts": watch.alerts(_case(req))})
+
+
+async def post_alerts_seen(req: Request):
+    return JSONResponse({"marked": watch.mark_seen(_case(req))})
+
+
+async def get_background(req: Request):
+    return JSONResponse({"on": watch.background()})
+
+
+async def post_background(req: Request):
+    on = (await _body(req)).get("on")
+    if not isinstance(on, bool):
+        raise HTTPException(400, "on must be true or false")
+    try:
+        return JSONResponse({"on": await asyncio.to_thread(watch.keep_watching, on)})
+    except OSError as e:
+        raise HTTPException(409, str(e))
+
+
+async def _watch_job(app, c: Case) -> dict:
+    """A watch run as a job: the app shows it like a scan, and nothing else starts on the case meanwhile."""
+    job, out = Job(c.name, "watch"), {}
+    app.state.jobs[job.id] = job
+
+    async def work(job):
+        out.update(await watch.run(c, job.emit, job.pause))
+        job.emit({"type": "stage", "stage": "done"})
+    await job.start(work).task
+    if job.state != "done":
+        raise RuntimeError(json.loads(job.events[-1][1]).get("message", job.state) if job.events else job.state)
+    return out
+
+
+async def _watch_loop(app):
+    """While Hunt runs, due watched cases are checked from here, one at a time (hunt/watch.py)."""
+    lock = None
+    while True:
+        await asyncio.sleep(watch.TICK)
+        try:
+            lock = lock or watch.take_lock()  # None while a background `hunt watch` is mid-run: next tick
+            if lock:
+                await watch.tick(lambda c: _watch_job(app, c),
+                                 skip=lambda slug: any(j.slug == slug and not j.finished for j in app.state.jobs.values()))
+        except Exception as e:  # one bad round mustn't end watching
+            print(f"hunt app: watching: {type(e).__name__}: {e}", file=sys.stderr)
+
+
+def _watching(app):
+    @asynccontextmanager
+    async def lifespan(_):
+        task = asyncio.create_task(_watch_loop(app))
+        yield
+        task.cancel()
+    return lifespan
+
+
 QOL_ROUTES = [
     Route("/api/cases/{slug}/inbox", get_inbox),
     Route("/api/cases/{slug}/inbox", post_inbox, methods=["POST"]),
@@ -812,6 +890,12 @@ QOL_ROUTES = [
     Route("/api/cases/{slug}/changes", get_changes),
     Route("/api/cases/{slug}/notes", get_notes),
     Route("/api/cases/{slug}/notes", post_note, methods=["POST"]),
+    Route("/api/cases/{slug}/watch", get_watch),
+    Route("/api/cases/{slug}/watch", post_watch, methods=["POST"]),
+    Route("/api/cases/{slug}/alerts", get_alerts),
+    Route("/api/cases/{slug}/alerts/seen", post_alerts_seen, methods=["POST"]),
+    Route("/api/watch/background", get_background),
+    Route("/api/watch/background", post_background, methods=["POST"]),
 ]
 
 
@@ -861,7 +945,9 @@ def serve():
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
     url = f"http://127.0.0.1:{port}/login?t={token}"
-    server = uvicorn.Server(uvicorn.Config(make_app(token, port), log_level="warning", timeout_graceful_shutdown=1))
+    app = make_app(token, port)
+    app.app.router.lifespan_context = _watching(app.app)  # watched cases are checked while Hunt runs (docs/qol.md)
+    server = uvicorn.Server(uvicorn.Config(app, log_level="warning", timeout_graceful_shutdown=1))
     print(f"Hunt is running on this computer only. If your browser doesn't open, visit:\n  {url}\n"
           "Press Ctrl+C to stop.", file=sys.stderr)
     threading.Timer(0.5, webbrowser.open, (url,)).start()
