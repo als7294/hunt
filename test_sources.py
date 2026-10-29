@@ -238,7 +238,7 @@ assert found[0].attrs == {"archived_first": "2019-01-05", "archived_last": "2024
                           "last_working_snapshot": "https://web.archive.org/web/20220301000000/https://twitter.com/kvane"}
 seen = serve({"url=https://x.com/kvane": (429, "")})
 found, _, note = run(wayback, "username", "kvane")
-assert found == [] and len(seen) == 2 and "1 of 7" in note and "rate-limited" in note, note
+assert found == [] and len(seen) == 2 and f"1 of {len(wayback.PROFILES)}" in note and "rate-limited" in note, note
 serve({"web.archive.org": (200, CDX)})
 f = run(wayback, "url", "https://kvane.example/about")[0][0]
 assert (f.site, f.url) == ("Wayback Machine", "https://kvane.example/about")

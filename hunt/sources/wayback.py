@@ -17,9 +17,10 @@ NAME = "wayback"
 KINDS = {"url", "username"}
 CDX = "https://web.archive.org/cdx/search/cdx"
 PAUSE = 1.0  # seconds between CDX requests
+# Facebook is left out on purpose: hunt/sources/facebook.py owns all Facebook lookups.
 PROFILES = {"Twitter": "https://twitter.com/{}", "X": "https://x.com/{}", "Instagram": "https://www.instagram.com/{}/",
-            "Facebook": "https://www.facebook.com/{}", "TikTok": "https://www.tiktok.com/@{}",
-            "Reddit": "https://www.reddit.com/user/{}", "YouTube": "https://www.youtube.com/@{}"}
+            "TikTok": "https://www.tiktok.com/@{}", "Reddit": "https://www.reddit.com/user/{}",
+            "YouTube": "https://www.youtube.com/@{}"}
 
 
 def _day(ts: str) -> str:
