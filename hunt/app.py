@@ -1434,7 +1434,7 @@ def serve():
     import uvicorn
     token = secrets.token_urlsafe(32)
     sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
+    sock.bind(("127.0.0.1", int(os.environ.get("HUNT_PORT") or 0)))  # HUNT_PORT: a fixed port, for development
     port = sock.getsockname()[1]
     url = f"http://127.0.0.1:{port}/login?t={token}"
     app = make_app(token, port)

@@ -61,6 +61,7 @@ const brand = html`<a class="brand" href="#/"><span class="logo"></span>Hunt</a>
 let status = { proxy: false };
 function topHome() {
   return html`<header class="top">${brand}<div class="top-right">
+    <a class="chip-btn" href="#/settings" title="Your firm, licence and logo, for the report">Report settings</a>
     <span class="chip-btn" title="${status.proxy ? 'All traffic goes through your proxy (HUNT_PROXY)' : 'No proxy set: sites see this computer’s address'}"><span class="dot ${status.proxy ? 'ok' : 'warn'}"></span>${status.proxy ? 'Proxy on' : 'Proxy off'}</span>
   </div></header>`;
 }
@@ -161,7 +162,9 @@ const lookLabel = k => LOOK_FOR.find(l => l[0] === k)?.[1] || k;
 const KIND_CHOICES = [['insurance', 'Insurance claim', '⛨', 'var(--am)', 'rgba(0,0,0,.2)'], ['background', 'Background', '◉', 'var(--ac)', 'var(--ac-bg)'],
   ['diligence', 'Diligence', '▤', 'var(--violet)', 'var(--violet-bg)'], ['journalism', 'Journalism', '✎', 'var(--teal)', 'var(--teal-bg)']];
 let wiz;
-const newWizard = () => ({ seeds: [], kind: 'insurance', look_for: LOOK_FOR.filter(l => l[2]).map(l => l[0]), custom: [], purpose: '', reference: '', injury_date: '', limits: '' });
+const WIZ_HEADER = ['client', 'adjuster', 'file_number', 'assignment_date', 'subject_dob']; // optional, for the report header
+const newWizard = () => ({ seeds: [], kind: 'insurance', look_for: LOOK_FOR.filter(l => l[2]).map(l => l[0]), custom: [], purpose: '', reference: '', injury_date: '', limits: '',
+  ...Object.fromEntries(WIZ_HEADER.map(k => [k, ''])) });
 screens.new = () => { wiz ??= newWizard(); drawWizard(); };
 function drawWizard() {
   const w = wiz, step = wizStep();
@@ -181,7 +184,11 @@ function drawWizard() {
           <div style="display:flex;gap:10px;flex-wrap:wrap">${KIND_CHOICES.map(([k, label, ic, col, bg]) => html`<button type="button" class="choice ${w.kind === k ? 'on' : ''}" data-act="wiz-kind" data-kind="${k}"><span class="ic" style="background:${bg};color:${col}">${ic}</span>${label}</button>`)}</div>
           <div class="field"><span class="label">Who asked, and why it’s lawful <span style="color:var(--am)">· required</span></span>
             <input class="input" name="purpose" value="${w.purpose}" placeholder="e.g. Northgate Mutual, claim WC-88412: disputed injury claim, permissible purpose on file"></div>
-          <div class="field"><span class="label">Client or reference</span><input class="input" name="reference" value="${w.reference}" placeholder="e.g. Northgate Mutual · WC-88412"></div>
+          <div class="field"><span class="label">Claim or reference number</span><input class="input" name="reference" value="${w.reference}" placeholder="e.g. WC-88412"></div>
+          <details id="wiz-header" ${w.headerOpen || WIZ_HEADER.some(k => w[k]) ? 'open' : ''} style="border-radius:14px;background:rgba(255,255,255,.02);padding:4px 12px">
+            <summary class="muted" style="cursor:pointer;padding:8px 4px">For the report header <span class="dim">· optional, and can be filled in later</span></summary>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;padding:6px 0 12px">
+              ${DETAIL_FIELDS.filter(([k]) => WIZ_HEADER.includes(k)).map(([k, label, hint]) => html`<label class="field"><span class="label">${label}</span><input class="input" name="${k}" ${hint === 'date' ? raw('type="date"') : ''} value="${w[k]}" placeholder="${hint === 'date' ? '' : hint}"></label>`)}</div></details>
           ${w.kind === 'insurance' ? html`<div style="padding:18px;border-radius:18px;background:linear-gradient(160deg,rgba(51,41,26,.7),rgba(27,29,35,.9) 70%);box-shadow:inset 0 0 0 1px rgba(237,190,98,.3);display:flex;flex-direction:column;gap:14px">
             <div style="display:grid;grid-template-columns:200px 1fr;gap:10px">
               <div class="field"><span class="label">Injury date</span><input class="input" type="date" name="injury_date" value="${w.injury_date}"></div>
@@ -244,6 +251,7 @@ function refreshStart() {
   if (b) b.disabled = step < 3;
   $('#wiz-steps').innerHTML = fmt(wizPills(step)); $('#wiz-hint').textContent = wizHint(step);
 }
+document.addEventListener('toggle', e => { if (e.target.id === 'wiz-header' && wiz) wiz.headerOpen = e.target.open; }, true);
 document.addEventListener('keydown', e => {
   if (e.target.id === 'custom-in' && e.key === 'Enter') { e.preventDefault(); const v = e.target.value.trim(); if (v && !wiz.custom.includes(v)) wiz.custom.push(v); drawWizard(); $('#custom-in')?.focus(); }
 });
@@ -520,39 +528,141 @@ function weeklyChart(weeks, injury) {
 }
 function isoWeek(d) { const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); const n = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - n); const y = new Date(Date.UTC(t.getUTCFullYear(), 0, 1)); return `${t.getUTCFullYear()}-W${String(Math.ceil(((t - y) / 864e5 + 1) / 7)).padStart(2, '0')}`; }
 
-/* Find a person, 4: report */
-const TODO = { summary: 'search', method: 'search', identity: 'identity', confidence: 'identity', found: 'posts' }; // the step that writes each section
+/* Find a person, 4: report (docs/research/report-format.md, "For the frontend") */
+const TODO = { summary: 'search', method: 'search', identity: 'identity', found: 'posts' }; // the step that writes each section
 const TODO_LABEL = { search: 'Run the search', identity: 'Decide whether it’s them', posts: 'Review the flagged posts left' };
+const MISSING = { client: 'Add the client', reference: 'Add the claim or reference number', assignment_date: 'Add the assignment date',
+  investigator: 'Add your name in report settings', licence: 'Add your licence number in report settings' };
+const HEADER_ROWS = [['client', 'Client'], ['adjuster', 'Adjuster'], ['reference', 'Claim or reference no.'], ['file_number', 'Our file no.'], ['subject', 'Subject'],
+  ['subject_dob', 'Date of birth'], ['injury_date', 'Date of injury or loss'], ['assignment_date', 'Assigned'], ['report_date', 'Report date']];
+const DETAIL_FIELDS = [['client', 'Client', 'Carrier, TPA or law firm'], ['adjuster', 'Adjuster', ''], ['reference', 'Claim or reference no.', ''], ['file_number', 'Our file no.', 'Your own file number'],
+  ['assignment_date', 'Assigned', 'date'], ['subject_dob', 'Subject’s date of birth', 'date'], ['injury_date', 'Date of injury or loss', 'date']];
+const longDay = iso => { if (!iso) return ''; const d = asDate(iso); return isNaN(d) ? iso : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }); };
+// A time as the report prints it: in the investigator's time zone, with the zone named. A bare date stays a date.
+const stamp = (iso, tz) => !iso ? '' : /^\d{4}-\d{2}-\d{2}$/.test(iso) ? longDay(iso)
+  : new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: tz || undefined, timeZoneName: 'short' });
+// "Ex. 3", "Acct. 2", "Rec. 1", "Log 7": as the exports print them (report._cite_label), and where each one points.
+function citeLabel(id, r) {
+  const ex = r.exhibits.find(e => e.id === id); if (ex) return [`Ex. ${ex.no}`, `c-${id}`];
+  const p = r.presence.find(x => x.id === id); if (p) return [`Acct. ${p.row}`, `p-${id}`];
+  const rec = (r.records || []).find(x => x.id === id); if (rec) return [`Rec. ${rec.row}`, `r-${id}`];
+  const i = r.log.findIndex(x => x.id === id); if (i >= 0) return [`Log ${i + 1}`, `l-${id}`];
+  return [id, ''];
+}
 screens.report = async slug => {
   const screening = sessionStorage.getItem('hunt-screening') === '1';
   const [c, r] = await Promise.all([loadCase(slug), api(`/api/cases/${encodeURIComponent(slug)}/report?screening=${screening ? 1 : 0}`)]);
-  const bySection = id => r.sentences.filter(s => s.section === id);
-  const cite = id => html`<button class="mono" data-act="cite" data-id="${id}" style="padding:1px 6px;border-radius:5px;background:var(--ac-bg);color:var(--ac);font-size:12.5px">${id}</button>`;
+  const h = r.header, tz = h.timezone;
+  const cite = id => { const [label, target] = citeLabel(id, r); return html`<button class="mono" data-act="cite" data-target="${target}" title="${id}" style="padding:1px 6px;border-radius:5px;background:var(--ac-bg);color:var(--ac);font-size:12.5px;white-space:nowrap">${label}</button>`; };
+  const exChip = no => no ? cite(r.exhibits.find(e => e.no === no)?.id) : '';
+  const para = list => html`<p style="margin:0;line-height:1.7;font-size:16px">${list.map(x => html`${x.text} ${x.cites.map(cite)} `)}</p>`;
+  const link = url => /^https?:\/\//.test(url || '') ? html`<a href="${url}" target="_blank" rel="noopener noreferrer" title="Opens in your own browser">${url.replace(/^https?:\/\/(www\.)?/, '')}</a>` : url || '';
+  const body = s => {
+    const xs = r.sentences.filter(x => x.section === s.id), parts = [];
+    if (s.id === 'found') { const by = new Map(); xs.forEach(x => by.set(x.platform || '', [...(by.get(x.platform || '') || []), x]));
+      by.forEach((list, platform) => parts.push(html`${platform ? html`<h4 style="margin:6px 0 4px;font-size:15px;color:var(--t2)">${platform}</h4>` : ''}${list.map(x => para([x]))}`)); } // one exhibit each
+    else if (xs.length) parts.push(para(xs));
+    if (s.id === 'presence' && r.presence.length) parts.push(html`<div style="overflow:auto"><table class="tbl"><tr><th>#</th><th>Platform</th><th>Username</th><th>URL</th><th>Public / private</th><th>Last activity</th><th>Relevant</th><th>Status</th><th>Exhibit</th></tr>
+      ${r.presence.map(p => html`<tr id="p-${p.id}"><td>${p.row}</td><td>${p.platform}</td><td>${p.username || ''}</td><td>${link(p.url)}</td><td>${p.visibility}</td><td style="white-space:nowrap">${longDay(p.last_activity)}</td><td>${p.relevant}</td><td>${p.status}</td><td>${exChip(p.exhibit)}</td></tr>`)}</table></div>`);
+    if (s.id === 'records' && r.records?.length) parts.push(html`<div style="overflow:auto"><table class="tbl"><tr><th>#</th><th>Record</th><th>What it says</th><th>URL</th><th>Status</th><th>Exhibit</th></tr>
+      ${r.records.map(x => html`<tr id="r-${x.id}"><td>${x.row}</td><td>${x.site}</td><td>${x.summary}</td><td>${link(x.url)}</td><td>${x.status}</td><td>${exChip(x.exhibit)}</td></tr>`)}</table></div>`);
+    if (s.id === 'couldnt_see' && r.couldnt_see?.length) parts.push(html`<ul class="t2" style="margin:0;padding-left:20px;line-height:1.6">${r.couldnt_see.map((x, i) => html`<li>${x} ${(r.couldnt_see_cites?.[i] || []).map(cite)}</li>`)}</ul>`);
+    return parts.length ? parts : html`<p class="muted" style="margin:0">Nothing yet.</p>`;
+  };
   const q = `?screening=${screening ? 1 : 0}`, base = `/api/cases/${encodeURIComponent(slug)}/report`;
+  const todos = [...new Set(r.sections.filter(s => !s.done).map(s => TODO[s.id]).filter(Boolean))], missing = r.checks.missing || [];
+  const ready = r.checks.every_sentence_cited && !r.checks.tampered?.length && r.sections.every(x => x.done) && !missing.length;
   mount(html`${topCase(c, 'report')}<main class="screen" style="padding:8px 24px 24px">
     <div class="report-grid">
-      <nav class="panel" style="padding:12px;display:flex;flex-direction:column;gap:2px;position:sticky;top:0">${r.sections.map(s => html`<a href="#sec-${s.id}" data-act="jump" data-id="${s.id}" style="display:flex;gap:10px;padding:9px 10px;border-radius:10px"><span style="color:${s.done ? 'var(--gr)' : 'var(--dim)'}">${s.done ? '✓' : '•'}</span>${s.title}</a>`)}</nav>
+      <nav class="panel" style="padding:12px;display:flex;flex-direction:column;gap:2px;position:sticky;top:0">${r.sections.map(s => html`<a href="#sec-${s.id}" data-act="jump" data-id="sec-${s.id}" style="display:flex;gap:10px;padding:9px 10px;border-radius:10px"><span style="color:${s.done ? 'var(--gr)' : 'var(--dim)'}">${s.done ? '✓' : '•'}</span>${s.title}</a>`)}
+        ${r.exhibits.length ? html`<a href="#exhibits" data-act="jump" data-id="exhibits" style="display:flex;gap:10px;padding:9px 10px;border-radius:10px"><span class="dim">A</span>Exhibits</a>` : ''}<a href="#case-log" data-act="jump" data-id="case-log" style="display:flex;gap:10px;padding:9px 10px;border-radius:10px"><span class="dim">B</span>Case log</a></nav>
       <article class="panel" style="padding:28px 32px;display:flex;flex-direction:column;gap:22px">
-        <div class="muted" style="font-size:14px">${[c.details.reference, KIND_LABEL[c.details.kind]].filter(Boolean).join(' · ')}</div>
-        ${r.sections.map(s => html`<section id="sec-${s.id}"><h3 style="margin:0 0 8px;font-size:19px">${s.title}</h3>
-          ${bySection(s.id).length ? html`<p style="margin:0;line-height:1.7;font-size:16px">${bySection(s.id).map(x => html`${x.text} ${x.cites.map(cite)} `)}</p>` : s.id === 'couldnt_see' && r.couldnt_see?.length ? '' : html`<p class="muted" style="margin:0">Nothing yet.</p>`}
-          ${s.id === 'couldnt_see' && r.couldnt_see?.length ? html`<ul class="t2" style="margin:8px 0 0;padding-left:20px">${r.couldnt_see.map(x => html`<li>${x}</li>`)}</ul>` : ''}</section>`)}
+        <div id="report-head" style="display:flex;flex-direction:column;gap:14px;padding-bottom:20px;border-bottom:1px solid var(--line)">${reportHeader(h)}</div>
+        ${r.sections.map(s => html`<section id="sec-${s.id}" style="display:flex;flex-direction:column;gap:10px"><h3 style="margin:0;font-size:19px">${s.title}</h3>${body(s)}</section>`)}
+        <section style="display:flex;flex-direction:column;gap:10px;padding:18px;border-radius:var(--r-lg);background:var(--panel-2)"><h3 style="margin:0;font-size:19px">Certification</h3>
+          <p style="margin:0;line-height:1.7">${r.certification.text}</p>
+          <div style="display:flex;gap:28px;flex-wrap:wrap;align-items:flex-end;margin-top:14px">
+            <div style="min-width:220px;border-top:1px solid var(--mu);padding-top:6px"><div>${r.certification.investigator || html`<span class="dim">Investigator’s name</span>`}</div><div class="muted" style="font-size:13.5px">${[r.certification.licence && `Licence ${r.certification.licence}`, r.certification.firm].filter(Boolean).join(' · ')}</div></div>
+            <div class="muted" style="font-size:14px">Date: ${longDay(r.certification.date)}</div></div></section>
         <div class="muted" style="font-size:13.5px">Every sentence links to saved evidence. Hunt won’t add a sentence without a source.</div>
-        ${r.evidence.length ? html`<section><h3 style="margin:0 0 8px;font-size:19px">Evidence</h3><div style="display:flex;flex-direction:column;gap:6px">${r.evidence.map(e => html`<div class="row" id="ev-${e.id}"><span class="mono" style="color:var(--ac);font-size:13px;width:52px">${e.id}</span><span class="muted" style="width:64px;font-size:14px">${day(e.date)}</span><span style="flex:1">${e.what}${e.source ? html` <span class="muted">· ${e.source}</span>` : ''}</span><span class="muted" style="font-size:13.5px">${e.verdict || ''}</span>${e.file ? html`<a class="btn ghost sm" href="${evidenceUrl(slug, e.file)}" target="_blank" rel="noopener">View</a>` : ''}</div>`)}</div></section>` : ''}
+        ${r.exhibits.length ? html`<section id="exhibits" style="display:flex;flex-direction:column;gap:6px"><h3 style="margin:0 0 4px;font-size:19px">Appendix A: Exhibits</h3>
+          <div class="muted" style="font-size:13.5px;margin-bottom:4px">Each name is the file’s name in the evidence bundle.</div>
+          ${r.exhibits.map(e => html`<div class="row" id="c-${e.id}" style="align-items:flex-start">
+            <span class="mono" style="color:var(--ac);font-size:13px;width:52px;flex:none;padding-top:2px">Ex. ${e.no}</span>
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><span>${e.description}</span>
+              <span class="mono muted" style="font-size:12.5px;overflow-wrap:anywhere">${e.name}</span>
+              <span class="muted" style="font-size:13px">${[e.platform, e.kind, e.posted_at && 'posted ' + stamp(e.posted_at, tz), e.captured && 'captured ' + stamp(e.captured, tz)].filter(Boolean).join(' · ')}</span></div>
+            ${e.file ? html`<a class="btn ghost sm" href="${evidenceUrl(slug, e.file)}" target="_blank" rel="noopener">View</a>` : ''}</div>`)}</section>` : ''}
+        <section id="case-log" style="display:flex;flex-direction:column;gap:6px"><h3 style="margin:0 0 4px;font-size:19px">Appendix B: Search and case log</h3>
+          <div class="muted" style="font-size:13.5px;margin-bottom:4px">The number on the right is the entry’s id in the evidence bundle’s <span class="mono">audit-log.csv</span>.</div>
+          <div style="overflow:auto"><table class="tbl">${r.log.map((x, i) => html`<tr id="l-${x.id}"><td class="mono" style="color:var(--ac);white-space:nowrap">Log ${i + 1}</td><td class="muted" style="white-space:nowrap">${x.when}</td><td>${x.what}</td><td class="mono dim">${x.audit_log_id ?? ''}</td></tr>`)}</table></div></section>
       </article>
       <aside style="display:flex;flex-direction:column;gap:14px;position:sticky;top:0">
-        <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><div style="font-weight:600">${r.checks.every_sentence_cited && !r.checks.tampered?.length && r.sections.every(x => x.done) ? 'Ready' : 'Almost ready'}</div>
+        <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><div style="font-weight:600">${ready ? 'Ready' : 'Almost ready'}</div>
           <div class="reason ${r.checks.every_sentence_cited ? '' : 'warn'}"><span class="ic">${r.checks.every_sentence_cited ? '✓' : '!'}</span>Every sentence has a source</div>
           <div class="reason ${r.checks.tampered?.length ? 'bad' : ''}"><span class="ic">${r.checks.tampered?.length ? '!' : '✓'}</span>${r.checks.tampered?.length ? `${r.checks.tampered.length} files changed since saved` : `All ${r.checks.files_checked} files unchanged`}</div>
-          ${[...new Set(r.sections.filter(s => !s.done).map(s => TODO[s.id]).filter(Boolean))].map(step => html`<a class="reason warn" href="#/case/${slug}/${step}"><span class="ic">•</span>${TODO_LABEL[step]}</a>`)}</div>
+          ${todos.map(step => html`<a class="reason warn" href="#/case/${slug}/${step}"><span class="ic">•</span>${TODO_LABEL[step]}</a>`)}
+          ${missing.map(k => ['investigator', 'licence'].includes(k) ? html`<a class="reason warn" href="#/settings"><span class="ic">•</span>${MISSING[k] || k}</a>`
+            : html`<button class="reason warn" data-act="details-edit" style="text-align:left"><span class="ic">•</span>${MISSING[k] || `Add ${k.replace('_', ' ')}`}</button>`)}</div>
         <label class="panel" style="padding:16px 18px;display:flex;gap:12px;align-items:center;cursor:pointer"><input type="checkbox" data-act="screening" ${screening ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--ac)">
           <span><b>Job screening mode</b><br><span class="muted" style="font-size:13.5px">Hides protected details (age, health, religion, family…)</span></span></label>
         <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px">
           <a class="btn primary" href="${base}.pdf${q}">Export PDF</a><a class="btn" href="${base}.html${q}" target="_blank" rel="noopener">Web page</a><a class="btn ghost" href="${base}.json${q}">Data file</a>
           <a class="btn ghost" href="/api/cases/${encodeURIComponent(slug)}/evidence.zip" download>Evidence bundle (.zip)</a>
           <div class="muted" style="font-size:13px">Every evidence file under a readable name, with a SHA-256 manifest anyone can check with <span class="mono">shasum -c</span>.</div></div>
+        <div class="panel" style="padding:14px 18px;display:flex;flex-direction:column;gap:4px;font-size:14.5px">
+          <button data-act="details-edit" style="text-align:left;color:var(--ac)">Edit the case details →</button>
+          <a href="#/settings" style="color:var(--ac)">Your firm, licence and logo →</a></div>
       </aside>
     </div></main>`);
+  window.__case = c; window.__header = h;
+};
+function reportHeader(h) {
+  return html`<div style="display:flex;gap:18px;align-items:flex-start;justify-content:space-between">
+      <div><div class="h3">${h.title}</div>
+        <div class="t2" style="font-size:14.5px;margin-top:6px">${[h.firm, h.investigator, h.licence && `Licence ${h.licence}`].filter(Boolean).join(' · ') || html`<a href="#/settings" style="color:var(--am)">Add your firm, name and licence →</a>`}</div>
+        ${h.contact ? html`<div class="muted" style="font-size:13.5px">${h.contact}</div>` : ''}</div>
+      ${h.logo ? html`<img src="/api/settings/logo" alt="" style="max-height:56px;max-width:180px;object-fit:contain;flex:none">` : ''}</div>
+    <dl class="kv">${HEADER_ROWS.filter(([k]) => h[k]).map(([k, l]) => html`<dt>${l}</dt><dd>${/date|dob/.test(k) ? longDay(h[k]) : h[k]}</dd>`)}</dl>
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline"><span class="dim" style="font-size:13px">${h.confidentiality}</span>
+      <button class="btn ghost sm" data-act="details-edit">Edit details</button></div>`;
+}
+// The case's header fields, edited in place of the header block (POST /details; "" clears one)
+function detailsForm(c) {
+  const d = c.details;
+  return html`<form id="details-form" style="display:flex;flex-direction:column;gap:12px"><div class="h3" style="font-size:19px">Case details for the report</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">${DETAIL_FIELDS.map(([k, label, hint]) => html`<label class="field"><span class="label">${label}</span>
+      <input class="input" name="${k}" ${hint === 'date' ? raw('type="date"') : ''} value="${d[k] || ''}" placeholder="${hint === 'date' ? '' : hint}"></label>`)}</div>
+    <label class="field"><span class="label">Recommendations <span class="dim">· your own words, printed under “Conclusion and recommendations”</span></span>
+      <textarea class="input" name="recommendations" rows="3" style="resize:vertical">${d.recommendations || ''}</textarea></label>
+    <div style="display:flex;gap:8px"><button class="btn primary sm" data-act="details-save">Save</button><button class="btn ghost sm" data-act="details-cancel">Cancel</button>
+      <span class="muted" style="font-size:13px;align-self:center">Every change goes in the case log.</span></div></form>`;
+}
+
+/* Report settings: once per investigator (GET/POST /api/settings) */
+const SETTING_FIELDS = [['firm', 'Firm', 'e.g. Example Investigations LLC'], ['investigator', 'Investigator', 'Your name as it goes on the certification'],
+  ['licence', 'Licence number', 'e.g. PI-000000'], ['contact', 'Contact line', 'Address · phone · email']];
+screens.settings = async () => {
+  const s = await api('/api/settings'), zones = Intl.supportedValuesOf?.('timeZone') || [s.timezone];
+  mount(html`${topHome()}<main class="screen" style="align-items:center;padding:16px 24px 40px">
+    <form id="settings-form" style="width:min(720px,100%);display:flex;flex-direction:column;gap:18px">
+      <div><a href="#/" data-act="back" class="muted" style="font-size:15px">← Back</a><div class="h2" style="margin-top:10px">Report settings</div>
+        <div class="sub" style="margin-top:6px">They go on the header and certification of every report from this Mac.</div></div>
+      <div class="panel" style="padding:22px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">${SETTING_FIELDS.map(([k, label, hint]) => html`<label class="field"><span class="label">${label}</span><input class="input" name="${k}" value="${s[k] || ''}" placeholder="${hint}" maxlength="500"></label>`)}</div>
+        <label class="field"><span class="label">Time zone <span class="dim">· the report gives every time in it</span></span>
+          <select class="input" name="timezone">${zones.map(z => html`<option ${z === s.timezone ? 'selected' : ''}>${z}</option>`)}</select></label>
+        <label class="field"><span class="label">Confidentiality line <span class="dim">· printed at the foot of every page</span></span><textarea class="input" name="confidentiality" rows="2" maxlength="500" style="resize:vertical">${s.confidentiality || ''}</textarea></label>
+        <div style="display:flex;gap:8px;align-items:center"><button class="btn primary sm" data-act="settings-save">Save</button><span id="settings-note" class="muted" style="font-size:13.5px"></span></div>
+      </div>
+      <div class="panel" style="padding:22px;display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+        <div style="width:180px;height:64px;border-radius:var(--r);background:var(--panel-3);display:flex;align-items:center;justify-content:center;overflow:hidden">${s.logo ? html`<img src="/api/settings/logo?v=${Date.now()}" alt="Your logo" style="max-width:100%;max-height:100%;object-fit:contain">` : html`<span class="dim" style="font-size:13px">No logo</span>`}</div>
+        <div style="flex:1;min-width:220px;display:flex;flex-direction:column;gap:8px"><b>Logo</b><span class="muted" style="font-size:13.5px">PNG or JPEG, under 2 MB. Printed at the top of the report.</span>
+          <div style="display:flex;gap:8px"><label class="btn sm" for="logo-file" style="cursor:pointer">${s.logo ? 'Replace' : 'Choose a file'}</label>${s.logo ? html`<button class="btn ghost sm" data-act="logo-remove">Remove</button>` : ''}</div>
+          <input type="file" id="logo-file" accept="image/png,image/jpeg" hidden></div>
+      </div>
+    </form></main>`);
+  $('#settings-form').addEventListener('submit', e => e.preventDefault());
 };
 
 /* ---------- actions (one delegated handler) ---------- */
@@ -567,7 +677,7 @@ const actions = {
     const w = wiz, label = w.seeds.find(s => seedKind(s) === 'name') || w.seeds[0];
     try {
       const { slug } = await api('/api/cases', { method: 'POST', body: { label, seeds: w.seeds, kind: w.kind, reference: w.reference || null, purpose: w.purpose,
-        injury_date: w.kind === 'insurance' && w.injury_date ? w.injury_date : null, limits: w.limits || null, look_for: [...w.look_for, ...w.custom], tool: 'person' } });
+        injury_date: w.kind === 'insurance' && w.injury_date ? w.injury_date : null, limits: w.limits || null, look_for: [...w.look_for, ...w.custom], tool: 'person', ...Object.fromEntries(WIZ_HEADER.filter(k => w[k]).map(k => [k, w[k]])) } });
       wiz = null; await api(`/api/cases/${encodeURIComponent(slug)}/search`, { method: 'POST', body: {} });
       location.hash = `#/case/${slug}/search`;
     } catch (e) { el.disabled = false; fail(e); }
@@ -603,8 +713,24 @@ const actions = {
   },
   'pick-hit': el => { const h = window.__hits.find(x => String(x.id) === el.dataset.id); $('#hit-detail').innerHTML = hitDetail(route().slug, window.__case, h).s;
     document.querySelectorAll('[data-act="pick-hit"]').forEach(b => b.style.boxShadow = b === el ? 'inset 0 0 0 1.5px var(--ac)' : ''); },
-  cite: el => { const t = document.getElementById('ev-' + el.dataset.id); t?.scrollIntoView({ behavior: 'smooth', block: 'center' }); t?.animate([{ background: 'var(--ac-bg)' }, { background: 'var(--panel)' }], 1200); },
-  jump: (el, e) => { e.preventDefault(); document.getElementById('sec-' + el.dataset.id)?.scrollIntoView({ behavior: 'smooth' }); },
+  cite: el => { const t = el.dataset.target && document.getElementById(el.dataset.target); t?.scrollIntoView({ behavior: 'smooth', block: 'center' }); t?.animate([{ background: 'var(--ac-bg)' }, { background: 'transparent' }], 1200); },
+  jump: (el, e) => { e.preventDefault(); document.getElementById(el.dataset.id)?.scrollIntoView({ behavior: 'smooth' }); },
+  'details-edit': () => { $('#report-head').innerHTML = detailsForm(window.__case).s; $('#report-head').scrollIntoView({ behavior: 'smooth' }); $('#details-form [name="client"]').focus(); },
+  'details-cancel': () => { $('#report-head').innerHTML = reportHeader(window.__header).s; },
+  'details-save': async el => {
+    const d = window.__case.details, body = {};
+    new FormData($('#details-form')).forEach((v, k) => { if (v.trim() !== (d[k] || '')) body[k] = v.trim(); });
+    if (!Object.keys(body).length) return actions['details-cancel']();
+    el.disabled = true;
+    try { await api(`/api/cases/${encodeURIComponent(route().slug)}/details`, { method: 'POST', body }); toast('Saved. The change is in the case log.'); render(); } catch (e) { el.disabled = false; fail(e); }
+  },
+  'settings-save': async el => {
+    const body = Object.fromEntries(new FormData($('#settings-form')));
+    el.disabled = true;
+    try { await api('/api/settings', { method: 'POST', body }); $('#settings-note').textContent = 'Saved.'; } catch (e) { fail(e); } finally { el.disabled = false; }
+  },
+  'logo-remove': async () => { try { await api('/api/settings', { method: 'POST', body: { logo: null } }); render(); } catch (e) { fail(e); } },
+  back: (el, e) => { e.preventDefault(); location.hash = lastHash || '#/'; },
 };
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el || el.disabled || el.getAttribute('aria-disabled') === 'true') return;
@@ -614,6 +740,10 @@ document.addEventListener('click', e => {
 document.addEventListener('change', async e => {
   if (e.target.dataset.act === 'screening') { sessionStorage.setItem('hunt-screening', e.target.checked ? '1' : '0'); render(); }
   if (e.target.id === 'up-files') upload(e.target.dataset.slug, e.target.files);
+  if (e.target.id === 'logo-file' && e.target.files[0]) {
+    const form = new FormData(); form.append('file', e.target.files[0]);
+    try { await api('/api/settings/logo', { method: 'POST', form }); render(); } catch (err) { fail(err); }
+  }
   if (e.target.id === 'inbox-days' || e.target.id === 'inbox-folder') openInbox(inbox.slug, $('#inbox-folder').value.trim(), +$('#inbox-days').value);
   if (e.target.classList.contains('inbox-pick')) { const b = $('[data-act="inbox-take"]'), n = document.querySelectorAll('.inbox-pick:checked').length; b.textContent = `File ${n} into this case`; b.disabled = !n; }
 });
@@ -653,7 +783,9 @@ function route() {
   if (parts[0] === 'case' && parts[1]) return { name: parts[2] || 'search', slug: decodeURIComponent(parts[1]) };
   return { name: parts[0] || (sessionStorage.getItem('hunt-booted') ? 'home' : 'startup') };
 }
+let lastHash = '', hereHash = ''; // where "← Back" goes
 async function render() {
+  if (location.hash !== hereHash) [lastHash, hereHash] = [hereHash, location.hash];
   const r = route(); if (!['search', 'scan'].includes(r.name)) stopLive();
   const fn = screens[r.name] || screens.home;
   try { await fn(r.slug); } catch (e) { fail(e); if (r.slug && r.name !== 'search') location.hash = `#/case/${r.slug}/search`; }

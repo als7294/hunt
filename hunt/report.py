@@ -669,8 +669,8 @@ def _log_entry(cid: str, methodology: list[dict], audit: dict, tz: str) -> dict:
     if cid in audit:
         a = audit[cid]
         detail = json.loads(a["detail"])
-        what = a["action"] + (f": {detail['url'] or 'the whole person'} → {detail['decision']}" if a["action"] == "decision"
-                              else "")
+        decided = {"him": "the subject's", "not him": "not the subject's"}.get(detail.get("decision"), detail.get("decision"))
+        what = a["action"] + (f": {detail['url'] or 'the whole person'} → {decided}" if a["action"] == "decision" else "")
         if a["action"] == "source run":
             what = (f"{detail['source']} search for {detail['seed_kind']} '{detail['seed']}': {detail['status']}, "
                     f"{detail['found']} found of {detail['checked']} checked")
