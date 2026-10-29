@@ -134,7 +134,7 @@ img.thumb.blur, .blur { filter: blur(10px) saturate(.6); }
 @media (max-width: 1180px) {
   .wiz-grid { grid-template-columns: 1fr; gap: 28px; padding: 16px 28px 32px; }
   .wiz-grid > div:last-child { padding-top: 0 !important; }
-  .report-grid { grid-template-columns: minmax(0, 1fr) 280px; } .report-grid > nav { display: none; }
+  .report-grid { grid-template-columns: minmax(0, 1fr) 280px; } .report-grid > nav { display: none !important; } /* beats its inline display:flex */
   .tool:not(.on) { display: none; } /* the greyed tool would squeeze the steps */
 }
 @media (max-width: 900px) {

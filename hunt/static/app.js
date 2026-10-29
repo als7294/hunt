@@ -468,7 +468,7 @@ function hitDetail(slug, c, h) {
 }
 function weeklyChart(weeks, injury) {
   if (!weeks.length) return '';
-  const W = 1000, H = 90, max = Math.max(1, ...weeks.map(w => w.posts)), bw = W / weeks.length;
+  const W = 1000, H = 90, max = Math.max(1, ...weeks.map(w => w.posts)), bw = W / Math.max(weeks.length, 12); // a lone week stays one week wide
   const injWeek = injury ? isoWeek(asDate(injury)) : null, ii = weeks.findIndex(w => w.week === injWeek);
   return html`<div class="panel" style="padding:14px 18px"><div style="display:flex;justify-content:space-between" class="muted"><span style="font-size:14px">Posts per week</span><span style="font-size:13px"><span style="color:var(--am)">■</span> flagged ${injury ? '· line = injury' : ''}</span></div>
     <svg viewBox="0 0 ${W} ${H + 4}" preserveAspectRatio="none" style="width:100%;height:96px;display:block;margin-top:8px" role="img" aria-label="Posts per week, flagged posts highlighted">
@@ -479,6 +479,8 @@ function weeklyChart(weeks, injury) {
 function isoWeek(d) { const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); const n = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - n); const y = new Date(Date.UTC(t.getUTCFullYear(), 0, 1)); return `${t.getUTCFullYear()}-W${String(Math.ceil(((t - y) / 864e5 + 1) / 7)).padStart(2, '0')}`; }
 
 /* Find a person, 4: report */
+const TODO = { summary: 'search', method: 'search', identity: 'identity', confidence: 'identity', found: 'posts' }; // the step that writes each section
+const TODO_LABEL = { search: 'Run the search', identity: 'Decide whether it’s them', posts: 'Review the flagged posts left' };
 screens.report = async slug => {
   const screening = sessionStorage.getItem('hunt-screening') === '1';
   const [c, r] = await Promise.all([loadCase(slug), api(`/api/cases/${encodeURIComponent(slug)}/report?screening=${screening ? 1 : 0}`)]);
@@ -500,7 +502,7 @@ screens.report = async slug => {
         <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><div style="font-weight:600">${r.checks.every_sentence_cited && !r.checks.tampered?.length && r.sections.every(x => x.done) ? 'Ready' : 'Almost ready'}</div>
           <div class="reason ${r.checks.every_sentence_cited ? '' : 'warn'}"><span class="ic">${r.checks.every_sentence_cited ? '✓' : '!'}</span>Every sentence has a source</div>
           <div class="reason ${r.checks.tampered?.length ? 'bad' : ''}"><span class="ic">${r.checks.tampered?.length ? '!' : '✓'}</span>${r.checks.tampered?.length ? `${r.checks.tampered.length} files changed since saved` : `All ${r.checks.files_checked} files unchanged`}</div>
-          ${r.sections.filter(s => !s.done).map(s => html`<div class="reason warn"><span class="ic">•</span>Write “${s.title}”</div>`)}</div>
+          ${[...new Set(r.sections.filter(s => !s.done).map(s => TODO[s.id]).filter(Boolean))].map(step => html`<a class="reason warn" href="#/case/${slug}/${step}"><span class="ic">•</span>${TODO_LABEL[step]}</a>`)}</div>
         <label class="panel" style="padding:16px 18px;display:flex;gap:12px;align-items:center;cursor:pointer"><input type="checkbox" data-act="screening" ${screening ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--ac)">
           <span><b>Job screening mode</b><br><span class="muted" style="font-size:13.5px">Hides protected details (age, health, religion, family…)</span></span></label>
         <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px">

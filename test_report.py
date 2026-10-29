@@ -88,7 +88,7 @@ case.decide("https://bsky.app/profile/kestrel_vane88", "him")
 rep = compose()
 texts = " ".join(s["text"] for s in rep["sentences"])
 assert "Robert Vance's" in texts and "a person matching" not in texts, texts
-marked = next(x for x in rep["sentences"] if x["text"].startswith("The investigator marked Bluesky"))
+marked = next(x for x in rep["sentences"] if x["text"].startswith("The investigator confirmed the Bluesky"))
 assert len([c for c in marked["cites"] if c.startswith("M-a")]) == 2, marked  # its own decision + the person's
 assert "investigator confirmed this account" not in texts, texts
 page = report.to_html(case, rep)

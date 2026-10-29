@@ -19,7 +19,10 @@ from .case import EVIDENCE_NAME, Case
 from .match import ICD203, norm_url
 from .seed import now
 
-SECTIONS = [("summary", "Summary"), ("scope", "Why and scope"), ("identity", "Is it him?"),
+MARKED = {"him": "The investigator confirmed the {site} account as the subject's.",  # the stored values stay him/not him
+          "not him": "The investigator ruled out the {site} account.",
+          "unsure": "The investigator was unsure about the {site} account."}
+SECTIONS = [("summary", "Summary"), ("scope", "Why and scope"), ("identity", "Is it them?"),
             ("method", "How we searched"), ("found", "What we found"), ("confidence", "How sure we are"),
             ("couldnt_see", "What we couldn't see")]
 VERDICTS = [label for _, label in ICD203]
@@ -107,14 +110,14 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     if d["injury_date"]:
         doc.say("scope", f"Date of injury given: {d['injury_date']}; items are placed before or after it.", scope)
 
-    # Is it him?
+    # Is it them?
     for c in people:
         why = "; ".join(_plain(r) for r, t in zip(c["reasons"], c["tags"])
                         if t != "confirmed" and not r.startswith(("+0.0", "-")))  # the decision gets its own sentence
         doc.say("identity", f"{c['site']} account {c['url']}: {cap(c['verdict'])} to belong to {who}"
                             + (f" ({why})." if why else "."), [acc(c)])
         if c["decision"]:
-            doc.say("identity", f"The investigator marked {c['site']} '{c['decision']}'.", [acc(c)] + own(c))
+            doc.say("identity", MARKED[c["decision"]].format(site=c["site"]), [acc(c)] + own(c))
     namesakes = [c for c in snap["candidates"] if not search.in_person(c) and c["probability"] < 0.2
                  and any(t == "name" and r.startswith("+") and not r.startswith("+0.0")
                          for r, t in zip(c["reasons"], c["tags"]))]  # the name matches; the rest doesn't
