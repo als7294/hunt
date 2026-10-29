@@ -123,7 +123,8 @@ NEGATIVES = ["a photo of food", "a photo of a pet", "a photo of a person sitting
              "a close-up portrait of a person's face", "a photo of a room interior", "a screenshot of text",
              "a photo of a document", "a group of people posing for a photo"]
 
-SCHEMA = """
+# Hits join posts and media, so their tables come first: a case with no posts yet must still list (no) hits.
+SCHEMA = posts.SCHEMA + """
 create table if not exists hits (id integer primary key, post_id int, media_id int, category text, what text,
     t0 real, t1 real, verdict text, p real, timing text, days_after int, status text default 'new',
     who text default 'unknown', file text, blur int default 0, created text,

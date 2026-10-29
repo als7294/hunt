@@ -163,7 +163,8 @@ p = c.get("/api/cases/vance-claim/person").json()
 assert p["decision"] == "him" and [a["decision"] for a in p["accounts"]] == ["him"], p
 
 # --- Posts, media and scan, against stand-ins for hunt.posts / hunt.scan -------------------------
-assert c.post("/api/cases/vance-claim/scan", content="{}", headers=JSON).status_code == 501  # not installed yet
+sys.modules["hunt.scan"] = None  # as if this build had no scanner; stand-ins replace it below
+assert c.post("/api/cases/vance-claim/scan", content="{}", headers=JSON).status_code == 501
 store = {"posts": [], "hits": []}
 posts = types.ModuleType("hunt.posts")
 scan = types.ModuleType("hunt.scan")
