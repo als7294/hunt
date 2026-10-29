@@ -35,7 +35,8 @@ from .case import EVIDENCE_NAME, _sha256
 COLUMNS = ("exhibit", "sha256", "bytes", "hash_ok", "role", "collected", "what", "source", "url", "account", "posted_at",
            "saved_at", "viewed_as", "audience", "tool_version", "original_name")
 READ, CAPTURED, ADDED = "read by Hunt", "captured in the Hunt Browser", "added by the investigator"  # the three ways
-RECORD = ("viewed_as", "audience", "tool_version")  # the capture record (legal.md K5), once Hunt Capture sends it
+RECORD = ("viewed_as", "audience", "tool_version")  # the capture record (legal.md K5), as Hunt Capture sends it
+UNNAMED = {"not known", "logged in (account not named in Hunt)"}  # viewed_as values that don't say which account
 README = """Evidence bundle for case "{label}" ({slug})
 Purpose on record: {purpose}
 Made by Hunt {version} at {made} UTC from {count} evidence files.
@@ -217,7 +218,7 @@ def _record_sentence(rows: list[dict]) -> str:
     captured = [r for r in rows if r["collected"] == CAPTURED]
     if not captured:
         return ""
-    missing = sum(not all(r[k] for k in RECORD) for r in captured)
+    missing = sum(not all(r[k] for k in RECORD) or r["viewed_as"] in UNNAMED for r in captured)
     return (FULL_RECORD if not missing else PART_RECORD.format(missing=missing, total=len(captured))) + "\n"
 
 

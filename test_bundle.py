@@ -126,6 +126,11 @@ with zipfile.ZipFile(bundle.make(case, out)["path"]) as z:
 assert (again[view["sha256"]]["viewed_as"], again[view["sha256"]]["audience"], again[view["sha256"]]["tool_version"]) == (
     "logged in as laura.example", "Public", "Hunt 0.1.0 · Hunt Capture 1.2")
 assert "the account it was\nviewed from" in readme2 and "lack them" not in readme2
+case.audit("capture view", {"file": f"evidence/{view['sha256']}.png", "url": view["url"], "platform": "Instagram",
+                            "viewed_as": "not known", "audience": "Public", "hunt_version": "0.1.0", "capture_version": "1.2"})
+with zipfile.ZipFile(bundle.make(case, out)["path"]) as z:
+    readme3 = z.read("README.txt").decode()
+assert "1 of 1 captured files lack them" in readme3  # "not known" names no account: the claim isn't made
 
 # The standard tool agrees: every exhibit checks out except the one edited after it was saved
 check = subprocess.run(["shasum", "-a", "256", "-c", "SHA256SUMS"], cwd=unzipped, capture_output=True, text=True)
