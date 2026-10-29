@@ -9,16 +9,26 @@ cached in ~/Tessera/cache/geocode.json. We follow the usage policy
 identifying User-Agent, no bulk lists. Results are © OpenStreetMap contributors
 (ODbL): credit them wherever a Place's label is shown.
 
+Profile location fields are often not places at all ('Earth', 'Worldwide', 'she/her')
+or are abbreviations Nominatim reads abroad ('AZ' → Azerbaijan), and either would
+score a false conflict. Hence the alias table, the joke stoplist, the street/shop
+filter and the ambiguity check below. Ideas from carmen (github.com/mdredze/carmen-python,
+which geolocates Twitter profile locations) and mordecai3 (github.com/ahalterman/mordecai3).
+
 ponytail: online public Nominatim. Offline upgrade: point URL at a self-hosted
 Nominatim, or look names up in a local GeoNames cities500 table, and nothing leaves
 the machine.
 """
 
 import asyncio
+import contextlib
+import dataclasses
 import json
 import math
 import os
+import re
 import time
+import unicodedata
 from dataclasses import dataclass
 
 import httpx
@@ -30,12 +40,48 @@ UA = "Tessera/0.1 (+https://github.com/als7294/tessera)"
 CACHE = HOME / "cache" / "geocode.json"
 INTERVAL = 1.0  # seconds between requests, process-wide (Nominatim's hard limit)
 # Nominatim place_rank (nominatim.org/release-docs/latest/customize/Ranking/):
-# 4 country, 5-9 state/region, 10-12 county, 13-16 city, 17+ town, suburb, street, house.
-REGION, CITY = 5, 13
+# 4 country, 5-9 state/region, 10-12 county, 13-16 city, 17-24 town, suburb, neighbourhood,
+# 25 locality, 26-27 street, 30 building or shop.
+REGION, CITY, STREET = 5, 13, 25
 LOCAL_KM = 100  # a bounding box smaller than this corner to corner is city-sized whatever its rank: DC, Monaco, small counties
 AREA_KM = 50  # two city-sized places whose centres are this close are one metro area, even across a state or national border
+# A rival hit at least this important (relative to the best) in another region makes a name ambiguous.
+# Measured 2026-10-29: Washington DC/state 0.94, Portland OR/ME 0.85 are ambiguous;
+# SF/Santa Fe AR 0.80, NOLA/Nola IT 0.79, Nevada state/county 0.78, Phoenix AZ/IL 0.73 are not.
+AMBIGUOUS = 0.83
 
-_cache: dict | None = None  # normalised string → Nominatim's raw top hit, or None for "no such place"
+# Whole-string abbreviations Nominatim gets wrong ('AZ' → Azerbaijan, 'WA' → Western Australia,
+# 'PHX' → Port Moresby, 'ATL' → an airport). As in mordecai3, a two-letter code is read as a US
+# state ('CA' is California, not Canada), except LA, which in a profile means Los Angeles.
+STATES = {
+    "al": "alabama", "ak": "alaska", "az": "arizona", "ar": "arkansas", "ca": "california", "co": "colorado",
+    "ct": "connecticut", "de": "delaware", "fl": "florida", "ga": "georgia", "hi": "hawaii", "id": "idaho",
+    "il": "illinois", "in": "indiana", "ia": "iowa", "ks": "kansas", "ky": "kentucky", "me": "maine",
+    "md": "maryland", "ma": "massachusetts", "mi": "michigan", "mn": "minnesota", "ms": "mississippi",
+    "mo": "missouri", "mt": "montana", "ne": "nebraska", "nv": "nevada", "nh": "new hampshire", "nj": "new jersey",
+    "nm": "new mexico", "nc": "north carolina", "nd": "north dakota", "oh": "ohio", "ok": "oklahoma",
+    "or": "oregon", "pa": "pennsylvania", "ri": "rhode island", "sc": "south carolina", "sd": "south dakota",
+    "tn": "tennessee", "tx": "texas", "ut": "utah", "vt": "vermont", "va": "virginia", "wv": "west virginia",
+    "wi": "wisconsin", "wy": "wyoming", "pr": "puerto rico",
+}
+ALIASES = {code: f"{name}, united states" for code, name in STATES.items()} | {
+    "ny": "new york state", "wa": "washington state", "dc": "district of columbia", "dmv": "district of columbia",
+    "la": "los angeles, california", "sf": "san francisco, california", "bay area": "san francisco, california",
+    "phx": "phoenix, arizona", "atl": "atlanta, georgia", "slc": "salt lake city, utah", "dfw": "dallas, texas",
+    "socal": "california, united states", "norcal": "california, united states", "pnw": "united states",
+}
+# Joke 'locations' that Nominatim matches to a real namesake ('Earth' is a village in Texas, 'Mars'
+# one in France). Only a whole-string match is skipped, so 'Paradise, CA' still geocodes.
+# ponytail: hand-picked list. Upgrade: learn it from the geocodes analysts reject.
+NOT_PLACES = {
+    "earth", "planet earth", "the world", "world", "worldwide", "global", "everywhere", "anywhere", "somewhere",
+    "nowhere", "here", "home", "internet", "the internet", "online", "cyberspace", "metaverse", "mars", "moon",
+    "the moon", "space", "outer space", "universe", "the universe", "heaven", "hell", "paradise", "narnia",
+    "hogwarts", "gotham", "gotham city", "mordor", "wonderland", "neverland", "atlantis", "utopia", "your heart",
+    "in your heart", "behind you", "the void", "n/a", "none", "unknown",
+}
+
+_cache: dict | None = None  # normalised query → Nominatim's raw hits ([] for "no such place")
 _next_slot = 0.0  # time.monotonic() at which the next request may start
 
 
@@ -46,39 +92,38 @@ class Place:
     lon: float
     country_code: str  # lowercase ISO 3166-1 alpha-2
     region: str | None  # ISO 3166-2 level-4 subdivision, e.g. US-AZ, GB-ENG
-    rank: int  # Nominatim place_rank: lower is vaguer
-    label: str  # Nominatim display_name
+    rank: int  # Nominatim place_rank: lower is vaguer; 4 when only the country is certain
+    label: str  # Nominatim display_name; every candidate, joined by ' or ', when ambiguous
     size_km: float = math.inf  # bounding-box diagonal; inf when unknown
 
 
 async def locate(texts: list[str]) -> dict[str, Place | None]:
-    """Geocode each string. None when it isn't a place, is vaguer than a country, or the lookup failed.
+    """Geocode each string. None when it isn't a place, is vaguer than a country, is
+    ambiguous across countries ('Georgia'), or the lookup failed.
 
-    Ambiguous names resolve to Nominatim's most important match (Wikipedia-based):
-    'Washington' → Washington, DC (the city); 'DC' → District of Columbia (state-level
-    but city-sized, see compare); 'Washington state' → the state. So a Seattle
-    subject whose profile just says 'Washington' scores
-    'different region'. Joke locations that are real places geocode too ('Earth' is
-    a village in Texas). Show Place.label in reasons so the investigator sees which
-    place was meant.
-    ponytail: top hit only. Upgrade: limit=2, and when the runner-up shares the name,
-    has similar importance and sits in another region, keep only their common country.
+    Each string is tried whole, then by the part after its last comma (as carmen does), so
+    'Middle of nowhere, AZ' still lands in Arizona. The most important match wins, unless a
+    rival nearly as important sits in another region: 'Washington' (DC or the state) and
+    'Portland' (Oregon or Maine) keep only their country. Show Place.label in reasons so
+    the investigator sees which place was meant.
     """
-    cache = _load()
-    keys = {t: " ".join(t.lower().split()) for t in texts}
-    missing = [k for k in dict.fromkeys(keys.values()) if k and k not in cache]
-    if missing:
-        async with httpx.AsyncClient(timeout=10, headers={"User-Agent": UA},
-                                     proxy=os.environ.get("TESSERA_PROXY")) as client:
-            for key in missing:
-                if key in cache:  # a concurrent locate() fetched it meanwhile
-                    continue
-                try:
-                    cache[key] = await _fetch(client, key)
-                except (httpx.HTTPError, ValueError):
-                    break  # offline or refused: stop rather than wait out every string. Errors aren't cached, so next run retries.
-                _save()
-    return {t: _place(t, cache.get(k)) for t, k in keys.items()}
+    cache, out, offline = _load(), {}, False
+    need = any(q not in cache for t in texts for q in _queries(t))
+    async with (httpx.AsyncClient(timeout=10, headers={"User-Agent": UA}, proxy=os.environ.get("TESSERA_PROXY"))
+                if need else contextlib.nullcontext()) as client:
+        for text in texts:
+            place = None
+            for q in _queries(text):
+                if q not in cache and not offline:
+                    try:
+                        cache[q] = await _fetch(client, q)
+                        _save()
+                    except (httpx.HTTPError, ValueError):
+                        offline = True  # stop asking rather than wait out every string. Not cached, so next run retries.
+                if place := _place(text, q, cache.get(q)):
+                    break
+            out[text] = place
+    return out
 
 
 def compare(a: Place, b: Place) -> tuple[str, float]:
@@ -108,6 +153,14 @@ def compare(a: Place, b: Place) -> tuple[str, float]:
     return tier, km
 
 
+def _queries(text: str) -> list[str]:
+    """What to ask Nominatim, in order: the whole text, then the part after its last comma.
+    Lowercased, emoji dropped, aliases expanded, jokes skipped."""
+    parts = [text, text.rpartition(",")[2]] if "," in text else [text]
+    keys = (" ".join("".join(c for c in p if unicodedata.category(c) != "So").lower().split()) for p in parts)
+    return [ALIASES.get(k, k) for k in keys if k and k not in NOT_PLACES]
+
+
 async def _turn():
     """Wait for this request's 1-per-INTERVAL slot. No lock needed: nothing awaits between read and write."""
     global _next_slot
@@ -117,25 +170,36 @@ async def _turn():
     await asyncio.sleep(slot - now)
 
 
-async def _fetch(client: httpx.AsyncClient, query: str) -> dict | None:
-    """Nominatim's top hit for query as raw jsonv2, or None if it found nothing."""
+async def _fetch(client: httpx.AsyncClient, query: str) -> list[dict]:
+    """Nominatim's top hits for query as raw jsonv2 ([] if it found nothing)."""
     await _turn()
-    # layer=address: settlements, regions, streets and house numbers only, so a café
-    # or band called "Pale Blue Dot" isn't mistaken for a place.
-    r = await client.get(URL, params={"q": query, "format": "jsonv2", "addressdetails": 1, "limit": 1,
+    # layer=address drops natural features and unaddressed POIs; named shops and streets still
+    # come back, and _place drops those unless the query has a number.
+    r = await client.get(URL, params={"q": query, "format": "jsonv2", "addressdetails": 1, "limit": 5,
                                       "layer": "address", "accept-language": "en"})
     r.raise_for_status()
-    hits = r.json()
-    return hits[0] if hits else None
+    return r.json()
 
 
-def _place(text: str, hit: dict | None) -> Place | None:
-    cc = hit and hit["address"].get("country_code")
-    if not cc or hit["place_rank"] < 4:
-        return None  # nothing found, or vaguer than a country (continent, ocean): nothing to weigh
-    south, north, west, east = map(float, hit["boundingbox"])
-    return Place(text, float(hit["lat"]), float(hit["lon"]), cc.lower(), hit["address"].get("ISO3166-2-lvl4"),
-                 int(hit["place_rank"]), hit["display_name"], _km(south, west, north, east))
+def _place(text: str, query: str, hits: list[dict] | None) -> Place | None:
+    """The most important usable hit; if a near-equal rival sits in another region, only the shared country."""
+    usable = [h for h in hits or () if h["address"].get("country_code") and h["place_rank"] >= 4  # not a continent or sea
+              and (h["place_rank"] < STREET or re.search(r"\d", query))]  # a street or shop only for an address
+    if not usable:
+        return None
+    best = max(usable, key=lambda h: h["importance"])
+    cc, region = best["address"]["country_code"], best["address"].get("ISO3166-2-lvl4")
+    rivals = [h for h in usable if h["importance"] >= AMBIGUOUS * best["importance"]
+              and (h["address"]["country_code"] != cc or region and h["address"].get("ISO3166-2-lvl4") not in (None, region))]
+    if any(h["address"]["country_code"] != cc for h in rivals):
+        return None  # e.g. 'Georgia': the country or the US state
+    south, north, west, east = map(float, best["boundingbox"])
+    place = Place(text, float(best["lat"]), float(best["lon"]), cc.lower(), region, int(best["place_rank"]),
+                  best["display_name"], _km(south, west, north, east))
+    if rivals:
+        return dataclasses.replace(place, region=None, rank=4, size_km=math.inf,
+                                   label=" or ".join(h["display_name"] for h in [best, *rivals]))
+    return place
 
 
 def _km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
