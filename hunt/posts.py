@@ -81,7 +81,8 @@ async def collect(case, accounts: list[dict], since: str | None, emit) -> int:
 
 
 def add_files(case, paths: list[Path], platform: str | None, posted_at: str | None) -> list[int]:
-    """The investigator's own files (photos, screenshots, videos), one 'added' post each. Returns post ids.
+    """The investigator's own files (photos, screenshots, videos), one 'added' post each. Returns post ids;
+    a file already in the case is skipped.
     HEIC is converted to JPEG with sips (the original is kept too); SVG and unknown types are refused."""
     case.db.executescript(SCHEMA)
     paths = [Path(p) for p in paths]
@@ -99,6 +100,9 @@ def add_files(case, paths: list[Path], platform: str | None, posted_at: str | No
                 subprocess.run(["sips", "-s", "format", "jpeg", str(p), "--out", str(jpg)], check=True,
                                capture_output=True, timeout=120)
                 shown, shown_sha = _store_file(case, jpg, "jpg")
+        if case.rows("select 1 from media where sha256 = ?", shown_sha):  # dropped again: one copy is enough
+            case.audit("file already added", {"name": p.name, "sha256": shown_sha})
+            continue
         when = posted_at or (_taken(p) if kind != "video" else None)
         post = case.db.execute("insert into posts values (null, ?, null, null, ?, '', 'added', ?)",
                                (platform or ADDED, when, now())).lastrowid

@@ -44,7 +44,7 @@ Event `data` is JSON with a `type`:
 - **`stage`:** `{stage: "asking"|"finding"|"checking"|"collecting"|"scanning"|"done"}`
 - **`source`:** `{source, seed, status: "running"|"found"|"nothing found"|"failed", found, checked, note}`
 - **`account`:** `{url, site, verdict, probability}`, sent as candidates are scored
-- **`scan`:** `{checked, total, photos, videos, found, eta_s}` (`eta_s` is from the measured rate; null until known)
+- **`scan`:** `{checked, total, photos, videos, found, eta_s, media_id}` (`eta_s` is from the measured rate, null until known; `media_id` is the file just checked, null on other updates)
 - **`hit`:** a hit object (below)
 - **`log`:** `{message}`
 - **`done`:** `{ok: true}`

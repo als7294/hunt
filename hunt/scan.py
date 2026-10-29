@@ -474,17 +474,17 @@ class _Progress:
         if not self.left[m["id"]]:
             del self.left[m["id"]]
             self.checked += 1
-        self.send()
+        self.send(media_id=m["id"])  # the app lights up the tile being checked
 
     def finish(self):
         self.checked = self.total
         self.send(eta=0)
 
-    def send(self, eta=None):
+    def send(self, eta=None, media_id=None):
         if eta is None and self.vlm_s:
             eta = round(statistics.mean(self.vlm_s) * sum(self.left.values()))
         self.emit({"type": "scan", "checked": self.checked, "total": self.total, "photos": self.photos,
-                   "videos": self.videos, "found": self.found, "eta_s": eta})
+                   "videos": self.videos, "found": self.found, "eta_s": eta, "media_id": media_id})
 
 
 def _shape(h: dict) -> dict:

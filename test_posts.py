@@ -169,6 +169,9 @@ heic_sha = hashlib.sha256((tmp / "b.heic").read_bytes()).hexdigest()
 assert (case.dir / "evidence" / f"{heic_sha}.heic").exists()  # ...with the original kept beside it
 audited = [r["detail"] for r in case.rows("select detail from audit where action = 'file added'")]
 assert len(audited) == 4 and heic_sha in audited[3]
-[plain] = posts.add_files(case, [tmp / "a.jpg"], None, None)
+assert posts.add_files(case, [tmp / "a.jpg"], None, None) == []  # the same file again is skipped, and logged
+assert case.rows("select 1 from audit where action = 'file already added'")
+(tmp / "c.jpg").write_bytes((tmp / "a.jpg").read_bytes() + b"\0")
+[plain] = posts.add_files(case, [tmp / "c.jpg"], None, None)
 assert next(p for p in posts.list_posts(case) if p["id"] == plain)["source"] == "Added by you"
 print("ok")

@@ -37,7 +37,7 @@ from starlette.staticfiles import StaticFiles
 
 from . import report, search, vlm
 from .case import DECISIONS, EVIDENCE_NAME, HOME, Case, all_cases
-from .match import ICD203, norm_url
+from .match import ICD203
 from .seed import detect
 
 STATIC = Path(__file__).parent / "static"
@@ -297,8 +297,9 @@ def _audited(c: Case, action: str) -> list[dict]:
     return c.rows("select rowid, ts from audit where action = ? order by ts", action)
 
 
-def _accounts(c: Case) -> int:
-    return len({norm_url(r["url"]) for r in c.rows("select url from findings where url is not null")})
+async def _accounts(c: Case) -> int:
+    """The accounts "Is it them?" shows, not every raw hit (a common handle has hundreds)."""
+    return sum(map(search.in_person, (await search.snapshot(c))["candidates"]))
 
 
 # --- cases ----------------------------------------------------------------------------------
@@ -368,7 +369,7 @@ async def _headline(c: Case) -> str:
         return f"{flagged} flagged post{'s' * (flagged != 1)}"
     if confirmed:
         return "Confirmed"
-    if n := _accounts(c):
+    if n := await _accounts(c):
         return f"{n} account{'s' * (n != 1)} found"
     return "Not searched yet"
 
@@ -414,7 +415,7 @@ async def get_case(req: Request):
                   "posts": "running" if running("scan") else "done" if _audited(c, "scan") else "todo",
                   "report": "done" if _audited(c, "report exported") else "todo"},
         "active_job": {"id": job.id, "kind": job.kind} if job else None,
-        "counts": {"accounts": _accounts(c), "flagged": len(_flagged(hits)),
+        "counts": {"accounts": await _accounts(c), "flagged": len(_flagged(hits)),
                    "evidence": sum(1 for f in (c.dir / "evidence").iterdir() if EVIDENCE_NAME.match(f.name))},
     })
 

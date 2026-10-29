@@ -151,6 +151,7 @@ case.add_finding(Finding("maigret", Seed("username", "rvance"), "SiteC", "https:
                          {"fullname": "Dana Holt"}))  # someone else
 p = c.get("/api/cases/vance-claim/person").json()
 assert {a["site"] for a in p["accounts"]} == {"SiteA", "SiteB"} and p["decision"] is None, p
+assert c.get("/api/cases/vance-claim").json()["counts"]["accounts"] == 2  # the person, not SiteC
 assert p["summary"][0]["tag"] in ("name", "username") and p["weakest_verdict"], p
 assert not any(r[:1] in "+-" for a in p["accounts"] for r in a["reasons"]), p  # no weights shown
 assert c.post("/api/cases/vance-claim/decisions", content=json.dumps({"decision": "maybe"}), headers=JSON).status_code == 400
