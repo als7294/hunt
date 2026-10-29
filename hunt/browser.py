@@ -28,6 +28,10 @@ ROOT = HOME / "browser"
 PROFILE = ROOT / "profile"
 EXTENSION_DIR = ROOT / "extension"  # a copy of extension/, plus pairing.json for this Hunt
 STATUS = ROOT / "signins.json"
+STOPS = ROOT / "stops.json"  # hard stops from the revocation watcher; they outlive restarts
+ACCOUNTS = ROOT / "accounts.json"  # the handle she signed in as, per platform, for "logged in as <handle>"
+STOP_MESSAGE = ("{platform} showed {reason}. Hunt Capture has stopped recording {platform}. Don't use this account for "
+                "casework, and tell Ethos. Don't switch to another account, browser profile or proxy.")
 SOURCE = Path(__file__).resolve().parent.parent / "extension"
 PLATFORMS = {  # key → (shown as, login page for onboarding's "Sign in")
     "facebook": ("Facebook", "https://www.facebook.com/login/"),
@@ -129,9 +133,10 @@ def repoint(port: int) -> None:
         os.replace(tmp, pairing)
 
 
-def open_url(url: str, port: int, case: str | None = None) -> dict:
+def open_url(url: str, port: int, case: str | None = None, size: tuple[int, int] | None = None) -> dict:
     """Open a page in the Hunt Browser, starting it if it isn't open (a second launch hands the page to the
-    running one). Raises ValueError for anything but http(s), LookupError when no browser is installed."""
+    running one). `size` (width, height) sets the window when it starts, to sit beside Hunt's. Raises ValueError for
+    anything but http(s), LookupError when no browser is installed."""
     global _proc, _active
     if not re.match(r"https?://[^\s]+$", url or ""):
         raise ValueError("only http and https pages open in the Hunt Browser")
@@ -141,8 +146,9 @@ def open_url(url: str, port: int, case: str | None = None) -> dict:
     started = not running()
     prepare(port)
     _active = case or _active
+    window = [f"--window-size={size[0]},{size[1]}"] if size and started else []
     proc = subprocess.Popen([str(exe), f"--user-data-dir={PROFILE}", f"--load-extension={EXTENSION_DIR}",
-                             "--no-first-run", "--no-default-browser-check", url],
+                             "--no-first-run", "--no-default-browser-check", *window, url],
                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             start_new_session=True)
     if started:
@@ -167,6 +173,56 @@ def set_capture(case: str | None, on: bool) -> dict:
     return capture()
 
 
+def accounts() -> dict:
+    """platform key ("facebook") → the handle she said she signs in with there."""
+    return _read(ACCOUNTS)
+
+
+def set_accounts(handles: dict) -> dict:
+    clean = {p: str(h).strip().lstrip("@")[:100] for p, h in handles.items()
+             if p in PLATFORMS | {"youtube": 0, "reddit": 0} and isinstance(h, str) and h.strip()}
+    _write(ACCOUNTS, clean)
+    return clean
+
+
+def stops() -> dict:
+    """platform ("Facebook") → {ts, reason, url, message}: where the revocation watcher stopped capture."""
+    return _read(STOPS)
+
+
+def stop(platform: str, reason: str, url: str | None = None, case=None) -> dict:
+    """Hard stop: capture off for that platform until she resumes it, audited in the case being captured."""
+    entry = {"ts": now(), "reason": reason, "url": url,
+             "message": STOP_MESSAGE.format(platform=platform, reason=reason)}
+    _write(STOPS, stops() | {platform: entry})
+    if case is not None:
+        case.audit("capture hard stop", {"platform": platform} | entry)
+    problem(entry["message"])
+    return entry
+
+
+def resume(platform: str, case=None) -> dict:
+    left = {k: v for k, v in stops().items() if k != platform}
+    _write(STOPS, left)
+    if case is not None:
+        case.audit("capture resumed", {"platform": platform})
+    return left
+
+
+def _read(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _write(path: Path, data: dict) -> None:
+    ROOT.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".part")
+    tmp.write_text(json.dumps(data, ensure_ascii=False))
+    os.replace(tmp, path)
+
+
 def problem(message: str) -> None:
     _problems.append({"ts": now(), "message": str(message)[:300]})
     del _problems[:-20]
@@ -188,8 +244,8 @@ def record(signins: dict) -> dict:
 
 def status() -> dict:
     """{facebook…x: signed_in|signed_out|unknown, checked_at, browser: {available, running, version, profile, pinned},
-    capture: {case, on, since}, problems: [{ts, message}], logins: [{platform, label, url}]} for the onboarding and
-    startup screens."""
+    capture: {case, on, since}, problems: [{ts, message}], stopped: {platform: {ts, reason, url, message}},
+    accounts: {platform: handle}, logins: [{platform, label, url}]} for the onboarding and startup screens."""
     try:
         saved = json.loads(STATUS.read_text())
     except (OSError, ValueError):
@@ -198,7 +254,7 @@ def status() -> dict:
     return ({p: saved.get(p, "unknown") for p in PLATFORMS} | {"checked_at": saved.get("checked_at")}
             | {"browser": {"available": bool(exe), "running": running(), "version": _version(exe), "profile": PROFILE.exists(),
                            "pinned": saved.get("pinned")},
-               "capture": capture(), "problems": list(_problems),
+               "capture": capture(), "problems": list(_problems), "stopped": stops(), "accounts": accounts(),
                "logins": [{"platform": p, "label": label, "url": url} for p, (label, url) in PLATFORMS.items()]})
 
 

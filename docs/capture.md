@@ -175,21 +175,29 @@ sign-in cookie exists, with `chrome.cookies.get`:
 
 ## Hard lines
 
-The extension never:
-- navigates, opens tabs, clicks, scrolls, types or searches
-- likes, follows, friends or messages anyone
+**Every request a platform receives is caused by one deliberate input of hers.** Everything after the
+bytes arrive is automatic.
 
-It records only pages she opens, while capture is on, and never LinkedIn. It sends nothing anywhere
+The extension never:
+- opens tabs, clicks, types or searches
+- likes, follows, friends or messages anyone
+- expands "See more", advances post modals or Stories, or synthesises input
+
+It never scrolls or navigates on its own. The single exception is guided mode, where one press of
+Next makes exactly one scroll or one navigation (below).
+
+It records only pages she opens, while capture is on, and never LinkedIn, Strava or Snapchat. It sends nothing anywhere
 except Hunt on 127.0.0.1: its Content-Security-Policy is `connect-src 'self' http://127.0.0.1:*`
 (`'self'` is its own `pairing.json`). It makes no request to any platform. There are no sock
 puppets: it works in her own logged-in browser.
 
 `test_capture.py` reads the extension's code and fails on any of these:
-- a `click()`, a scroll call, tab navigation, `location =`, a form submit, a synthetic event, or
-  script injection
+- a `click()`, a scroll call, tab navigation, `location =`, a form submit, a synthetic or constructed
+  input event, script injection, or an element added to the page
+- the exceptions are guided mode's `guidedScroll` and `guidedOpen`: one call each, no loop, no timer
 - a `fetch` to anything but `http://127.0.0.1:` or its own `pairing.json`
 - reading a cookie's value (only `chrome.cookies.get` for presence)
-- LinkedIn in its capture sites
+- LinkedIn, Strava or Snapchat in its capture sites
 - the permissions history, webRequest, debugger, scripting, downloads or management
 - `<all_urls>` anywhere but `optional_host_permissions`, which Chrome grants only through its own
   prompt, on her click
@@ -226,12 +234,14 @@ accepts only `activeTab` or `<all_urls>`; host permissions aren't enough.
   permission reports once per tab: "No screenshot: click Hunt Capture once in this tab… The page
   archive is still saved."
 
-**Sites recorded:** facebook.com, instagram.com, tiktok.com, x.com, twitter.com and youtube.com, and
-their subdomains.
-
-**Never LinkedIn.** Its terms name browser plugins, and it scans for extensions
-(`docs/research/automation-legal.md` §4).
-- The extension doesn't run there, and Hunt refuses LinkedIn uploads with 403.
+**The per-site switch** (`docs/research/automation-legal.md` §4):
+- **Recorded:** facebook.com, instagram.com, tiktok.com, x.com, twitter.com, youtube.com and
+  reddit.com, and their subdomains.
+- **Never recorded:** LinkedIn, Strava and Snapchat. Their terms name extensions or "semi-automated"
+  tools, and LinkedIn also scans for extension ids.
+  - The extension doesn't run there, and Hunt refuses their uploads with 403.
+  - On LinkedIn the popup shows a banner: save pages with Save Page As and import them; browse logged
+    out, or set LinkedIn's profile viewing to private first.
 - LinkedIn sections stay on the checklist as links. She saves those pages by hand; the LinkedIn parser
   is ready for that.
 - The extension still checks LinkedIn's sign-in cookie, for the status screen. That touches nothing
@@ -261,7 +271,154 @@ automatically, with no extra step. `GET /api/cases/{slug}/posts` counts them as 
 failed. The capture screen should show the newest one, so a silent failure never passes for "nothing
 to capture".
 
-### Videos: what can and can't be saved
+## Grid-first capture
+
+The big platforms need almost no clicking. **Scrolling a profile's grid captures every post in it.**
+Each grid image the page loads (Instagram's ~640 px thumbnails and Reels tiles, TikTok's covers, X's
+media tab) comes out of the page archive as a captured post, from bytes the page already fetched:
+- **Media kind `grid`.** `scan.run` scans it like any photo. The scan's hits on it show "from a grid
+  thumbnail; open the post to confirm" until the full post is captured.
+- **The post's `extra`** gets:
+
+  | Field | Meaning |
+  |---|---|
+  | `from` | `"grid"` |
+  | `position` | its place in the grid, from 0 |
+  | `video` | whether it's a video or reel |
+  | `alt` | Instagram's own description, if any |
+
+  It also gets the post URL, the date the grid shows (Instagram's alt text, TikTok's id), and the
+  capture record below.
+
+**Opening a post upgrades it in place.** When she opens one, its own page (or a feed item) is captured
+"full". `posts.add_posts` then:
+- adds the words, the date and the full-size media to the same post
+- sets `extra.from` to `"full"`, keeping the grid archive as `extra.grid_evidence`
+- audits `post upgraded`
+
+Timeline items (X's posts tab, Facebook's feed) are "full" from the start.
+
+**Coverage, which loads nothing.** Each account in `GET /api/cases/{slug}/checklist` carries:
+
+| Field | Meaning |
+|---|---|
+| `progress.grid_seen` | posts of this account captured, grid or full |
+| `progress.grid_total` | the post count the profile header showed (Instagram, X), else null |
+| `progress.flagged` | posts the scan flagged |
+| `progress.opened` | flagged posts captured in full |
+| `progress.videos` | posts that are videos |
+| `progress.played` | videos with a recording, frames, or a full capture |
+
+Shown as: "grid 212/212 · flagged 9 · opened 6 of 9 · videos 14, played 6". The popup shows it for the
+account in the current tab.
+
+**"Open these"**: `todo: [{url, kind: "post"|"video", file, why}]` on the same account.
+- First, flagged posts seen only as grid thumbnails (`why` is the hit: "walks: a person hiking with a
+  pack").
+- Then every video not yet played (`why`: "a video: play it to capture its frames"). The player must
+  fetch a video's segments before anything can be captured.
+- `file` is the thumbnail's evidence path; `url` opens in the Hunt Browser.
+
+**Not built yet:** a grid parser for Facebook's photos tab. Its posts come through as full items from
+the timeline instead.
+
+## Capture record
+
+Every capture, and every captured post, carries these fields. They're in the audit detail of
+`capture view|page|recording`, and in each post's `extra` (so in `list_posts`). The names match what
+`bundle.py` reads.
+
+| Field | What |
+|---|---|
+| `url` | the page's address (`viewed_url` on screenshot and recording posts; the post's own `url` otherwise) |
+| `post_id`, and `user_id` / `fb_id` | the platform's post id and account id, when the page shows them |
+| `viewed_as` | "logged in as {handle}" (the handle she gave Hunt, `POST /api/browser/accounts`), "logged in (account not named in Hunt)", "logged out", or "not known". From the presence of the platform's sign-in cookie at capture time, never its value |
+| `audience` | what the platform showed: "Public", "Friends", "Friends of friends", "Custom", "Only me", "Group: {name}" (Facebook); "Followers" for a private or protected account (Instagram, TikTok, X); "Connections" (LinkedIn, hand-saved) |
+| `audience_flag` | `true` when the audience isn't shown as Public, unknown included. Such items stay out of the report unless counsel approves |
+| `captured_at`, `time_source` | UTC capture time, from "the browser's clock" |
+| `received_at` | Hunt's own clock, on arrival |
+| `capture_version` | the extension's version (stamped per build) |
+| `hunt_version` | Hunt's version |
+| `capture_sha256` | SHA-256 of the archive as received, before anything is parsed or transcoded. The archive is stored under that hash (`evidence`), and each picture under its own |
+| `posted_at`, `posted_at_precision`, `posted_at_text` | the post's own time, and how it was known |
+
+## Guided mode
+
+One press of **Next** does one step. Next is Alt+Shift+N, or the popup's button; it's never on the
+page.
+
+**On the subject's profile, with grid below the screen:** one scroll by about a screen
+(`guidedScroll` in `content.js`).
+- The scroll loads the next rows, as her own scroll would.
+- The step's archive is taken once the view settles.
+
+**Once the grid is all seen, or on a post page:** one navigation to the next item on the account's
+"open these" list (`guidedOpen` in `background.js`). Items already opened this session are skipped.
+
+**One press, one step:**
+- The next press is locked until this step's capture is recorded (the archive's upload answered), or
+  for at most 20 s.
+- No auto-repeat, no hold-to-scroll, and no timer that acts on the page. The 20 s timer only releases
+  the lock.
+- `test_capture.py` fails if either function gains a loop or a timer, or a second scroll or
+  navigation, or if any scroll or navigation appears outside those two functions.
+
+**It refuses when:**
+- capture is off
+- the tab isn't a confirmed account (or an item on its list)
+- the page is still loading
+- the tab is paused
+- the platform is off (LinkedIn, Strava, Snapchat) or stopped
+
+**Nothing on the page.** Guided mode adds no overlay, blur or element. The popup shows the counter,
+and Hunt's worklist shows it live (`GET /api/cases/{slug}/checklist`).
+
+**Audit.** Each press is audited as `guided step` `{action: "scroll"|"open", url, to, extension}`,
+through `POST /api/capture/guided`.
+
+**Window size.** `/api/browser/open` takes `window: {width, height}` (300–5000 px), applied when the
+browser starts, to sit beside Hunt's window. A smaller window means more presses.
+
+**Not built:** the optional blur/overlay toggle (default off in the brief). It would add to the page,
+and the refined brief prefers nothing there.
+
+## Hard stops: the revocation watcher
+
+**Passive.** It reads only what she has already loaded.
+- **The extension** checks each address she's sent to for checkpoint, challenge or suspension paths
+  (Facebook `/checkpoint`, Instagram `/challenge` and `/accounts/suspended|disabled`, X
+  `/account/access|suspended|locked`, TikTok `/captcha`, Reddit `/account-suspended`). It reports a
+  match with `POST /api/capture/revoked`.
+- **Hunt** checks every archive's text (English, Spanish, French): "we suspect automated behavior",
+  "your account has been disabled/suspended/locked", "we limit how often you can", "confirm you're
+  human", the slider puzzle.
+
+**On a match, that platform stops:**
+- Hunt refuses its uploads (403), and the extension stops recording and guiding there (badge
+  **STOP**).
+- The case is audited `capture hard stop`.
+- The message: "{Platform} showed {reason}. Hunt Capture has stopped recording {Platform}. Don't use
+  this account for casework, and tell Ethos. Don't switch to another account, browser profile or
+  proxy."
+- Stops are kept in `HUNT_HOME/browser/stops.json`, so they survive restarts. They're listed as
+  `stopped` in `GET /api/browser/status` and in `hello`.
+- Only `POST /api/browser/resume {platform}` lifts one, deliberately, from Hunt. It's audited
+  `capture resumed`.
+
+**Never a fallback.** Hunt never tries another account, profile or proxy.
+
+## The Story warning, and the per-tab pause
+
+**The Story warning.** When she's signed in to Instagram or Facebook and clicks a Story (a link to
+`/stories/`, or a control labelled "story"), the page asks first: "Story viewers can see your account.
+Open this Story anyway?"
+- Cancel stops that click. OK lets the same click go through; nothing is re-sent.
+- Story rings drawn without a link or label may slip past. The warning is a guard, not a guarantee.
+
+**The per-tab pause.** "Pause this tab" in the popup stops recording (and guiding) in that tab only.
+Its badge shows **II**.
+
+## Videos: what can and can't be saved
 
 Facebook, Instagram, X and most TikTok players stream video through `blob:` URLs fed by Media Source
 Extensions: the page's own code fetches segments and appends them to the player.
@@ -419,13 +576,15 @@ Full shapes are in [api.md](api.md#hunt-capture).
 - `POST /api/browser/open`
 - `POST /api/browser/capture` (on or off, for a case)
 - `POST /api/browser/sign-out`
+- `POST /api/browser/resume` (lift a hard stop)
+- `GET`/`POST /api/browser/accounts` (the handles she signs in with, for `viewed_as`)
 - `GET`/`POST /api/pairing`
 - `POST /api/pairing/forget`
 - `GET /api/cases/{slug}/checklist`
 - `GET /api/cases/{slug}/captures`
 
 **For the extension (key Guard):** POST
-`/api/capture/pair | hello | checklist | view | page | recording | signins | state | problem`.
+`/api/capture/pair | hello | checklist | view | page | recording | signins | state | problem | revoked | guided`.
 
 ## Hunt app screens (for the main session to build)
 
@@ -439,6 +598,22 @@ Full shapes are in [api.md](api.md#hunt-capture).
   once in this tab…".
 - **Open** links in the checklist call `POST /api/browser/open {url, case}`, so each opens in the
   Hunt Browser on her click.
+
+**Worklist**: `#/case/<slug>/worklist`, already built on hunt-server, reads these fields.
+- Each checklist account's `progress` gives "grid 212/212 · flagged 9 · opened 6 of 9 · videos 14,
+  played 6".
+- Its `todo` gives the "open these" thumbnails.
+- Hits on grid thumbnails (`extra.from == "grid"`) read "from a grid thumbnail; open the post to
+  confirm".
+- Guided mode's Next lives in the extension; the worklist just shows progress live.
+
+**Hard stops**: when `stopped` is non-empty in `GET /api/browser/status`:
+- Show each stop's `message` prominently, with its time and address.
+- Offer **Resume {platform}** → `POST /api/browser/resume`, behind a confirmation: "Only resume after
+  you've spoken to Ethos, and never with another account."
+
+**Your accounts** (onboarding): an optional handle per platform → `POST /api/browser/accounts`, so
+captures read "logged in as {handle}".
 
 **Browser capture** (only for an everyday browser; the Hunt Browser pairs itself), in settings:
 - **Not paired:** "Hunt Capture records the pages you open on Facebook, Instagram, TikTok, X and
@@ -493,6 +668,12 @@ pattern too. Not built.
   switches to it.
 - **Pinning is hers.** Chrome lets no extension pin itself, so the REC badge shows only after she
   pins Hunt Capture. Hunt can see whether she has (`browser.pinned`).
+- **Not built:**
+  - Facebook photos-tab grid parsing
+  - the optional guided blur/overlay
+  - a "Save this video" button (one click, one request, audited `human download`). Tab recording
+    covers the need without any request.
+- **`viewed_as` names her handle only if she gave it** to Hunt. Hunt never reads it from her cookies.
 - **Archives hold what the page had loaded,** and no scripts. Lazy-loaded pictures below the fold
   aren't in them (17 of NASA's 31 TikTok covers were), and embedded JSON isn't either.
 - **Recording needs her click each time** (Chrome's rule for tab capture). The tab must stay in
@@ -604,6 +785,15 @@ Use test accounts you own, or public organisation pages, never a private person.
     the Trash, and every platform reads `unknown`.
 14. **Scan.** Run a scan in Hunt. Captured posts' pictures and frames are scanned, and
     `counts.captured` counts them.
-15. **Traffic.** In DevTools for the extension's service worker, Network shows requests only to
+15. **Guided mode.** On a confirmed account's grid, press Alt+Shift+N once: the page moves down one
+    screen, a page archive arrives, and only then does Next work again. Holding the keys does no more
+    than one press. At the bottom, Next opens the first "open these" item. Each press is a
+    `guided step` in the case's audit.
+16. **Hard stop (simulated).** `POST /api/capture/revoked {url: "https://www.instagram.com/challenge/x"}`
+    from the extension (or open such a URL). The badge shows STOP on Instagram tabs, captures there get
+    403, and Next refuses. `POST /api/browser/resume {platform: "Instagram"}` lifts it.
+17. **Story warning.** Signed in to a test Instagram account, click a Story ring: the browser asks
+    first. Cancel keeps you where you were.
+18. **Traffic.** In DevTools for the extension's service worker, Network shows requests only to
     `127.0.0.1:<port>` and the extension's own `pairing.json`. Throughout, nothing moved the page,
     opened a tab or clicked by itself.

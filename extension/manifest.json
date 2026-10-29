@@ -21,7 +21,8 @@
     "https://*.x.com/*",
     "https://*.twitter.com/*",
     "https://*.linkedin.com/*",
-    "https://*.youtube.com/*"
+    "https://*.youtube.com/*",
+    "https://*.reddit.com/*"
   ],
   "optional_host_permissions": [
     "<all_urls>"
@@ -52,7 +53,8 @@
         "https://*.tiktok.com/*",
         "https://*.x.com/*",
         "https://*.twitter.com/*",
-        "https://*.youtube.com/*"
+        "https://*.youtube.com/*",
+        "https://*.reddit.com/*"
       ],
       "js": [
         "content.js"
@@ -66,6 +68,12 @@
         "default": "Alt+Shift+H"
       },
       "description": "Capture this page now"
+    },
+    "guided-next": {
+      "suggested_key": {
+        "default": "Alt+Shift+N"
+      },
+      "description": "Guided mode: one step (one screen, or the next item to open)"
     }
   },
   "content_security_policy": {

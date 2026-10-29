@@ -21,6 +21,7 @@
   </section>
 
   <section id="main" hidden>
+    <p id="banner" class="banner" role="note" hidden></p>
     <label for="case">Case</label>
     <select id="case"><option value="">Choose a case…</option></select>
 
@@ -39,7 +40,13 @@
       <button id="capture" type="button" title="Alt+Shift+H">Capture this</button>
       <button id="record" type="button">Record video</button>
     </div>
-    <p class="hint">Hunt Capture records only pages you open yourself, and sends them only to Hunt on this computer. It never records LinkedIn.</p>
+    <label class="check"><input type="checkbox" id="pause"> Pause this tab</label>
+
+    <h2>Guided</h2>
+    <button id="next" class="primary" type="button" title="Alt+Shift+N" disabled>Next</button>
+    <p id="coverage" class="coverage" aria-live="polite"></p>
+    <p class="hint">Each press does one step: one screen down the subject's grid, then the next post on Hunt's "open these" list. Nothing repeats; Next waits until the last step is recorded.</p>
+    <p class="hint">Hunt Capture records only pages you open yourself, and sends them only to Hunt on this computer. It never records LinkedIn, Strava or Snapchat.</p>
 
     <h2>Checklist</h2>
     <div id="checklist"><p class="hint">Confirm the subject's accounts in Hunt to see what to open.</p></div>

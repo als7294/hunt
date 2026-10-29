@@ -93,6 +93,42 @@ It is never an invented persona (that's a sock puppet, the hiQ loss pattern), an
 
   That supports the investigator's own testimony. It doesn't replace it.
 
+**The line, and the passive recorder [S/I].** [automation-legal.md](automation-legal.md) §4 sets the line Hunt Capture follows: every request a login-walled platform receives is caused by one deliberate input of hers, and everything after the bytes arrive is automatic.
+- Passive capture of data already sent to her browser is not CFAA "access" [S] (*Meta v. BrandTotal*, slip op. 43). On contract it remains unsettled (n.28).
+- So the extension sends no request of its own. Grid thumbnails, page archives and screenshots all come from what the page already fetched.
+- Because the evidence is a capture of what the platform sent her, the per-item capture record in [capture.md](../capture.md#capture-record) is kept:
+  - who it was viewed as, from cookie presence only
+  - the audience shown
+  - UTC time and its source
+  - both versions
+  - a SHA-256 taken before any processing
+
+  It suits FRE 902(13), and items not shown as Public are flagged for counsel.
+
+**The per-site switch [I].** The extension never runs on LinkedIn, Strava or Snapchat. Their terms name extensions or "semi-automated" tools, and LinkedIn scans for extension ids. Hunt also refuses their uploads, as a second guard. There she uses Save Page As and the importers.
+
+**Hard stops [I].** A checkpoint, challenge, "suspected automated behaviour", action block, CAPTCHA or "account disabled" stops recording that platform until she resumes it.
+- It's seen passively: in the addresses she's sent to, or in an archive's text.
+- She's told not to use that account for casework and to tell Ethos.
+- Hunt never falls back to another account, profile or proxy: that would be evasion, and the hiQ fake-account pattern.
+
+**The Story warning [I].** Story viewers can see who watched, so a signed-in Story view may be visible to the subject. That would be contact. Before a Story opens, the extension asks; cancelling stops her click, and nothing is re-sent.
+
+**Guided mode: one input, one request, and the tension [I].** Aaron asked for a guided mode so the big platforms need almost no clicking. Each press of Next (a keyboard shortcut or the popup's button; nothing on the page) does exactly one step:
+- one scroll by a screen on the subject's grid, which loads the next rows as her own scroll would; or
+- one navigation to the next post on Hunt's "open these" list.
+
+The next press is locked until that step's capture is recorded. Nothing repeats or runs on a timer, and each press is audited as `guided step`.
+
+*Reasoning.* The request the platform receives (the grid's next rows, or the post's page) is caused by her one deliberate press, just as by PageDown or a click on a link. So the causal line holds: one input, one request.
+
+*The tension, stated plainly.* automation-legal.md's "What not to build" lists "any bot, macro or script that loads pages, scrolls, clicks or types on a logged-in platform", including "assistive" auto-scroll she starts and watches. Guided mode isn't continuous or self-starting, but it is a script that scrolls and navigates on her press.
+- **Contract risk:** a platform could call it "automated means", or "semi-automated" in its terms' words.
+- **Detection risk:** a scroll with no wheel or key event behind it can look scripted, which may trigger a checkpoint. The hard stop then ends capture on that platform.
+- **The lower-risk path:** she scrolls and clicks herself. That's the default; guided mode only acts when she presses Next.
+
+Firms whose counsel prefers that should not use guided mode. This trade-off should be confirmed with counsel before guided mode is used in casework.
+
 ## Biometrics (relevant to photo features)
 
 - **Illinois BIPA:** $1k negligent / $5k reckless per violation. Since SB 2979 (Aug 2024), damages are counted per person [S] ([DWT](https://dwt.com/blogs/privacy--security-law-blog/2024/08/illinois-bipa-biometrics-law-amended-for-damages)).

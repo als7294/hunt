@@ -44,3 +44,5 @@ label.check { display: flex; align-items: center; gap: 6px; margin: 12px 0 0; co
 a { color: var(--accent); }
 .error { color: var(--rec); font-size: 12px; margin: 10px 0 0; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.banner { background: color-mix(in srgb, var(--rec) 12%, transparent); border-left: 3px solid var(--rec); padding: 8px 10px; font-size: 12px; margin: 0 0 8px; }
+.coverage { font-size: 12px; margin: 6px 0 0; font-variant-numeric: tabular-nums; }

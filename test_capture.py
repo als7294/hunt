@@ -294,7 +294,7 @@ assert c.post("/api/capture/hello", content="{}", headers=HB).json()["capture"] 
     {"case": slug, "on": True, "since": None, "label": "capture test"}
 assert cap({"case": slug, "on": False}, HB, "/api/capture/state").json() == c.get("/api/browser/status").json()["capture"]
 assert c.get("/api/browser/status").json()["capture"]["on"] is False
-assert c.post("/api/capture/hello", content="{}", headers=HB).json()["off_sites"] == ["LinkedIn"]
+assert c.post("/api/capture/hello", content="{}", headers=HB).json()["off_sites"] == ["LinkedIn", "Snapchat", "Strava"]
 assert bare.post("/api/browser/capture", content=json.dumps({"case": slug, "on": True}), headers=HB).status_code == 403
 # sign-in states: presence only; anything that isn't a state (a cookie value, say) is refused
 signin = lambda body, h=HB: c.post("/api/capture/signins", content=json.dumps(body), headers=h)
@@ -318,6 +318,121 @@ assert r["moved_to"] == "Trash" and (trash / "profile" / "Cookies").read_bytes()
 assert r["facebook"] == "unknown" and r["checked_at"] is None
 assert c.post("/api/browser/sign-out", content="{}", headers=WEB).json()["moved_to"] is None
 
+# --- Grid-first capture, the capture record, coverage, hard stops, guided steps -----------------------------
+import base64 as _b64  # noqa: E402
+import quopri as _qp  # noqa: E402
+
+from hunt import scan  # noqa: E402
+
+HBU = {"origin": HB["origin"], "x-hunt-key": HB["x-hunt-key"]}  # the Hunt Browser's key, for uploads
+
+
+def mhtml(url, html, images=()):
+    """An archive as chrome.pageCapture writes one."""
+    b = "----Boundary--HuntTest----"
+    parts = [f"--{b}\r\nContent-Type: text/html\r\nContent-Transfer-Encoding: quoted-printable\r\nContent-Location: {url}"
+             f"\r\n\r\n" + _qp.encodestring(html.encode()).decode().replace("\n", "\r\n") + "\r\n"]
+    for src in images:
+        buf = io.BytesIO()
+        Image.new("RGB", (80, 80), (20, 120, 200)).save(buf, "JPEG")
+        parts.append(f"--{b}\r\nContent-Type: image/jpeg\r\nContent-Transfer-Encoding: base64\r\nContent-Location: {src}"
+                     f"\r\n\r\n" + _b64.encodebytes(buf.getvalue()).decode() + "\r\n")
+    return (f"From: <Saved by Blink>\r\nSnapshot-Content-Location: {url}\r\nDate: Wed, 28 Oct 2026 15:00:00 -0000\r\n"
+            f"MIME-Version: 1.0\r\nContent-Type: multipart/related;\r\n\ttype=\"text/html\";\r\n\tboundary=\"{b}\"\r\n\r\n\r\n"
+            + "".join(parts) + f"--{b}--\r\n").encode()
+
+
+def page_up(url, data, session="signed_in"):
+    return c.post("/api/capture/page", data={"case": slug, "url": url, "viewed_at": "2026-10-28T15:00:00Z",
+                                             "capture_version": "0.1.0.4242", "session": session},
+                  files={"archive": ("page.mhtml", data, "multipart/related")}, headers=HBU)
+
+
+assert c.post("/api/browser/accounts", content=json.dumps({"instagram": "@laura.ethos.inv", "bogus": "x"}),
+              headers=WEB).json() == {"instagram": "laura.ethos.inv"}
+case.decide("https://www.instagram.com/dorian.vell/", "him")
+# 1. The profile grid: every tile becomes a captured post marked "grid", its thumbnail media kind "grid"
+r = page_up("https://www.instagram.com/dorian.vell/", (FIX / "instagram_profile.mhtml").read_bytes())
+assert r.status_code == 200 and r.json()["added"] == 3 and r.json()["changes"] == [], r.text  # changes: QOL's Check again hook
+grid = {p["url"]: p for p in posts.list_posts(case) if p["source"] == "Instagram"}
+leg = grid["https://www.instagram.com/p/DQx7LegDay1/"]
+assert leg["extra"]["from"] == "grid" and [m["kind"] for m in leg["media"]] == ["grid"] and leg["extra"]["position"] == 0
+assert grid["https://www.instagram.com/reel/DQrReelHike2/"]["extra"]["video"] is True
+# the capture record, per post and in the audit log (docs/capture.md "Capture record")
+rec = leg["extra"]
+assert (rec["viewed_as"], rec["audience"]) == ("logged in as laura.ethos.inv", "Public") and "audience_flag" not in rec
+assert rec["capture_version"] == "0.1.0.4242" and rec["hunt_version"] and rec["captured_at"] == "2026-10-28T15:00:00Z"
+assert rec["time_source"] == "the browser's clock" and len(rec["capture_sha256"]) == 64 and rec["evidence"].endswith(".mhtml")
+audit = json.loads(case.rows("select detail from audit where action = 'capture page' order by rowid desc limit 1")[0]["detail"])
+assert (audit["viewed_as"], audit["capture_version"], audit["grid"], audit["profile_posts"]) == \
+    ("logged in as laura.ethos.inv", "0.1.0.4242", 3, 212)
+# items whose audience isn't shown as Public are flagged (kept out of the report unless counsel approves)
+flags = Case.create("audience flags", purpose="self-check with made-up posts")
+ext.add_page(flags, "https://m.facebook.com/dorian.vell", HERE / "fixtures" / "facebook" / "mobile_fr.mhtml", None,
+             Path(tempfile.mkdtemp()), ext.record("https://m.facebook.com/dorian.vell", None, "0.1.0.1", "signed_out"))
+shown = {p["text"][:7]: (p["extra"].get("audience"), p["extra"].get("audience_flag")) for p in posts.list_posts(flags)}
+assert shown == {"Séance ": ("Public", None), "Randonn": (None, True), "Premier": (None, True)}, shown
+assert all(p["extra"]["viewed_as"] == "logged out" for p in posts.list_posts(flags))
+# 2. Coverage and the "open these" list: the scan flags the reel's grid thumbnail; the reel is also an unplayed video
+case.db.executescript(scan.SCHEMA)
+reel = grid["https://www.instagram.com/reel/DQrReelHike2/"]
+case.db.execute("insert into hits (post_id, media_id, category, what, verdict, p, status, created) values (?, ?, 'walks', "
+                "'a person hiking with a pack', 'likely', 0.7, 'new', '')", (reel["id"], reel["media"][0]["id"]))
+ig = next(a for a in c.get(f"/api/cases/{slug}/checklist").json()["accounts"] if a["platform"] == "Instagram")
+assert ig["progress"] == {"grid_seen": 3, "grid_total": 212, "flagged": 1, "opened": 0, "videos": 1, "played": 0}, ig["progress"]
+assert ig["todo"] == [{"url": "https://www.instagram.com/reel/DQrReelHike2/", "kind": "video", "file": reel["media"][0]["file"],
+                       "why": "walks: a person hiking with a pack"}]
+# 3. Opening a post captures it in full: the grid post is upgraded in place, with its full-size picture
+full = mhtml("https://www.instagram.com/reel/DQrReelHike2/",
+             '<html><body><article><header><a href="/dorian.vell/">dorian.vell</a></header>'
+             '<img src="https://cdn.test/full.jpg" width="1080" height="1350" alt="Reel by Dorian Vell">'
+             '<h1>Cedar Ridge sunrise, 9 miles with a full pack</h1><a href="/reel/DQrReelHike2/">'
+             '<time datetime="2026-10-20T08:15:00.000Z">Oct 20</time></a></article></body></html>', ["https://cdn.test/full.jpg"])
+r = page_up("https://www.instagram.com/reel/DQrReelHike2/", full).json()
+assert (r["added"], r["upgraded"]) == (0, 1), r
+reel = next(p for p in posts.list_posts(case) if p["url"] == "https://www.instagram.com/reel/DQrReelHike2/")
+assert reel["extra"]["from"] == "full" and sorted(m["kind"] for m in reel["media"]) == ["grid", "image"]
+assert reel["extra"]["grid_evidence"] and reel["extra"]["evidence"] != reel["extra"]["grid_evidence"]
+ig = next(a for a in c.get(f"/api/cases/{slug}/checklist").json()["accounts"] if a["platform"] == "Instagram")
+assert (ig["progress"]["opened"], ig["progress"]["played"]) == (1, 0) and [t["kind"] for t in ig["todo"]] == ["video"]
+assert {a["action"] for a in case.rows("select action from audit")} >= {"post upgraded"}
+# 4. The revocation watcher: an archive showing a challenge stops that platform until she resumes it
+blocked = mhtml("https://www.instagram.com/dorian.vell/", "<html><body><h2>We suspect automated behavior on your account"
+                "</h2><p>To protect our community, please confirm it's you.</p></body></html>")
+r = page_up("https://www.instagram.com/dorian.vell/", blocked).json()
+assert r["stopped"]["message"].startswith('Instagram showed "we suspect automated behavior". Hunt Capture has stopped')
+assert "tell Ethos" in r["stopped"]["message"] and "another account" in r["stopped"]["message"]
+assert page_up("https://www.instagram.com/dorian.vell/", (FIX / "instagram_profile.mhtml").read_bytes()).status_code == 403
+st = c.get("/api/browser/status").json()
+assert "Instagram" in st["stopped"] and st["problems"][-1]["message"].startswith("Instagram showed")
+assert c.post("/api/capture/hello", content="{}", headers=HB).json()["stopped"]["Instagram"]["reason"]
+assert {a["action"] for a in case.rows("select action from audit")} >= {"capture hard stop"}
+assert c.post("/api/browser/resume", content=json.dumps({"platform": "Instagram"}), headers=WEB).json()["stopped"] == {}
+assert c.post("/api/capture/revoked", content=json.dumps({"url": "https://www.facebook.com/checkpoint/1501092823525282/"}),
+              headers=HB).json()["reason"] == "a checkpoint page (/checkpoint/1501092823525282/)"
+assert c.post("/api/capture/revoked", content=json.dumps({"url": "https://www.facebook.com/NASA"}), headers=HB).status_code == 400
+assert "Facebook" in c.get("/api/browser/status").json()["stopped"]
+c.post("/api/browser/resume", content=json.dumps({"platform": "Facebook"}), headers=WEB)
+# 5. The per-site switch: Reddit is recorded, Strava and Snapchat never are
+assert page_up("https://www.reddit.com/user/dorian_vell/", mhtml("https://www.reddit.com/user/dorian_vell/", "<p>hi</p>")).status_code == 200
+for off in ("https://www.strava.com/athletes/1", "https://www.snapchat.com/add/x", "https://www.linkedin.com/in/x/"):
+    assert page_up(off, mhtml(off, "<p>x</p>")).status_code == 403, off
+# 6. Guided steps are audited; never where capture is off or stopped
+g = lambda body: c.post("/api/capture/guided", content=json.dumps({"case": slug} | body), headers=HB)
+assert g({"action": "scroll", "url": "https://www.instagram.com/dorian.vell/"}).status_code == 200
+assert g({"action": "open", "url": "https://www.instagram.com/dorian.vell/", "to": "https://www.instagram.com/reel/DQrReelHike2/"}).status_code == 200
+assert g({"action": "scroll-forever", "url": "https://www.instagram.com/dorian.vell/"}).status_code == 400
+assert g({"action": "scroll", "url": "https://www.linkedin.com/in/x/"}).status_code == 403
+steps = [json.loads(r["detail"]) for r in case.rows("select detail from audit where action = 'guided step' order by rowid")]
+assert [(x["action"], x.get("to")) for x in steps] == [("scroll", None), ("open", "https://www.instagram.com/reel/DQrReelHike2/")]
+# 7. The window size, for a Hunt Browser beside Hunt's window
+browser.chromium = lambda: Path("/Applications/Fake Browser.app/Contents/MacOS/Fake Browser")
+launched.clear()
+browser.running = lambda: False
+assert c.post("/api/browser/open", content=json.dumps({"url": "https://www.instagram.com/dorian.vell/", "window": {"width": 900, "height": 1000}}),
+              headers=OPEN).status_code == 200 and "--window-size=900,1000" in launched[0][0]
+assert c.post("/api/browser/open", content=json.dumps({"url": "https://x.com/", "window": {"width": 9}}), headers=OPEN).status_code == 400
+
 # --- Unpairing closes the capture routes ----------------------------------------------------------
 assert c.post("/api/pairing/forget", content="{}", headers=WEB).json() == {"paired": False}
 assert c.post("/api/capture/hello", content="{}", headers=HB).status_code == 403
@@ -327,18 +442,38 @@ bare.__exit__(None, None, None)
 # --- The extension's hard lines, read from its code ------------------------------------------------
 code = {p.name: p.read_text() for p in (HERE / "extension").glob("*.js")}
 assert set(code) == {"background.js", "content.js", "offscreen.js", "popup.js"}
+# Guided mode's two single steps are the only code that may move a page, each in one named function
+GUIDED = {"content.js": "guidedScroll", "background.js": "guidedOpen"}
+
+
+def body(js, fn):  # a top-level function's text, from its declaration to the closing brace at column 0
+    return re.search(rf"\n(?:async )?function {fn}\(.*?\n}}\n", js, re.S)[0]
+
+
+for name, fn in GUIDED.items():
+    step = body(code[name], fn)
+    moves = re.findall(r"scrollBy\(|tabs\.update\(", step)
+    assert len(moves) == 1, (name, fn, moves)  # exactly one scroll or one navigation per press
+    assert not re.search(r"\b(?:for|while)\b|setInterval|setTimeout|requestAnimationFrame|\.repeat", step), (fn, step)
+    code[name] = code[name].replace(step, "\n")
 for name, js in code.items():
     for banned in (r"\.click\(", r"scroll(?:To|By|IntoView)\(", r"tabs\.(?:update|create|remove|reload|goBack|goForward)\(",
                    r"\blocation(?:\.href)?\s*=[^=]", r"location\.(?:assign|replace|reload)\(", r"\.submit\(",
                    r"dispatchEvent\(", r"executeScript", r"history\.(?:push|replace)State", r"XMLHttpRequest",
-                   r"WebSocket", r"sendBeacon", r"\beval\("):
-        assert not re.search(banned, js), (name, banned)
+                   r"WebSocket", r"sendBeacon", r"\beval\(", r"new (?:Keyboard|Mouse|Wheel|Pointer|Touch)Event",
+                   r"appendChild|insertAdjacent|\.innerHTML\s*=|attachShadow"):
+        if name != "popup.js" or banned != r"appendChild|insertAdjacent|\.innerHTML\s*=|attachShadow":
+            assert not re.search(banned, js), (name, banned)
     for target in re.findall(r"fetch\(\s*`?([^,)]+)", js):  # Hunt on this computer, or the extension's own pairing.json
         assert target.startswith(("http://127.0.0.1:", 'chrome.runtime.getURL("pairing.json"')), (name, target)
 assert "fetch(" not in code["content.js"] and "chrome.storage" not in code["content.js"]
+assert re.findall(r"guided(?:Scroll|Open)\(", code["content.js"] + code["background.js"]) == ["guidedScroll(", "guidedOpen("]
+assert "Story viewers can see your account" in code["content.js"]  # the Story warning, before a Story opens
+assert re.search(r'"guided-next"', (HERE / "extension" / "manifest.json").read_text())
 manifest = json.loads((HERE / "extension" / "manifest.json").read_text())
-assert "linkedin" not in re.search(r"const SITE = (.*)", code["background.js"])[1]  # never recorded
-assert not any("linkedin" in m for c in manifest["content_scripts"] for m in c["matches"])
+site = re.search(r"const SITE = (.*)", code["background.js"])[1]
+assert not re.search(r"linkedin|strava|snapchat", site) and "reddit" in site  # the per-site switch
+assert not any(re.search(r"linkedin|strava|snapchat", m) for c in manifest["content_scripts"] for m in c["matches"])
 assert manifest["content_security_policy"]["extension_pages"].endswith("connect-src 'self' http://127.0.0.1:*")
 assert manifest["manifest_version"] == 3 and "<all_urls>" not in json.dumps({k: v for k, v in manifest.items()
                                                                             if k != "optional_host_permissions"})
@@ -346,6 +481,6 @@ assert manifest["optional_host_permissions"] == ["<all_urls>"]  # only through C
 assert not {"history", "webRequest", "debugger", "scripting", "downloads", "management"} & set(manifest["permissions"])
 # cookies: only whether a sign-in cookie exists; no cookie's value is ever read, kept or sent
 assert not re.search(r"\.value\b|getAll", code["background.js"]) and "cookies" not in code["popup.js"] + code["content.js"]
-assert re.findall(r"chrome\.cookies\.\w+", code["background.js"]) == ["chrome.cookies.get", "chrome.cookies.onChanged"]
+assert set(re.findall(r"chrome\.cookies\.\w+", code["background.js"])) == {"chrome.cookies.get", "chrome.cookies.onChanged"}
 
 print("ok")
