@@ -120,6 +120,22 @@ def dhash(img: Image.Image) -> str:
     return f"{int(bits, 2):016x}"
 
 
+BLANK = {"0" * 16, "f" * 16}  # dHash of a flat image: matches every other flat image
+
+
+def same_image(a: str, b: str, max_bits: int = 6) -> bool:
+    """Two dHashes of the same picture: resizing and recompression move 0-3 bits on real
+    photos; different photos differ by ~30. Blank hashes never match.
+
+    Catches a re-posted picture, not the same face or logo framed differently: NASA's logo on
+    six sites, each padded and cropped its own way, mostly lands 15-40 bits apart. Trimming
+    borders first pulled some together but brought two different avatars to 3 bits, so no.
+    """
+    # ponytail: exact re-posts only. Upgrade: CLIP image embeddings (GeoCLIP already loads CLIP)
+    # with a threshold validated on labelled same/different avatar pairs.
+    return a not in BLANK and b not in BLANK and bin(int(a, 16) ^ int(b, 16)).count("1") <= max_bits
+
+
 def exif(img: Image.Image) -> dict:
     """Device, time and camera GPS, if the file still has them (most platforms strip EXIF)."""
     raw = img.getexif()

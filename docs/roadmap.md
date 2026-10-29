@@ -48,8 +48,25 @@
 ## M2: app UI
 - Local FastAPI server, results streamed live; frontend built from the chosen design prototype.
 
-## M3: photo geolocation
-- EXIF → GeoCLIP + OCR + script ID → local VLM rerank (Ollama) → ranked hypotheses with radius → investigator-triggered verification (Overpass, Mapillary, sun position). See [geolocation.md](research/geolocation.md).
+## M3: photo geolocation (in progress)
+- ✅ `tessera photo IMAGE... --case NAME`, entirely on-device. Steps:
+  - SHA-256 + dHash
+  - EXIF (device, time, camera GPS)
+  - Apple Vision OCR with automatic language detection
+  - GeoCLIP top-50, clustered and labelled offline (GeoNames)
+  - fused, ranked hypotheses, each with a radius and reasons
+
+  Images are stored as hashed evidence, and every analysis is audited.
+- ✅ Clue knowledge (`tessera/clues.py`, [research](research/geoguessr-meta.md)): what GeoGuessr pros and OSINT geolocators use that still holds in an ordinary photo.
+  - Included: script, rare letters, domains, phone codes, currency signs, postcodes, mph, driving side.
+  - Excluded: Street-View-only "meta" (the camera, the car, blur, coverage).
+- ✅ Profile-photo linking. The top candidates' avatars are fetched and hashed. A profile sharing its picture with a likely match, or with a photo supplied in the case, gains an independent identifier. Default avatars are recognised by URL and skipped.
+- Local vision model (Qwen3-VL via Ollama) for clues and reranking, plus a benchmark on geotagged Commons photos (`scripts/eval_geo.py`).
+- Later: investigator-triggered verification (Overpass, Mapillary, sun position), and GeoRanker for NVIDIA. See [geolocation.md](research/geolocation.md).
+
+**Known limits**
+- Profile-photo linking catches the same picture re-posted, not the same face or logo cropped differently. NASA's logo on six sites lands 15–40 bits apart. Next step: CLIP embeddings, validated on labelled pairs.
+- OCR is macOS-only for now. Elsewhere the vision model reads the signs.
 
 ## M4: records and reports
 - OpenFEC, SEC EDGAR, CourtListener, Wayback CDX, plus YouTube, Bluesky, Mastodon and GitHub APIs.

@@ -45,7 +45,24 @@ Each case lives in `~/Tessera/cases/<case>/`:
 - **`evidence/`** holds raw page sources, plus a screenshot and rendered HTML of every likely match. Every file is named by its SHA-256.
 - **`case.json`** lists the candidates ranked with ICD 203 verdicts. Each comes with its reasons, e.g. `+6.5 name 'Bob Vance' matches 'Robert Vance'` or `+0.0 display name 'kv' only repeats the username, so it isn't counted`.
 
-Self-checks (offline): `uv run python test_tessera.py` and `uv run python test_geo.py`
+### Where was this photo taken?
+
+```bash
+uv run tessera photo beach.jpg street.jpg --case vance-screen
+```
+
+Everything runs on your machine; the image never leaves it.
+
+- **What's read:**
+  - the file's EXIF (camera GPS is shown, but flagged to verify)
+  - the text in the photo (Apple Vision OCR)
+  - clues GeoGuessr pros and OSINT geolocators rely on: script, rare letters, phone codes, domains, currency, postcodes, driving side
+- **Candidate areas:** GeoCLIP proposes them.
+- **Vision model:** a local model (Qwen3-VL via [Ollama](https://ollama.com), `ollama pull qwen3-vl:4b`) adds what it can see and reranks the candidates.
+- **The answer:** ranked hypotheses, each with a radius and its reasons, never a single pin.
+- **What leaves your machine:** if the vision model names a place, only that place name is sent for geocoding, as with profile locations.
+
+Self-checks (offline): `uv run python test_tessera.py`, `test_geo.py`, `test_photo.py`, `test_clues.py`
 
 ## How matching works
 
@@ -58,6 +75,7 @@ Every hit is scored against everything the case knows, Fellegi-Sunter style. Eac
 | Location | Geocoded and compared by distance: same area, region or country, or a conflict. Placeholders like "Unknown" or "Earth" are ignored. |
 | Email | A Gravatar hash or listed email matching the subject's email is near-conclusive. |
 | Links | Links to the subject's known profiles, or to accounts carrying their handle, count. Links back to the same site don't. |
+| Profile photo | Sharing the same picture with a likely match, or with a photo supplied in the case, is a second identifier. Site default avatars are ignored. |
 
 **Two-identifier rule:** if nothing but the username agrees, a profile can't rise above "roughly even chance", however rare the handle. Practitioners require two independent identifiers.
 

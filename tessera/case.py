@@ -25,6 +25,7 @@ create table if not exists findings (
     site text, url text, attrs text, sha256 text, evidence text);
 create table if not exists captures (finding_id int, ts text, kind text, sha256 text, evidence text);
 create table if not exists photos (id integer primary key, ts text, name text, sha256 text, evidence text, analysis text);
+create table if not exists avatars (url text primary key, ts text, sha256 text, evidence text, dhash text);
 """
 
 
@@ -77,6 +78,10 @@ class Case:
         sha, evidence = self._store(Path(path).read_bytes(), Path(path).suffix.lstrip(".").lower() or "img")
         self.db.execute("insert into photos values (null, ?, ?, ?, ?, ?)",
                         (now(), Path(path).name, sha, evidence, json.dumps(analysis, ensure_ascii=False)))
+
+    def add_avatar(self, url: str, data: bytes, dhash: str):
+        sha, evidence = self._store(data, "img")
+        self.db.execute("insert or replace into avatars values (?, ?, ?, ?, ?)", (url, now(), sha, evidence, dhash))
 
     def rows(self, sql: str, *args) -> list[dict]:
         cur = self.db.execute(sql, args)

@@ -95,11 +95,13 @@ def compare_names(profile: str, known: str, handle: str = "") -> tuple[float, st
 
 def score(seed, url: str, attrs: dict, subject: list,
           taken: dict[str, tuple[int, int]] | None = None,
-          places: dict[str, "geo.Place | None"] | None = None) -> tuple[float, str, list[str]]:
+          places: dict[str, "geo.Place | None"] | None = None,
+          extra: list[tuple[float, str]] | None = None) -> tuple[float, str, list[str]]:
     """(probability, ICD 203 verdict, reasons) that this finding belongs to the subject.
 
     `taken` maps lowercase handle → (sites taken, sites checked), from the case's runs.
     `places` maps place strings (subject's and profile's) → geocoded Place, from geo.locate.
+    `extra` is (bits, reason) evidence found across candidates, e.g. a shared profile photo.
     """
     of = lambda *kinds: [s.value for s in subject if s.kind in kinds]
     names, known_places, emails, handles = of("name"), of("address", "location"), of("email"), of("username")
@@ -157,6 +159,8 @@ def score(seed, url: str, attrs: dict, subject: list,
         add(bits(0.9, 0.001), f"links to the subject's known profile {known}")
     elif shared:
         add(bits(0.5, 0.05), f"links to {shared}, which carries the subject's username")
+
+    reasons += extra or []
 
     # Tradecraft: one identifier is never enough. If nothing but the handle agrees strongly,
     # the evidence for can't lift the profile above "roughly even chance" (the handle's

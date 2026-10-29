@@ -101,4 +101,36 @@ assert p["file"] == "street.jpg" and p["hypotheses"][0]["label"].startswith("Tok
 assert (case.dir / p["evidence"]).read_bytes() == open(path, "rb").read()
 assert p["evidence"] == f"evidence/{hashlib.sha256(open(path, 'rb').read()).hexdigest()}.jpg"
 
+# Profile photos: a bare profile sharing a likely match's photo is linked; a default-avatar URL
+# isn't, even with the same picture; an avatar that is a case photo is linked to that photo
+from tessera.photo import same_image
+from tessera.seed import Finding, Seed
+
+assert same_image(dhash(a), dhash(jpeg(a.resize((96, 72)), quality=50))) and not same_image(dhash(a), dhash(picture(9)))
+assert not same_image("0" * 16, "0" * 16)  # flat images say nothing
+
+case = Case("avatar-test", purpose="test")
+handle = Seed("username", "kestrel_vane88")
+case.add_seeds([handle, Seed("name", "Robert Vance")])
+case.add_run("maigret", handle, "found", 4, 600, "")
+me, other = picture(11), picture(12)
+for site, attrs, img in [("A", {"fullname": "Bob Vance", "image": "https://cdn.a.test/u/1.jpg"}, me),
+                         ("B", {"image": "https://cdn.b.test/av.png"}, me.resize((80, 60))),
+                         ("C", {"image": "https://c.test/static/default_avatar.png"}, me),
+                         ("D", {"image": "https://d.test/p.jpg"}, other)]:
+    case.add_finding(Finding("maigret", handle, site, f"https://{site.lower()}.test/kestrel_vane88", attrs))
+    if "default" not in attrs["image"]:  # avatars() never fetches a default URL
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        case.add_avatar(attrs["image"], buf.getvalue(), dhash(img))
+shot = os.path.join(tempfile.mkdtemp(), "subject.jpg")
+other.save(shot)
+case.add_photo(shot, {"dhash": dhash(other), "hypotheses": []})
+c = {x["site"]: x for x in build(case)["candidates"]}
+assert c["A"]["verdict"] in ("very likely", "almost certain"), c["A"]
+assert any("same profile photo as A" in r for r in c["B"]["reasons"]) and c["B"]["probability"] > 0.55, c["B"]
+assert any(e["kind"] == "profile photo" for e in c["B"]["evidence"])
+assert c["C"]["verdict"] == "roughly even chance" and not any("photo" in r for r in c["C"]["reasons"]), c["C"]
+assert any("profile photo is the case photo 'subject.jpg'" in r for r in c["D"]["reasons"]), c["D"]
+
 print("ok")

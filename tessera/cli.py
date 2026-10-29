@@ -9,20 +9,30 @@ Both write <case>/case.json (also printed to stdout).
 
 import argparse
 import asyncio
+import io
 import json
 import os
+import re
 import sys
 from collections import Counter, defaultdict
 from dataclasses import asdict
 from pathlib import Path
+
+import httpx
+from PIL import Image
 
 from . import geo, match, photo
 from .capture import screenshots
 from .case import Case
 from .seed import Seed, detect, now
 from .sources import SOURCES
+from .sources.wmn import UA
 
 LIKELY = 0.55  # ICD 203 "likely" or better: screenshot it and pivot from it
+# ponytail: site default avatars recognised by URL only. Upgrade: remember hashes seen on many
+# unrelated handles across cases and treat those as defaults too.
+DEFAULT_AVATAR = re.compile(r"default|placeholder|blank|anonymous|mystery|[?&]d=mm|identicon|no[-_]?avatar|"
+                            r"avatar[-_]?(?:default|missing)|/defaults?/|silhouette", re.I)
 
 
 def main():
@@ -53,6 +63,7 @@ def main():
         case.audit("search", {"seeds": [asdict(s) for s in seeds]})
         asyncio.run(fan_out(case, seeds))
         places = asyncio.run(geocode(case))
+        asyncio.run(avatars(case, build(case, places)))
         if not args.no_capture:
             asyncio.run(capture(case, build(case, places)))
 
@@ -125,19 +136,41 @@ def build(case: Case, places: dict | None = None) -> dict:
         t = taken[r["seed"].lower()]
         taken[r["seed"].lower()] = (t[0] + r["found"], t[1] + r["checked"])
 
+    def rate(c, extra=None):
+        p, verdict, reasons = match.score(Seed(**c["seed"]), c["url"], c["attrs"], subject, taken, places, extra)
+        c.update(verdict=verdict, probability=round(p, 3), reasons=reasons)
+
     candidates = []
     for fs in profiles.values():
-        first, attrs = fs[0], {k: v for f in fs for k, v in f["attrs"].items()}
-        seed = Seed(first["seed_kind"], first["seed"])
-        p, verdict, reasons = match.score(seed, first["url"], attrs, subject, taken, places)
+        first = fs[0]
         candidates.append({
-            "site": first["site"], "url": first["url"], "verdict": verdict, "probability": round(p, 3),
-            "reasons": reasons, "found_by": sorted({f["source"] for f in fs}), "seed": asdict(seed),
-            "attrs": attrs, "finding_ids": [f["id"] for f in fs],
+            "site": first["site"], "url": first["url"], "found_by": sorted({f["source"] for f in fs}),
+            "seed": {"kind": first["seed_kind"], "value": first["seed"]},
+            "attrs": {k: v for f in fs for k, v in f["attrs"].items()}, "finding_ids": [f["id"] for f in fs],
             "evidence": [{"kind": "page source", "source": f["source"], "at": f["fetched_at"],
                           "sha256": f["sha256"], "file": f["evidence"]} for f in fs if f["sha256"]]
                         + [s for f in fs for s in shots[f["id"]]],
         })
+        rate(candidates[-1])
+
+    # Second pass: a profile photo shared with a likely match, or with a photo supplied in the
+    # case, is an independent identifier. One pass only, so evidence can't feed on itself.
+    stored = {r["url"]: r for r in case.rows("select * from avatars")}
+    case_photos = {r["name"]: json.loads(r["analysis"]).get("dhash", "") for r in case.rows("select name, analysis from photos")}
+    faces = {}
+    for i, c in enumerate(candidates):
+        if a := stored.get(avatar_url(c["attrs"])):
+            c["evidence"].append({"kind": "profile photo", "at": a["ts"], "sha256": a["sha256"], "file": a["evidence"]})
+            faces[i] = a["dhash"]
+    likely = {i for i, c in enumerate(candidates) if c["probability"] >= LIKELY}
+    for i, h in faces.items():
+        twin = next((j for j in likely & faces.keys() if j != i and photo.same_image(h, faces[j])), None)
+        shot = next((n for n, ph in case_photos.items() if ph and photo.same_image(h, ph)), None)
+        extra = ([(match.bits(0.5, 0.005), f"same profile photo as {candidates[twin]['site']} "
+                                             f"(a {candidates[twin]['verdict']} match)")] if twin is not None else []) \
+            + ([(match.bits(0.9, 0.001), f"profile photo is the case photo '{shot}'")] if shot else [])
+        if extra:
+            rate(candidates[i], extra)
     candidates.sort(key=lambda c: -c["probability"])
 
     known = {s.value.lower() for s in subject}
@@ -157,6 +190,34 @@ def build(case: Case, places: dict | None = None) -> dict:
         "methodology": case.rows("select ts, source, seed_kind, seed, status, found, checked, note from runs order by ts"),
         "audit": case.rows("select * from audit order by ts"),
     }
+
+
+def avatar_url(attrs: dict) -> str | None:
+    """The profile's own picture, unless its URL says it's the site's default one."""
+    url = attrs.get("image") or attrs.get("avatar")
+    return url if isinstance(url, str) and url.startswith("http") and not DEFAULT_AVATAR.search(url) else None
+
+
+async def avatars(case: Case, report: dict, top: int = 40):
+    """Fetch and hash the best candidates' profile photos, so a reused photo can link accounts."""
+    have = {r["url"] for r in case.rows("select url from avatars")}
+    todo = list(dict.fromkeys(u for c in report["candidates"][:top] if (u := avatar_url(c["attrs"])) and u not in have))
+    if not todo:
+        return
+    print(f"fetching {len(todo)} profile photos...", file=sys.stderr)
+    sem = asyncio.Semaphore(8)
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers={"User-Agent": UA},
+                                 proxy=os.environ.get("TESSERA_PROXY")) as client:
+        async def one(url):
+            async with sem:
+                try:
+                    r = await client.get(url)
+                    r.raise_for_status()
+                    with Image.open(io.BytesIO(r.content)) as img:
+                        case.add_avatar(url, r.content, photo.dhash(img))
+                except (httpx.HTTPError, OSError):  # gone, blocked or not an image: no photo evidence
+                    pass
+        await asyncio.gather(*map(one, todo))
 
 
 async def capture(case: Case, report: dict):
