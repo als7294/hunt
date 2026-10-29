@@ -221,9 +221,63 @@ hunt seen kestrel_vane88 kestrel@example.com     # before opening a case
 hunt seen --case vance-claim [--screening]
 ```
 
+### 9. Install, first run, doctor, update, uninstall (`hunt/setup.py`)
+
+Laura installs and runs Hunt without knowing Python. The investigator-facing story is in [user-guide.md](user-guide.md).
+
+**Install, once, in Terminal:** `uv tool install git+https://github.com/als7294/hunt && hunt setup`.
+- This works before Hunt is on PyPI. Once it's published, `uv tool install hunt-osint`.
+- uv brings its own Python 3.12.
+- Getting uv itself is `brew install uv`, or uv's own installer. That one *is* a `curl | sh`; Hunt doesn't ship one of its own.
+- About 1.2 GB on disk.
+
+**The launcher, `hunt setup` → `~/Applications/Hunt.app`.** I chose an **AppleScript applet made on her Mac with `osacompile`**, a stay-open app:
+- Double-click starts `hunt app`, which opens the browser.
+- Clicking the Dock icon again reopens the page.
+- **Quit** stops the server.
+- **Why it isn't blocked:** Gatekeeper checks only quarantined files, which means downloaded ones, and an app made locally is never quarantined. `osacompile` signs it ad hoc by itself. So it runs without code signing, notarisation or "Open Anyway". Checked on this Mac: signature `adhoc`, no `com.apple.quarantine`.
+- **Why not ship a prebuilt Hunt.app:** a downloaded, unsigned `.app` or `.command` *would* be quarantined. On macOS 15+ that means a trip to System Settings → Privacy & Security → Open Anyway.
+- **What it carries:** it remembers `HUNT_HOME`, `HUNT_PROXY` and `HUNT_VLM` as they were when it was made, because an app started from the Dock doesn't see the shell's settings. Run `hunt setup --launcher` after changing the proxy; the old app goes to the Trash.
+- **Its log:** `~/Hunt/app.log`, made under umask 077 because it holds the run's sign-in link.
+
+**`hunt doctor`:** Python, uv, Hunt's version and install kind, Ollama (running, installed, or not), the vision model, the browser build, the Hunt Capture extension folder, ffmpeg, free disk space, the `~/Hunt` folder, and the launcher. Each row has a plain fix, and it exits 1 if anything needs fixing. Offline, apart from a 2-second look at the local Ollama.
+
+**First-run downloads** (`hunt setup`, `GET /api/setup`, `POST /api/setup/{item}`):
+- **What's offered:** the vision model and the browser build. Nothing else.
+- **The size comes first:**
+  - The model's size is read from its manifest in Ollama's library, a ~1 KB request. `qwen3-vl:4b-instruct` is 3.34 GB.
+  - The browser's size comes from Playwright's own `--dry-run` plus a `HEAD` per file: Chrome for Testing 156 is 195 MB.
+  - A download starts only when the investigator accepts that exact size: the route takes `{size}` and refuses any other number.
+  - If the size can't be read, the item isn't offered.
+- **How each is fetched:**
+  - The model through the local Ollama's own `/api/pull`, so Ollama does the downloading and keeps the model where it always does.
+  - The browser with `playwright install chromium`.
+  - Both stream `progress` events over the existing SSE job pattern.
+- **Ollama itself** is an app from ollama.com. Hunt points to it and doesn't install it.
+
+**`hunt update`:**
+- `uv tool upgrade hunt-osint`, after a yes.
+- Its size can't be known in advance: usually a few MB, more when a dependency like PyTorch changes, and the prompt says so.
+- A source checkout is told to `git pull && uv sync`.
+- `hunt --version` and the startup screen show the version.
+
+**`hunt uninstall`:**
+- Refused while Hunt is open.
+- Removes the background watcher (audited in every watched case).
+- Moves Hunt.app to the Trash.
+- `uv tool uninstall hunt-osint`.
+- Asks **separately**, showing the case count and size, before moving `~/Hunt` to the Trash.
+- Leaves the browser build and the model, which other tools may share, and says how to remove them.
+
 ### Self-checks
 
-All offline, using temp folders only. `test_inbox.py`, `test_bundle.py`, `test_recheck.py`, `test_notes.py`, `test_watch.py`, `test_pack.py`, `test_seen.py` and `test_qol.py` each print `ok`.
+All offline, using temp folders only. `test_inbox.py`, `test_bundle.py`, `test_recheck.py`, `test_notes.py`, `test_watch.py`, `test_pack.py`, `test_seen.py`, `test_setup.py` and `test_qol.py` each print `ok`.
+
+`test_setup.py` never installs or downloads anything:
+- Ollama's API and library are stubbed `httpx` transports.
+- Playwright is a fake shell script, for the dry run and the progress lines.
+- `uv`, `launchctl` and the Trash are stubbed.
+- `osacompile` runs for real, into a temp folder. It compiles the launcher, and the test reads the result back with `osadecompile`.
 
 `test_pack.py` makes one real encrypted image in a temp folder (about 10 s) and checks:
 - a wrong passphrase is refused
@@ -426,6 +480,20 @@ The real Trash call was checked once by hand, on a scratch file.
 - **`skipped_screenings` > 0:** add a quiet line, "1 employment screening on this computer wasn't looked at."
 - **Notes:** a **Note** button on each match pre-fills "Seen before in *Vance 2025 claim*: …" (`about: "case"`). Linking the two cases goes on the record that way, by the investigator's own hand.
 
+### J. Setup and version on the start screen
+
+- **The version:** "Hunt 0.1.0" in the corner, from `GET /api/startup` → `version` (or `GET /api/setup`). Beside it, "Update: run `hunt update`".
+- **A setup card** when `GET /api/setup` → `items` isn't empty. One row per item:
+  - **Ollama** (`installable: false`): "Hunt runs its vision model with Ollama, a free app." A link to `https://ollama.com/download` (opened in her browser), plus "Open Ollama once, then **Check again**", which re-fetches `/api/setup`.
+  - **The vision model / the browser:** label, `detail`, and the size in GB (`size / 2**30`, one decimal).
+    - Button **Download 3.3 GB** → `POST /api/setup/{id}` `{size}`, sending exactly the `size` shown.
+    - Then a progress bar from the job's `progress` events (`done / total`), with the `message` underneath, small.
+    - Pause and cancel use the existing job controls.
+    - When it's done, re-fetch `/api/setup`.
+  - **`installable: false` with a size of null:** "Couldn't read the download size; check the connection", and a **Try again** button. Never offer a download without a size.
+- **"Everything Hunt needs"** (collapsed): the `doctor` rows, ✓ or ✗ with `detail`, and `fix` under each ✗.
+- **The Hunt Browser's sign-in rows** stay as the capture session designed them (`/api/browser/status`).
+
 ## Audit actions for the report (to pass to the report owner)
 
 Every row below is an audit entry, so its citation is `M-a<rowid>`, except notes, which are `N-<id>`. The sentences are suggestions in the report's neutral wording. Dates are the audit `ts`.
@@ -476,4 +544,10 @@ In screening mode, run notes and changed bios through the same protected-traits 
 11. **New post collectors** (TikTok, Instagram, Facebook, from data-sources) reach Check again and watching with no change here, as long as they're registered in `posts.FETCHERS`/`posts._site`. "Posts gone" and `none_left` then cover those platforms too.
 12. **Screening as a case setting.** "Screening" is a report flag today (`?screening=1`), plus the `background` kind. `seen.py` treats every `background` case as an employment screening. If a case-level "this is an employment screening" setting arrives, `seen.for_case` should read it instead of the kind.
 13. **A case created from "seen before".** The new-case form could offer "Open *Vance 2025 claim* instead". That's navigation only, never a merge.
+14. **Hunt Capture must ship inside the installed package.** `browser.SOURCE` is `<repo>/extension`, outside the `hunt` package, so a wheel (and `uv tool install`) had no extension.
+    - **Stopgap here:** `[tool.hatch.build.targets.wheel.force-include] "extension" = "extension"` in `pyproject.toml`, so it lands at `<site-packages>/extension`, which `browser.SOURCE` already resolves to. That's safe because uv tools get an environment of their own.
+    - **Proper fix, for the capture owner:** move `extension/` to `hunt/extension/` and set `SOURCE = Path(__file__).parent / "extension"`, then drop the force-include.
+    - `hunt doctor`'s `capture` row catches a missing extension either way.
+15. **`_new_job` opens the case** (to refuse jobs on closed cases), so jobs that aren't tied to a case (setup downloads, slug `""`) build their `Job` directly. A small `_new_job(..., case=False)` would share the pattern.
+16. **`watch.py` now reads `Case.status()`** (`closed`, `retention_due`) instead of meta keys, so it follows `case.py`'s lifecycle exactly.
 

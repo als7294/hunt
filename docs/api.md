@@ -52,6 +52,7 @@ Event `data` is JSON with a `type`:
 - **`scan`:** `{checked, total, photos, videos, found, eta_s, media_id}` (`eta_s` is from the measured rate, null until known; `media_id` is the file just checked, null on other updates)
 - **`hit`:** a hit object (below)
 - **`change`:** `{change, account, …, audit}`, from a re-check (see "Check again" below)
+- **`progress`:** `{item: "model"|"chromium", done, total, message}` (bytes), from a setup download
 - **`log`:** `{message}`
 - **`done`:** `{ok: true}`
 - **`error`:** `{message}`
@@ -214,7 +215,7 @@ Capture uploads also share these rules:
 - A file of the wrong kind returns 415.
 - Posts are stored with `origin: "captured"`, and `/posts` counts them as `counts.captured`.
 
-## Quality of life: the Downloads inbox, the evidence bundle, links, Check again, notes, watching, moving cases, seen before
+## Quality of life: the Downloads inbox, the evidence bundle, links, Check again, notes, watching, moving cases, seen before, setup
 See [qol.md](qol.md) for the screens that use these.
 
 | Method | Path | Body / response |
@@ -236,6 +237,8 @@ See [qol.md](qol.md) for the screens that use these.
 | POST | `/api/case-archives/unpack` | `{name, folder?, passphrase, replace?: false}` → `{slug, files, replaced, sha256, manifest_sha256}`. Every file is checked against the manifest before the case is put in place. A case with the same name here is kept, and the new one gets `-2`; with `replace`, the one here goes to the Trash first. Returns 400 for a wrong passphrase, a file that doesn't match, or a file that isn't in the manifest; nothing is changed. Returns 409 with `replace` while any job runs. Audited as `case unpacked`; watching is turned off on arrival |
 | GET | `/api/cases/{slug}/seen-before?screening=0\|1` | `{checked, why, skipped_screenings, matches: [{case, label, kind, created, strong, on: [{kind: "username"\|"email"\|"phone"\|"url"\|"address"\|"name"\|"file", value}]}]}`, strongest first. Local and read-only, and never merges anything. A `background` case, or `screening=1`, gives `checked: false` with `why`. `background` cases never appear in others' matches |
 | POST | `/api/seen-before` | `{seeds: [str], kind?}` → the same, for the new-case form before the case exists. `kind: "background"` gives `checked: false` |
+| GET | `/api/setup` | `{version, doctor: [{id, label, ok, detail, fix}], items: [{id: "ollama"\|"model"\|"chromium", label, installable, size, detail}]}`. `doctor` rows: `python`, `uv`, `hunt`, `ollama`, `model`, `chromium`, `capture`, `ffmpeg`, `disk`, `home`, `launcher`. `items` is only what's missing; `size` is the download size in bytes (null if it can't be read, which also makes `installable` false). Ollama itself is never installable here: its `detail` says where to get it |
+| POST | `/api/setup/{item}` | `{size}` → `{job}`. `size` must equal the `size` the client showed and the investigator accepted; otherwise 400. Returns 404 if the item isn't missing, 409 if it can't be installed here or a download is already running. The job streams `progress` events: the model is pulled through the local Ollama's `/api/pull`, the browser with `playwright install chromium` |
 | GET | `/api/cases/{slug}/notes?about=&ref=` | `{notes: [note]}`, oldest first, optionally only the notes about one thing. Returns 400 for an unknown `about` or a bad `ref` |
 | POST | `/api/cases/{slug}/notes` | `{text, about?: "case"\|"account"\|"post"\|"hit", ref?, replaces?: note id}` → `201 note`. A correction (`replaces`) keeps the old note's subject; a note can only be replaced once. Returns 400 for empty text (or more than 20,000 characters), an unknown subject, or a note that's already replaced. Audited as `note`, with its text |
 

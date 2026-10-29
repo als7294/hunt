@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore", message="Using `httpx` with")  # Starlette pre
 from starlette.testclient import TestClient  # noqa: E402
 
 from hunt import app as server
-from hunt import inbox, pack, recheck, scan, seen, watch
+from hunt import inbox, pack, recheck, scan, seen, setup, watch
 from hunt.case import Case
 from hunt.seed import Finding, Seed
 
@@ -206,4 +206,31 @@ r = c.post("/api/seen-before", json={"seeds": ["@kestrel_vane88"], "kind": "insu
 assert [m["case"] for m in r["matches"]] == sorted([again.name, case.name]), r
 assert not c.post("/api/seen-before", json={"seeds": ["kestrel_vane88"], "kind": "background"}, headers=JSON).json()["checked"]
 assert c.post("/api/seen-before", json={"seeds": "kestrel_vane88"}, headers=JSON).status_code == 400
+
+# First-run setup: sizes shown first; a download starts only for the size the investigator accepted
+async def planned():
+    return [{"id": "model", "label": "Vision model", "installable": True, "size": 3000, "detail": "local"},
+            {"id": "ollama", "label": "Ollama", "installable": False, "size": None, "detail": "Download Ollama first"}]
+
+
+async def installing(item, size, emit):
+    emit({"type": "progress", "item": item, "done": size, "total": size, "message": "success"})
+
+
+setup.plan, setup.install = planned, installing
+setup.doctor = lambda: [{"id": "python", "label": "Python", "ok": True, "detail": "3.12", "fix": ""}]
+r = c.get("/api/setup").json()
+assert [i["id"] for i in r["items"]] == ["model", "ollama"] and r["doctor"][0]["ok"] and r["version"]
+assert c.post("/api/setup/model", json={"size": 2999}, headers=JSON).status_code == 400
+assert c.post("/api/setup/model", json={}, headers=JSON).status_code == 400
+assert c.post("/api/setup/ollama", json={"size": 0}, headers=JSON).json()["error"] == "Download Ollama first"
+assert c.post("/api/setup/chromium", json={"size": 1}, headers=JSON).status_code == 404
+job = c.post("/api/setup/model", json={"size": 3000}, headers=JSON).json()["job"]
+for _ in range(100):
+    with c.stream("GET", f"/api/jobs/{job}/events") as r:
+        sent = [json.loads(line[6:]) for line in r.read().decode().splitlines() if line.startswith("data: ")]
+    if sent and sent[-1]["type"] in ("done", "error"):
+        break
+    time.sleep(0.05)
+assert [e["type"] for e in sent] == ["progress", "done"] and sent[0]["done"] == 3000, sent
 print("ok")

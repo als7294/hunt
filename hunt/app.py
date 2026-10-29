@@ -39,7 +39,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from . import report, search, sources, vlm
-from . import bundle, inbox, notes, pack, recheck, seen, watch  # docs/qol.md
+from . import bundle, inbox, notes, pack, recheck, seen, setup, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
 from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, RETENTION_DAYS, Case, all_cases  # watch.py reads RETENTION_DAYS here
@@ -1092,6 +1092,29 @@ async def post_seen(req: Request):
     return JSONResponse(await asyncio.to_thread(seen.lookup, ids, None, b.get("kind") == seen.SCREENING))
 
 
+async def get_setup(req: Request):
+    rows, items = await asyncio.gather(asyncio.to_thread(setup.doctor), setup.plan())
+    return JSONResponse({"version": version("hunt-osint"), "doctor": rows, "items": items})
+
+
+async def post_setup(req: Request):
+    item, size = req.path_params["item"], (await _body(req)).get("size")
+    planned = next((i for i in await setup.plan() if i["id"] == item), None)
+    if not planned:
+        raise HTTPException(404, f"{item}: nothing to install")
+    if not planned["installable"]:
+        raise HTTPException(409, planned["detail"])
+    if type(size) is not int or size != planned["size"]:
+        raise HTTPException(400, f"send size: {planned['size']}, the download size you showed and the investigator accepted")
+
+    if _active(req, ""):
+        raise HTTPException(409, "a download is already running")
+    job = Job("", "setup")  # not a case's job (_new_job opens the case): "" keeps it to one download at a time
+    req.app.state.jobs[job.id] = job
+    job.start(lambda job: setup.install(item, size, job.emit))
+    return JSONResponse({"job": job.id})
+
+
 def _watching(app):
     @asynccontextmanager
     async def lifespan(_):
@@ -1121,6 +1144,8 @@ QOL_ROUTES = [
     Route("/api/case-archives/unpack", post_unpack, methods=["POST"]),
     Route("/api/cases/{slug}/seen-before", get_seen),
     Route("/api/seen-before", post_seen, methods=["POST"]),
+    Route("/api/setup", get_setup),
+    Route("/api/setup/{item}", post_setup, methods=["POST"]),
 ]
 
 
