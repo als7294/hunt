@@ -15,12 +15,13 @@ User-Agent).
 import asyncio
 import os
 
-from . import (bluesky, businesses, courtlistener, edgar, fec, fmcsa, github, gravatar, keybase, licences, maigret,
-               mastodon, npi, openpgp, phone, stackexchange, user_scanner, wayback, wmn)
+from . import (bluesky, businesses, courtlistener, edgar, facebook, fec, fmcsa, github, gravatar, keybase, licences,
+               maigret, mastodon, npi, openpgp, phone, stackexchange, user_scanner, wayback, wmn)
 from ._api import client, probe
 
 SOURCES = [maigret, wmn, user_scanner, phone,
            github, keybase, bluesky, mastodon, stackexchange, wayback,  # username / name → profiles
+           facebook,  # username / Facebook URL → what the profile shows logged out (docs/facebook.md)
            gravatar, openpgp,  # email → verified name and accounts
            fec, edgar, npi, courtlistener,  # name → public records
            licences, businesses, fmcsa]  # name → work and driving records
