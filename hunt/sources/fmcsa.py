@@ -12,7 +12,7 @@ from ._socrata import Dataset, day, place
 
 NAME = "fmcsa"
 KINDS = {"name"}
-KEY = _socrata.KEY
+KEY, KEY_URL, KEY_FREE = _socrata.KEY, _socrata.KEY_URL, _socrata.KEY_FREE
 OPERATION = {"A": "interstate", "B": "intrastate, hazardous materials", "C": "intrastate, non-hazardous"}
 STATUS = {"A": "active", "I": "inactive", "P": "pending"}
 SAFER = "https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string="

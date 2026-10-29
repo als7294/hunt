@@ -13,7 +13,7 @@ from ._socrata import Dataset, day, joined, place
 
 NAME = "licences"
 KINDS = {"name"}
-KEY = _socrata.KEY
+KEY, KEY_URL, KEY_FREE = _socrata.KEY, _socrata.KEY_URL, _socrata.KEY_FREE
 WA_GENERAL = "m8qx-ubtq"
 
 
