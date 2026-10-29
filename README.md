@@ -12,7 +12,32 @@ Start with whatever you have (a name, username, email, phone number, address, pr
 - It estimates where photos were taken using AI running on your own machine.
 - It drafts a fully cited report.
 
-> **Status: research and design.** No usable code yet. See the [roadmap](docs/roadmap.md).
+> **Status: M1, a working search engine on the command line.** The app UI is in design. See the [roadmap](docs/roadmap.md).
+
+## Try it
+
+Requires [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync
+uv run playwright install chromium   # headless browser for evidence screenshots
+uv run tessera search kestrel_vane88 "name:Marisol Vance" "location:Tucson, AZ" \
+  --case vance-screen --purpose "Pre-employment social media screen, signed consent on file"
+```
+
+Seeds can be a username, email, phone, name, address or profile URL. Tessera detects which is which; prefix a seed with its kind to force it (`location:Tucson, AZ`). Running `search` again on the same case adds seeds and re-scores everything.
+
+Each case lives in `~/Tessera/cases/<case>/`:
+
+- **`case.db`** (SQLite) holds:
+  - the purpose
+  - an audit log
+  - every source run, including the ones that found nothing
+  - every finding
+- **`evidence/`** holds raw page sources, plus a screenshot and rendered HTML of every likely match. Every file is named by its SHA-256.
+- **`case.json`** lists the candidates ranked with ICD 203 verdicts. Each comes with its reasons, e.g. `+6.5 name 'Bob Vance' matches 'Robert Vance'` or `+0.0 display name 'kv' only repeats the username, so it isn't counted`.
+
+Self-check: `uv run python test_tessera.py`
 
 ## Why
 

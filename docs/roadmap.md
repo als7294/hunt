@@ -5,13 +5,26 @@
 - [Practitioner interview](research/practitioner-interview.md)
 - [Design brief](design-brief.md): 4 concepts → pick one → full prototype
 
-## M1: search engine (CLI, no UI)
-- `uv`-managed Python 3.12 package. `tessera search <seed>` returns JSON findings.
-- One module per source, `tessera/sources/<name>.py`, exposing `async def search(seed) -> list[Finding]`. The registry is a plain list.
-- Sources: Maigret, WhatsMyName data, user-scanner, python-phonenumbers.
-- Same-person scoring: hand-set Fellegi-Sunter-style weights over rapidfuzz/jellyfish/nicknames comparisons. Every score explains itself. Splink once labelled data exists.
-- Evidence capture: Playwright snapshot → SHA-256 → per-case SQLite under `~/Tessera/cases/<id>/`. The audit log lives in the same DB.
-- Case purpose attestation required before the first search.
+## M1: search engine (CLI, no UI) ✅
+- `tessera search SEED... --case NAME --purpose TEXT`. A new case can't start without a purpose.
+- Sources (`tessera/sources/`):
+  - Maigret: top 500 sites, with profile parsing
+  - WhatsMyName: about 690 sites
+  - user-scanner: email registrations, passive modules only
+  - libphonenumber: offline
+- Scoring (`tessera/match.py`): hand-set Fellegi-Sunter-style weights with ICD 203 verdicts, and a reason behind every point. It also handles nicknames, Gravatar email hashes, linked accounts, and display names that just repeat the username.
+- Evidence: raw page source plus a Playwright screenshot and rendered HTML of likely matches, all SHA-256-named, with the audit log in per-case SQLite.
+- Live test: username + name + location seeds take about 40 s, with about 1,200 site checks across both engines.
+
+**Follow-ups found while building M1**
+- user-scanner email checks:
+  - Upstream already skips 52 of the 220 modules because they notify the target (e.g. a password-reset email).
+  - Tessera also skips 12 more whose code looks like a reset flow (Facebook, Dropbox, Walmart…), and others matched by the same broad source check.
+  - Audit each one, and allowlist the ones that turn out to be silent.
+- Username rarity uses a length heuristic. Replace it with the hit rate across sites: `nasa` is claimed on 243 of 509 sites, so it's common.
+- Profile locations are compared word by word. Geocode them with Nominatim and compare distance instead.
+- A single-word known name ("NASA") can't match a long display name. Adding the full name fixes it, but subset matching would be better.
+- Route traffic through a proxy or VPN for OPSEC.
 
 ## M2: app UI
 - Local FastAPI server, results streamed live; frontend built from the chosen design prototype.
