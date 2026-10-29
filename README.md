@@ -2,67 +2,72 @@
 
 **One search, every source, the right person, with proof.**
 
-Hunt is a free, open-source, local-first OSINT investigation tool for background checks, due diligence and social media reports.
+Hunt is a free, open-source, local-first investigation tool for **background checks, insurance claims, due diligence and social media reports**. It's built for investigators who know their trade, not their terminal.
 
-Start with whatever you have (a name, username, email, phone number, address, profile link or photo):
+Start with whatever you have: a name, username, email, phone number, address or profile link. Hunt:
+- finds the person's accounts
+- shows which ones really belong to them, and why
+- looks through what they post for what your client needs to know (for example, lifting after an injury date)
+- hands you a report where every sentence cites its evidence
 
-- Hunt checks dozens of open sources at once.
-- It works out which results really belong to the same person, and shows why.
-- It captures tamper-evident evidence of everything it finds.
-- It estimates where photos were taken using AI running on your own machine.
-- It drafts a fully cited report.
+Your cases, evidence and the AI that reads photos and videos stay on your Mac.
 
-> **Status: M1, a working search engine on the command line.** The app UI is in design. See the [roadmap](docs/roadmap.md).
+**→ [The user guide](docs/user-guide.md)**: install, first run, a case from start to report, and handing over evidence.
 
-## Try it
+## What it does
 
-Requires [uv](https://docs.astral.sh/uv/).
+| Step | What happens |
+|---|---|
+| **Find a person** | Checks hundreds of sites and public records at once, and logs every source asked, including the empty ones |
+| **Is it them?** | Scores each account against everything the case knows, explains every point, and sets namesakes aside. The investigator decides |
+| **Posts** | Reads public posts logged out (Bluesky, Mastodon, YouTube). Takes in what the investigator views in the **Hunt Browser** and the files they saved. Scans every photo and video on the Mac with a local vision model for the case's look-for list, dated before or after the injury |
+| **Report** | Written from the case's records, with no language model. Every sentence is cited; ICD 203 confidence wording; a screening version for employment (FCRA); a hashed evidence bundle anyone can check with `shasum -c` |
+
+**Everyday helpers:**
+- File messy downloads (`ssstik.io_1745821072612.mp4`) under clear names, with the post time read from its ID.
+- Check the subject's accounts again over the life of a claim, or watch them on a schedule with local notifications.
+- Timestamped notes you can cite.
+- "Have we seen this person before?" across your cases.
+- Move a case between Macs in one encrypted, hash-checked archive.
+
+See [docs/qol.md](docs/qol.md) for these.
+
+## Guardrails
+
+Built in, not bolted on:
+- **A purpose is required for every case,** and every case keeps an audit log of each search, decision, import and export.
+- **Hunt's own collection is passive and logged out.** It never logs in by itself, never uses sock-puppet accounts, and never automates a logged-in session.
+- **Logged-in viewing is the investigator's,** as themselves, in the Hunt Browser. Hunt Capture records what they choose to view and never clicks, scrolls or follows.
+- **The subject is never contacted or notified:** no follows, messages, or email checks that could alert them. All 220 email-check modules were read and classified.
+- **No automatic downloads** from Instagram, TikTok or Facebook.
+- **Machine verdicts stop at "likely",** and a handle alone can't pass "roughly even chance" (two-identifier rule).
+- **Employment screening mode** drops protected traits and sensitive records. Screenings are kept apart from other investigations.
+- **Retention:** 90 days from opening, unless on legal hold. Deleting moves files to the Trash; Hunt never deletes them.
+- **Flagged media where a child may be visible** are blurred in the app.
+
+If you furnish reports for employment, tenancy, credit or insurance decisions, you are likely a consumer reporting agency under the FCRA, whatever software you use. Hunt helps you comply; it does not exempt you. Hunt uses free and open sources only. It **complements** licensed data-broker tools (TLOxp, Accurint and the like); it doesn't replace them. Why each line is where it is: [legal.md](docs/research/legal.md).
+
+## Install
+
+You need a Mac with Apple Silicon and about 6 GB free. In Terminal, once:
 
 ```bash
-uv sync
-uv run playwright install chromium   # headless browser for evidence screenshots
-uv run hunt search kestrel_vane88 "name:Marisol Vance" "location:Tucson, AZ" \
-  --case vance-screen --purpose "Pre-employment social media screen, signed consent on file"
+brew install uv
 ```
-
-Seeds can be a username, email, phone, name, address or profile URL. Hunt detects which is which; prefix a seed with its kind to force it (`location:Tucson, AZ`). Running `search` again on the same case adds seeds and re-scores everything.
-
-**OPSEC:** `--proxy socks5h://127.0.0.1:9050` (or the `HUNT_PROXY` env var) routes every request through a proxy or VPN. That covers site checks, screenshots and geocoding.
-
-**What leaves your machine:**
-- Requests to the sites being checked. Email checks that could notify the subject (password resets, login codes, sign-ups, login attempts) are never run; every module was read and classified.
-- Location strings only (never names or handles), sent to OpenStreetMap's Nominatim to compare places. This happens only when the case has a known location, and each string is sent once and then cached.
-
-Phone lookups and all scoring run offline.
-
-Each case lives in `~/Hunt/cases/<case>/`:
-
-- **`case.db`** (SQLite) holds:
-  - the purpose
-  - an audit log
-  - every source run, including the ones that found nothing
-  - every finding
-- **`evidence/`** holds raw page sources, plus a screenshot and rendered HTML of every likely match. Every file is named by its SHA-256.
-- **`case.json`** lists the candidates ranked with ICD 203 verdicts. Each comes with its reasons, e.g. `+6.5 name 'Bob Vance' matches 'Robert Vance'` or `+0.0 display name 'kv' only repeats the username, so it isn't counted`.
-
-### Where was this photo taken?
 
 ```bash
-uv run hunt photo beach.jpg street.jpg --case vance-screen
+uv tool install git+https://github.com/als7294/hunt && hunt setup
 ```
 
-Everything runs on your machine; the image never leaves it.
+`hunt setup` puts **Hunt** in Applications, then shows the size of each download (the browser, about 0.2 GB; the vision model, 3.3 GB) and asks before fetching it.
 
-- **What's read:**
-  - the file's EXIF (camera GPS is shown, but flagged to verify)
-  - the text in the photo (Apple Vision OCR)
-  - clues GeoGuessr pros and OSINT geolocators rely on: script, rare letters, phone codes, domains, currency, postcodes, driving side
-- **Candidate areas:** GeoCLIP proposes them.
-- **Vision model:** a local model (Qwen3-VL via [Ollama](https://ollama.com), `ollama pull qwen3-vl:4b`) adds what it can see and reranks the candidates.
-- **The answer:** ranked hypotheses, each with a radius and its reasons, never a single pin.
-- **What leaves your machine:** if the vision model names a place, only that place name is sent for geocoding, as with profile locations.
+Then install [Ollama](https://ollama.com/download), which runs the vision model, and open it once. Double-click **Hunt** to start. Use `hunt doctor` to check everything, `hunt update` to update, and `hunt uninstall` to remove Hunt (it asks before moving your cases to the Trash). No `brew`? See [uv's installation page](https://docs.astral.sh/uv/getting-started/installation/).
 
-Self-checks (offline): `uv run python test_hunt.py`, `test_geo.py`, `test_photo.py`, `test_clues.py`
+**From source:**
+
+```bash
+git clone https://github.com/als7294/hunt && cd hunt && uv sync && uv run hunt setup
+```
 
 ## How matching works
 
@@ -77,45 +82,29 @@ Every hit is scored against everything the case knows, Fellegi-Sunter style. Eac
 | Links | Links to the subject's known profiles, or to accounts carrying their handle, count. Links back to the same site don't. |
 | Profile photo | Sharing the same picture with a likely match, or with a photo supplied in the case, is a second identifier. Site default avatars are ignored. |
 
-**Two-identifier rule:** if nothing but the username agrees, a profile can't rise above "roughly even chance", however rare the handle. Practitioners require two independent identifiers.
+## Status
 
-## Why
+Under active development: the app's screens are being rebuilt. Photo geolocation works and is benchmarked, but is on hold, shown as "coming soon". See the [roadmap](docs/roadmap.md).
 
-Investigators juggle dozens of single-purpose tools, copy results between them by hand, and fight same-name false positives. Every open-source OSINT framework we surveyed (SpiderFoot, recon-ng, BBOT) is built around infrastructure, not people. Hunt focuses on what practitioners say matters most:
-
-1. **Explainable identity resolution.** Every match shows which identifiers agree and which conflict. Look-alikes that were ruled out are recorded with the reason.
-2. **Provenance.** Every finding is captured with URL, timestamp and SHA-256, and flows straight into the report.
-3. **Honest confidence.** ICD 203 estimative language. AI-drafted text must cite evidence, or it's blocked.
-
-## Local-first, on purpose
-
-- Hunt runs on the investigator's own computer, and case data and photos stay there.
-- Photo geolocation, OCR and report drafting run on local hardware (Apple Silicon or an NVIDIA GPU) through open models.
-- There is no hosted people-search service, and there won't be. See [legal research](docs/research/legal.md) for why.
-
-## Responsible use
-
-Hunt is for lawful, purpose-bound investigations. These guardrails are built in, not bolted on:
-
-- A purpose statement and audit log for every case
-- Passive, logged-out collection only: no following, messaging or sock-puppet automation
-- A minors flag
-- Per-source rate limits
-- Per-case retention and purge
-- An FCRA mode for employment screening
-
-If you furnish reports for employment, tenancy, credit or insurance decisions, you are likely a consumer reporting agency under the FCRA whatever software you use. Hunt helps you comply; it does not exempt you.
-
-Hunt uses free and open sources only. It **complements** licensed data-broker tools (TLOxp, Accurint, etc.); it does not replace them.
-
-## Research
+## Docs
 
 | Doc | What's in it |
 |---|---|
-| [tools.md](docs/research/tools.md) | Open-source tools and free APIs to build on, with licences and maintenance status |
-| [pain-points.md](docs/research/pain-points.md) | What investigators struggle with, and what a good report contains |
-| [legal.md](docs/research/legal.md) | FCRA, DPPA/GLBA, state data broker laws, scraping case law, biometrics |
-| [geolocation.md](docs/research/geolocation.md) | Local photo geolocation models and on-device ML |
+| [user-guide.md](docs/user-guide.md) | For investigators: install, first run, a case from start to report, verdicts, handing over evidence |
+| [qol.md](docs/qol.md) | Everyday helpers: the Downloads inbox, evidence bundle, Check again, watching, notes, moving cases, seen before, setup |
+| [capture.md](docs/capture.md) | The Hunt Browser and Hunt Capture |
+| [api.md](docs/api.md) | The local app's API |
+| [research/pain-points.md](docs/research/pain-points.md) | What investigators struggle with, and what a good report contains |
+| [research/legal.md](docs/research/legal.md) | FCRA, DPPA/GLBA, state data-broker laws, scraping case law, biometrics, human-driven capture |
+| [research/report-format.md](docs/research/report-format.md) | What clients expect in a report |
+| [research/tools.md](docs/research/tools.md) | Open-source tools and free APIs, with licences and maintenance status |
+| [research/geolocation.md](docs/research/geolocation.md) | Local photo geolocation models and on-device ML |
+
+**Self-checks** (offline, fictional subjects only):
+
+```bash
+for t in test_*.py; do uv run python "$t"; done
+```
 
 ## Credits
 
