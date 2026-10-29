@@ -68,6 +68,20 @@ It never navigates, clicks, scrolls, searches, likes, follows or messages. It se
 - **What remains.** A platform could still call an automatically recording extension "automated means". The exposure would be contractual (her account), not CFAA. She uses her own credentials to see what she is allowed to see, which is authorized access under *Van Buren*'s gates-up-or-down test. No sock puppets, ever: fake accounts are the hiQ loss pattern.
 - **Third parties.** Captures include whatever else is on her screen (friends' comments and photos), as any screenshot does. Case retention and purge, the minors flag and the scan's child blurring apply.
 
+**The Hunt Browser holds her sessions; Hunt never reads them [I].**
+- She signs in once, inside the Hunt Browser. Its profile (`HUNT_HOME/browser/profile`) keeps her session cookies the way any browser does.
+- On macOS, Chrome encrypts them with a key it keeps in the Keychain (an item named "… Safe Storage").
+- Hunt never opens, reads, copies or sends them. The extension asks only whether each platform's sign-in cookie exists (`chrome.cookies.get`), and passes on nothing but `signed_in` / `signed_out`.
+- "Sign out" moves the whole profile to the Trash, never deletes it, so a mistake can be put back.
+- The browser has no remote-debugging port and no automation driver, so no other program can take over those sessions through Hunt.
+
+**Which account she signs in with [I].** Her employer's policy decides. A work account is usually right:
+- It is attributable to the firm and covered by its lawful-purpose policy.
+- It keeps her personal network out of the investigation.
+- What she can see is what that account is allowed to see.
+
+It is never an invented persona (that's a sock puppet, the hiQ loss pattern), and never someone else's account.
+
 **Evidence value [S]:**
 - Bare screenshots get excluded: *United States v. Vayner*, 769 F.3d 125 (2d Cir. 2014). *Commonwealth v. Mangel*, 181 A.3d 1154 (Pa. Super. 2018) turned partly on missing creation metadata.
 - Many courts accept hashes plus metadata as circumstantial authentication under FRE 901(b)(4) ([Constellation Research summary](https://www.constellationr.com/research/blog/evidentiary-challenges-social-media-evidence-now-routine-when-best-practices-not); vendor-written, so weigh it accordingly).

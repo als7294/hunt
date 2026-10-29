@@ -5,6 +5,10 @@
 // (chrome.pageCapture: the page and the pictures your browser already loaded). Everything goes only to
 // Hunt on this computer (127.0.0.1; the extension's CSP allows nothing else). It never navigates, clicks,
 // scrolls, types, searches, likes, follows or messages, and has no code that could.
+//
+// In the Hunt Browser it pairs itself from pairing.json, which Hunt writes beside it, and it tells Hunt which
+// platforms you're signed in to: from whether each sign-in cookie exists. It never reads, keeps or sends a
+// cookie's value.
 
 const SITE = /^https:\/\/([a-z0-9-]+\.)*(facebook|instagram|tiktok|x|twitter|linkedin|youtube)\.com\//i;
 const SHOT_GAP = 2500;   // ms between automatic screenshots of one tab (Chrome allows 2 a second)
@@ -12,6 +16,13 @@ const FRAME_GAP = 2000;  // ms between screenshots while a video plays
 const MAX_FRAMES = 90;   // per page, so a long video doesn't flood the case
 const PAGE_GAP = 20000;  // ms before the same page is archived again
 const CODE = /^(\d{2,5})-(\d{8})$/;
+const SIGN_IN = {  // platform → [site, the cookie that exists only while signed in]
+  facebook: ["https://www.facebook.com/", "c_user"],
+  instagram: ["https://www.instagram.com/", "sessionid"],
+  tiktok: ["https://www.tiktok.com/", "sessionid"],
+  linkedin: ["https://www.linkedin.com/", "li_at"],
+  x: ["https://x.com/", "auth_token"],
+};
 
 const DEFAULTS = { port: null, key: null, case: null, caseLabel: "", on: false, mode: "auto", recording: null };
 chrome.storage.local.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" }).catch(() => {});  // the key: never to content scripts
@@ -20,9 +31,14 @@ const set = (values) => chrome.storage.local.set(values);
 const tabs = {};   // tabId → { shot, page, url, frames, busy }
 const waits = {};  // tabId → timer for the next settled view
 
-async function api(path, body) {
+async function api(path, body, again = true) {
   const s = await get();
-  if (!s.port) throw new Error("Pair Hunt Capture with Hunt first.");
+  if (!s.port && !(again && await autopair())) throw new Error("Pair Hunt Capture with Hunt first.");
+  return call(path, body, again);
+}
+
+async function call(path, body, again) {
+  const s = await get();
   const json = !(body instanceof FormData);
   let r;
   try {
@@ -32,11 +48,49 @@ async function api(path, body) {
       body: json ? JSON.stringify(body || {}) : body,
     });
   } catch {
+    if (again && await autopair()) return call(path, body, false);  // Hunt restarted on a new port
     throw new Error("Hunt isn't reachable. Is `hunt app` running? If it restarted, pair again with its new code.");
   }
+  if (r.status === 403 && again && await autopair()) return call(path, body, false);  // Hunt issued a new key
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || `Hunt answered ${r.status}`);
   return data;
+}
+
+// The Hunt Browser: Hunt wrote pairing.json beside this extension, so there's no code to type.
+async function autopair() {
+  try {
+    const r = await fetch(chrome.runtime.getURL("pairing.json"), { cache: "no-store" });
+    const { port, key } = await r.json();
+    const s = await get();
+    if (s.port === port && s.key === key) return false;
+    await set({ port, key, huntBrowser: true });
+    return true;
+  } catch {
+    return false;  // an everyday browser: paired by code instead
+  }
+}
+
+// Which platforms you're signed in to, from the presence of each sign-in cookie. Only the yes/no leaves here.
+async function signIns() {
+  const out = {};
+  for (const [platform, [url, name]] of Object.entries(SIGN_IN)) {
+    try {
+      out[platform] = (await chrome.cookies.get({ url, name })) ? "signed_in" : "signed_out";
+    } catch {
+      out[platform] = "unknown";
+    }
+  }
+  return out;
+}
+
+let signInTimer;
+function reportSignIns(wait = 2000) {
+  clearTimeout(signInTimer);
+  signInTimer = setTimeout(async () => {
+    const s = await get();
+    if (s.key || s.port) await api("signins", await signIns()).catch(problem);
+  }, wait);
 }
 
 async function badge() {
@@ -136,6 +190,7 @@ async function handle(msg) {
       return { paired: true };
     }
     case "hello":
+      reportSignIns(0);
       return api("hello");
     case "checklist":
       return s.case ? api("checklist", { case: s.case }) : { accounts: [] };
@@ -192,9 +247,17 @@ async function record(streamId, tab) {
 
 chrome.runtime.onStartup.addListener(async () => {  // capture is off whenever the browser starts
   await set({ on: false, recording: null });
+  await autopair();
   await badge();
+  reportSignIns(0);
 });
-chrome.runtime.onInstalled.addListener(badge);
+chrome.runtime.onInstalled.addListener(async () => {
+  await autopair();
+  await badge();
+  reportSignIns(0);
+});
+const WATCHED = new Set(Object.values(SIGN_IN).map(([, name]) => name));
+chrome.cookies.onChanged.addListener(({ cookie }) => { if (WATCHED.has(cookie.name)) reportSignIns(); });
 
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   if ((info.status === "complete" || info.url) && SITE.test(tab.url || "")) soon(tabId, "view", 2000);

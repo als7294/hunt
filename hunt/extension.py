@@ -59,12 +59,24 @@ def pair(code: str, origin: str, name: str = "") -> str:
         _code["tries"] += 1
         raise PermissionError("that pairing code isn't right")
     _code.clear()
+    return grant(origin, name)
+
+
+def grant(origin: str, name: str = "") -> str:
+    """A new capture key for this extension origin, replacing any other pairing. Used by pair(), and by the Hunt
+    Browser, which pairs its own copy of the extension without a code."""
     key = secrets.token_urlsafe(32)
     KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump({"origin": origin, "sha256": _sha(key), "name": str(name)[:80], "paired_at": now()}, f)
     return key
+
+
+def holds(origin: str, key: str) -> bool:
+    """Is this the key of the extension currently paired?"""
+    rec = _paired()
+    return bool(rec) and rec["origin"] == origin and hmac.compare_digest(_sha(key), rec["sha256"])
 
 
 def status() -> dict:
@@ -90,8 +102,7 @@ def problem(req) -> tuple[int, str] | None:
         return 415, "content type must be application/json or multipart/form-data"
     if req.url.path == "/api/capture/pair":
         return None
-    rec = _paired()
-    if not rec or origin != rec["origin"] or not hmac.compare_digest(_sha(req.headers.get("x-hunt-key", "")), rec["sha256"]):
+    if not holds(origin, req.headers.get("x-hunt-key", "")):
         return 403, "this extension isn't paired with Hunt; pair it again"
     return None
 

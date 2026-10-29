@@ -165,6 +165,9 @@ The browser extension that records what the investigator views while logged in a
 
 | Method | Path | Body / response |
 |---|---|---|
+| GET | `/api/browser/status` | `{facebook, instagram, tiktok, linkedin, x: "signed_in"\|"signed_out"\|"unknown", checked_at, browser: {available, running, version, profile: bool}, logins: [{platform, label, url}]}`. Sign-in states come from the Hunt Browser's extension: whether each sign-in cookie exists, never its value. Also re-points an open Hunt Browser at this Hunt's port (internal; no case or user state changes) |
+| POST | `/api/browser/open` | `{url, case?}` → `{opened, started}`. Opens an http(s) page in the Hunt Browser, starting it if needed. `case` is preselected in the extension's popup. 400 for other schemes; 404 for an unknown case; 503 when Playwright's browser isn't installed |
+| POST | `/api/browser/sign-out` | `{}` → `{moved_to: "Trash"\|null, …status}`. Moves the Hunt Browser's profile (every login) to the Trash, never deletes. 409 while it's open |
 | GET | `/api/pairing` | `{paired: bool, origin?, name?, paired_at?}` |
 | POST | `/api/pairing` | `{}` → `{code: "<port>-<8 digits>", expires_in: 300}`. A one-time code for the extension's popup. Five wrong tries close it; a new one replaces it |
 | POST | `/api/pairing/forget` | `{}` → `{paired: false}`. The extension's key stops working at once |
@@ -182,7 +185,8 @@ Anything else gets 403, 405 or 415. The key opens no other route.
 | Path | Body → response |
 |---|---|
 | `/api/capture/pair` | `{code, name?}` → `{key}`. 403 if the code is wrong, used, expired or closed |
-| `/api/capture/hello` | `{}` → `{version, paired, origin, name, paired_at, cases: [{slug, label}]}` |
+| `/api/capture/hello` | `{}` → `{version, paired, origin, name, paired_at, cases: [{slug, label}], active_case: {slug, label}\|null}` |
+| `/api/capture/signins` | `{facebook?, instagram?, tiktok?, linkedin?, x?: "signed_in"\|"signed_out"\|"unknown"}` → as `GET /api/browser/status`. Anything that isn't one of those states is refused (400) |
 | `/api/capture/checklist` | `{case}` → as `GET /api/cases/{slug}/checklist` |
 | `/api/capture/view` | multipart `case, url, viewed_at?, title?, kind? (view\|frame\|manual), screenshot` (JPEG or PNG) → `{post, file}`. `post` is null when that picture was already in the case |
 | `/api/capture/page` | multipart `case, url, viewed_at?, archive` (MHTML) → `{posts, added, file}` |

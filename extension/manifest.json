@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "description": "Records the social media pages you open yourself into your Hunt case, on this computer only.",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "pageCapture", "activeTab", "tabCapture", "offscreen"],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsirev4imJRXgfFfdYuFRL1DUTb4ttg21ZkMk5rG98Ox6fw46lJp7dz7A389SiV660EMiIL8b+krnoH3iSh6CWgfB3by3G8ViOMXT6dHPdNEyyhlnVgPnLlP20Rg9hmQBUfiRFS0nWXtU4OlZqaiaWRXwrYEDwpVRKV/mmpliqh4fKAKW7hPK6DaSOTx5097MbCIDponMltFYzFWxCa8p7lwRQ1Q6Xew/KAXUg1gHDE7uwQjqGDJkAn4v2NuF7VV5RXJXbDqsUi785g9pRODTbessYj1Uh9HiVDBDxE4RoyaclmeAKBdjwGAlR17g5jCjaRfFwhb9V31uYHHubWDMcQIDAQAB",
+  "permissions": ["storage", "pageCapture", "activeTab", "tabCapture", "offscreen", "cookies"],
   "host_permissions": [
     "http://127.0.0.1/*",
     "https://*.facebook.com/*",
@@ -44,6 +45,6 @@
     }
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src http://127.0.0.1:*"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:*"
   }
 }

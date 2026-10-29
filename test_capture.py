@@ -19,6 +19,7 @@ from PIL import Image  # noqa: E402
 from starlette.testclient import TestClient  # noqa: E402
 
 from hunt import app as server  # noqa: E402
+from hunt import browser, inbox  # noqa: E402
 from hunt import extension as ext  # noqa: E402
 from hunt import posts  # noqa: E402
 from hunt.case import Case  # noqa: E402
@@ -216,9 +217,65 @@ assert ext.couldnt_see(case) == [
     "Hunt Capture was recording",
     "X dvell: replies, media, followers and following were not opened while Hunt Capture was recording"]
 
+# --- The Hunt Browser: launched observe-only, paired by Hunt, sign-in states only ---------------------
+assert browser.extension_id() == "ohkkgdkpojhdjabmfgbkjffmaaacpogh"  # what Chrome for Testing 156 assigned (checked live)
+st = c.get("/api/browser/status").json()
+assert {k: st[k] for k in browser.PLATFORMS} == dict.fromkeys(browser.PLATFORMS, "unknown") and st["checked_at"] is None
+assert [l["platform"] for l in st["logins"]] == ["facebook", "instagram", "tiktok", "linkedin", "x"]
+assert all(l["url"].startswith("https://") for l in st["logins"]) and set(st["browser"]) == {"available", "running", "version", "profile"}
+launched = []
+browser.chromium = lambda: Path("/Applications/Fake Browser.app/Contents/MacOS/Fake Browser")
+browser.subprocess.Popen = lambda args, **kw: launched.append((args, kw)) or type("P", (), {"poll": lambda self: None})()
+OPEN = {**WEB}
+r = c.post("/api/browser/open", content=json.dumps({"url": "https://www.facebook.com/login/", "case": slug}), headers=OPEN)
+assert r.status_code == 200 and r.json() == {"opened": "https://www.facebook.com/login/", "started": True}, r.text
+args, kw = launched[0]
+assert args[1:] == [f"--user-data-dir={browser.PROFILE}", f"--load-extension={browser.EXTENSION_DIR}", "--no-first-run",
+                    "--no-default-browser-check", "https://www.facebook.com/login/"] and kw["start_new_session"]
+assert not any(re.search(r"remote-debugging|automation|headless|disable-blink|user-agent", a) for a in args)  # observe-only
+pairing = json.loads((browser.EXTENSION_DIR / "pairing.json").read_text())
+assert pairing["port"] == PORT and ext.holds(f"chrome-extension://{browser.extension_id()}", pairing["key"])
+assert oct((browser.EXTENSION_DIR / "pairing.json").stat().st_mode)[-3:] == "600"
+assert (browser.EXTENSION_DIR / "manifest.json").read_text() == (HERE / "extension" / "manifest.json").read_text()
+assert c.get("/api/pairing").json()["name"] == "Hunt Browser"  # it took the pairing; the old key is void
+assert c.post("/api/capture/hello", content="{}", headers=KEYED).status_code == 403
+HB = {"origin": f"chrome-extension://{browser.extension_id()}", "content-type": "application/json", "x-hunt-key": pairing["key"]}
+assert c.post("/api/capture/hello", content="{}", headers=HB).json()["active_case"] == {"slug": slug, "label": "capture test"}
+(browser.EXTENSION_DIR / "pairing.json").write_text(json.dumps(pairing | {"port": 1}))  # Hunt restarted elsewhere
+c.get("/api/browser/status")
+assert json.loads((browser.EXTENSION_DIR / "pairing.json").read_text()) == pairing  # pointed back, same key
+r = c.post("/api/browser/open", content=json.dumps({"url": "https://www.instagram.com/accounts/login/"}), headers=OPEN)
+assert r.json()["started"] is False and json.loads((browser.EXTENSION_DIR / "pairing.json").read_text())["key"] == pairing["key"]
+for bad in ("javascript:alert(1)", "file:///etc/passwd", "ftp://x.test/", "chrome://settings", "https://a b", ""):
+    assert c.post("/api/browser/open", content=json.dumps({"url": bad}), headers=OPEN).status_code == 400, bad
+assert c.post("/api/browser/open", content=json.dumps({"url": "https://x.com/", "case": "nope"}), headers=OPEN).status_code == 404
+assert bare.post("/api/browser/open", content=json.dumps({"url": "https://x.com/"}), headers={**HB}).status_code == 403  # web only
+browser.chromium = lambda: None
+assert c.post("/api/browser/open", content=json.dumps({"url": "https://x.com/"}), headers=OPEN).status_code == 503
+# sign-in states: presence only; anything that isn't a state (a cookie value, say) is refused
+signin = lambda body, h=HB: c.post("/api/capture/signins", content=json.dumps(body), headers=h)
+assert signin({"facebook": "signed_in", "x": "signed_out", "myspace": "signed_in"}).status_code == 200
+st = c.get("/api/browser/status").json()
+assert (st["facebook"], st["x"], st["instagram"]) == ("signed_in", "signed_out", "unknown") and st["checked_at"]
+assert "myspace" not in json.loads(browser.STATUS.read_text())
+assert signin({"facebook": "AQEDAR4wxyz-session-cookie"}).status_code == 400
+assert signin({"facebook": "signed_in"}, KEYED).status_code == 403  # the void key
+# signing out moves the profile to the Trash (here a stand-in folder), never while it's open
+trash = Path(tempfile.mkdtemp())
+inbox._trash = lambda path: path.rename(trash / path.name)
+browser.PROFILE.mkdir(parents=True, exist_ok=True)
+(browser.PROFILE / "Cookies").write_bytes(b"encrypted")
+browser.running = lambda: True
+assert c.post("/api/browser/sign-out", content="{}", headers=WEB).status_code == 409
+browser.running = lambda: False
+r = c.post("/api/browser/sign-out", content="{}", headers=WEB).json()
+assert r["moved_to"] == "Trash" and (trash / "profile" / "Cookies").read_bytes() == b"encrypted" and not browser.PROFILE.exists()
+assert r["facebook"] == "unknown" and r["checked_at"] is None
+assert c.post("/api/browser/sign-out", content="{}", headers=WEB).json()["moved_to"] is None
+
 # --- Unpairing closes the capture routes ----------------------------------------------------------
 assert c.post("/api/pairing/forget", content="{}", headers=WEB).json() == {"paired": False}
-assert c.post("/api/capture/hello", content="{}", headers=KEYED).status_code == 403
+assert c.post("/api/capture/hello", content="{}", headers=HB).status_code == 403
 c.__exit__(None, None, None)
 bare.__exit__(None, None, None)
 
@@ -231,12 +288,15 @@ for name, js in code.items():
                    r"dispatchEvent\(", r"executeScript", r"history\.(?:push|replace)State", r"XMLHttpRequest",
                    r"WebSocket", r"sendBeacon", r"\beval\("):
         assert not re.search(banned, js), (name, banned)
-    for target in re.findall(r"fetch\(\s*`?([^,)]+)", js):  # every request goes to Hunt on this computer
-        assert target.startswith("http://127.0.0.1:"), (name, target)
+    for target in re.findall(r"fetch\(\s*`?([^,)]+)", js):  # Hunt on this computer, or the extension's own pairing.json
+        assert target.startswith(("http://127.0.0.1:", 'chrome.runtime.getURL("pairing.json"')), (name, target)
 assert "fetch(" not in code["content.js"] and "chrome.storage" not in code["content.js"]
 manifest = json.loads((HERE / "extension" / "manifest.json").read_text())
-assert manifest["content_security_policy"]["extension_pages"].endswith("connect-src http://127.0.0.1:*")
+assert manifest["content_security_policy"]["extension_pages"].endswith("connect-src 'self' http://127.0.0.1:*")
 assert manifest["manifest_version"] == 3 and "<all_urls>" not in json.dumps(manifest)
-assert not {"cookies", "history", "webRequest", "debugger", "scripting", "downloads"} & set(manifest["permissions"])
+assert not {"history", "webRequest", "debugger", "scripting", "downloads", "management"} & set(manifest["permissions"])
+# cookies: only whether a sign-in cookie exists; no cookie's value is ever read, kept or sent
+assert not re.search(r"\.value\b|getAll", code["background.js"]) and "cookies" not in code["popup.js"] + code["content.js"]
+assert re.findall(r"chrome\.cookies\.\w+", code["background.js"]) == ["chrome.cookies.get", "chrome.cookies.onChanged"]
 
 print("ok")

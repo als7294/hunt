@@ -41,7 +41,7 @@ from starlette.staticfiles import StaticFiles
 from . import report, search, vlm
 from . import bundle, inbox, notes, recheck, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
-from . import extension  # docs/capture.md
+from . import browser, extension  # docs/capture.md
 from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, Case, all_cases
 from .match import ICD203
 from .seed import detect
@@ -1115,7 +1115,46 @@ async def capture_pair(req: Request):
 
 async def capture_hello(req: Request):
     cases = [{"slug": s, "label": Case.open(s).details()["label"]} for s in all_cases()]
-    return JSONResponse({"version": version("hunt-osint"), **extension.status(), "cases": cases})
+    active = next((c for c in cases if c["slug"] == browser.active_case()), None)
+    return JSONResponse({"version": version("hunt-osint"), **extension.status(), "cases": cases, "active_case": active})
+
+
+async def capture_signins(req: Request):
+    try:
+        return JSONResponse(browser.record(await _body(req)))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+async def browser_status(req: Request):
+    browser.repoint(req.url.port)  # an open Hunt Browser follows Hunt to its new port; nothing else changes
+    return JSONResponse(await asyncio.to_thread(browser.status))
+
+
+async def browser_open(req: Request):
+    b = await _body(req)
+    if b.get("case") is not None:
+        try:
+            Case.open(str(b["case"]))
+        except LookupError:
+            raise HTTPException(404, "no such case")
+    try:
+        return JSONResponse(await asyncio.to_thread(browser.open_url, str(b.get("url") or ""), req.url.port, b.get("case")))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except LookupError as e:
+        raise HTTPException(503, str(e))
+
+
+async def browser_sign_out(req: Request):
+    try:
+        where = await asyncio.to_thread(browser.sign_out)
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+    except OSError as e:
+        raise HTTPException(500, f"couldn't move the profile to the Trash: {e}")
+    print("hunt app: Hunt Browser profile moved to the Trash" if where else "hunt app: no Hunt Browser profile", file=sys.stderr)
+    return JSONResponse({"moved_to": where} | await asyncio.to_thread(browser.status))
 
 
 async def capture_checklist(req: Request):
@@ -1191,6 +1230,10 @@ CAPTURE_ROUTES = [
     Route("/api/capture/view", capture_view, methods=["POST"]),
     Route("/api/capture/page", capture_page, methods=["POST"]),
     Route("/api/capture/recording", capture_recording, methods=["POST"]),
+    Route("/api/capture/signins", capture_signins, methods=["POST"]),
+    Route("/api/browser/status", browser_status),
+    Route("/api/browser/open", browser_open, methods=["POST"]),
+    Route("/api/browser/sign-out", browser_sign_out, methods=["POST"]),
 ]
 
 

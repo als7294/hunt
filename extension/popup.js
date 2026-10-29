@@ -30,6 +30,11 @@ async function render() {
   if (!s.paired) return;
 
   const hello = await ask({ type: "hello" });
+  if (!s.case && hello.active_case) {  // the Hunt Browser was opened from this case
+    await ask({ type: "case", slug: hello.active_case.slug, label: hello.active_case.label });
+    return render();
+  }
+  $("unpair").hidden = Boolean(s.huntBrowser);  // the Hunt Browser pairs itself
   const pick = $("case");
   pick.replaceChildren(el("option", { value: "" }, "Choose a case…"),
     ...hello.cases.map((c) => el("option", { value: c.slug, selected: c.slug === s.case }, c.label)));
