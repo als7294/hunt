@@ -59,7 +59,7 @@ Live carrier/CNAM lookup needs paid services (e.g. Twilio Lookup), so it's out o
 | Option | Licence | Status | Risk |
 |---|---|---|---|
 | **YouTube Data API v3** | Official | Free, 10K units/day | Low |
-| **Bluesky (atproto)**, **Mastodon**, **GitHub** APIs | Official/open | Free | Low, easy wins |
+| **Bluesky (atproto)**, **Mastodon**, **GitHub** APIs | Official/open | Free | Low. **Wired in**, see [API sources in Hunt](#api-sources-in-hunt) |
 | instaloader | MIT | v4.16 (2026-10-26) | Logged-out access heavily throttled; login risks bans. High. |
 | twscrape | MIT | v0.20.1 (2026-08) | Needs X accounts/cookies. High. |
 | TikTok-Api | MIT | v7.3.3 (2026-04) | Unofficial, Playwright-based, fragile |
@@ -73,15 +73,48 @@ Live carrier/CNAM lookup needs paid services (e.g. Twilio Lookup), so it's out o
 
 | Source | Access | Notes |
 |---|---|---|
-| **OpenFEC** | Free api.data.gov key (~1,000 req/hr, **unverified**) | Donor name, address, employer, occupation: strong identity anchor |
-| **SEC EDGAR** | Free JSON at data.sec.gov, 10 req/s, User-Agent required | Officers, insiders |
-| **CourtListener / RECAP** | Free API token | **Free limits cut 2026-05-07**; exact new limits **unverified** |
-| **Wayback CDX** | Free, no key | ~60 req/min community estimate; back off on 429 |
+| **OpenFEC** | `DEMO_KEY` (headers show 10 req/hr); free api.data.gov key 1,000 req/hr | Donor name, city, employer, occupation. **Wired in.** Use limits apply (see below) |
+| **SEC EDGAR** | Keyless JSON, 10 req/s, User-Agent required | Insiders as filers; full-text search of filings. **Wired in** |
+| **CourtListener / RECAP** | **Token required for every API call** (anonymous gets 401/403) | Free account reportedly 5/min, 50/hr, 125/day since 2026-05-07 (official docs still say 5,000/hr). **Wired in, opt-in** |
+| **NPPES NPI Registry** | Keyless, no published limit | US healthcare providers by name. **Wired in** |
+| **Wayback CDX** | Free, no key | ~60 req/min (2023 maintainer figure); back off on 429. **Wired in** |
 | **Nominatim / OSM** | Public instance 1 req/s, ODbL attribution | Self-host for scale |
 | PACER | $0.10/page (rising to $0.12 on 2027-01-01) | Not free; out of MVP |
 | OpenCorporates | Free only for journalists/NGOs/academics | Paid investigators likely don't qualify |
 | NSOPW / sex-offender registries | **No API; terms forbid automated search** | Link out only |
 | Property/assessor | County by county, no free national API | Out of MVP |
+
+## API sources in Hunt
+
+_Checked live on 2026-10-29, logged out, with public organisations' handles, `example.com` emails and a made-up name. Each is one module in `hunt/sources/`, through `HUNT_PROXY`. Every key is optional and off by default._
+
+| Source (module) | Seed → what it returns | Limits, logged out | Key | Terms and caveats |
+|---|---|---|---|---|
+| **GitHub** (`github`) | username → name, location, blog, bio, company, public email, Twitter handle, social links, avatar. Name or email → user search, first 10 profiles read | 60 profile reads/hr, 10 searches/min per IP; responses cached a day | `HUNT_GITHUB_TOKEN` (5,000/hr) | AUP bans selling personal data taken from GitHub (e.g. to recruiters) and spam |
+| **Gravatar** (`gravatar`) | email → display name, location, job, company, avatar, **verified accounts** (owner signed in to each) | 100 profile lookups/hr; at most 4 verified accounts; no contact info | `HUNT_GRAVATAR_KEY` (1,000/hr, all accounts) | Docs discourage unauthenticated use but allow it |
+| **Keybase** (`keybase`) | username → full name, location, bio, and accounts **proven with signed statements**. Looked up as Keybase, GitHub and Twitter handle | None published; 3 requests per username | none | Maintenance mode (Zoom); proofs only count while live |
+| **Bluesky** (`bluesky`) | username → profile at `<u>.bsky.social` or a domain handle (domain = proven website). Name → actor search (loose: any word matches) | Unpublished, "generous" (public AppView) | none | Public AppView meant for this use |
+| **Mastodon** (`mastodon`) | name → accounts mastodon.social knows. Username → exact-handle matches across instances. `@user@instance` → WebFinger on that instance. Returns display name, bio, profile fields, `rel=me` verified links | mastodon.social 300 req / 5 min per IP | none | `resolve=false`: never makes mastodon.social fetch remote servers |
+| **Stack Exchange** (`stackexchange`) | name → Stack Overflow users whose display name contains it (username → exact matches). Location, website, and the email's MD5 from Gravatar avatars | 300 req/day per IP; `backoff` obeyed | none | Content CC BY-SA |
+| **keys.openpgp.org** (`openpgp`) | email → key fingerprint, the name on the key, other confirmed addresses | Rate-limited, numbers unpublished | none | Identities appear only after the owner confirms by email |
+| **Wayback CDX** (`wayback`) | url → capture history. Username → archived profiles on X/Twitter, Instagram, TikTok, Reddit, YouTube (deleted accounts; Facebook is the `facebook` source's) | ~60/min; Hunt sends 1/s and stops at a 429 | none | An archived URL isn't proof an account existed |
+| **OpenFEC** (`fec`) | name → itemized contributions (> $200) grouped per donor: city, ZIP, employer, occupation, totals, recipients, filing images | `DEMO_KEY` 10/hr | `HUNT_FEC_KEY` (1,000/hr) | **52 U.S.C. 30111(a)(4) / 11 CFR 104.15:** no use to solicit contributions or for commercial purposes like marketing. A report isn't solicitation; the firm should confirm |
+| **SEC EDGAR** (`edgar`) | name → filers with their own CIK (insiders; address of record, form types) and companies whose filings contain the exact name | 10 req/s; ≤ 7 requests per name | `HUNT_SEC_UA` (your firm + contact) | SEC's firewall 403s any User-Agent containing "github.com" |
+| **NPI Registry** (`npi`) | first + last name → providers' practice address and phone, specialty, licence numbers, **former names** | None published | none | Public CMS data (FOIA) |
+| **CourtListener** (`courtlistener`) | name → federal RECAP dockets with that party: case, court, docket number, dates, parties | Free account 5/min, 50/hr, 125/day (third-party report) | `HUNT_COURTLISTENER_TOKEN`, **required**; off without it | RECAP is a sample of PACER, not every case |
+
+### Considered and rejected
+
+| Candidate | Why not |
+|---|---|
+| ORCID public API | Free only for non-commercial use: no use "in connection with any revenue-generating product or service". A paid investigation is that. The CC0 annual data file is the lawful route if academics matter |
+| npm registry (maintainer emails) | npm's terms: "You will not copy or share any personally identifiable information of any other person without their specific permission" |
+| GitHub commit emails (events API) | Harvesting authors' emails from commits is the use GitHub's AUP targets; profile `email` (public by choice) is kept |
+| GitLab API | `/users/:id` (bio, location, links) now needs a login; logged out gives only name and avatar, and Maigret already checks existence |
+| Docker Hub | Profiles rarely filled in (full name, location, company); Maigret covers existence |
+| PyPI | No user API; user pages are behind a client challenge |
+| FINRA BrokerCheck | Terms limit use to investor-protection, compliance or regulatory purposes, and forbid bulk automated collection |
+| OFAC SDN list | Free and lawful, but a bulk list with fuzzy name matching, not a search API. Worth a separate sanctions-screen step |
 
 ## Image / identity
 
@@ -123,10 +156,10 @@ Live carrier/CNAM lookup needs paid services (e.g. Twilio Lookup), so it's out o
 3. user-scanner (email/username registration)
 4. python-phonenumbers
 5. rapidfuzz + jellyfish + nameparser + nicknames + usaddress for scoring (Splink later)
-6. OpenFEC + SEC EDGAR
-7. CourtListener
-8. Wayback CDX
-9. YouTube / Bluesky / Mastodon / GitHub official APIs
+6. OpenFEC + SEC EDGAR (done)
+7. CourtListener (done; opt-in token)
+8. Wayback CDX (done)
+9. Bluesky / Mastodon / GitHub official APIs (done); YouTube still to do
 10. HIBP (bring your own key, off by default)
 11. Nominatim + ExifTool
 
@@ -145,6 +178,10 @@ Live carrier/CNAM lookup needs paid services (e.g. Twilio Lookup), so it's out o
 - [Reddit API 2026](https://www.redditapis.com/blogs/reddit-data-api-2026)
 - [X pay-per-use](https://opentermsarchive.org/en/memos/x-replaces-its-dollar200-entry-level-api-plan-with-a-pay-per-use-model/)
 - [Wayback rate limit](https://cirosantilli.com/wayback-machine-rate-limit)
+- API sources: [GitHub rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api), [GitHub AUP](https://docs.github.com/en/site-policy/acceptable-use-policies/github-acceptable-use-policies), [Gravatar REST API](https://docs.gravatar.com/rest-api/), [Bluesky rate limits](https://docs.bsky.app/docs/advanced-guides/rate-limits), [Mastodon rate limits](https://docs.joinmastodon.org/api/rate-limits/), [Stack Exchange throttles](https://api.stackexchange.com/docs/throttle), [SEC EDGAR access](https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data), [NPI registry API (no documented limit)](https://docs.ropensci.org/npi/articles/npi.html)
+- CourtListener limits: [free.law issue #7200](https://github.com/freelawproject/courtlistener/issues/7200), [third-party guide](https://www.vaquill.ai/blog/how-to-use-courtlistener-api)
+- FEC use restriction: [FEC: sale or use of contributor information](https://www.fec.gov/updates/sale-or-use-contributor-information), [11 CFR 104.15](https://www.law.cornell.edu/cfr/text/11/104.15)
+- Rejected: [ORCID API limits](https://info.orcid.org/ufaqs/what-are-the-api-limits/), [ORCID public API terms](https://info.orcid.org/public-client-terms-of-service/), [npm open-source terms](https://docs.npmjs.com/policies/open-source-terms), [BrokerCheck permitted uses](https://www.finra.org/investors/investing/working-with-investment-professional/about-brokercheck/permitted-uses)
 - [Maltego plans](https://docs.maltego.com/support/solutions/articles/15000036759-maltego-products-and-plans)
 - [IntelTechniques tools](https://inteltechniques.com/tools/)
 - [OSINT Industries pricing](https://www.techjockey.com/detail/osint-industries)

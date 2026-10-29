@@ -44,7 +44,7 @@ Event `data` is JSON with a `type`:
 - **`stage`:** `{stage: "asking"|"finding"|"checking"|"collecting"|"scanning"|"done"}`
 - **`source`:** `{source, seed, status: "running"|"found"|"nothing found"|"failed", found, checked, note}`
 - **`account`:** `{url, site, verdict, probability}`, sent as candidates are scored
-- **`scan`:** `{checked, total, photos, videos, found, eta_s}` (`eta_s` is from the measured rate; null until known)
+- **`scan`:** `{checked, total, photos, videos, found, eta_s, media_id}` (`eta_s` is from the measured rate, null until known; `media_id` is the file just checked, null on other updates)
 - **`hit`:** a hit object (below)
 - **`log`:** `{message}`
 - **`done`:** `{ok: true}`
@@ -99,3 +99,20 @@ scan.set_status(case, hit_id: int, status: str) -> dict
 - `other_job`: working another job
 - `driving`: driving
 - `injury`: mentions of the injury
+
+## Quality of life: the Downloads inbox, the evidence bundle, links
+See [qol.md](qol.md) for the screens that use these.
+
+| Method | Path | Body / response |
+|---|---|---|
+| GET | `/api/cases/{slug}/inbox?folder=&days=7` | `{folder, days, files: [inbox file]}`, newest first. `folder` defaults to `~/Downloads` and must be an absolute path to a folder; `days` is 0–365. Only photos and videos directly in the folder are listed. Nothing changes on disk |
+| POST | `/api/cases/{slug}/inbox` | `{folder?, days?, take: [{id, url?, platform?, handle?, posted_at?}], keep?: false}` → `{files: [inbox file + result, trashed]}`. Re-lists the folder and files the chosen ids through `posts.add_files`. The client never sends paths. An id that's gone returns 409. Each original goes to the Trash once its bytes are in the evidence, unless `keep`. Audited as `inbox import` |
+| GET | `/api/cases/{slug}/evidence.zip` | Download: `exhibits/`, `manifest.csv`, `SHA256SUMS`, `audit-log.csv`, `README.txt`. Header `x-bundle-sha256` carries the zip's hash, which is also audited as `evidence exported` |
+| GET | `/api/unfurl?url=` | `{platform, handle, post_id, posted_at, url}`. Works offline. `url` comes back without tracking parameters. `posted_at` is read from TikTok and X post ids |
+
+- **inbox file:** `{id (first 8 hex of sha256), sha256, name, folder, size, saved, in_case: bool, named_by, platform, handle, post_id, posted_at, url, where_from: [url], from: {platform|handle|posted_at: "file name"|"where from"|"case"|"link"|"post id"|"you"}, exhibit}`
+  - `named_by` is the downloader site whose naming the file follows (`ssstik`, `snaptik`…, or `Facebook or Instagram` for files saved from their servers).
+  - `exhibit` is the proposed clean name.
+  - A handle `from: "case"` is a guess from the subject's only confirmed account on that platform. Show it as one.
+- **result:** `"added"`, `"already in the case"` or `"changed since listed"`.
+- **trashed:** `true`, or a sentence saying why the original was left (`"kept, as asked"`, `"left: …"`).

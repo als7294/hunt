@@ -9,7 +9,7 @@ import tempfile
 
 os.environ["HUNT_HOME"] = tempfile.mkdtemp()  # before hunt.case reads it
 
-from hunt.cli import build
+from hunt.search import build
 from hunt.case import Case
 from hunt.geo import Place
 from hunt.match import compare_names, place_text, score, username_u, verdict
@@ -44,68 +44,68 @@ PLACES = {"Tucson, AZ": TUCSON, "Tucson, Arizona": TUCSON, "Tucson": TUCSON,
                               "Washington, District of Columbia, United States or Washington, United States")}
 
 # Rare handle + matching name (via nickname) + matching city: the subject
-p, v, why = score(rare, "https://site.test/kestrel_vane88", {"fullname": "Bob Vance", "location": "Tucson, Arizona"}, subject,
+p, v, why, _ = score(rare, "https://site.test/kestrel_vane88", {"fullname": "Bob Vance", "location": "Tucson, Arizona"}, subject,
                   places=PLACES)
 assert v == "almost certain", (p, why)
 assert any("name 'Bob Vance' matches" in r for r in why), why
 
 # Common handle, someone else's name, another city: a namesake
-p, v, why = score(Seed("username", "kv"), "https://site.test/kv", {"fullname": "Dana Holt", "location": "Leeds"}, subject, places=PLACES)
+p, v, why, _ = score(Seed("username", "kv"), "https://site.test/kv", {"fullname": "Dana Holt", "location": "Leeds"}, subject, places=PLACES)
 assert any("different country" in r for r in why), why
 assert p < 0.05, (p, why)
 
 # A display name that just echoes a common handle is not a name match (namesakes default to it)
-p, v, why = score(Seed("username", "vance"), "https://site.test/vance", {"fullname": "Vance"},
+p, v, why, _ = score(Seed("username", "vance"), "https://site.test/vance", {"fullname": "Vance"},
                   subject + [Seed("name", "Vance")])
 assert p < 0.45 and any("only repeats the username" in r for r in why), (p, why)
 
 # Gravatar hash of the subject's email outweighs a weak handle
 gh = hashlib.md5(b"rv@example.com").hexdigest()
-p, v, _ = score(Seed("username", "kv"), "https://site.test/kv", {"gravatar_email_md5_hash": gh}, subject)
+p, v, _, _ = score(Seed("username", "kv"), "https://site.test/kv", {"gravatar_email_md5_hash": gh}, subject)
 assert v == "almost certain", p
 
 # Linking to another account with the subject's handle helps; a self-link doesn't
-base, _, _ = score(rare, "https://a.test/kestrel_vane88", {}, subject)
-linked, _, _ = score(rare, "https://a.test/kestrel_vane88", {"website": "https://b.test/kestrel_vane88"}, subject)
-self_link, _, _ = score(rare, "https://a.test/kestrel_vane88", {"website": "https://a.test/kestrel_vane88"}, subject)
+base, _, _, _ = score(rare, "https://a.test/kestrel_vane88", {}, subject)
+linked, _, _, _ = score(rare, "https://a.test/kestrel_vane88", {"website": "https://b.test/kestrel_vane88"}, subject)
+self_link, _, _, _ = score(rare, "https://a.test/kestrel_vane88", {"website": "https://a.test/kestrel_vane88"}, subject)
 assert linked > base == self_link, (base, linked, self_link)
 
 # Email registrations are the subject's by construction
-p, v, _ = score(Seed("email", "rv@example.com"), "https://shop.test", {}, subject)
+p, v, _, _ = score(Seed("email", "rv@example.com"), "https://shop.test", {}, subject)
 assert v == "almost certain", p
 
 # Rarity comes from the measured hit rate when enough sites answered, else from length
 assert username_u("nasa", (243, 409))[0] > 0.5
 assert username_u("kestrel_vane88", (9, 700))[0] < 0.02
 assert username_u("kestrel_vane88", (9, 20))[1] == "judged by length"  # too few answers to trust
-_, _, why = score(Seed("username", "jdoe"), "https://s.test/jdoe", {}, subject, {"jdoe": (450, 800)})
+_, _, why, _ = score(Seed("username", "jdoe"), "https://s.test/jdoe", {}, subject, {"jdoe": (450, 800)})
 assert any("common (taken on 450 of 800 sites checked)" in r for r in why), why
-short_common, _, _ = score(Seed("username", "zqxv"), "https://s.test/zqxv", {}, subject, {"zqxv": (450, 800)})
-short_rare, _, _ = score(Seed("username", "zqxv"), "https://s.test/zqxv", {}, subject, {"zqxv": (6, 800)})
+short_common, _, _, _ = score(Seed("username", "zqxv"), "https://s.test/zqxv", {}, subject, {"zqxv": (450, 800)})
+short_rare, _, _, _ = score(Seed("username", "zqxv"), "https://s.test/zqxv", {}, subject, {"zqxv": (6, 800)})
 assert short_rare > 0.45 > short_common, (short_rare, short_common)  # same length, opposite evidence
 
 # One identifier is never enough: a rare handle alone tops out at "roughly even chance",
 # a rare handle with a conflicting name falls below it, and corroboration lifts the cap
-alone, v, why = score(rare, "https://s.test/kestrel_vane88", {}, subject, {"kestrel_vane88": (3, 700)})
+alone, v, why, _ = score(rare, "https://s.test/kestrel_vane88", {}, subject, {"kestrel_vane88": (3, 700)})
 assert v == "roughly even chance" and "capped" in why[0], (alone, why)
-clash, _, _ = score(rare, "https://s.test/kestrel_vane88", {"fullname": "Dana Holt"}, subject, {"kestrel_vane88": (3, 700)})
+clash, _, _, _ = score(rare, "https://s.test/kestrel_vane88", {"fullname": "Dana Holt"}, subject, {"kestrel_vane88": (3, 700)})
 assert clash < 0.2, clash
-backed, v, _ = score(rare, "https://s.test/kestrel_vane88", {"location": "Tucson"}, subject, {"kestrel_vane88": (3, 700)}, PLACES)
+backed, v, _, _ = score(rare, "https://s.test/kestrel_vane88", {"location": "Tucson"}, subject, {"kestrel_vane88": (3, 700)}, PLACES)
 assert v in ("very likely", "almost certain"), (backed, v)
 
 # Location tiers from geocoding: nearby city corroborates, a joke location and a bare country don't
-_, _, why = score(rare, "https://s.test/k", {"location": "Phoenix"}, subject, places=PLACES)
+_, _, why, _ = score(rare, "https://s.test/k", {"location": "Phoenix"}, subject, places=PLACES)
 assert any("same region as 'Tucson, AZ'" in r and "read as Phoenix, Maricopa County" in r for r in why), why
-_, v, why = score(rare, "https://s.test/k", {"location": "Pale Blue Dot"}, subject, places=PLACES)
+_, v, why, _ = score(rare, "https://s.test/k", {"location": "Pale Blue Dot"}, subject, places=PLACES)
 assert any("couldn't place 'Pale Blue Dot'" in r for r in why) and v == "roughly even chance", why
-_, v, why = score(rare, "https://s.test/k", {"location": "USA"}, subject, places=PLACES)
+_, v, why, _ = score(rare, "https://s.test/k", {"location": "USA"}, subject, places=PLACES)
 assert any("same country" in r for r in why) and v == "roughly even chance", why  # too weak to corroborate
 assert not any(" km;" in r for r in why), why  # no distance quoted against a whole country
-_, _, why = score(rare, "https://s.test/k", {"location": "Washington"}, subject, places=PLACES)
+_, _, why, _ = score(rare, "https://s.test/k", {"location": "Washington"}, subject, places=PLACES)
 assert any("read as Washington, District of Columbia or Washington, United States" in r for r in why), why
-_, _, why = score(rare, "https://s.test/k", {"location": "Phoenix"}, subject, places=PLACES)
+_, _, why, _ = score(rare, "https://s.test/k", {"location": "Phoenix"}, subject, places=PLACES)
 assert any("(171 km; read as Phoenix" in r for r in why), why  # two cities: distance shown
-_, _, why = score(rare, "https://s.test/k", {"location": "Tucson"}, subject)  # offline: nothing placed
+_, _, why, _ = score(rare, "https://s.test/k", {"location": "Tucson"}, subject)  # offline: nothing placed
 assert any("isn't counted" in r for r in why), why
 # Placeholders never reach the geocoder (a real village is called "Unknown")
 assert place_text({"location": "Unknown"}) == "" and place_text({"location": "N/A", "country": "US"}) == "US"
@@ -125,7 +125,7 @@ assert "part of" in compare_names("Marisol", "Marisol Vance", handle="kestrel_va
 try:
     Case("no-purpose")
     raise AssertionError("a new case must require a purpose")
-except SystemExit:
+except ValueError:
     pass
 case = Case("Vance Screen", purpose="test")
 handle = Seed("username", "kestrel_vane88")
@@ -145,5 +145,47 @@ assert any("taken on 2 of 600 sites checked" in r for r in top["reasons"]), top[
 assert report["pivots"] == ["vane_alt"], report["pivots"]  # not the known handle, not the namesake's
 assert other["probability"] < top["probability"]
 assert [a["action"] for a in report["audit"]] == ["case opened"]
+assert top["tags"][0] == "username" and len(top["tags"]) == len(top["reasons"])
+
+# Opening never creates; creating never merges; details round-trip
+try:
+    Case.open("no-such-case")
+    raise AssertionError("open must not create")
+except LookupError:
+    pass
+assert Case.open("vance-screen").purpose == "test"
+dup = Case.create("Vance Screen", "second look", kind="background", look_for=["travel", "custom: boat"])
+assert dup.name == "vance-screen-2" and dup.details()["look_for"] == ["travel", "custom: boat"]
+assert dup.details()["kind"] == "background" and dup.details()["label"] == "Vance Screen"
+
+# Decisions: latest wins and is audited; "him" makes a profile known, "not him" drops it from the person
+case.add_finding(Finding("maigret", handle, "SiteC", "https://c.test/kestrel_vane88",
+                         {"website": "https://b.test/kestrel_vane88"}))
+case.decide("https://b.test/kestrel_vane88", "unsure")
+case.decide("https://B.test/kestrel_vane88/", "him", "same photo as the file")
+assert case.decisions()["https://b.test/kestrel_vane88"]["decision"] == "him"
+c = {x["site"]: x for x in build(case)["candidates"]}
+assert "confirmed" in c["SiteB"]["tags"] and c["SiteB"]["decision"] == "him", c["SiteB"]
+assert any("links to the subject's known profile" in r for r in c["SiteC"]["reasons"]), c["SiteC"]
+case.decide("https://a.test/kestrel_vane88", "not him")
+report = build(case)
+assert "vane_alt" not in report["pivots"] and "holt_d" in report["pivots"], report["pivots"]
+assert sum(a["action"] == "decision" for a in report["audit"]) == 3
+
+# Evidence: streamed from a file, and re-hashing catches an edited file
+big = os.path.join(tempfile.mkdtemp(), "clip.mp4")
+with open(big, "wb") as f:
+    f.write(os.urandom(3 << 20))
+sha, rel = case._store(__import__("pathlib").Path(big), "mp4")
+assert sha == hashlib.sha256(open(big, "rb").read()).hexdigest() and (case.dir / rel).exists()
+assert case.verify()["tampered"] == []
+assert case.verify(quick=True)["tampered"] == []  # remembers what verified
+st = os.stat(case.dir / rel)
+(case.dir / rel).write_bytes(os.urandom(3 << 20))
+os.utime(case.dir / rel, ns=(st.st_atime_ns, st.st_mtime_ns))  # same size, same time: a careful edit
+assert case.verify(quick=True)["tampered"] == [] and case.verify()["tampered"] == [rel]  # only a full check sees it
+assert case.verify(quick=True)["tampered"] == [rel]  # and once seen, it stays flagged
+(case.dir / rel).write_bytes(b"edited")
+assert case.verify(quick=True)["tampered"] == [rel]  # a changed size is always re-hashed
 
 print("ok")
