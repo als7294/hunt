@@ -162,6 +162,30 @@ def _queries(text: str) -> list[str]:
     return [ALIASES.get(k, k) for k in keys if k and k not in NOT_PLACES]
 
 
+async def named(query: str, near: tuple[float, float, float] | None = None, country: str | None = None) -> list[dict]:
+    """Places and features (streets, shops, stations) named like `query`, inside a box of
+    `near` = (lat, lon, km) and/or a country. Cached; same 1 request/second as locate()."""
+    params = {"q": query, "format": "jsonv2", "limit": 5, "accept-language": "en"}
+    if near:
+        lat, lon, km = near
+        dlat, dlon = km / 111, km / (111 * max(math.cos(math.radians(lat)), 0.1))
+        params |= {"bounded": 1, "viewbox": f"{lon - dlon:.4f},{lat + dlat:.4f},{lon + dlon:.4f},{lat - dlat:.4f}"}
+    if country:
+        params["countrycodes"] = country
+    key = "named:" + json.dumps(params, sort_keys=True)
+    cache = _load()
+    if key not in cache:
+        async with httpx.AsyncClient(timeout=20, headers={"User-Agent": UA}, proxy=os.environ.get("TESSERA_PROXY")) as c:
+            await _turn()
+            r = await c.get(URL, params=params)
+            r.raise_for_status()
+        cache[key] = [{"name": h.get("name") or h["display_name"].split(",")[0], "lat": float(h["lat"]),
+                       "lon": float(h["lon"]), "kind": f"{h.get('category')}={h.get('type')}",
+                       "label": h["display_name"]} for h in r.json()]
+        _save()
+    return cache[key]
+
+
 async def _turn():
     """Wait for this request's 1-per-INTERVAL slot. No lock needed: nothing awaits between read and write."""
     global _next_slot

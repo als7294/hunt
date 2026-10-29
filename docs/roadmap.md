@@ -48,7 +48,13 @@
 ## M2: app UI
 - Local FastAPI server, results streamed live; frontend built from the chosen design prototype.
 
-## M3: photo geolocation (in progress)
+## M3: photo geolocation (ON HOLD: shown as "coming soon" in the app)
+Paused 2026-10-29 to focus on people search and media scanning. What exists works and is tested; measured on the Commons benchmark:
+- GeoCLIP alone: 27% within 25 km, median 582 km (75 photos).
+- Densest-spot rule, no text and no vision model: 41% within 25 km, median 221 km (75 photos).
+- Full fusion with the vision model's town refinement: 53% within 25 km, median 5 km (47 photos, offline replay).
+- `--verify`: an opt-in OpenStreetMap lookup of the photo's text.
+- When it resumes: environment clues (vegetation, soil, sun) and local geolocation models; a survey and a bigger benchmark were in progress on side branches.
 - ✅ `tessera photo IMAGE... --case NAME`, entirely on-device. Steps:
   - SHA-256 + dHash
   - EXIF (device, time, camera GPS)

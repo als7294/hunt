@@ -49,13 +49,16 @@ def main():
     s.add_argument("--no-capture", action="store_true", help="don't screenshot likely matches")
     p = sub.add_parser("photo", parents=[common], help="estimate where photos were taken, on this machine")
     p.add_argument("images", nargs="+", help="image files")
+    p.add_argument("--verify", action="store_true",
+                   help="look the photo's text up on OpenStreetMap around the top areas "
+                        "(sends those text lines and areas to OpenStreetMap's Nominatim)")
     args = ap.parse_args()
 
     if args.proxy:
         os.environ["TESSERA_PROXY"] = args.proxy
     case = Case(args.case, args.purpose)
     if args.cmd == "photo":
-        asyncio.run(photos(case, args.images))
+        asyncio.run(photos(case, args.images, args.verify))
         places = asyncio.run(geocode(case))
     else:
         seeds = [seed for raw in args.seeds for seed in detect(raw)]
@@ -94,11 +97,12 @@ async def fan_out(case: Case, seeds: list[Seed]):
     await asyncio.gather(*jobs)
 
 
-async def photos(case: Case, paths: list[str]):
+async def photos(case: Case, paths: list[str], verify: bool = False):
     for path in paths:
-        result = await photo.analyze(path)
+        result = await photo.analyze(path, verify)
         case.add_photo(path, result)
-        case.audit("photo", {"file": Path(path).name, "sha256": result["sha256"]})
+        case.audit("photo", {"file": Path(path).name, "sha256": result["sha256"],
+                             **({"sent_to_openstreetmap": result["map_lookup"]["searched"]} if verify else {})})
         top = "; ".join(f"{h['label']} ±{h['radius_km']} km ({h['share']:.0%})" for h in result["hypotheses"][:3])
         print(f"{Path(path).name}: {top or 'no estimate'}" + "".join(f"\n  note: {n}" for n in result["notes"]),
               file=sys.stderr)

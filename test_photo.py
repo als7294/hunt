@@ -16,7 +16,7 @@ from PIL import Image
 from tessera.case import Case
 from tessera.cli import build
 from tessera.geo import Place
-from tessera.photo import cluster, dhash, exif, fuse
+from tessera.photo import cluster, densest, dhash, exif, fuse
 
 
 def picture(seed: int) -> Image.Image:
@@ -59,7 +59,11 @@ cands = [(35.68, 139.76, 0.05)] * 6 + [(35.0, 135.76, 0.08)] * 2 + [(-33.87, 151
 cl = cluster(cands)
 assert [round(c["mass"], 2) for c in cl] == [0.30, 0.16, 0.01], cl  # Tokyo outweighs Kyoto's single best pick
 assert all(c["radius_km"] >= 25 for c in cl)
-assert cluster([(10, 10, 0.5), (10.5, 10.5, 0.5)])[0]["mass"] == 1.0  # ~78 km apart: one area
+assert cluster([(10, 10, 0.5), (10.2, 10.2, 0.5)])[0]["mass"] == 1.0  # ~31 km apart: one area
+assert len(cluster([(10, 10, 0.5), (10.5, 10.5, 0.5)])) == 2  # ~78 km apart: two
+# An area's point is where candidates pile up, not its single strongest candidate
+pile = [(48.8566, 2.3522, 0.03)] * 5 + [(48.85, 2.36, 0.02)] * 3 + [(48.95, 2.25, 0.08)]
+assert densest(pile) == (48.8566, 2.3522)
 
 TOKYO = {"lat": 35.68, "lon": 139.76, "mass": 0.30, "radius_km": 25, "label": "Tokyo, Tokyo, JP", "country": "jp"}
 KYOTO = {"lat": 35.0, "lon": 135.76, "mass": 0.16, "radius_km": 25, "label": "Kyoto, Kyoto, JP", "country": "jp"}
@@ -76,16 +80,42 @@ assert h[0]["country"] == "jp" and any("text is Japanese" in r for r in h[0]["re
 
 # The vision model's ranking nudges; its place inside a cluster boosts that cluster without adding one
 h = fuse([TOKYO, KYOTO], obs={"candidates_ranked": [1, 0]})
-assert h[0]["label"].startswith("Kyoto") and "+2.0 vision model ranks this candidate first" in h[0]["reasons"]
+assert h[0]["label"].startswith("Kyoto") and any("vision model ranks this candidate first" in r for r in h[0]["reasons"])
 inside = Place("Shinjuku", 35.69, 139.70, "jp", "JP-13", 18, "Shinjuku, Tokyo, Japan", 8)
 h = fuse([KYOTO, TOKYO], obs={"place": "Shinjuku, Tokyo"}, place=inside)
-assert len(h) == 2 and h[0]["label"].startswith("Tokyo") and any("inside this area" in r for r in h[0]["reasons"])
+assert len(h) == 2 and any("inside this area" in r for r in h[0]["reasons"]), h
+# ...and a named town re-centres that area on the town, with a town-sized radius
+assert h[0]["label"].startswith("Shinjuku, Tokyo") and (h[0]["lat"], h[0]["lon"], h[0]["radius_km"]) == (35.69, 139.7, 10)
 
 # A place GeoCLIP missed becomes its own hypothesis and can win with supporting clues
 h = fuse([SYDNEY, TOKYO], obs={"place": "Ormeau Rural Fire Brigade, Queensland"}, place=ORMEAU,
          evidence={"au": [(3.0, "phone number is Australian")]})
-assert h[0]["label"] == "Ormeau" and h[0]["radius_km"] == 10, h[0]
-assert any("not among GeoCLIP's candidates" in r for r in h[0]["reasons"])
+assert h[0]["label"].startswith("Ormeau") and h[0]["radius_km"] == 10, h[0]
+assert any("not among GeoCLIP's top areas" in r for r in h[0]["reasons"])
+assert (h[0]["lat"], h[0]["lon"]) == (-27.77, 153.26) and any("centred on the town" in r for r in h[0]["reasons"])
+
+# With GeoCLIP's raw candidates, a named town is pinned where they pile up inside it, not its centre
+street = [(-27.7712, 153.2391, 0.02)] * 4 + [(-24.86, 152.26, 0.05)]
+h = fuse([SYDNEY, TOKYO], obs={"place": "Ormeau, Queensland"}, place=ORMEAU, cands=street)
+assert (h[0]["lat"], h[0]["lon"]) == (-27.7712, 153.2391) and any("strongest spot in the town" in r for r in h[0]["reasons"])
+
+# OpenStreetMap lookups: which photo text is worth searching, and what a hit does
+from tessera.photo import lookups
+assert lookups(["Krua Thai nãImer", "Restaurant / Take Away", "STOP", "Yodoyabashi", "400m"]) == ["Krua Thai nãImer", "Yodoyabashi"]
+pharmacy = [{"name": "Worldview Pharmacy", "kind": "amenity=pharmacy", "lat": 35.70, "lon": 139.77, "text": "Worldview Pharmacy"}]
+h = fuse([KYOTO, TOKYO], found=pharmacy)
+assert h[0]["label"] == "Worldview Pharmacy (amenity=pharmacy)" and h[0]["radius_km"] == 1, h[0]  # pins the spot, lifts Tokyo
+assert any("OpenStreetMap has 'Worldview Pharmacy' here" in r for r in h[0]["reasons"])
+common = [dict(pharmacy[0], lat=35.68 + i / 100) for i in range(4)]
+h = fuse([KYOTO, TOKYO], found=common)
+assert not any(x["radius_km"] == 1 for x in h) and any("4 places named like" in r for x in h for r in x["reasons"]), h  # a common name only nudges
+
+# A rare name found outside every area becomes its own pinned hypothesis; searched areas lacking it lose a little
+pravaz = [{"name": "Rue Pravaz", "kind": "highway=residential", "lat": 45.7556, "lon": 4.8513, "text": "PRAVAZ", "country": "fr"}]
+PARIS = {"lat": 48.86, "lon": 2.35, "mass": 0.4, "radius_km": 25, "label": "Paris, Ile-de-France, FR", "country": "fr"}
+h = fuse([PARIS], obs={"candidates_ranked": [0]}, found=pravaz)
+assert h[0]["label"] == "Rue Pravaz (highway=residential)", h  # hard map evidence beats the model's ranking
+assert any("'PRAVAZ' is on the map, but not in this area" in r for x in h for r in x["reasons"])
 
 # Camera GPS leads, but stays a hypothesis with a reason to verify
 h = fuse([TOKYO, KYOTO], gps={"lat": -27.77, "lon": 153.26, "label": "Ormeau, Queensland, AU", "country": "au"})

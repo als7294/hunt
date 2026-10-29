@@ -16,63 +16,137 @@ import contextlib
 import hashlib
 import io
 import math
+import re
 import sys
+import unicodedata
 from pathlib import Path
 
+import httpx
 from PIL import ExifTags, Image
 
-from . import geo
+from . import clues, geo, vlm
 
 TOP_K = 50  # GeoCLIP candidates to cluster
-JOIN_KM = 150  # a candidate this close to a cluster's centre joins it
+# Choices below were measured by replaying the benchmark (scripts/eval_geo.py, 47 photos):
+# 50/150/300 km areas differed by one photo, so 50 km keeps each candidate town-sized.
+JOIN_KM = 50  # a candidate this close to an area's strongest point joins it
+KERNEL_KM = 3  # density kernel for picking each area's point (1-10 km measured identical)
+TOWN_KM = 30  # GeoCLIP candidates this close to a town the vision model names count as "in" it
 # ponytail: GeoCLIP alone lands within 25 km only ~1/3 of the time (Im2GPS3k). Calibrate
 # per-share radii from scripts/eval_geo.py instead of this floor.
 MIN_RADIUS_KM = 25
 KEEP = 5  # hypotheses reported
+# Fusion weights in bits, tuned by replaying the benchmark (scripts/eval_geo.py).
+RANK_BITS = (3.0, 1.5)  # vision model ranks a GeoCLIP area first / second
+PLACE_BITS = 3.0  # the vision model names a place (usually read off a sign)
+OUTSIDE_BITS = -1.0  # ...that GeoCLIP didn't propose at all (0 and -1 measured the same)
+GPS_BITS = 4.0  # camera GPS in the EXIF
+PLACE_RADIUS_KM = 10  # a named town or city, as opposed to GeoCLIP's spread
+# A rare name from the photo found on the map (two or fewer hits): P(found | right place) ~0.8
+# for a correct OCR read, P(found by chance) ~0.01, so log2(0.8/0.01). A searched area without it
+# loses a little: OSM gaps and misreads happen, so log2(0.3/0.99).
+FOUND_BITS = 6.0
+MISSING_BITS = -1.7
+# Sign words that name nothing in particular: never looked up on their own.
+BOILERPLATE = set("""stop exit entrance entry way one open closed parking park sale toilets toilet restaurant
+take away takeaway pharmacy hotel cafe bar shop store market welcome police taxi bus station street road
+avenue the and for with from your our you this that their name for evermore forever only line platform""".split())
 EXIF_TAGS = (0x010F, 0x0110, 0x0131, 0x0132)  # Make, Model, Software, DateTime
 EXIF_SUB = (0x9003, 0x9011)  # DateTimeOriginal, OffsetTimeOriginal
 
 _geoclip = None
 
 
-async def analyze(path: str) -> dict:
+async def analyze(path: str, verify: bool = False) -> dict:
+    """`verify` also looks the photo's text up on OpenStreetMap around the top areas
+    (sends those text lines and area coordinates to OpenStreetMap's Nominatim)."""
     data = Path(path).read_bytes()
     with Image.open(io.BytesIO(data)) as img:
         meta, dh = exif(img), dhash(img)
     text = await asyncio.to_thread(read_text, path)
-    clusters = cluster(await asyncio.to_thread(candidates, path))[:KEEP]
+    cands = await asyncio.to_thread(candidates, path)
+    clusters = cluster(cands)[:KEEP]
     gps = {"lat": meta["gps"][0], "lon": meta["gps"][1]} if "gps" in meta else None
     for spot, (label, cc) in zip(clusters + [gps] * bool(gps), labels(clusters + [gps] * bool(gps))):
         spot["label"], spot["country"] = label, cc
 
-    notes, obs, evidence, place = [], {}, {}, None
+    notes, obs, place = [], {}, None
     try:
-        from . import vlm
         obs = await vlm.observe(path, "\n".join(text), [c["label"] for c in clusters])
-    except ImportError:
-        notes.append("vision model step not installed yet")
-    except Exception as e:  # Ollama down, model missing: report it, keep the rest
+        if not obs:
+            notes.append("vision model gave no usable answer")
+    except vlm.VLMUnavailable as e:  # Ollama down or model missing: report it, keep the rest
         notes.append(f"vision model unavailable: {e}")
-    try:
-        from . import clues
-        evidence = clues.country_evidence(obs, "\n".join(text))
-    except ImportError:
-        notes.append("clue knowledge not installed yet")
+    evidence = clues.country_evidence(obs, "\n".join(text))
     if obs.get("place"):
         place = (await geo.locate([obs["place"]])).get(obs["place"])
+    hypotheses, found, names = fuse(clusters, gps, obs, evidence, place, cands), [], []
+    if verify:
+        try:
+            found, names = await on_map(hypotheses, text)
+        except (httpx.HTTPError, ValueError) as e:
+            notes.append(f"OpenStreetMap lookup failed: {e}")
+        if found:
+            hypotheses = fuse(clusters, gps, obs, evidence, place, cands, found)
     return {"sha256": hashlib.sha256(data).hexdigest(), "dhash": dh, "exif": meta, "text": text,
-            "observation": obs, "hypotheses": fuse(clusters, gps, obs, evidence, place), "notes": notes}
+            "observation": obs, "hypotheses": hypotheses, "map_lookup": {"searched": names, "found": found},
+            "notes": notes}
+
+
+def lookups(text: list[str]) -> list[str]:
+    """Photo text worth looking up as a name: two or more real words, or one long one."""
+    out = []
+    for line in text:
+        words = [w for w in re.findall(r"[^\W\d_]{3,}", line) if w.lower() not in BOILERPLATE]
+        if len(words) >= 2 or (words and len(words[0]) >= 6):
+            out.append(" ".join(words[:3]))
+    return list(dict.fromkeys(out))[:4]
+
+
+async def on_map(hypotheses: list[dict], text: list[str]) -> tuple[list[dict], list[str]]:
+    """OpenStreetMap features named like the photo's text: inside each of the top three areas,
+    and anywhere in the leading country (a distinctive street name often lies outside GeoCLIP's
+    areas). Uses Nominatim, cached and at 1 request/second: up to 16 requests per photo."""
+    # (Overpass regex search over a 30-50 km city area times out on the public server.)
+    names = lookups(text)
+    if not names or not hypotheses:
+        return [], names
+    found, top = {}, hypotheses[:3]
+    for n in names:
+        hits = [h for a in top for h in await geo.named(n, near=(a["lat"], a["lon"], max(a["radius_km"], 5)))]
+        country = top[0].get("country")
+        hits += [dict(h, country=country) for h in await geo.named(n, country=country)] if country else []
+        for h in hits:
+            if all(_fold(w) in _fold(h["name"]) for w in n.split()):
+                found.setdefault((h["name"], round(h["lat"], 3), round(h["lon"], 3)), {**h, "text": n})
+    return list(found.values()), names
+
+
+def _fold(s: str) -> str:
+    """Lowercase without accents, so OCR's 'Midosuji' matches the map's 'Midōsuji'."""
+    return "".join(c for c in unicodedata.normalize("NFKD", s.lower()) if not unicodedata.combining(c))
+
+
+def town(place: "geo.Place", cands: list | None) -> tuple[float, float, str]:
+    """Where in a named town: GeoCLIP's densest candidate inside it, else the town's centre.
+    (The vision model knows the town from a sign; GeoCLIP often knows the street.)"""
+    inside = [c for c in cands or [] if geo._km(c[0], c[1], place.lat, place.lon) <= TOWN_KM]
+    if not inside:
+        return place.lat, place.lon, "centred on the town"
+    return *densest(inside), "centred on GeoCLIP's strongest spot in the town"
 
 
 def fuse(clusters: list[dict], gps: dict | None = None, obs: dict | None = None,
-         evidence: dict | None = None, place: "geo.Place | None" = None) -> list[dict]:
+         evidence: dict | None = None, place: "geo.Place | None" = None, cands: list | None = None,
+         found: list[dict] | None = None) -> list[dict]:
     """Ranked hypotheses. Scores are bits relative to GeoCLIP's best cluster, so they read
     like match.py's; `share` is each hypothesis's part of the total support (2**bits, normalised),
-    not a calibrated probability."""
+    not a calibrated probability. `cands` are GeoCLIP's raw (lat, lon, p), used to place a named town;
+    `found` are OpenStreetMap features named like the photo's text (from on_map)."""
     obs, evidence = obs or {}, evidence or {}
     ranked = obs.get("candidates_ranked") or []
     total = sum(c["mass"] for c in clusters) or 1
-    hyps, placed = [], False
+    hyps = []
 
     def hyp(lat, lon, radius_km, label, country):
         h = {"lat": round(lat, 4), "lon": round(lon, 4), "radius_km": round(radius_km),
@@ -82,27 +156,59 @@ def fuse(clusters: list[dict], gps: dict | None = None, obs: dict | None = None,
         hyps.append(h)
         return h
 
+    # The vision model's place joins the nearest GeoCLIP area that contains it, if any.
+    city = place and (place.rank >= geo.CITY or place.size_km <= geo.LOCAL_KM)
+    near = {i: geo._km(place.lat, place.lon, c["lat"], c["lon"]) for i, c in enumerate(clusters)} if place else {}
+    home = min((i for i, km in near.items() if km <= clusters[i]["radius_km"] + 50), key=near.get, default=None)
+
     for i, c in enumerate(clusters):
         h = hyp(c["lat"], c["lon"], c["radius_km"], c["label"], c["country"])
         h["reasons"].append((math.log2(c["mass"] / clusters[0]["mass"]),
                              f"GeoCLIP puts {c['mass'] / total:.0%} of its top-{TOP_K} weight here"))
-        if ranked[:1] == [i]:
-            h["reasons"].append((2.0, "vision model ranks this candidate first"))
-        elif ranked[1:2] == [i]:
-            h["reasons"].append((1.0, "vision model ranks this candidate second"))
-        if place and geo._km(place.lat, place.lon, c["lat"], c["lon"]) <= c["radius_km"] + 50:
-            h["reasons"].append((3.0, f"vision model places it at '{obs['place']}', inside this area"))
-            placed = True
+        for rank, bits in enumerate(RANK_BITS):
+            if ranked[rank:rank + 1] == [i]:
+                h["reasons"].append((bits, f"vision model ranks this candidate {('first', 'second')[rank]}"))
+        if i == home and city:  # a named town inside GeoCLIP's area: GeoCLIP's best spot in that town
+            lat, lon, how = town(place, cands)
+            h.update(lat=round(lat, 4), lon=round(lon, 4), radius_km=PLACE_RADIUS_KM,
+                     label=f"{_short(place)} (in GeoCLIP's {c['label']} area)")
+            h["reasons"].append((PLACE_BITS, f"vision model places it at '{obs['place']}', inside this area; {how}"))
+        elif i == home:
+            h["reasons"].append((PLACE_BITS, f"vision model's '{obs['place']}' contains this area"))
 
-    if place and not placed:
-        city = place.rank >= geo.CITY or place.size_km <= geo.LOCAL_KM
-        h = hyp(place.lat, place.lon, 10 if city else min(place.size_km / 2, 1500), place.label.split(", ")[0],
+    if place and home is None:
+        lat, lon, how = town(place, cands) if city else (place.lat, place.lon, "")
+        h = hyp(lat, lon, PLACE_RADIUS_KM if city else min(place.size_km / 2, 1500), _short(place),
                 place.country_code)
-        h["reasons"] += [(3.0, f"vision model places it at '{obs['place']}'"), (-2.0, "not among GeoCLIP's candidates")]
+        h["reasons"] += [(PLACE_BITS, f"vision model places it at '{obs['place']}'" + (f"; {how}" if how else "")),
+                         (OUTSIDE_BITS, "not among GeoCLIP's top areas")]
+
+    # Text on the map: a rare name pins its spot (inside an area, or as a new hypothesis) and counts
+    # against searched areas that lack it; a common name only nudges the areas that have it.
+    parents = list(hyps)
+    for line in dict.fromkeys(f["text"] for f in found or []):
+        hits = [f for f in found if f["text"] == line]
+        rare = len(hits) <= 2
+        home = {id(f): next((h for h in parents if geo._km(f["lat"], f["lon"], h["lat"], h["lon"])
+                             <= max(h["radius_km"], 1)), None) for f in hits}
+        why = lambda f: (FOUND_BITS, f"OpenStreetMap has '{f['name']}' here, matching '{line}' in the photo")
+        for h in parents:
+            inside = [f for f in hits if home[id(f)] is h]
+            if inside and rare:
+                hyps.extend({**h, "lat": round(f["lat"], 5), "lon": round(f["lon"], 5), "radius_km": 1,
+                             "label": f"{f['name']} ({f['kind']})", "reasons": h["reasons"] + [why(f)]} for f in inside)
+            elif inside:
+                h["reasons"].append((1.0, f"OpenStreetMap has {len(inside)} places named like '{line}' in this area"))
+            elif rare:
+                h["reasons"].append((MISSING_BITS, f"'{line}' is on the map, but not in this area"))
+        for f in hits if rare else []:
+            if home[id(f)] is None:
+                h = hyp(f["lat"], f["lon"], 1, f"{f['name']} ({f['kind']})", f.get("country"))
+                h["reasons"] += [why(f), (OUTSIDE_BITS, "not among GeoCLIP's top areas")]
 
     if gps:
         h = hyp(gps["lat"], gps["lon"], 1, f"camera GPS: {gps['label']}", gps["country"])
-        h["reasons"].append((4.0, "GPS coordinates in the file's EXIF (they can be edited: verify)"))
+        h["reasons"].append((GPS_BITS, "GPS coordinates in the file's EXIF (they can be edited: verify)"))
 
     for h in hyps:
         h["bits"] = sum(w for w, _ in h["reasons"])
@@ -111,6 +217,10 @@ def fuse(clusters: list[dict], gps: dict | None = None, obs: dict | None = None,
         h["share"] = round(2 ** h.pop("bits") / norm, 3)
         h["reasons"] = [f"{w:+.1f} {why}" for w, why in sorted(h["reasons"], key=lambda r: -abs(r[0]))]
     return sorted(hyps, key=lambda h: -h["share"])[:KEEP]
+
+
+def _short(place: "geo.Place") -> str:
+    return ", ".join(place.label.split(", ")[:2])
 
 
 def dhash(img: Image.Image) -> str:
@@ -191,12 +301,18 @@ def cluster(cands: list[tuple[float, float, float]], join_km: float = JOIN_KM) -
         (home.append if home else lambda m: groups.append([m]))((lat, lon, p))
     clusters = []
     for g in groups:
-        mass = sum(p for *_, p in g)
-        # ponytail: plain weighted mean; wrong for a cluster straddling the antimeridian (Fiji).
-        lat, lon = sum(a * p for a, _, p in g) / mass, sum(b * p for _, b, p in g) / mass
-        spread = max(geo._km(a, b, lat, lon) for a, b, _ in g)
-        clusters.append({"lat": lat, "lon": lon, "mass": mass, "radius_km": max(MIN_RADIUS_KM, spread)})
+        lat, lon = densest(g)
+        clusters.append({"lat": lat, "lon": lon, "mass": sum(p for *_, p in g),
+                         "radius_km": max(MIN_RADIUS_KM, max(geo._km(a, b, lat, lon) for a, b, _ in g))})
     return sorted(clusters, key=lambda c: -c["mass"])
+
+
+def densest(cands: list[tuple[float, float, float]]) -> tuple[float, float]:
+    """The candidate whose neighbourhood carries the most probability. GeoCLIP's top-50 holds a
+    point within 1 km of the truth for 57% of benchmark photos, but rarely as its single best:
+    where candidates pile up beats both the top pick and a weighted mean (which blurs 1-20 km)."""
+    return max(((a, b) for a, b, _ in cands),
+               key=lambda x: sum(p * math.exp(-geo._km(*x, a, b) / KERNEL_KM) for a, b, p in cands))
 
 
 def labels(spots: list[dict]) -> list[tuple[str, str]]:
