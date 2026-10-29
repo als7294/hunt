@@ -27,6 +27,14 @@ uv run tessera search kestrel_vane88 "name:Marisol Vance" "location:Tucson, AZ" 
 
 Seeds can be a username, email, phone, name, address or profile URL. Tessera detects which is which; prefix a seed with its kind to force it (`location:Tucson, AZ`). Running `search` again on the same case adds seeds and re-scores everything.
 
+**OPSEC:** `--proxy socks5h://127.0.0.1:9050` (or the `TESSERA_PROXY` env var) routes every request through a proxy or VPN. That covers site checks, screenshots and geocoding.
+
+**What leaves your machine:**
+- Requests to the sites being checked. Email checks that could notify the subject (password resets, login codes) are never run.
+- Location strings only (never names or handles), sent to OpenStreetMap's Nominatim to compare places. This happens only when the case has a known location, and each string is sent once and then cached.
+
+Phone lookups and all scoring run offline.
+
 Each case lives in `~/Tessera/cases/<case>/`:
 
 - **`case.db`** (SQLite) holds:
@@ -37,7 +45,21 @@ Each case lives in `~/Tessera/cases/<case>/`:
 - **`evidence/`** holds raw page sources, plus a screenshot and rendered HTML of every likely match. Every file is named by its SHA-256.
 - **`case.json`** lists the candidates ranked with ICD 203 verdicts. Each comes with its reasons, e.g. `+6.5 name 'Bob Vance' matches 'Robert Vance'` or `+0.0 display name 'kv' only repeats the username, so it isn't counted`.
 
-Self-check: `uv run python test_tessera.py`
+Self-checks (offline): `uv run python test_tessera.py` and `uv run python test_geo.py`
+
+## How matching works
+
+Every hit is scored against everything the case knows, Fellegi-Sunter style. Each signal adds or subtracts bits, and the result maps to an [ICD 203](https://www.dni.gov/files/documents/ICD/ICD-203.pdf) verdict, from "almost no chance" to "almost certain".
+
+| Signal | How it's judged |
+|---|---|
+| Username | Rarity is measured, not guessed: "taken on 469 of 788 sites checked" means common. |
+| Name | Nickname-aware (Bob ↔ Robert). Graded match / similar / part of / conflicts. A display name that only repeats the handle counts for nothing. |
+| Location | Geocoded and compared by distance: same area, region or country, or a conflict. Placeholders like "Unknown" or "Earth" are ignored. |
+| Email | A Gravatar hash or listed email matching the subject's email is near-conclusive. |
+| Links | Links to the subject's known profiles, or to accounts carrying their handle, count. Links back to the same site don't. |
+
+**Two-identifier rule:** if nothing but the username agrees, a profile can't rise above "roughly even chance", however rare the handle. Practitioners require two independent identifiers.
 
 ## Why
 

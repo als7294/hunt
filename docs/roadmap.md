@@ -16,15 +16,19 @@
 - Evidence: raw page source plus a Playwright screenshot and rendered HTML of likely matches, all SHA-256-named, with the audit log in per-case SQLite.
 - Live test: username + name + location seeds take about 40 s, with about 1,200 site checks across both engines.
 
-**Follow-ups found while building M1**
-- user-scanner email checks:
-  - Upstream already skips 52 of the 220 modules because they notify the target (e.g. a password-reset email).
-  - Tessera also skips 12 more whose code looks like a reset flow (Facebook, Dropbox, Walmart…), and others matched by the same broad source check.
-  - Audit each one, and allowlist the ones that turn out to be silent.
-- Username rarity uses a length heuristic. Replace it with the hit rate across sites: `nasa` is claimed on 243 of 509 sites, so it's common.
-- Profile locations are compared word by word. Geocode them with Nominatim and compare distance instead.
-- A single-word known name ("NASA") can't match a long display name. Adding the full name fixes it, but subset matching would be better.
-- Route traffic through a proxy or VPN for OPSEC.
+**M1 hardening (done)**
+- ✅ **Username rarity** comes from the measured hit rate across sites. `nasa` is taken on 469 of 788 sites, so it's common.
+- ✅ **Two-identifier rule:** a handle alone can't lift a profile above "roughly even chance". This stops a namesake who holds the same rare handle from rating as "likely".
+- ✅ **Name matching** has graded tiers (similar / part of). A shared word that is just the handle counts for nothing, so "Nasa Nguyen" isn't evidence for NASA.
+- ✅ **Locations** are geocoded (`tessera/geo.py`, Nominatim, cached) and compared by distance tier. Placeholders like "Unknown" and "Earth" are dropped first: there is a real village called Unknown in India.
+- ✅ **Proxy routing** (`--proxy` / `TESSERA_PROXY`) covers every network call.
+- ✅ **Self-check** covers the case store end to end (purpose gate, evidence hashes, engine merging, pivots).
+- user-scanner email checks: audit each module that might notify the subject.
+- WhatsMyName checker: validate it against each site's known test accounts.
+
+**Still open**
+- Recognise acronyms, so "NASA" matches "National Aeronautics and Space Administration".
+- Geocoding takes the top hit only. Ambiguous names like "Washington" (the state or DC) resolve to the more prominent one.
 
 ## M2: app UI
 - Local FastAPI server, results streamed live; frontend built from the chosen design prototype.

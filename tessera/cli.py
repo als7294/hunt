@@ -65,7 +65,8 @@ async def fan_out(case: Case, seeds: list[Seed]):
         print(f"{source.NAME:>13}  {seed.kind}={seed.value}: {status}; {note}", file=sys.stderr)
 
     for seed in seeds:
-        if not any(seed.kind in src.KINDS for src in SOURCES):
+        logged = case.rows("select 1 from runs where source = '-' and seed_kind = ? and seed = ?", seed.kind, seed.value)
+        if not logged and not any(seed.kind in src.KINDS for src in SOURCES):
             case.add_run("-", seed, "skipped", 0, 0, "no source searches this kind yet; used to score matches")
     jobs = [run(src, seed) for seed in seeds for src in SOURCES if seed.kind in src.KINDS]
     print(f"searching: {len(jobs)} source runs...", file=sys.stderr)
