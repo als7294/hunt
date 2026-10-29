@@ -22,6 +22,8 @@ API = "https://api.open.fec.gov/v1/schedules/schedule_a/"
 PAGE = "https://www.fec.gov/data/receipts/individual-contributions/"
 CYCLES = 4  # two-year periods searched, newest first
 KEY = "HUNT_FEC_KEY"
+KEY_URL = "https://api.data.gov/signup/"
+KEY_FREE = "1,000 requests an hour (shared DEMO_KEY: about 10)"
 HEALTH = "https://api.open.fec.gov/swagger/"  # spends no key quota
 FIELDS = ("name", "city", "state", "zip", "employer", "occupation")
 

@@ -14,7 +14,7 @@ from ._socrata import Dataset, day, joined, place
 
 NAME = "businesses"
 KINDS = {"name"}
-KEY = _socrata.KEY
+KEY, KEY_URL, KEY_FREE = _socrata.KEY, _socrata.KEY_URL, _socrata.KEY_FREE
 NY_ROLE_PLACE = {"chief executive": "chairman", "registered agent": "registered_agent", "service of process": "dos_process"}
 
 DATASETS = [

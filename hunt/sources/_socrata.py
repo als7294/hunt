@@ -23,6 +23,8 @@ from ..seed import Finding
 from ._api import Limited, client, fetch, tidy
 
 KEY = "HUNT_SOCRATA_TOKEN"
+KEY_URL = "https://data.texas.gov/profile/edit/developer_settings"  # any portal's Developer Settings, after a free sign-up
+KEY_FREE = "about 1,000 requests an hour per token instead of a shared per-IP pool"
 LIMIT = 50  # rows per dataset; a common name in a big state fills it, and the note says so
 SUFFIXES = {"JR", "SR", "II", "III", "IV"}
 
