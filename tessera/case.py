@@ -19,7 +19,7 @@ SCHEMA = """
 create table if not exists meta (key text primary key, value text);
 create table if not exists audit (ts text, action text, detail text);
 create table if not exists seeds (kind text, value text, added text, primary key (kind, value));
-create table if not exists runs (ts text, source text, seed_kind text, seed text, status text, found int, note text);
+create table if not exists runs (ts text, source text, seed_kind text, seed text, status text, found int, checked int, note text);
 create table if not exists findings (
     id integer primary key, fetched_at text, source text, seed_kind text, seed text,
     site text, url text, attrs text, sha256 text, evidence text);
@@ -55,8 +55,9 @@ class Case:
     def seeds(self) -> list[Seed]:
         return [Seed(*row) for row in self.db.execute("select kind, value from seeds order by added")]
 
-    def add_run(self, source: str, seed: Seed, status: str, found: int, note: str):
-        self.db.execute("insert into runs values (?, ?, ?, ?, ?, ?, ?)", (now(), source, seed.kind, seed.value, status, found, note))
+    def add_run(self, source: str, seed: Seed, status: str, found: int, checked: int, note: str):
+        self.db.execute("insert into runs values (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (now(), source, seed.kind, seed.value, status, found, checked, note))
 
     def add_finding(self, f: Finding):
         sha, path = self._store(f.body.encode(), "html") if f.body else (None, None)

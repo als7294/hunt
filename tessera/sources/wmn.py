@@ -6,6 +6,7 @@ less likely to be one tool's false positive.
 
 import asyncio
 import json
+import os
 import time
 
 import httpx
@@ -31,7 +32,8 @@ async def _sites(client):
 
 async def search(seed):
     # WMN's e_code/m_code describe the raw response, so redirects must not be followed.
-    async with httpx.AsyncClient(timeout=10, follow_redirects=False, headers={"User-Agent": UA}) as client:
+    async with httpx.AsyncClient(timeout=10, follow_redirects=False, headers={"User-Agent": UA},
+                                 proxy=os.environ.get("TESSERA_PROXY")) as client:
         sites = await _sites(client)
         sem = asyncio.Semaphore(50)
 
@@ -56,4 +58,5 @@ async def search(seed):
 
         results = await asyncio.gather(*map(check, sites))
     counts = {s: sum(1 for st, _ in results if st == s) for s in ("found", "not found", "unknown", "error")}
-    return [f for _, f in results if f], f"checked {len(sites)} sites: " + ", ".join(f"{n} {s}" for s, n in counts.items())
+    checked = counts["found"] + counts["not found"]
+    return [f for _, f in results if f], checked, f"checked {len(sites)} sites: " + ", ".join(f"{n} {s}" for s, n in counts.items())

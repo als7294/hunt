@@ -21,4 +21,4 @@ async def search(seed):
         "line_type": LINE_TYPES.get(phonenumbers.number_type(n)),
         "timezones": list(timezone.time_zones_for_number(n)),
     }
-    return [Finding(NAME, seed, "libphonenumber", "", attrs)], "offline lookup, nothing sent over the network"
+    return [Finding(NAME, seed, "libphonenumber", "", attrs)], 1, "offline lookup, nothing sent over the network"

@@ -8,6 +8,7 @@ ones, and writes <case>/case.json (also printed to stdout).
 import argparse
 import asyncio
 import json
+import os
 import sys
 from collections import Counter, defaultdict
 from dataclasses import asdict
@@ -30,8 +31,12 @@ def main():
     s.add_argument("--case", required=True, help="case name; created on first use")
     s.add_argument("--purpose", help="why this investigation is lawful and necessary (required for a new case)")
     s.add_argument("--no-capture", action="store_true", help="don't screenshot likely matches")
+    s.add_argument("--proxy", default=os.environ.get("TESSERA_PROXY"),
+                   help="route every request through this proxy, e.g. socks5h://127.0.0.1:9050 (or set TESSERA_PROXY)")
     args = ap.parse_args()
 
+    if args.proxy:
+        os.environ["TESSERA_PROXY"] = args.proxy
     case = Case(args.case, args.purpose)
     seeds = [seed for raw in args.seeds for seed in detect(raw)]
     case.add_seeds(seeds)
@@ -49,18 +54,18 @@ def main():
 async def fan_out(case: Case, seeds: list[Seed]):
     async def run(source, seed):
         try:
-            found, note = await source.search(seed)
+            found, checked, note = await source.search(seed)
             status = "found" if found else "nothing found"
         except Exception as e:  # a broken source is a methodology fact, not a crash
-            found, note, status = [], f"{type(e).__name__}: {e}", "failed"
+            found, checked, note, status = [], 0, f"{type(e).__name__}: {e}", "failed"
         for f in found:
             case.add_finding(f)
-        case.add_run(source.NAME, seed, status, len(found), note)
+        case.add_run(source.NAME, seed, status, len(found), checked, note)
         print(f"{source.NAME:>13}  {seed.kind}={seed.value}: {status}; {note}", file=sys.stderr)
 
     for seed in seeds:
         if not any(seed.kind in src.KINDS for src in SOURCES):
-            case.add_run("-", seed, "skipped", 0, "no source searches this kind yet; used to score matches")
+            case.add_run("-", seed, "skipped", 0, 0, "no source searches this kind yet; used to score matches")
     jobs = [run(src, seed) for seed in seeds for src in SOURCES if seed.kind in src.KINDS]
     print(f"searching: {len(jobs)} source runs...", file=sys.stderr)
     await asyncio.gather(*jobs)
@@ -107,7 +112,7 @@ def build(case: Case) -> dict:
         "candidates": candidates,
         "attributes": attributes,
         "pivots": pivots,
-        "methodology": case.rows("select ts, source, seed_kind, seed, status, found, note from runs order by ts"),
+        "methodology": case.rows("select ts, source, seed_kind, seed, status, found, checked, note from runs order by ts"),
         "audit": case.rows("select * from audit order by ts"),
     }
 

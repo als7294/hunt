@@ -5,6 +5,7 @@ Parsing is on, so each profile also yields what the page says about its owner
 """
 
 import logging
+import os
 from collections import Counter
 
 from maigret import MaigretDatabase
@@ -23,7 +24,8 @@ log.setLevel(logging.ERROR)
 
 async def search(seed):
     sites = MaigretDatabase().load_from_path(BUNDLED_DB_PATH).ranked_sites_dict(top=TOP_SITES, disabled=False)
-    results = await maigret_search(seed.value, sites, log, timeout=10, is_parsing_enabled=True, no_progressbar=True)
+    results = await maigret_search(seed.value, sites, log, timeout=10, is_parsing_enabled=True, no_progressbar=True,
+                                    proxy=os.environ.get("TESSERA_PROXY"))
     findings, statuses = [], Counter()
     for site, r in results.items():
         check = r["status"]
@@ -38,4 +40,4 @@ async def search(seed):
             attrs["links_found"] = list(r["ids_links"])
         # Maigret doesn't keep page bodies; likely matches get page source from the capture step.
         findings.append(Finding(NAME, seed, site, check.site_url_user, attrs))
-    return findings, f"checked {len(results)} sites: " + ", ".join(f"{n} {s}" for s, n in statuses.most_common())
+    return findings, statuses["claimed"] + statuses["available"], f"checked {len(results)} sites: " + ", ".join(f"{n} {s}" for s, n in statuses.most_common())
