@@ -435,7 +435,7 @@ screens.identity = async slug => {
   if (p.decision === 'him' || accts.some(a => a.decision === 'him')) api(`/api/cases/${encodeURIComponent(slug)}/checklist`).then(cl => {
     if ($('#person-browse') && cl.accounts.length) $('#person-browse').innerHTML = html`<a class="panel row" href="#/case/${slug}/worklist" style="padding:18px;gap:16px"><span class="tile-ic">▤</span>
       <div style="flex:1"><b>Next: the worklist</b><div class="muted" style="font-size:14px">${cl.accounts.map(a => a.platform).join(', ')}: open each in the Hunt Browser and scroll; Hunt records and scans what loads.</div></div><span style="color:var(--ac)">Open →</span></a>`.s; }).catch(() => {});
-  api(`/api/cases/${encodeURIComponent(slug)}/seen-before`).then(r => { if ($('#seen-here')) $('#seen-here').innerHTML = seenBox(r, slug).s; }).catch(() => {});
+  api(`/api/cases/${encodeURIComponent(slug)}/seen-before`).then(r => { if ($('#seen-here')) $("#seen-here").innerHTML = fmt(seenBox(r, slug)); }).catch(() => {});
 };
 
 /* Public records on Is it them? (docs/research/tools.md, "Records in the app"): grouped by what they show */
@@ -927,7 +927,7 @@ function wizSeen() { // the new-case form, as seeds are added (debounced)
   clearTimeout(seenTimer); seenTimer = setTimeout(async () => {
     const box = $('#wiz-seen'); if (!box) return;
     if (!wiz.seeds.length) { box.innerHTML = ''; return; }
-    try { box.innerHTML = seenBox(await api('/api/seen-before', { method: 'POST', body: { seeds: wiz.seeds, kind: wiz.kind } })).s; } catch (e) { box.innerHTML = ''; }
+    try { box.innerHTML = fmt(seenBox(await api("/api/seen-before", { method: "POST", body: { seeds: wiz.seeds, kind: wiz.kind } }))); } catch (e) { box.innerHTML = ''; }
   }, 450);
 }
 
