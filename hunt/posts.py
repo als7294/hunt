@@ -1,0 +1,335 @@
+"""A subject's posts and media: read logged-out from public APIs, or added by the investigator.
+
+Sources, logged out and through HUNT_PROXY:
+  bluesky   public.api.bsky.app app.bsky.feed.getAuthorFeed: text, images, video (HLS, kept as .ts)
+  mastodon  /api/v1/accounts/lookup + /statuses: text (HTML stripped), images, video
+  youtube   the channel's RSS feed: titles, descriptions and thumbnails of the latest 15 uploads only,
+            not the videos (no logged-out download API; YouTube's terms forbid scraping them)
+Reddit answers 403 logged out, so it isn't read. Media are hashed as they stream into the
+evidence locker, so a multi-GB video is never held in memory.
+
+Tables, created here on first use:
+  posts(id, source (shown as is: 'Bluesky', 'Instagram'...), account_url, url, posted_at, text,
+        origin 'fetched'|'added', fetched_at)
+  media(id, post_id, kind 'image'|'video'|'screenshot', file 'evidence/<sha256>.<ext>', sha256, duration, source_url)
+"""
+
+import hashlib
+import html
+import os
+import re
+import subprocess
+import tempfile
+import xml.etree.ElementTree as ET
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
+
+import httpx
+from PIL import Image
+
+from .seed import Seed, now
+
+UA = "Hunt/0.1 (+https://github.com/als7294/hunt)"
+BSKY = "https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed"
+YT_RSS = "https://www.youtube.com/feeds/videos.xml"
+NAMES = {"bluesky": "Bluesky", "mastodon": "Mastodon", "youtube": "YouTube"}  # how each source is shown
+ADDED = "Added by you"  # the source of files dropped in without a platform
+MAX_POSTS = 1000  # per account; older posts are rarely the point and paging costs requests
+MAX_BYTES = 4 << 30  # one media file; bigger is stopped and not kept
+VIDEO = {"mp4", "mov", "m4v", "webm", "mkv", "avi", "ts", "3gp"}
+IMAGE = {"jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "tif", "tiff"}
+
+SCHEMA = """
+create table if not exists posts (id integer primary key, source text, account_url text, url text, posted_at text,
+    text text, origin text, fetched_at text, unique (source, url));
+create table if not exists media (id integer primary key, post_id int, kind text, file text, sha256 text,
+    duration real, source_url text);
+"""
+
+
+async def collect(case, accounts: list[dict], since: str | None, emit) -> int:
+    """Read each account's public posts (newest first, back to `since`) into the case. Returns posts added."""
+    case.db.executescript(SCHEMA)
+    emit({"type": "stage", "stage": "collecting"})
+    added = 0
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers={"User-Agent": UA},
+                                 proxy=os.environ.get("HUNT_PROXY")) as client:
+        for account in accounts:
+            url, site = account["url"], _site(account)
+            if not site:
+                emit({"type": "source", "source": account.get("site") or urlparse(url).netloc, "seed": url,
+                      "status": "failed", "found": 0, "checked": 0,
+                      "note": "this site's posts can't be read logged out (Reddit answers 403)"})
+                continue
+            emit({"type": "source", "source": NAMES[site], "seed": url, "status": "running", "found": 0, "checked": 0,
+                  "note": ""})
+            found, items = 0, []
+            try:
+                items, note = await FETCHERS[site](client, url, since)
+                for item in items:
+                    found += await _save(case, client, site, url, item)
+                status = "found" if found else "nothing found"
+            except (httpx.HTTPError, ValueError, KeyError, ET.ParseError) as e:
+                status, note = "failed", f"{type(e).__name__}: {str(e)[:200]}"
+            case.add_run(site, Seed("url", url), status, found, len(items), note)
+            emit({"type": "source", "source": NAMES[site], "seed": url, "status": status, "found": found,
+                  "checked": len(items), "note": note})
+            added += found
+    case.audit("posts collected", {"accounts": [a["url"] for a in accounts], "since": since, "added": added})
+    return added
+
+
+def add_files(case, paths: list[Path], platform: str | None, posted_at: str | None) -> list[int]:
+    """The investigator's own files (photos, screenshots, videos), one 'added' post each. Returns post ids.
+    HEIC is converted to JPEG with sips (the original is kept too); SVG and unknown types are refused."""
+    case.db.executescript(SCHEMA)
+    paths = [Path(p) for p in paths]
+    for p in paths:
+        if _ext(p) not in VIDEO | IMAGE:
+            raise ValueError(f"{p.name}: only photos and videos can be added")
+    ids = []
+    for p in paths:
+        ext = _ext(p)
+        file, sha = _store_file(case, p, ext)
+        (shown, shown_sha), kind = (file, sha), "video" if ext in VIDEO else "screenshot" if ext == "png" else "image"
+        if ext in ("heic", "heif"):
+            with tempfile.TemporaryDirectory() as tmp:
+                jpg = Path(tmp) / "converted.jpg"
+                subprocess.run(["sips", "-s", "format", "jpeg", str(p), "--out", str(jpg)], check=True,
+                               capture_output=True, timeout=120)
+                shown, shown_sha = _store_file(case, jpg, "jpg")
+        when = posted_at or (_taken(p) if kind != "video" else None)
+        post = case.db.execute("insert into posts values (null, ?, null, null, ?, '', 'added', ?)",
+                               (platform or ADDED, when, now())).lastrowid
+        case.db.execute("insert into media values (null, ?, ?, ?, ?, ?, null)",
+                        (post, kind, shown, shown_sha, duration(case.dir / shown) if kind == "video" else None))
+        case.audit("file added", {"name": p.name, "sha256": sha, "kind": kind, "platform": platform,
+                                  "posted_at": when, "shown_as": shown})
+        ids.append(post)
+    return ids
+
+
+def list_posts(case) -> list[dict]:
+    """Every post with its media, newest first (undated last)."""
+    case.db.executescript(SCHEMA)
+    media = {}
+    for m in case.rows("select id, post_id, kind, file, duration from media order by id"):
+        media.setdefault(m.pop("post_id"), []).append(m)
+    posts = case.rows("select id, source, account_url, url, posted_at, text, origin from posts "
+                      "order by posted_at is null, posted_at desc, id desc")
+    return [p | {"media": media.get(p["id"], [])} for p in posts]
+
+
+def duration(path) -> float | None:
+    """Seconds, from ffmpeg's header read (no decoding)."""
+    import imageio_ffmpeg
+    out = subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-i", str(path)],
+                         capture_output=True, text=True, timeout=60).stderr
+    m = re.search(r"Duration: (\d+):(\d\d):(\d\d(?:\.\d+)?)", out)
+    return round(int(m[1]) * 3600 + int(m[2]) * 60 + float(m[3]), 2) if m else None
+
+
+# Sources: each returns ([{url, posted_at, text, media: [(kind, url)]}], methodology note)
+
+async def _bluesky(client, url, since):
+    handle = re.search(r"bsky\.app/profile/([^/?#]+)", url)[1]
+    items, cursor = [], None
+    while len(items) < MAX_POSTS:
+        r = await client.get(BSKY, params={"actor": handle, "limit": 100} | ({"cursor": cursor} if cursor else {}))
+        r.raise_for_status()
+        data = r.json()
+        for entry in data["feed"]:
+            post = entry["post"]
+            if entry.get("reason"):  # a repost of someone else's post
+                continue
+            created = post["record"].get("createdAt", "")
+            if since and created < since:
+                return items, _note("Bluesky public API", items, since)
+            embed = post.get("embed") or {}
+            embed = embed.get("media", embed)  # a quote post with media nests it one level down
+            media = [("image", i["fullsize"]) for i in embed.get("images", [])]
+            media += [("video", embed["playlist"])] if embed.get("playlist") else []
+            items.append({"url": f"https://bsky.app/profile/{handle}/post/{post['uri'].rsplit('/', 1)[-1]}",
+                          "posted_at": created, "text": post["record"].get("text", ""), "media": media})
+        cursor = data.get("cursor")
+        if not cursor or not data["feed"]:
+            break
+    return items, _note("Bluesky public API", items, since)
+
+
+async def _mastodon(client, url, since):
+    host, user = re.match(r"https?://([^/]+)/@([^/?#]+)", url).groups()
+    r = await client.get(f"https://{host}/api/v1/accounts/lookup", params={"acct": user})
+    r.raise_for_status()
+    account_id, items, params = r.json()["id"], [], {"limit": 40, "exclude_reblogs": "true"}
+    while len(items) < MAX_POSTS:
+        r = await client.get(f"https://{host}/api/v1/accounts/{account_id}/statuses", params=params)
+        r.raise_for_status()
+        statuses = r.json()
+        if not statuses:
+            break
+        for s in statuses:
+            if since and s["created_at"] < since:
+                return items, _note(f"Mastodon API on {host}", items, since)
+            media = [("video" if a["type"] in ("video", "gifv") else "image", a["url"])
+                     for a in s.get("media_attachments", []) if a["type"] in ("image", "video", "gifv")]
+            items.append({"url": s.get("url") or s["uri"], "posted_at": s["created_at"], "text": _plain(s["content"]),
+                          "media": media})
+        params["max_id"] = statuses[-1]["id"]
+    return items, _note(f"Mastodon API on {host}", items, since)
+
+
+async def _youtube(client, url, since):
+    channel = re.search(r"youtube\.com/channel/(UC[\w-]{22})", url)
+    if not channel:
+        r = await client.get(url)
+        r.raise_for_status()
+        channel = re.search(r'"(?:externalId|channelId)":"(UC[\w-]{22})"', r.text) or \
+            re.search(r'youtube\.com/channel/(UC[\w-]{22})', r.text)
+        if not channel:
+            raise ValueError("no channel id on the channel page (a cookie-consent page? give the /channel/UC… URL)")
+    r = await client.get(YT_RSS, params={"channel_id": channel[1]})
+    r.raise_for_status()
+    ns = {"a": "http://www.w3.org/2005/Atom", "m": "http://search.yahoo.com/mrss/"}
+    items = []
+    for e in ET.fromstring(r.content).findall("a:entry", ns):
+        published = e.findtext("a:published", "", ns)
+        if since and published < since:
+            continue
+        thumb = e.find("m:group/m:thumbnail", ns)
+        items.append({"url": e.find("a:link", ns).get("href"), "posted_at": published,
+                      "text": "\n".join(filter(None, (e.findtext("a:title", "", ns),
+                                                       e.findtext("m:group/m:description", "", ns)))),
+                      "media": [("image", thumb.get("url"))] if thumb is not None else []})
+    return items, (f"YouTube channel RSS, logged out: {len(items)} uploads. The feed only lists the latest 15, "
+                   "and only titles, descriptions and thumbnails are read, not the videos")
+
+
+FETCHERS = {"bluesky": _bluesky, "mastodon": _mastodon, "youtube": _youtube}
+
+
+def _site(account: dict) -> str | None:
+    url, site = account["url"], (account.get("site") or "").lower()
+    host = urlparse(url).netloc.lower()
+    if host.endswith("bsky.app") or "bluesky" in site:
+        return "bluesky" if "/profile/" in url else None
+    if host.endswith("youtube.com") or "youtube" in site:
+        return "youtube"
+    if "mastodon" in site or re.match(r"https?://[^/]+/@[^/?#]+/?$", url):
+        return "mastodon"
+    return None
+
+
+def _note(source, items, since):
+    return f"{source}, logged out: {len(items)} posts" + (f" since {since}" if since else "")
+
+
+async def _save(case, client, site, account_url, item) -> int:
+    """Store one post and download its media. 0 if this post was already read."""
+    cur = case.db.execute("insert or ignore into posts values (null, ?, ?, ?, ?, ?, 'fetched', ?)",
+                          (NAMES[site], account_url, item["url"], item["posted_at"], item["text"], now()))
+    if not cur.rowcount:
+        return 0
+    for kind, src in item["media"]:
+        try:
+            file, sha = await _download(case, client, src)
+        except (httpx.HTTPError, ValueError) as e:
+            case.audit("media not saved", {"url": src, "error": f"{type(e).__name__}: {str(e)[:200]}"})
+            continue
+        case.db.execute("insert into media values (null, ?, ?, ?, ?, ?, ?)",
+                        (cur.lastrowid, kind, file, sha,
+                         duration(case.dir / file) if kind == "video" else None, src))
+    return 1
+
+
+async def _download(case, client, url) -> tuple[str, str]:
+    """Stream one media URL into the evidence locker. HLS playlists are fetched segment by segment."""
+    if ".m3u8" in url:
+        return await _hls(case, client, url)
+    async with client.stream("GET", url) as r:
+        r.raise_for_status()
+        return await _sink(case, r.aiter_bytes(), _ext(url, r.headers.get("content-type")))
+
+
+async def _hls(case, client, url) -> tuple[str, str]:
+    r = await client.get(url)
+    r.raise_for_status()
+    variants = re.findall(r"#EXT-X-STREAM-INF:[^\n]*BANDWIDTH=(\d+)[^\n]*\n([^\n#][^\n]*)", r.text)
+    if variants:  # a master playlist: take the best stream
+        url = urljoin(url, max(variants, key=lambda v: int(v[0]))[1].strip())
+        r = await client.get(url)
+        r.raise_for_status()
+    segments = [urljoin(url, line.strip()) for line in r.text.splitlines() if line.strip() and not line.startswith("#")]
+
+    async def chunks():
+        for seg in segments:  # MPEG-TS segments concatenate into one playable stream
+            async with client.stream("GET", seg) as s:
+                s.raise_for_status()
+                async for chunk in s.aiter_bytes():
+                    yield chunk
+    return await _sink(case, chunks(), "ts")
+
+
+async def _sink(case, chunks, ext) -> tuple[str, str]:
+    """Write an async byte stream into evidence/<sha256>.<ext>, hashing as it goes."""
+    sha, size = hashlib.sha256(), 0
+    fd, tmp = tempfile.mkstemp(dir=case.dir / "evidence", suffix=".part")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            async for chunk in chunks:
+                size += len(chunk)
+                if size > MAX_BYTES:
+                    raise ValueError(f"bigger than {MAX_BYTES >> 30} GB")
+                sha.update(chunk)
+                f.write(chunk)
+        return _settle(case, tmp, sha.hexdigest(), ext)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+
+
+def _store_file(case, path: Path, ext: str) -> tuple[str, str]:
+    """Copy a local file into evidence/<sha256>.<ext> in 1 MB chunks, hashing as it goes."""
+    sha = hashlib.sha256()
+    fd, tmp = tempfile.mkstemp(dir=case.dir / "evidence", suffix=".part")
+    try:
+        with os.fdopen(fd, "wb") as out, open(path, "rb") as src:
+            while chunk := src.read(1 << 20):
+                sha.update(chunk)
+                out.write(chunk)
+        return _settle(case, tmp, sha.hexdigest(), ext)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+
+
+def _settle(case, tmp, sha, ext) -> tuple[str, str]:
+    """Name the finished download by its hash: ('evidence/<sha>.<ext>', sha), as Case._store does."""
+    file = f"evidence/{sha}.{ext}"
+    if not (case.dir / file).exists():
+        os.replace(tmp, case.dir / file)
+    return file, sha
+
+
+def _ext(name, content_type: str | None = None) -> str:
+    ext = Path(urlparse(str(name)).path).suffix.lower().lstrip(".")
+    if ext in VIDEO | IMAGE:
+        return "jpg" if ext == "jpeg" else ext
+    kind = (content_type or "").split(";")[0].strip().lower()
+    return {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "video/mp4": "mp4",
+            "video/webm": "webm", "video/quicktime": "mov", "video/mp2t": "ts"}.get(kind, ext or "bin")
+
+
+def _plain(markup: str) -> str:
+    """Mastodon's HTML status → plain text, keeping line breaks."""
+    text = re.sub(r"<br\s*/?>|</p>\s*<p>", "\n", markup or "")
+    return html.unescape(re.sub(r"<[^>]+>", "", text)).strip()
+
+
+def _taken(path: Path) -> str | None:
+    """When a photo was taken, from EXIF, as an ISO date-time (camera clocks can be wrong)."""
+    try:
+        with Image.open(path) as im:
+            raw = im.getexif().get_ifd(0x8769).get(0x9003)  # DateTimeOriginal
+        return datetime.strptime(str(raw), "%Y:%m:%d %H:%M:%S").isoformat() if raw else None
+    except (OSError, ValueError):
+        return None
