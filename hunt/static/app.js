@@ -110,7 +110,7 @@ screens.startup = async () => {
     ${glows(['-140px', '40px', 720, 'rgba(163,181,242,.22)'], ['calc(100% - 360px)', '-220px', 520, 'rgba(127,212,217,.10)'])}
     <div style="position:relative;flex:1;min-width:0"><fetch-hound mode="sit" pins="true" angle="-40" color="#CDD6F6" accent="#EDBE62" style="position:absolute;inset:0;display:block"></fetch-hound></div>
     <div style="position:relative;width:440px;padding:56px 52px 40px 0;display:flex;flex-direction:column;gap:26px">
-      <div class="brand" style="font-size:30px;gap:12px"><span class="logo lg"></span>Hunt</div>
+      <div class="brand" style="font-size:30px;gap:12px"><span class="logo lg"></span>Hunt<span id="boot-version" class="dim" style="font-size:14px;font-weight:400;align-self:flex-end;margin-bottom:5px"></span></div>
       <div><div class="h2">Getting things ready</div><div class="muted" style="font-size:15.5px;margin-top:8px">Hang tight — this takes a few seconds.</div></div>
       <div id="boot" style="display:flex;flex-direction:column;gap:12px"></div>
       <div style="margin-top:auto;display:flex;flex-direction:column;gap:10px">
@@ -120,7 +120,8 @@ screens.startup = async () => {
     </div></div>`);
   if (!customElements.get('fetch-hound')) { const s = document.createElement('script'); s.src = 'hound.js'; document.head.appendChild(s); }
   let checks, keys = [];
-  try { const [r, k] = await Promise.all([api('/api/startup'), api('/api/keys').catch(() => ({ keys: [] }))]); status = { proxy: r.proxy, checked: true }; checks = r.checks; keys = k.keys; }
+  try { const [r, k] = await Promise.all([api('/api/startup'), api('/api/keys').catch(() => ({ keys: [] }))]); status = { proxy: r.proxy, checked: true }; checks = r.checks; keys = k.keys;
+    $('#boot-version').textContent = r.version ? `v${r.version}` : ''; } // the release, from pyproject.toml (docs/qol.md J)
   catch (e) { checks = [{ id: 'server', label: 'Starting Hunt', ok: false, detail: e.message }]; }
   const box = $('#boot');
   for (let i = 0; i < checks.length; i++) {

@@ -1,8 +1,8 @@
 """Install, check, update and remove Hunt without knowing Python: `hunt doctor`, `hunt setup`, `hunt update`,
 `hunt uninstall`, and the app's first-run screen.
 
-Hunt itself is installed once with uv (docs/user-guide.md):
-    uv tool install git+https://github.com/als7294/hunt && hunt setup
+Hunt itself is installed once with uv (docs/user-guide.md), on the Python its self-checks run on:
+    uv tool install --python 3.12 git+https://github.com/als7294/hunt && hunt setup
 
 doctor()     one row per thing Hunt needs, each with a plain fix
 plan()       what's missing that Hunt can fetch itself, each with its download size
@@ -36,6 +36,7 @@ from . import browser, inbox, vlm, watch
 from .case import HOME, all_cases
 
 REPO = "git+https://github.com/als7294/hunt"
+INSTALL = f"uv tool install --python 3.12 {REPO}"
 LAUNCHER = Path.home() / "Applications" / "Hunt.app"
 OLLAMA = "http://127.0.0.1:11434"
 REGISTRY = "https://registry.ollama.ai/v2/{repo}/manifests/{tag}"
@@ -73,7 +74,7 @@ def doctor() -> list[dict]:
 
     py = sys.version_info
     row("python", "Python", py >= (3, 12), f"{py.major}.{py.minor}.{py.micro}",
-        f"Reinstall Hunt; uv brings the right Python: uv tool install --reinstall {REPO}")
+        f"Reinstall Hunt; uv brings the right Python: {INSTALL} --reinstall")
     uv = shutil.which("uv")
     row("uv", "uv (installs and updates Hunt)", uv, uv or "not found",
         "Install uv: brew install uv (or follow docs.astral.sh/uv/getting-started/installation)")
@@ -90,12 +91,12 @@ def doctor() -> list[dict]:
     row("chromium", "Browser for screenshots and the Hunt Browser", exe, str(exe) if exe else "not downloaded",
         "hunt setup (shows the size and asks first)")
     row("capture", "Hunt Capture (the Hunt Browser's extension)", (browser.SOURCE / "manifest.json").is_file(),
-        str(browser.SOURCE), f"This copy of Hunt is missing its extension folder: uv tool install --reinstall {REPO}")
+        str(browser.SOURCE), f"This copy of Hunt is missing its extension folder: {INSTALL} --reinstall")
     ffmpeg = _ffmpeg()
-    row("ffmpeg", "ffmpeg (video frames)", ffmpeg, ffmpeg or "missing", f"uv tool install --reinstall {REPO}")
+    row("ffmpeg", "ffmpeg (video frames)", ffmpeg, ffmpeg or "missing", f"{INSTALL} --reinstall")
     free = shutil.disk_usage(next(p for p in (HOME, *HOME.parents) if p.exists())).free
-    row("disk", "Free disk space", free >= MIN_FREE, f"{free / 2**30:.0f} GB free",
-        f"Free up space: Hunt wants at least {MIN_FREE >> 30} GB for videos and the vision model")
+    row("disk", "Free disk space", free >= MIN_FREE, f"{free / 2**30:.1f} GB free",
+        f"Hunt wants at least {MIN_FREE >> 30} GB free, for videos and the vision model: free some up")
     writable = os.access(HOME, os.W_OK) if HOME.exists() else os.access(next(p for p in HOME.parents if p.exists()), os.W_OK)
     row("home", "Hunt folder", writable, f"{HOME}: {len(all_cases())} cases" if HOME.exists() else f"{HOME} (made on first use)",
         "Make the folder writable, or set HUNT_HOME to a folder you can write to")
