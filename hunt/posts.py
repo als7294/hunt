@@ -139,10 +139,11 @@ def add_posts(case, items: list[dict], kind: str = "image", evidence: str | None
     for it in items:
         source, url, text = it.get("source") or ADDED, it.get("url"), it.get("text") or ""
         paths = [p for p in map(Path, it.get("media") or []) if _ext(p) in VIDEO | IMAGE and p.is_file()]
-        if url:
-            dup = case.rows("select p.id, p.text, p.posted_at, e.extra from posts p left join post_extra e on e.post_id = p.id "
-                            "where p.source = ? and p.url = ?", source, url)
-            if dup and _upgrade(case, dup[0], it, paths, evidence):
+        if url:  # the same link from this source, or from a vendor reading it ("Instagram (via Apify)")
+            dup = case.rows("select p.id, p.source, p.origin, p.text, p.posted_at, e.extra from posts p left join post_extra e "
+                            "on e.post_id = p.id where p.url = ? and (p.source = ? or p.source like ?)",
+                            url, source, f"{source} (via %")
+            if dup and _upgrade(case, dup[0], it, paths, evidence, source, origin):
                 upgraded is not None and upgraded.append(dup[0]["id"])
                 continue
         elif text:
@@ -185,9 +186,20 @@ def _media(case, post: int, paths: list[Path], kind: str) -> list[str]:
     return stored
 
 
-def _upgrade(case, row: dict, it: dict, paths: list[Path], evidence: str | None) -> bool:
-    """A post seen only as a grid thumbnail, now captured in full: its words, date and full-size media join it."""
+def _upgrade(case, row: dict, it: dict, paths: list[Path], evidence: str | None, source: str, origin: str) -> bool:
+    """A post seen only as a grid thumbnail, now captured in full: its words, date and full-size media join it.
+    Likewise a vendor's copy ("Instagram (via Apify)") that she then captures herself: her capture becomes the
+    record (origin "captured"), and the vendor's source is kept as extra.vendor_source."""
     old = json.loads(row["extra"] or "{}")
+    if origin == "captured" and (row["origin"] == "vendor" or row["source"] != source):
+        case.db.execute("update posts set source = ?, origin = 'captured', text = ?, posted_at = ? where id = ?",
+                        (source, it.get("text") or row["text"] or "", it.get("posted_at") or row["posted_at"], row["id"]))
+        stored = _media(case, row["id"], paths, it.get("media_kind") or "image")
+        case.db.execute("insert or replace into post_extra values (?, ?)",
+                        (row["id"], json.dumps(old | _extra(it, evidence) | {"vendor_source": row["source"]}, ensure_ascii=False)))
+        case.audit("post captured over vendor copy", {"post": row["id"], "url": it.get("url"), "vendor_source": row["source"],
+                                                      "media": stored, "evidence": evidence})
+        return True
     if old.get("from") != "grid" or it.get("from") != "full":
         return False
     case.db.execute("update posts set text = ?, posted_at = ? where id = ?",

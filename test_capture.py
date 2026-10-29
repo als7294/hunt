@@ -396,6 +396,18 @@ assert reel["extra"]["grid_evidence"] and reel["extra"]["evidence"] != reel["ext
 ig = next(a for a in c.get(f"/api/cases/{slug}/checklist").json()["accounts"] if a["platform"] == "Instagram")
 assert (ig["progress"]["opened"], ig["progress"]["played"]) == (1, 0) and [t["kind"] for t in ig["todo"]] == ["video"]
 assert {a["action"] for a in case.rows("select action from audit")} >= {"post upgraded"}
+# 3b. A vendor's copy of a post (public-posts session: "Instagram (via Apify)", origin 'vendor') that she then captures
+# herself is merged, not duplicated: her capture becomes the record
+case.db.execute("insert into posts (source, account_url, url, posted_at, text, origin, fetched_at) values "
+                "('Instagram (via Apify)', 'https://www.instagram.com/dorian.vell/', 'https://www.instagram.com/p/DVendor0001/', "
+                "'2026-08-02', 'vendor caption', 'vendor', '')")
+vendor_page = mhtml("https://www.instagram.com/p/DVendor0001/",
+                    '<html><body><article><header><a href="/dorian.vell/">dorian.vell</a></header><h1>Lake loop by kayak</h1>'
+                    '<a href="/p/DVendor0001/"><time datetime="2026-08-02T17:00:00.000Z">Aug 2</time></a></article></body></html>')
+assert page_up("https://www.instagram.com/p/DVendor0001/", vendor_page).json()["upgraded"] == 1
+[vendor] = [p for p in posts.list_posts(case) if p["url"] == "https://www.instagram.com/p/DVendor0001/"]
+assert (vendor["source"], vendor["origin"], vendor["text"]) == ("Instagram", "captured", "Lake loop by kayak")
+assert vendor["extra"]["vendor_source"] == "Instagram (via Apify)" and vendor["extra"]["viewed_as"].startswith("logged in")
 # 4. The revocation watcher: an archive showing a challenge stops that platform until she resumes it
 blocked = mhtml("https://www.instagram.com/dorian.vell/", "<html><body><h2>We suspect automated behavior on your account"
                 "</h2><p>To protect our community, please confirm it's you.</p></body></html>")
