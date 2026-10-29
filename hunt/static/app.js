@@ -950,11 +950,12 @@ function wizSeen() { // the new-case form, as seeds are added (debounced)
 }
 
 /* Find a person, 3b: posts */
+let pickedHit = null; // the item open on the right: kept across redraws, so a decision doesn't lose her place
 screens.posts = async slug => {
   const base = `/api/cases/${encodeURIComponent(slug)}`;
   const [c, d, ch, w, al] = await Promise.all([loadCase(slug), api(`${base}/posts`).catch(() => ({ hits: [], posts: [], weekly: [], counts: {} })),
     api(`${base}/changes`).catch(() => ({ checks: [], changes: [] })), api(`${base}/watch`).catch(() => ({})), api(`${base}/alerts`).catch(() => ({ alerts: [] }))]);
-  const hits = d.hits.filter(h => h.status !== 'not relevant'), sel = hits[0], look = [...(c.details.look_for || [])].map(k => lookLabel(k).toLowerCase());
+  const hits = d.hits.filter(h => h.status !== 'not relevant'), sel = hits.find(h => h.id === pickedHit) || hits[0], look = [...(c.details.look_for || [])].map(k => lookLabel(k).toLowerCase());
   mount(html`${topCase(c, 'posts')}<main class="screen" style="padding:8px 24px 24px;gap:16px">
     <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap">
       <div style="flex:1;min-width:300px"><div class="h2">What’s relevant in their posts</div><div class="sub" style="margin-top:6px">${look.length ? 'Looking for: ' + look.join(', ') : ''}</div></div>
@@ -995,6 +996,7 @@ function hitDetail(slug, c, h) {
       <div class="card" style="padding:12px;background:var(--am-bg)"><div class="label" style="color:var(--am)">The post shows</div><div>${h.who === 'him' ? '' : 'A person: '}${h.what}</div></div></div>` : ''}
     <div class="muted" style="font-size:13px">Machine verdict: ${h.verdict}. Hunt doesn’t measure weights or recognise faces; you decide whether this is the subject.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn sm ${h.status === 'kept' ? 'good' : ''}" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="kept">${h.status === 'kept' ? '✓ Kept' : 'Keep'}</button>
       <button class="btn primary sm" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="in report">${h.status === 'in report' ? '✓ In the report' : 'Add to report'}</button>
       <button class="btn ghost sm" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="not relevant">Not relevant</button>
       ${h.url ? html`<a class="btn ghost sm" href="${/^https?:\/\//.test(h.url) ? h.url : '#'}" target="_blank" rel="noopener noreferrer" title="Opens the live post in your own browser, not through Hunt’s proxy">Open the post</a>` : ''}
@@ -1195,9 +1197,10 @@ const actions = {
     try { await api(`/api/jobs/${encodeURIComponent(job)}/${paused ? 'resume' : 'pause'}`, { method: 'POST', body: {} }); el.dataset.paused = paused ? '0' : '1'; el.textContent = paused ? 'Pause' : 'Resume'; } catch (e) { fail(e); }
   },
   hit: async el => {
+    if (el.closest('#hit-detail')) pickedHit = +el.dataset.id; // stay on it after the redraw
     try { await api(`/api/cases/${encodeURIComponent(el.dataset.slug)}/hits/${encodeURIComponent(el.dataset.id)}`, { method: 'POST', body: { status: el.dataset.status } }); render(); } catch (e) { fail(e); }
   },
-  'pick-hit': el => { const h = window.__hits.find(x => String(x.id) === el.dataset.id); $('#hit-detail').innerHTML = hitDetail(route().slug, window.__case, h).s;
+  'pick-hit': el => { const h = window.__hits.find(x => String(x.id) === el.dataset.id); pickedHit = h.id; $('#hit-detail').innerHTML = hitDetail(route().slug, window.__case, h).s;
     document.querySelectorAll('[data-act="pick-hit"]').forEach(b => b.style.boxShadow = b === el ? 'inset 0 0 0 1.5px var(--ac)' : ''); refreshNoteCounts(route().slug); },
   cite: el => { const t = el.dataset.target && document.getElementById(el.dataset.target); t?.scrollIntoView({ behavior: 'smooth', block: 'center' }); t?.animate([{ background: 'var(--ac-bg)' }, { background: 'transparent' }], 1200); },
   jump: (el, e) => { e.preventDefault(); document.getElementById(el.dataset.id)?.scrollIntoView({ behavior: 'smooth' }); },
