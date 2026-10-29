@@ -65,9 +65,26 @@ Live carrier/CNAM lookup needs paid services (e.g. Twilio Lookup), so it's out o
 | TikTok-Api | MIT | v7.3.3 (2026-04) | Unofficial, Playwright-based, fragile |
 | PRAW (Reddit) | BSD-2 | Active | New OAuth apps need manual approval since Nov 2025 |
 | X official API | n/a | Pay-per-use since Feb 2026, no free read tier (third-party reporting) | Low risk, not free |
-| yt-dlp | Unlicense | Active | Medium |
+| **yt-dlp** | Unlicense | 2026.8.19 pinned | Medium. **Wired in** for TikTok and single video links, see [Public posts, logged out](#public-posts-logged-out-yt-dlp-and-gallery-dl) |
 | Telethon | MIT | Moved to Codeberg; needs Telegram api_id | Medium |
+| **gallery-dl** | **GPL-2.0-only** | 1.32.16 pinned | Medium. **Wired in** as a subprocess for Facebook Page photos |
 | snscrape | GPL-3.0 | **Dead** (2023-11) | n/a |
+
+### Public posts, logged out (yt-dlp and gallery-dl)
+
+_Checked live on 2026-10-29 with the public organisation account `nasa` only, logged out, with Hunt's User-Agent. Module: `hunt/public.py`; the collectors sit in `posts.FETCHERS` beside Bluesky, Mastodon and YouTube. No private individual's account is used in any test._
+
+Both tools run as separate processes with an explicit, minimal set-up: yt-dlp with `--ignore-config --no-plugin-dirs --no-cache-dir --no-cookies-from-browser`, gallery-dl with `--config-ignore --no-input`, so no config file, plugin, cookie jar or browser session can log a run in. Every run gets `--proxy HUNT_PROXY` when set, `--user-agent` Hunt's own, one second between requests, one try per request (`--retries 1`), one run per platform at a time, and a 30-minute ceiling. At a login wall, rate limit or CAPTCHA the read stops and the tool's own words go into the source note and the audit log; nothing is retried, rotated or spoofed. Both tools break when a platform changes, so each failure is a note, never a crash, and the tool's version is in every note and every `media downloaded` entry. Versions are pinned in `pyproject.toml` to releases at least two weeks old (yt-dlp 2026.8.19, gallery-dl 1.32.16); bump them when a platform stops answering. gallery-dl is GPL-2.0-only, which is incompatible with Hunt's AGPL-3.0 as a library, so it is only ever called as a process; yt-dlp (Unlicense) is called the same way for consistency.
+
+| Platform | How | What a logged-out visitor gets today | Where the wall starts | Caps |
+|---|---|---|---|---|
+| **TikTok** | `yt-dlp --flat-playlist --lazy-playlist --dump-json tiktok.com/@user`, then one `yt-dlp -f b` download per video | Every video of the profile, newest first: id, full caption, Unix time, duration, views, thumbnails; then the MP4 (a 16 s video: 5.5 MB in 2.5 s). The listing streams, so a `since` read stops the tool at the first older video. No photo post was on `nasa`; one would come down as its images | None hit at 120 videos with 1 s pauses. yt-dlp warns that `curl_cffi` (TLS impersonation) is missing; it isn't needed today and Hunt doesn't add it | `MAX_POSTS` (1,000) listed; `MAX_VIDEO_BYTES` 500 MB a video; `MAX_ACCOUNT_BYTES` 5 GB an account per read |
+| **Facebook Page** | `gallery-dl -j facebook.com/<page>/photos --range 1-N`, with `--filter "date >= … or abort()"` for `since` | The Page's uploaded photos, newest first: fbid, caption, date (UTC), a CDN image URL that fetches logged out (a JPEG even when the path says `.png`). One request per photo, about 3 s each with the pause. A single video link is read with yt-dlp (metadata, then the file); not verified live, since no public video id could be found without a listing | The `/videos` tab: "Unsupported URL" in both tools. Personal profiles show far less logged out than Pages (never tested on a real person). The Page HTML answers Hunt's UA with the About card but no posts (see `docs/facebook.md`) | `MAX_PHOTOS` 300 a read |
+| **Instagram** | a post's `instagram.com/p/<code>/embed/captioned/` page; a profile's `instagram.com/<user>/embed/` for its latest posts | Per post: caption, owner, image or video CDN URL (fetches logged out), every picture of a carousel, video duration. The profile embed lists the latest 6 posts with shortcodes and `taken_at`. Otherwise the post time is read from the id inside the shortcode: the same second as `taken_at` for ordinary posts, earlier for a scheduled one, so `since` gets a day of slack. Post URLs also come from the inbox (`inbox.from_url`) and from links inside collected posts (`public.instagram_links`) | The profile page itself: yt-dlp "Unable to extract data", gallery-dl "Requested user could not be found" | `MAX_POSTS`; 1 s between embed fetches |
+| X | yt-dlp: profile URL unsupported, a single tweet only when it holds a video; gallery-dl: `AuthRequired`, "authenticated cookies needed to access this timeline" | Nothing from a profile | At the profile | **Not collected** |
+| Threads | "Unsupported URL" in both tools | Nothing | At the profile | **Not collected** |
+
+What the source note says, per account: tool and version, posts found, `since`, the caps, and the wall if one was hit. What the audit log says: `posts collected` (from `posts.collect`), `media downloaded` with tool version, file and bytes, `media not saved` with the tool's words (a 429, a cap).
 
 ## Public records (free APIs)
 
