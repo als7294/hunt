@@ -91,8 +91,72 @@ async def observe(image_path: str, ocr_text: str, candidates: list[str]) -> dict
     body = {"model": MODEL, "stream": False, "format": SCHEMA, "options": {"temperature": 0, "num_predict": MAX_TOKENS},
             "messages": [{"role": "system", "content": PROMPT},
                          {"role": "user", "content": ask, "images": [_image(image_path)]}]}
+    raw = await _chat(body)
+    return _clean(raw, len(candidates)) if raw else {}
+
+
+JUDGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "shows": _text,
+        "person_visible": {"type": "boolean"},
+        "child_visible": {"type": "boolean"},
+        "object": _text,
+        "answer": {"enum": ["yes", "no", "unclear"]},
+        "why": _text,
+    },
+    "required": ["shows", "person_visible", "child_visible", "object", "answer", "why"],
+}
+
+JUDGE_PROMPT = """You help an investigator check a person's own photos and video frames against one question. \
+Describe what is visible first, then answer.
+
+shows: one sentence on what the frames show.
+person_visible: true if any person is visible.
+child_visible: true if a child or baby is visible.
+object: the main thing a person is holding, carrying or using, or "none".
+answer: "yes" only if the frames clearly show what the question asks; "no" if they clearly don't; "unclear" otherwise.
+why: the one visible detail behind the answer, under 20 words.
+
+Never estimate weights or loads. Never say who anyone is, and never guess a person's identity, health or other \
+personal traits: write "a person" or "a child"."""
+
+JUDGE_KEEP_ALIVE = "2m"  # a scan's calls come back to back; unload() frees the model at the end
+
+
+async def judge(frames: list[str], question: str, limits: str = "") -> dict:
+    """Does what these frames (≤3, from one photo or one stretch of video) show answer the question?
+    Returns {shows, person_visible, child_visible, object, answer: yes|no|unclear, why},
+    or {} after two invalid answers. Raises VLMUnavailable like observe()."""
+    ask = f"Question: do these frames show {question}?"
+    if limits:
+        ask += f"\nContext only (don't judge it): the person says {limits!r}."
+    body = {"model": MODEL, "stream": False, "format": JUDGE_SCHEMA, "keep_alive": JUDGE_KEEP_ALIVE,
+            "options": {"temperature": 0, "num_predict": 300},
+            "messages": [{"role": "system", "content": JUDGE_PROMPT},
+                         {"role": "user", "content": ask, "images": [_image(f) for f in frames[:3]]}]}
+    raw = await _chat(body)
+    if not raw:
+        return {}
+    return {"shows": _str(raw.get("shows"))[:300], "person_visible": raw.get("person_visible") is True,
+            "child_visible": raw.get("child_visible") is True, "object": _str(raw.get("object"))[:100],
+            "answer": raw.get("answer") if raw.get("answer") in ("yes", "no") else "unclear",
+            "why": _str(raw.get("why"))[:200]}
+
+
+async def unload():
+    """Ask Ollama to drop the model from memory now, not after keep_alive runs out."""
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30, connect=5), trust_env=False) as client:
+            await client.post(URL, json={"model": MODEL, "messages": [], "keep_alive": 0})
+    except httpx.HTTPError:
+        pass  # not running: nothing loaded
+
+
+async def _chat(body: dict) -> dict | None:
+    """The model's JSON answer as a dict, None after two invalid answers (one retry)."""
     async with httpx.AsyncClient(timeout=httpx.Timeout(TIMEOUT, connect=5), trust_env=False) as client:
-        for _ in range(2):  # one retry on invalid JSON
+        for _ in range(2):
             try:
                 r = await client.post(URL, json=body)
             except httpx.TimeoutException as e:
@@ -108,8 +172,8 @@ async def observe(image_path: str, ocr_text: str, candidates: list[str]) -> dict
             except (ValueError, KeyError, TypeError):
                 continue
             if isinstance(raw, dict):
-                return _clean(raw, len(candidates))
-    return {}
+                return raw
+    return None
 
 
 def _image(path: str) -> str:
