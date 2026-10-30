@@ -50,6 +50,7 @@ async def run(case: Case, seeds: list[Seed], emit, capture: bool = True, pause: 
               "probability": c["probability"]})
     await step("checking")
     await avatars(case, report, emit)
+    await compare_faces(case, build(case, places), emit)
     if capture:
         async with HEAVY:
             await screenshot(case, build(case, places), emit)
@@ -154,12 +155,22 @@ def build(case: Case, places: dict | None = None) -> dict:
             c["evidence"].append({"kind": "profile photo", "at": a["ts"], "sha256": a["sha256"], "file": a["evidence"]})
             faces[i] = a["dhash"]
     likely = {i for i, c in enumerate(candidates) if in_person(c)}
+    extras = defaultdict(list)
     for i, h in faces.items():
         twin = next((j for j in likely & faces.keys() if j != i and photo.same_image(h, faces[j])), None)
         shot = next((n for n, ph in case_photos.items() if ph and photo.same_image(h, ph)), None)
-        extra = ([(match.bits(0.5, 0.005), "photo", f"same profile photo as {candidates[twin]['site']} "
-                                                      f"(a {candidates[twin]['verdict']} match)")] if twin is not None else []) \
+        extras[i] += ([(match.bits(0.5, 0.005), "photo", f"same profile photo as {candidates[twin]['site']} "
+                                                        f"(a {candidates[twin]['verdict']} match)")] if twin is not None else []) \
             + ([(match.bits(0.9, 0.001), "photo", f"profile photo is the case photo '{shot}'")] if shot else [])
+    if case.meta("face_basis"):  # face comparison is on (docs/analysis.md §5): one capped reason, never a second identifier
+        from . import face
+        checked = face.results(case)
+        for i, c in enumerate(candidates):
+            if r := checked.get(c["url"]):
+                c["face"] = {k: r[k] for k in ("match", "score", "why", "quality")}
+                if why := face.reason(r):
+                    extras[i].append(why)
+    for i, extra in extras.items():
         if extra:
             rate(candidates[i], extra)
     candidates.sort(key=lambda c: -c["probability"])
@@ -217,6 +228,27 @@ async def avatars(case: Case, report: dict, emit, top: int = 40):
                 except (httpx.HTTPError, OSError):  # gone, blocked or not an image: no photo evidence
                     pass
         await asyncio.gather(*map(one, todo))
+
+
+async def compare_faces(case: Case, report: dict, emit):
+    """With face comparison on and a reference photo given (docs/analysis.md §5), compare each likely account's
+    stored profile photo with it, once per account. Under HEAVY: it loads two models, one at a time."""
+    if not case.meta("face_basis"):
+        return
+    from . import face
+    if not face.references(case):
+        return
+    stored, done = {r["url"]: r for r in case.rows("select url, evidence from avatars")}, face.results(case)
+    todo = [(c["url"], case.dir / a["evidence"]) for c in report["candidates"]
+            if in_person(c) and c["url"] not in done and (a := stored.get(avatar_url(c["attrs"])))]
+    if not todo:
+        return
+    try:
+        async with HEAVY:
+            out = await asyncio.to_thread(face.verify_all, case, todo)
+        emit({"type": "log", "message": f"compared faces on {len(out)} profile photo{'s' * (len(out) != 1)}"})
+    except (face.FaceUnavailable, PermissionError, ValueError) as e:  # not installed, blocked since, or no reference
+        emit({"type": "log", "message": f"face comparison skipped: {e}"})
 
 
 async def screenshot(case: Case, report: dict, emit):

@@ -4,6 +4,7 @@ Offline: search and the posts/scan modules are stubbed; all subjects are fiction
 """
 
 import asyncio
+import io
 import json
 import os
 import shutil
@@ -13,6 +14,8 @@ import tempfile
 import time
 import types
 import warnings
+
+from PIL import Image
 
 os.environ["HUNT_HOME"] = tempfile.mkdtemp()  # before hunt.case reads it
 
@@ -271,6 +274,26 @@ h = c.get("/api/cases/vance-claim/report").json()["header"]
 assert (h["firm"], h["client"], h["file_number"], h["timezone"]) == ("Example Investigations", "Fictional Mutual", "EX-1",
                                                                     "America/Chicago"), h
 assert c.post("/api/settings", content=json.dumps({"logo": None}), headers=JSON).json()["logo"] is False
+
+# --- Face comparison: gated by residence, opt-in with a legal basis, reference photos as evidence --------------
+assert c.get("/api/face/gate?residence=US-IL").json()["allowed"] is False
+assert c.get("/api/face/gate?residence=US-AZ").json() == {"allowed": True, "rule": "no biometric-law block for US-AZ"}
+api = "/api/cases/vance-claim"
+assert c.get(api).json()["face"] == {"on": False, "basis": None, "references": []}
+png = io.BytesIO(); Image.new("RGB", (40, 40), "gray").save(png, "PNG")
+ref = [("files[]", ("me.png", png.getvalue(), "image/png"))]
+assert c.post(f"{api}/reference", files=ref, headers={"origin": BASE}).status_code == 409  # off: no reference taken
+r = c.post(f"{api}/face", content=json.dumps({"basis": "claimant consent form, file 1"}), headers=JSON)
+assert r.status_code == 403 and "residence is unknown" in r.json()["error"], r.text  # no residence on file: blocked
+c.post(f"{api}/details", content=json.dumps({"subject_residence": "US-AZ"}), headers=JSON)
+assert c.post(f"{api}/face", content=json.dumps({"basis": ""}), headers=JSON).status_code == 400  # a basis is required
+assert c.post(f"{api}/face", content=json.dumps({"basis": "claimant consent form, file 1"}), headers=JSON).json()["on"]
+assert c.post(f"{api}/reference", files=[("files[]", ("x.svg", b"<svg/>", "image/svg+xml"))], headers={"origin": BASE}).status_code == 415
+refs = c.post(f"{api}/reference", files=ref, headers={"origin": BASE}).json()["references"]
+assert len(refs) == 1 and c.get(refs[0]).status_code == 200 and c.get(f"{api}/person").json()["reference"] == refs
+sha = refs[0].rsplit("/", 1)[1].split(".")[0]
+assert c.request("DELETE", f"{api}/reference/{sha}", content="{}", headers=JSON).json()["references"] == []
+assert c.request("DELETE", f"{api}/face", content="{}", headers=JSON).json()["on"] is False
 
 # --- Free keys: saved into the environment, listed without their values, cleared -----------------
 os.environ.pop("HUNT_GRAVATAR_KEY", None)
