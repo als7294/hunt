@@ -5,9 +5,11 @@ Offline; all subjects here are fictional.
 
 import re
 import asyncio
+import base64
 import io
 import json
 import os
+import re
 import tempfile
 import zipfile
 from pathlib import Path
@@ -40,7 +42,7 @@ posts = [{"id": 1, "source": "Bluesky", "account_url": "https://bsky.app/profile
 hits = [
     {"id": 1, "post_id": 1, "category": "sport", "what": "finishing a 10k <race>", "verdict": "almost certain",
      "status": "in report", "posted_at": "2026-04-11", "timing": "after", "days_after": 41, "source": "Bluesky", "file": img},
-    {"id": 2, "category": "injury", "what": "a post about the knee injury", "verdict": "likely", "status": "kept",
+    {"id": 2, "category": "injury", "what": "a post about the knee injury", "verdict": "likely", "status": "in report",
      "posted_at": "2026-03-02", "timing": "after", "days_after": 1, "source": "Bluesky", "file": None},
     {"id": 3, "category": "sport", "what": "a gym selfie", "verdict": "likely", "status": "not relevant",
      "posted_at": None, "source": "Instagram", "file": None},
@@ -99,8 +101,15 @@ gaps = " ".join(rep["couldnt_see"])
 assert "phone details" in gaps and "whatsmyname failed" in gaps and "Posts on Instagram weren't read" in gaps, gaps
 assert "login-only" in gaps and "Bluesky weren't read" not in gaps and "ruled not relevant" in gaps, gaps
 assert "no date" in gaps and "Court and other public records" in gaps, gaps
+# Posts read through Apify: the method says so, and the account isn't listed as unread (C12)
+posts.append({"id": 3, "source": "Instagram", "account_url": "https://instagram.com/kestrel_vane88", "url": "https://instagram.com/p/x",
+              "posted_at": "2026-04-01T10:00:00+00:00", "origin": "vendor", "media": [], "extra": None, "text": "hello"})
+vend = compose()
+assert "1 post on Instagram was obtained through Apify, a data vendor, under the investigator's own account." in text(vend)
+assert "Posts on Instagram weren't read" not in " ".join(vend["couldnt_see"]), vend["couldnt_see"]
+posts.pop()
 disclaim = " ".join(s["text"] for s in rep["sentences"] if s["section"] == "disclaimers")
-assert "no pretext" in disclaim and "SHA-256" in disclaim and report.CONFIDENTIAL in disclaim, disclaim
+assert "Hunt's own code created no account" in disclaim and "used no pretext" in disclaim and "SHA-256" in disclaim and report.CONFIDENTIAL in disclaim, disclaim
 assert report.NOT_CONSUMER in disclaim and report.FCRA not in disclaim, disclaim  # a claim, not employment screening
 assert all(x.get("platform") == "Bluesky" for x in rep["sentences"] if x["section"] == "found"), rep["sentences"]
 
@@ -113,7 +122,12 @@ rows = {p["platform"]: p for p in rep["presence"]}
 assert set(rows) == {"Bluesky", "Instagram"} and rows["Bluesky"]["username"] == "kestrel_vane88", rows
 assert rows["Bluesky"]["last_activity"].startswith("2026-04-11") and rows["Bluesky"]["relevant"] == "yes", rows
 assert rows["Instagram"]["visibility"] == "public" and rows["Instagram"]["relevant"] == "not reviewed", rows
-assert [x["id"] for x in rep["exhibits"]] == ["E-2", "E-1"], rep["exhibits"]  # kept items, by platform and date
+assert [x["id"] for x in rep["exhibits"]] == ["E-2", "E-1"], rep["exhibits"]  # reported items, by platform and date
+filed = {"id": 5, "category": "sport", "what": "a bike ride", "verdict": "likely", "status": "kept", "posted_at": None,
+         "source": "Bluesky", "file": None}  # kept for her file only (decision D4): not printed, not "undated" either
+side = compose(hs=[*hits, filed, {**filed, "id": 6, "status": "new"}])
+assert "E-5" not in {e["id"] for e in side["evidence"]} | {x["id"] for x in side["exhibits"]}, side["evidence"]
+assert compose(hs=[*hits, {**filed, "id": 6, "status": "new"}])["couldnt_see"] == compose()["couldnt_see"]  # unseen: not counted
 assert {e["id"] for e in rep["evidence"]} == {"E-1", "E-2"}  # kept or in report only
 found = " ".join(s["text"] for s in rep["sentences"] if s["section"] == "found")
 assert "Exhibit 2: Bluesky, posted 2026-04-11, 41 days after" in found and "1 day after" in found, found
@@ -276,6 +290,15 @@ assert "<h3>Bluesky</h3>" in page and "Page source" in page and "Z)</td>" in pag
 assert "@bottom-right" not in report.to_html(case, rep, pdf=True)  # Chromium prints the PDF's own
 data = report.to_json(case, rep)
 assert all(m["ok"] for m in data["manifest"]) and any(m["exhibit_name"] for m in data["manifest"])
+# A picture that may show a child goes into the export blurred, never as the original (K7, A5)
+buf = io.BytesIO()
+Image.radial_gradient("L").convert("RGB").save(buf, "JPEG")
+_, kid = case._store(buf.getvalue(), "jpg")
+kid_hit = {"id": 9, "post_id": 1, "category": "sport", "what": "a bike ride", "verdict": "likely", "status": "in report",
+           "posted_at": "2026-04-12", "source": "Bluesky", "file": kid, "blur": True}
+page = report.to_html(case, compose(hs=[*hits, kid_hit]))
+assert base64.b64encode(buf.getvalue()).decode() not in page and "Shown blurred" in page
+assert page.count("data:image/jpeg;base64,") == 2  # the fake capture's original, and the blurred copy
 (case.dir / img).write_bytes(b"swapped")
 rep = compose()
 assert rep["checks"]["tampered"] == [img], rep["checks"]
@@ -303,12 +326,61 @@ assert "The claim states: no lifting over 5 kg; no running." in said_ and "The c
 run = next(t for t in said_ if t.startswith("Running: "))
 assert "finishing a 10k" in run and said_[run] == ["E-1"] and "almost certain" not in " ".join(said_), claim
 # the powerlifting meet of 2026-04-12 is a lead against lifting (leads.py), not yet kept for the report
-assert "Lifting: 1 lead after the injury, none kept for this report." in said_, said_
+assert "Lifting: 1 lead after the injury, none put in this report." in said_, said_
 assert [x["text"] for x in compose(screening=True)["sentences"] if x["section"] == "claim"] == \
     ["This screening version leaves out the claim and the evidence set against it."]
 
 one = compose(hs=[h for h in hits if h["status"] in ("kept", "in report")][:1])  # singular: "was", "Exhibit"
 assert "1 item relating to the listed activities was kept for this report (Exhibit " in text(one), text(one)
+
+# A subject abroad: the basis and the reason for no notice are printed, and missing until written down (F4)
+case.set_details(subject_residence="GB")
+rep = compose()
+assert {"abroad_basis", "no_notice"} <= set(rep["checks"]["missing"]) and "Lawful basis on record: none recorded." in text(rep)
+case.set_details(abroad_basis="Legitimate interests in investigating a claim", no_notice="Notice would impair the investigation")
+rep = compose()
+assert "abroad_basis" not in rep["checks"]["missing"] and "The subject lives in GB. Lawful basis on record: Legitimate " \
+    "interests in investigating a claim. Why they weren't told of this investigation: Notice would impair the investigation." in text(rep)
+case.set_details(subject_residence="", abroad_basis="", no_notice="")
+
+# A Washington subject (My Health My Data Act): the fraud basis is on record or missing; observed activity only,
+# described by the activity looked for; nothing about the injury or physical condition (F3)
+case.set_details(subject_residence="US-WA")
+rep = compose()
+assert "mhmda_basis" in rep["checks"]["missing"] and "Fraud basis on record: none recorded." in text(rep), text(rep)
+case.set_details(mhmda_basis="Claim fraud investigation for Fictional Mutual")
+rep, t = compose(), text(compose())
+assert "mhmda_basis" not in rep["checks"]["missing"] and "Fraud basis on record: Claim fraud investigation" in t, t
+assert "E-2" not in {e["id"] for e in rep["evidence"]} and "knee" not in t and "finishing a 10k" not in t, t
+assert "relates to sport and gym" in t and "41 days after the date of loss" in t, t
+assert re.search(r"Lifting: [^.]*after the date of loss", t) and "injury" not in t.split("The claim states")[1], t  # stays, reworded
+assert not any(report.HEALTH.search(x["text"]) for x in rep["sentences"] if "My Health My Data" not in x["text"]), rep["sentences"]
+case.set_details(subject_residence="", mhmda_basis="")
+
+# From a page that isn't the subject's: a finding only once her note says how it concerns them (A7)
+posts.append({"id": 7, "source": "Bluesky", "account_url": "https://bsky.app/profile/a_friend", "url": "https://bsky.app/p/7",
+              "posted_at": "2026-04-15T10:00:00+00:00", "origin": "captured", "media": [], "extra": {"not_subject": True}})
+theirs = {"id": 7, "post_id": 7, "category": "sport", "what": "a group hike", "verdict": "likely", "status": "in report",
+          "posted_at": "2026-04-15", "source": "Bluesky", "file": None}
+rep = compose(hs=[*hits, theirs])
+assert "E-7" not in {e["id"] for e in rep["evidence"]} and any("aren't the subject's" in x for x in rep["couldnt_see"]), rep["couldnt_see"]
+case.db.execute("create table if not exists hits (id integer primary key)")
+case.db.execute("insert or ignore into hits values (7)")
+from hunt import notes as notes_  # noqa: E402
+notes_.add(case, "The subject is tagged and in the photo", about="hit", ref=7)
+assert "E-7" in {e["id"] for e in compose(hs=[*hits, theirs])["evidence"]}
+posts.pop()
+
+# Shown to a restricted audience: out of the report until counsel approves that item, then in it, saying so (K3)
+posts[0]["extra"] = {"audience": "Friends"}
+rep = compose()
+assert "E-1" not in {e["id"] for e in rep["evidence"]} | {x["id"] for x in rep["exhibits"]}, rep["evidence"]
+assert any("1 item shown to a restricted audience (Friends) was left out pending counsel's approval." == x for x in rep["couldnt_see"]), rep["couldnt_see"]
+case.audit("counsel approved", {"hit": 1, "by": "A. Counsel", "note": None})
+rep = compose()
+assert "E-1" in {e["id"] for e in rep["evidence"]} and not any("restricted audience" in x for x in rep["couldnt_see"])
+assert "It was shown to Friends, not the public; counsel (A. Counsel) approved its use in this report." in text(rep), text(rep)
+posts[0]["extra"] = None
 
 # People around the subject (legal.md A1–A10): as observed and cited, never a relationship label; a minor unnamed;
 # none in screening; "Not relevant" leaves them out
@@ -329,9 +401,26 @@ assert [x["text"] for x in compose(screening=True)["sentences"] if x["section"] 
     ["This screening version leaves out the people around the subject."]
 posts.pop()
 
+# A child's name never prints (C13, A5): graph's minor pass (AN1) names them; the report withholds each, everywhere
+stand_in = not hasattr(graph, "minor_names")
+if stand_in:  # until the analysis branch is merged: AN1's interface, standing in
+    graph.minor_names = lambda ps, cands, seeds, labels=(): ["Leo"] if any("my son Leo" in (p.get("text") or "") for p in ps) else []
+    graph.redact = lambda t, names: re.sub(r"(?<!\w)Leo(?!\w)", "[name withheld]", t, flags=re.I) if t and names else t
+posts.append({"id": 8, "source": "Bluesky", "account_url": "https://bsky.app/profile/kestrel_vane88", "url": "https://bsky.app/p/8",
+              "posted_at": "2026-04-20T10:00:00+00:00", "origin": "fetched", "media": [], "extra": None,
+              "text": "Park day with my son Leo"})
+kid = {"id": 8, "post_id": 8, "category": "sport", "what": "a man pushing Leo on a swing", "caption": "Park day with my son Leo",
+       "verdict": "likely", "status": "in report", "posted_at": "2026-04-20", "source": "Bluesky", "file": None}
+rep = compose(hs=[*hits, kid])
+page = report.to_html(case, rep)
+assert "E-8" in {e["id"] for e in rep["evidence"]} and "Leo" not in page and "[name withheld]" in page, page[-3000:]
+posts.pop()
+if stand_in:
+    del graph.minor_names, graph.redact
+
 # A case known only by a username: no "the subject, the subject", the header names the case, and accounts she
 # ruled out are cited to her decisions (they're in no table, so an account id couldn't be looked up)
-handle = Case.create("example handle", "Test: a public organisation's handle", kind="background", tool="person")
+handle = Case.create("example handle", "Test: a public organisation's handle", kind="diligence", tool="person")
 seed = Seed("username", "examplehandle")
 handle.add_seeds([seed])
 for site, url in (("GitHub", "https://github.com/examplehandle"), ("Mastodon", "https://mastodon.example/@examplehandle")):
@@ -341,6 +430,44 @@ rep2 = report.compose(handle, build(handle), [], [], handle.verify(), screening=
 assert "the subject, the subject" not in text(rep2) and rep2["header"]["subject"] == "example handle", rep2["header"]
 out = [x for x in rep2["sentences"] if "ruled out" in x["text"] and "other account" in x["text"]]
 assert out and all(c.startswith("M-a") for c in out[0]["cites"]), out
+
+# A background (employment) case: always the screening version, of the accounts she confirmed only, with the FCRA
+# notice; relationship words, protected traits and co-parties' names never print (K1, A8, A9)
+bg = Case.create("Quill check", "Employer XYZ: pre-employment check, consent on file", kind="background", tool="person")
+bseed, bname = Seed("username", "rquill_example"), Seed("name", "Rob Quill")
+bg.add_seeds([bseed, bname])
+mine, other = "https://bsky.app/profile/rquill_example", "https://bsky.app/profile/rquill_example2"
+for url in (mine, other):
+    bg.add_finding(Finding("maigret", bseed, "Bluesky", url, {"fullname": "Rob Quill"}))
+bg.add_run("courts", bname, "found", 1, 1, "")
+court = "https://data.ohio.gov/example/2025-00002"
+bg.add_finding(Finding("courts", bname, "Ohio Court of Claims", court, {"fullname": "Rob Quill", "roles": ["plaintiff"],
+                       "case": "Quill v. Dana Mercer", "court": "Ohio Court of Claims", "docket_number": "2025-00002"}))
+rep = report.compose(bg, build(bg), [], [], bg.verify(), labels={})
+assert rep["screening"] is True and rep["presence"] == [] and rep["records"] == [], rep["presence"]  # nothing confirmed yet
+assert report.FCRA in [x["text"] for x in rep["sentences"] if x["section"] == "disclaimers"]
+bg.decide(mine, "him")
+bg.decide(court, "him")
+bposts = [{"id": i, "source": "Bluesky", "account_url": acct, "url": f"{acct}/post/{i}", "posted_at": "2026-05-01T10:00:00+00:00",
+           "origin": "fetched", "media": [], "extra": None, "text": t}
+          for i, acct, t in ((1, mine, "Dinner with my wife Ines"), (2, mine, "Waiting on my mom's surgery"),
+                             (3, mine, "Gym at six"), (4, other, "Trail run with friends"))]
+bhits = [{"id": i, "post_id": i, "category": "sport", "what": what, "caption": cap, "verdict": "likely", "status": "in report",
+          "posted_at": "2026-05-01", "source": "Bluesky", "file": None}
+         for i, what, cap in ((1, "two people at dinner", "Dinner with my wife Ines"), (2, "a hospital corridor", "Waiting on my mom's surgery"),
+                              (3, "a gym selfie", "Gym at six"), (4, "a trail run", "Trail run with friends"))]
+from hunt import notes  # noqa: E402
+bg.db.execute("create table hits (id integer primary key)")  # the note's target; the hits themselves are passed in
+bg.db.execute("insert into hits values (3)")
+notes.add(bg, "his mom took this one", about="hit", ref=3)
+rep = report.compose(bg, build(bg), bposts, bhits, bg.verify(), labels={})
+page = report.to_html(bg, rep)
+assert [x["url"] for x in rep["presence"]] == [mine] and [e["id"] for e in rep["evidence"]] == ["E-3"], rep["evidence"]
+assert not any(report.RELATION.search(x["text"]) for x in rep["sentences"] if "screening version" not in x["text"]), rep["sentences"]
+for leak in ("Ines", "surgery", "Dana Mercer", "his mom", "rquill_example2"):
+    assert leak not in page, leak
+assert rep["records"][0]["summary"] == "Ohio Court of Claims, docket 2025-00002", rep["records"]
+assert report.RELATION.search("with my bro") and not report.RELATION.search("Pittsburgh, PA and Boston, MA")
 
 if os.environ.get("HUNT_TEST_PDF"):  # needs Chromium: uv run playwright install chromium
     assert asyncio.run(report.to_pdf(report.to_html(case, rep, pdf=True), rep)).startswith(b"%PDF")

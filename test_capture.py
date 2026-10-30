@@ -211,6 +211,10 @@ def view(url, data=shot, case_slug=slug, **extra):
     return c.post("/api/capture/view", data={"case": case_slug, "url": url, "viewed_at": "2026-10-28T15:00:00Z",
                                              "title": "Dorian Vell | Facebook", **extra},
                   files={"screenshot": ("screenshot.jpg", data, "image/jpeg")}, headers=UP)
+shut = Case.create("closed capture", purpose="self-check with made-up accounts", kind="insurance")
+shut.close("done")
+r = view("https://www.facebook.com/dorian.vell", case_slug=shut.name)
+assert r.status_code == 409 and "closed" in r.json()["error"], r.text  # a capture is new work: refused on a closed case (AP10)
 
 
 r = view("https://www.facebook.com/dorian.vell/photos")
@@ -503,12 +507,25 @@ for off in ("https://www.strava.com/athletes/1", "https://www.snapchat.com/add/x
     assert page_up(off, mhtml(off, "<p>x</p>")).status_code == 403, off
 # 6. Guided steps are audited; never where capture is off or stopped
 g = lambda body: c.post("/api/capture/guided", content=json.dumps({"case": slug} | body), headers=HB)
+# Off until she turns it on in Hunt with counsel's note (D3); the extension learns it from hello, and can't set it
+assert g({"action": "scroll", "url": "https://www.instagram.com/dorian.vell/"}).status_code == 403
+assert c.post("/api/capture/hello", content="{}", headers=HB).json()["guided"] is False
+assert c.post("/api/browser/guided", content=json.dumps({"on": True}), headers=WEB).status_code == 400  # no note
+assert c.post("/api/browser/guided", content=json.dumps({"on": True, "note": "x"}), headers=HB).status_code in (401, 403)
+on = c.post("/api/browser/guided", content=json.dumps({"on": True, "note": "Counsel A. Example confirmed, 2026-10-30"}), headers=WEB)
+assert on.json()["on"] and c.post("/api/capture/hello", content="{}", headers=HB).json()["guided"] is True
+# Only the subject's confirmed accounts: their profile and own posts tabs, never lists of people (G2)
+assert g({"action": "scroll", "url": "https://www.instagram.com/someone.else/"}).status_code == 403
+assert g({"action": "scroll", "url": "https://www.instagram.com/dorian.vell/followers/"}).status_code == 403
+assert g({"action": "open", "url": "https://www.instagram.com/dorian.vell/", "to": "https://www.instagram.com/p/NotTheirs1/"}).status_code == 403
 assert g({"action": "scroll", "url": "https://www.instagram.com/dorian.vell/"}).status_code == 200
 assert g({"action": "open", "url": "https://www.instagram.com/dorian.vell/", "to": "https://www.instagram.com/reel/DQrReelHike2/"}).status_code == 200
 assert g({"action": "scroll-forever", "url": "https://www.instagram.com/dorian.vell/"}).status_code == 400
 assert g({"action": "scroll", "url": "https://www.linkedin.com/in/x/"}).status_code == 403
 steps = [json.loads(r["detail"]) for r in case.rows("select detail from audit where action = 'guided step' order by rowid")]
 assert [(x["action"], x.get("to")) for x in steps] == [("scroll", None), ("open", "https://www.instagram.com/reel/DQrReelHike2/")]
+assert c.post("/api/browser/guided", content=json.dumps({"on": False}), headers=WEB).json()["on"] is False
+assert g({"action": "scroll", "url": "https://www.instagram.com/dorian.vell/"}).status_code == 403  # off again
 # 7. The window size, for a Hunt Browser beside Hunt's window
 browser.chromium = lambda: Path("/Applications/Fake Browser.app/Contents/MacOS/Fake Browser")
 launched.clear()
@@ -516,6 +533,19 @@ browser.running = lambda: False
 assert c.post("/api/browser/open", content=json.dumps({"url": "https://www.instagram.com/dorian.vell/", "window": {"width": 900, "height": 1000}}),
               headers=OPEN).status_code == 200 and "--window-size=900,1000" in launched[0][0]
 assert c.post("/api/browser/open", content=json.dumps({"url": "https://x.com/", "window": {"width": 9}}), headers=OPEN).status_code == 400
+# 8. LinkedIn (AP12): signed in, she confirms first; the same profile again within a week asks again; each view audited
+browser.STATUS.write_text(json.dumps({"linkedin": "signed_in"}))
+li = {"url": "https://www.linkedin.com/in/dorian-vell/details/experience/", "case": slug}
+r = c.post("/api/browser/open", content=json.dumps(li), headers=OPEN)
+assert r.status_code == 409 and "signed in to LinkedIn" in r.json()["error"], r.text
+assert c.post("/api/browser/open", content=json.dumps({**li, "confirmed": True}), headers=OPEN).status_code == 200
+viewed = [json.loads(x["detail"]) for x in Case.open(slug).rows("select detail from audit where action = 'linkedin view'")]
+assert viewed and viewed[-1]["account"] == "https://www.linkedin.com/in/dorian-vell/" and viewed[-1]["signed_in"], viewed
+browser.STATUS.write_text(json.dumps({"linkedin": "signed_out"}))
+r = c.post("/api/browser/open", content=json.dumps({**li, "url": "https://www.linkedin.com/in/dorian-vell/"}), headers=OPEN)
+assert r.status_code == 409 and "You opened this LinkedIn profile on" in r.json()["error"], r.text
+assert c.post("/api/browser/open", content=json.dumps({"url": "https://www.linkedin.com/login"}), headers=OPEN).status_code == 200  # signing in
+browser.STATUS.unlink()
 
 # --- Unpairing closes the capture routes ----------------------------------------------------------
 assert c.post("/api/pairing/forget", content="{}", headers=WEB).json() == {"paired": False}

@@ -6,6 +6,7 @@ no CORS, a strict CSP. Long work runs as jobs whose events stream over SSE.
 """
 
 import asyncio
+import hashlib
 import hmac
 import importlib
 import inspect
@@ -20,6 +21,7 @@ import sys
 import tempfile
 import types
 import threading
+import urllib.parse
 import time
 import webbrowser
 from collections import Counter
@@ -43,17 +45,17 @@ from . import graph, keys, leads, report, search, sources, vendor, vlm
 from . import bundle, demo, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
-from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, RETENTION_DAYS, Case, all_cases  # watch.py reads RETENTION_DAYS here
-from .match import ICD203
-from .seed import detect, now
+from .case import ABROAD, DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, KINDS, RETENTION_DAYS, Case, all_cases, residence  # watch.py reads RETENTION_DAYS here
+from .match import ICD203, norm_url
+from .seed import Seed, detect, now
 
 STATIC = Path(__file__).parent / "static"
 COOKIE = "hunt"
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
        "media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
-KINDS = ("insurance", "background", "diligence", "journalism")
 HIT_STATUSES = ("kept", "not relevant", "in report")
 HEARTBEAT = 15  # seconds between SSE comments on a quiet job
+NOT_IN_SCREENING = "A background check leaves out the people around the subject: family and friends can't weigh in a hiring decision."
 THROTTLE = 0.25  # seconds between `scan` progress events (~4/s); the latest one wins
 NAMESAKE = 0.2
 VERDICTS = [label for _, label in ICD203]
@@ -195,8 +197,8 @@ def _job(req: Request) -> Job:
 def _new_job(req: Request, slug: str, kind: str, work) -> JSONResponse:
     if _active(req, slug):
         raise HTTPException(409, "this case already has a job running")
-    if Case.open(slug).meta("closed"):
-        raise HTTPException(409, "this case is closed; reopen it first")
+    if why := Case.open(slug).blocked():  # closed, or abroad without a basis (AP10)
+        raise HTTPException(409, why)
     job = Job(slug, kind)
     req.app.state.jobs[job.id] = job
     job.start(work)
@@ -460,16 +462,18 @@ async def create_case(req: Request):
         raise HTTPException(400, "tool must be 'person'")
     details = {**_details(b), "kind": b["kind"], "tool": "person"}
     details = {k: v for k, v in details.items() if v not in ("", None)}
+    if not b.get("subject_residence"):  # F4: where they live decides what may run; "unknown" is an answer, on record
+        raise HTTPException(400, "subject_residence is required: where the subject lives, or unknown")
     seeds = [s for raw in _str_list(b.get("seeds"), "seeds") for s in detect(raw)]
     c = Case.create(label, purpose, **details)
     c.add_seeds(seeds)
-    c.audit("case details", {"label": label, **details, "seeds": [asdict(s) for s in seeds]})
+    c.audit("case details", {"label": label, **details, "subject_residence": details.get("subject_residence", "unknown"),
+                             "seeds": [asdict(s) for s in seeds]})
     return JSONResponse({"slug": c.name}, 201)
 
 
 EDITABLE = ("reference", "injury_date", "limits", "look_for", "client", "adjuster", "file_number", "assignment_date",
-            "subject_dob", "recommendations", "subject_residence", "mhmda_basis")
-RESIDENCE = re.compile(r"[A-Z]{2}(-[A-Z0-9]{1,3})?")  # ISO 3166: "US-AZ", "GB"
+            "subject_dob", "recommendations", "subject_residence", "mhmda_basis", "abroad_basis", "no_notice")
 
 
 def _details(b: dict) -> dict:
@@ -486,9 +490,10 @@ def _details(b: dict) -> dict:
         elif not isinstance(v, str) or len(v) > 4000:
             raise HTTPException(400, f"{k} must be text of at most 4,000 characters")
         elif k == "subject_residence":
-            if not RESIDENCE.fullmatch(v.strip().upper()):
-                raise HTTPException(400, "subject_residence must be an ISO 3166 code like US-AZ or GB")
-            out[k] = v.strip().upper()
+            if not (code := residence(v)):
+                raise HTTPException(400, "subject_residence must be a country's ISO 3166 code, US- and a state, or "
+                                         "unknown: like GB or US-AZ")
+            out[k] = "" if code == "unknown" else code  # "unknown" is audited as said, and stored as no residence
         elif k in DATES:
             try:
                 date.fromisoformat(v)
@@ -528,6 +533,7 @@ async def get_case(req: Request):
                   "report": "done" if _audited(c, "report exported") else "todo"},
         "status": c.status(),
         "demo": bool(c.meta("demo")),
+        "abroad": (c.meta("subject_residence") or "").split("-")[0] in ABROAD, "blocked": c.blocked(),
         "active_job": {"id": job.id, "kind": job.kind} if job else None,
         "counts": {"accounts": await _accounts(c), "flagged": len(_flagged(hits)),
                    "evidence": sum(1 for f in (c.dir / "evidence").iterdir() if EVIDENCE_NAME.match(f.name))},
@@ -547,6 +553,9 @@ async def face_gate(req: Request):
     """The rule for a residence before the case exists (the wizard). Not audited here: enabling audits it."""
     from . import face
     r = req.query_params.get("residence", "")
+    if r.strip() and not residence(r):
+        return JSONResponse({"allowed": False, "rule": "the subject's residence isn't a known ISO 3166 code"})
+    r = residence(r) or ""
     allowed, rule = face.gate(types.SimpleNamespace(meta=lambda k: r if k == "subject_residence" else None,
                                                     audit=lambda *a: None))
     return JSONResponse({"allowed": allowed, "rule": rule})
@@ -610,9 +619,21 @@ async def remove_reference(req: Request):
     return JSONResponse(_face_state(c))
 
 
+def _fold(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
 async def add_seeds(req: Request):
     c = _case(req)
     seeds = [s for raw in _str_list((await _body(req)).get("seeds"), "seeds") for s in detect(raw)]
+    # Someone the subject's posts, bios or records name is not a seed: searching them needs its own case (A1)
+    around = {_fold(p["name"]): p for p in graph.associates(await _posts(c), (await search.snapshot(c))["candidates"],
+                                                            c.seeds(), graph.photo_labels(c))["people"] if p.get("name")}
+    for s in seeds:
+        key = _fold(s.value.split("@")[0] if s.kind == "email" else s.value)
+        if s.kind in ("name", "username", "email") and key in around:
+            raise HTTPException(409, f"{s.value} is named in what the case holds as someone around the subject "
+                                     f"({around[key]['labels'][0]}): open them as their own case, with its own purpose")
     c.add_seeds(seeds)
     c.audit("seeds added", {"seeds": [asdict(s) for s in seeds]})
     return JSONResponse({"seeds": [{"kind": s.kind, "value": s.value} for s in c.seeds()]})
@@ -732,8 +753,11 @@ def _avatar(c: Case, x: dict) -> str | None:
 
 
 async def get_people(req: Request):
-    """Family and associates from what the case already holds (graph.associates): names and citations only."""
+    """Family and associates from what the case already holds (graph.associates): names and citations only.
+    None for a background (employment) case: family can't weigh in a hiring decision (A8)."""
     c = _case(req)
+    if c.details()["kind"] == "background":
+        return JSONResponse({"notice": NOT_IN_SCREENING, "people": []})
     snap = await search.snapshot(c)
     out = graph.associates(await _posts(c), snap["candidates"], c.seeds(), graph.photo_labels(c), case_key=c.name)
     hidden = set(json.loads(c.meta("people_hidden") or "[]"))
@@ -763,8 +787,11 @@ async def _evidence(c: Case) -> tuple:
 
 async def get_timeline(req: Request):
     """The subject across posts, scan hits, public records and stated life events, injury date marked (leads.timeline)."""
-    details, posts, hits, cands = await _evidence(_case(req))
-    return JSONResponse({"injury_date": details.get("injury_date"), "events": leads.timeline(details, posts, hits, cands)})
+    c = _case(req)
+    details, posts, hits, cands = await _evidence(c)
+    red = report.minors(c, posts, cands)
+    return JSONResponse({"injury_date": details.get("injury_date"),
+                         "events": [{**e, "what": red(e["what"])} for e in leads.timeline(details, posts, hits, cands)]})
 
 
 async def get_leads(req: Request):
@@ -773,19 +800,21 @@ async def get_leads(req: Request):
     details, posts, hits, cands = await _evidence(c)
     people = graph.associates(posts, cands, c.seeds(), graph.photo_labels(c), case_key=c.name)["people"]
     out, said = leads.leads(details, posts, hits, cands, people), json.loads(c.meta("lead_status") or "{}")
+    red = report.minors(c, posts, cands)
     for x in out["leads"]:  # a scan lead's status is its flag's; a caption's or record's is what she set here
+        x["shows"] = red(x["shows"])
         if x["kind"] != "scan" and x["id"] in said:
             x["status"] = said[x["id"]]
     return JSONResponse(out)
 
 
 async def set_lead(req: Request):
-    """{status: "kept" | "not relevant" | null} for a lead from a caption or a record, audited. (A scan lead is
+    """{status: "in report" | "kept" | "not relevant" | null} for a lead from a caption or a record, audited. (A scan lead is
     kept or set aside through its flag, POST /hits/{id}, so the Posts step and the report agree.)"""
     c, b = _case(req), await _body(req)
     status, lid = b.get("status"), req.path_params["id"]
-    if status not in ("kept", "not relevant", None):
-        raise HTTPException(400, "status must be kept, not relevant or null")
+    if status not in ("in report", "kept", "not relevant", None):
+        raise HTTPException(400, "status must be in report, kept, not relevant or null")
     said = json.loads(c.meta("lead_status") or "{}")
     said.pop(lid, None) if status is None else said.update({lid: status})
     c.db.execute("insert or replace into meta values ('lead_status', ?)", (json.dumps(said),))
@@ -870,6 +899,18 @@ async def _heic_to_jpeg(path: Path) -> Path:
 async def get_posts(req: Request):
     c = _case(req)
     posts, hits = await _posts(c), await _hits(c)
+    red = await asyncio.to_thread(report.minors, c, posts)  # a child's name never reaches the screen (A5)
+    for h in hits:
+        h |= {"what": red(h.get("what")), "caption": red(h.get("caption"))}
+    for p in posts:
+        p["text"] = red(p.get("text"))
+        for x in p.get("visible_comments") or []:
+            x |= {"author": red(x.get("author")), "text": red(x.get("text"))}
+    by_post, approved = {p["id"]: p for p in posts}, {json.loads(r["detail"]).get("hit") for r in c.rows(
+        "select detail from audit where action = 'counsel approved'")}
+    for h in hits:  # the audience the platform showed, and whether counsel approved it (K3)
+        if aud := report.audience(h, by_post):
+            h |= {"audience": aud, "counsel": h["id"] in approved}
     flagged = _flagged(hits)
     weekly = Counter()
     for kind, items in (("posts", posts), ("flagged", flagged)):
@@ -893,6 +934,26 @@ def _week(when) -> str | None:
         return f"{y}-W{w:02d}"
     except ValueError:
         return None
+
+
+async def counsel_hit(req: Request):
+    """POST {by, note}: counsel approved using an item shown to a restricted audience (K3). Audited; the report
+    includes the item from then on, saying so."""
+    c = _case(req)
+    b = await _body(req)
+    by, note = b.get("by"), b.get("note")
+    if not isinstance(by, str) or not by.strip() or len(by) > 200:
+        raise HTTPException(400, "by: the name of the counsel who approved it")
+    if note is not None and (not isinstance(note, str) or len(note) > 2000):
+        raise HTTPException(400, "note must be text of at most 2,000 characters")
+    try:
+        hit_id = int(req.path_params["id"])
+    except ValueError:
+        raise HTTPException(404, "no such hit")
+    if not any(h["id"] == hit_id for h in await _hits(c)):
+        raise HTTPException(404, "no such hit")
+    c.audit("counsel approved", {"hit": hit_id, "by": by.strip(), "note": (note or "").strip() or None})
+    return JSONResponse({"hit": hit_id, "counsel": by.strip()})
 
 
 async def set_hit(req: Request):
@@ -961,9 +1022,11 @@ async def delete_case(req: Request):
         await asyncio.to_thread(inbox._trash, c.dir)
     except OSError as e:
         raise HTTPException(500, f"couldn't move the case to the Trash: {e}")
-    with open(HOME / "deleted-cases.log", "a") as f:  # the case's own log went to the Trash with it
-        f.write(json.dumps({"ts": now(), "slug": c.name, "label": d["label"], "purpose": d["purpose"],
-                            "created": d["created"], "reason": _reason(b), "audit_rowid": rid}) + "\n")
+    # The case's own log went to the Trash with it. This line outlives both, so it keeps nothing that names the
+    # subject: not the label or purpose, and the slug (made from the label) only as a hash (K6, AP13)
+    with open(HOME / "deleted-cases.log", "a") as f:
+        f.write(json.dumps({"ts": now(), "case": hashlib.sha256(c.name.encode()).hexdigest()[:16], "created": d["created"],
+                            "reason": _reason(b), "audit_rowid": rid}) + "\n")
     return JSONResponse({"deleted": c.name, "to": "Trash"})
 
 
@@ -992,11 +1055,22 @@ async def public_preview(req: Request):
     url = b.get("url")
     if not (isinstance(url, str) and url.startswith("https://")):
         raise HTTPException(400, "url must be the account's https address")
+    mine = [u for u, x in c.decisions().items() if u and x["decision"] == "him"]
+    if not any(norm_url(url) == u or norm_url(url).startswith(u + "/") for u in mine):
+        raise HTTPException(400, "preview reads only an account you confirmed as the subject's, or a post on one")
+    if why := c.blocked():
+        raise HTTPException(409, why)
+    if extension.platform(url) == "Facebook":  # her click reads what Facebook serves logged out (C6: not every search)
+        seed = Seed("url", url)
+        found, checked, note = await sources.facebook.search(seed)
+        for f in found:
+            c.add_finding(f)
+        c.add_run("facebook", seed, "found" if found else "nothing found", len(found), checked, note)
+        return JSONResponse({"source": "Facebook", "status": "found" if found else "nothing found", "added": 0,
+                             "checked": checked, "note": note or "Read what Facebook shows logged out for this profile."})
     fn = getattr(_module("public"), "preview", None)
     if not fn:
         raise HTTPException(501, "the public preview reader isn't installed yet")
-    if c.meta("closed"):
-        raise HTTPException(409, "this case is closed; reopen it first")
     try:
         return JSONResponse(await _call(fn, c, url))
     except ValueError as e:
@@ -1059,6 +1133,10 @@ async def export_report(req: Request):
     fmt = req.path_params["fmt"]
     if fmt not in ("html", "pdf", "json"):
         raise HTTPException(404, "report formats: html, pdf, json")
+    if c.mhmda and not (c.meta("mhmda_basis") or "").strip():
+        raise HTTPException(409, "the subject lives in Washington: write down the fraud basis (My Health My Data Act) first")
+    if c.details()["kind"] == "background" and not any(u and x["decision"] == "him" for u, x in c.decisions().items()):
+        raise HTTPException(409, "a background report covers only accounts you confirmed: confirm at least one on Is it them? first")
     rep = await _report(req, c, export=True)
     html = report.to_html(c, rep, pdf=fmt == "pdf")
     if fmt == "html":
@@ -1331,14 +1409,28 @@ async def post_unpack(req: Request):
 
 
 async def get_seen(req: Request):
+    """Every other case on this computer, looked through for the same identifiers (K2: audited in the case
+    whenever what it found changes, so a screen redrawn doesn't fill the log)."""
     c = _case(req)
-    return JSONResponse(await asyncio.to_thread(seen.for_case, c, req.query_params.get("screening") == "1"))
+    r = await asyncio.to_thread(seen.for_case, c, req.query_params.get("screening") == "1")
+    if r.get("checked"):
+        found = sorted(m["case"] for m in r["matches"])
+        if c.meta("seen_audited") != json.dumps(found):
+            c.audit("seen lookup", {"identifiers": len(seen.identifiers(c)), "matches": found})
+            c.db.execute("insert or replace into meta values ('seen_audited', ?)", (json.dumps(found),))
+    return JSONResponse(r)
 
 
 async def post_seen(req: Request):
+    """The wizard's lookup, before the case exists: logged in ~/Hunt/seen-lookups.log with counts and hashed
+    case names only, since the line outlives every case."""
     b = await _body(req)
     ids = seen.from_seeds(_str_list(b.get("seeds"), "seeds"))
-    return JSONResponse(await asyncio.to_thread(seen.lookup, ids, None, b.get("kind") == seen.SCREENING))
+    r = await asyncio.to_thread(seen.lookup, ids, None, b.get("kind") == seen.SCREENING)
+    with open(HOME / "seen-lookups.log", "a") as f:
+        f.write(json.dumps({"ts": now(), "identifiers": len(ids), "matches": [
+            hashlib.sha256(m["case"].encode()).hexdigest()[:16] for m in r.get("matches", [])]}) + "\n")
+    return JSONResponse(r)
 
 
 async def get_setup(req: Request):
@@ -1374,8 +1466,8 @@ async def get_worklist(req: Request):
 
 async def post_worklist_open(req: Request):
     c = _case(req)
-    if c.meta("closed"):  # the demo case too: closed, so no click of it ever opens a page
-        raise HTTPException(409, "this case is closed; reopen it first")
+    if why := c.blocked():  # the demo case too: closed, so no click of it ever opens a page
+        raise HTTPException(409, why)
     b = await _body(req)
     if not isinstance(b.get("account"), str) or not isinstance(b.get("confirmed", False), bool):
         raise HTTPException(400, "account must be the account's URL, and confirmed true or false")
@@ -1385,6 +1477,7 @@ async def post_worklist_open(req: Request):
         raise HTTPException(404, str(e))
     except ValueError as e:  # a pacing warning: shown, then sent again with confirmed: true
         raise HTTPException(409, str(e))
+    _linkedin_gate(item["url"], None, b.get("confirmed", False))  # signed in? (worklist open is its own audit row)
     try:
         opened = await asyncio.to_thread(browser.open_url, item["url"], req.url.port, c.name)
     except (ValueError, LookupError) as e:
@@ -1642,7 +1735,7 @@ async def capture_hello(req: Request):
     label = next((c["label"] for c in cases if c["slug"] == state["case"]), None)
     return JSONResponse({"version": version("hunt-osint"), **extension.status(), "cases": cases, "active_case": active,
                          "capture": state | {"label": label}, "off_sites": sorted(extension.CAPTURE_OFF),
-                         "stopped": browser.stops()})
+                         "stopped": browser.stops(), "guided": _guided()["on"]})
 
 
 def _capture_state(b: dict) -> dict:
@@ -1687,13 +1780,36 @@ async def browser_status(req: Request):
     return JSONResponse(await asyncio.to_thread(browser.status))
 
 
+def _linkedin_gate(url: str, case: Case | None, confirmed: bool):
+    """One gate for every LinkedIn profile page Hunt opens (C10, A4): LinkedIn can show the member who viewed a
+    profile, so she confirms while signed in, and a second view of the same profile within a week asks again
+    (recheck's pacing, counting every audited view and worklist open). The view is audited. Raises 409 to ask."""
+    if extension.platform(url) != "LinkedIn" or not (acct := extension.account_of(url)):
+        return
+    try:
+        signed_in = json.loads(browser.STATUS.read_text()).get("linkedin") == "signed_in"
+    except (OSError, ValueError):
+        signed_in = False
+    last = max((r["ts"] for r in case.rows("select ts, detail from audit where action in ('linkedin view', 'worklist open')")
+                if json.loads(r["detail"]).get("account") == acct), default=None) if case else None
+    asks = [w for w in ("You're signed in to LinkedIn in the Hunt Browser, so it can show this member that you viewed their "
+                        "profile: browse logged out, or set profile viewing to private, then confirm." if signed_in else None,
+                        recheck._pacing("LinkedIn", last)) if w]
+    if asks and not confirmed:
+        raise HTTPException(409, " ".join(asks))
+    if case:
+        case.audit("linkedin view", {"url": url, "account": acct, "signed_in": signed_in, "warned": bool(asks)})
+
+
 async def browser_open(req: Request):
     b = await _body(req)
+    case = None
     if b.get("case") is not None:
         try:
-            Case.open(str(b["case"]))
+            case = Case.open(str(b["case"]))
         except LookupError:
             raise HTTPException(404, "no such case")
+    _linkedin_gate(str(b.get("url") or ""), case, b.get("confirmed") is True)
     size = b.get("window") or {}
     if size and not (isinstance(size, dict) and all(isinstance(size.get(k), int) and 300 <= size[k] <= 5000
                                                       for k in ("width", "height"))):
@@ -1736,6 +1852,8 @@ async def _capture_upload(req: Request, field: str, work):
             c = Case.open(str(form.get("case") or ""))
         except LookupError:
             raise HTTPException(404, "no such case")
+        if why := c.blocked():
+            raise HTTPException(409, why)
         site = extension.platform(form.get("url"))
         if not site:
             raise HTTPException(400, "url must be a page on Facebook, Instagram, TikTok, X or YouTube")
@@ -1806,16 +1924,73 @@ async def capture_revoked(req: Request):  # the extension saw a checkpoint/chall
     return JSONResponse(browser.stop(site, reason, b.get("url"), case))
 
 
+GUIDED = HOME / "guided.json"  # {on, note, ts}: guided mode, off until she turns it on in Hunt with counsel's note (D3)
+GUIDED_TABS = {"", "posts", "reels", "reels_tab", "media", "videos", "shorts", "photos"}  # the subject's own posts
+
+
+def _guided() -> dict:
+    try:
+        return json.loads(GUIDED.read_text())
+    except (OSError, ValueError):
+        return {"on": False, "note": None, "ts": None}
+
+
+async def guided_mode(req: Request):
+    """GET, or POST {on, note}: guided mode on or off, from Hunt only (the extension can't reach /api/browser).
+    On needs counsel's note: who confirmed the trade-off for this firm, and when (legal.md, guided mode). Every
+    change goes to ~/Hunt/guided.log, and into the case being captured, if any."""
+    if req.method == "GET":
+        return JSONResponse(_guided())
+    b = await _body(req)
+    on, note = b.get("on") is True, b.get("note")
+    if on and not (isinstance(note, str) and note.strip() and len(note) <= 2000):
+        raise HTTPException(400, "turning guided mode on needs counsel's note: who confirmed it for this firm, and when")
+    state = {"on": on, "note": note.strip() if on else None, "ts": now()}
+    GUIDED.write_text(json.dumps(state))
+    with open(HOME / "guided.log", "a") as f:
+        f.write(json.dumps(state) + "\n")
+    if slug := browser.capture()["case"]:
+        Case.open(slug).audit(f"guided mode {'on' if on else 'off'}", {"note": state["note"]})
+    return JSONResponse(state)
+
+
+async def _guided_refusal(c: Case, action: str, url: str, to: str | None) -> str | None:
+    """Why this guided step may not run, or None: only on an account confirmed as the subject's, scrolling its
+    profile and its own posts tabs (never followers, following or friends), opening its own posts (G2, AP6)."""
+    mine = {extension.where(a) for a in extension.confirmed(c)}
+    acct = extension.account_of(url)
+    key = extension.where(acct) if acct else None
+    if key not in mine:
+        return "guided mode steps only through accounts confirmed as the subject's"
+    here = extension.where(url)
+    tab = (urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get("sk", [""])[0] if "profile.php" in here
+           else here[len(key):].strip("/").split("/")[0])
+    if action == "scroll" and tab not in GUIDED_TABS:
+        return "guided mode scrolls only the profile and its posts, reels, photos and videos, never lists of people"
+    if action == "open":
+        theirs = {extension.where(p["url"]) for p in await _posts(c) if p.get("url") and p.get("account_url")
+                  and extension.account_of(p["account_url"]) and extension.where(extension.account_of(p["account_url"])) == key}
+        if extension.where(to or "") not in theirs and not (extension.account_of(to) and extension.where(extension.account_of(to)) == key):
+            return "guided mode opens only the subject's own posts"
+    return None
+
+
 async def capture_guided(req: Request):  # one press of Next in guided mode
     b = await _body(req)
+    if not _guided()["on"]:
+        raise HTTPException(403, "guided mode is off: turn it on in Hunt, with counsel's note")
     try:
         c = Case.open(str(b.get("case") or ""))
     except LookupError:
         raise HTTPException(404, "no such case")
     if b.get("action") not in ("scroll", "open") or not extension.platform(str(b.get("url") or "")):
         raise HTTPException(400, "action must be scroll or open, on a supported page")
+    if why := c.blocked():
+        raise HTTPException(409, why)
     if extension.platform(b["url"]) in extension.CAPTURE_OFF or extension.platform(b["url"]) in browser.stops():
         raise HTTPException(403, "guided mode doesn't run where capture is off or stopped")
+    if why := await _guided_refusal(c, b["action"], b["url"], b.get("to")):
+        raise HTTPException(403, why)
     return JSONResponse({"audit": extension.guided(c, b["action"], b["url"], b.get("to"))})
 
 
@@ -1852,6 +2027,7 @@ CAPTURE_ROUTES = [
     Route("/api/browser/open", browser_open, methods=["POST"]),
     Route("/api/browser/sign-out", browser_sign_out, methods=["POST"]),
     Route("/api/browser/resume", browser_resume, methods=["POST"]),
+    Route("/api/browser/guided", guided_mode, methods=["GET", "POST"]),
     Route("/api/browser/accounts", browser_accounts, methods=["GET", "POST"]),
     Route("/api/capture/revoked", capture_revoked, methods=["POST"]),
     Route("/api/capture/guided", capture_guided, methods=["POST"]),
@@ -1895,6 +2071,7 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/cases/{slug}/media", add_media, methods=["POST"]),
         Route("/api/cases/{slug}/posts", get_posts),
         Route("/api/cases/{slug}/hits/{id}", set_hit, methods=["POST"]),
+        Route("/api/cases/{slug}/hits/{id}/counsel", counsel_hit, methods=["POST"]),
         Route("/api/cases/{slug}/details", update_details, methods=["POST"]),
         Route("/api/face/gate", face_gate),
         Route("/api/cases/{slug}/face", face_on, methods=["POST"]),

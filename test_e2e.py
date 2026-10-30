@@ -10,6 +10,7 @@ Run: uv run python test_e2e.py   (HUNT_TEST_PDF=1 also prints the PDF with the l
 
 import asyncio
 import csv
+import hashlib
 import io
 import json
 import os
@@ -196,7 +197,7 @@ r = c.post("/api/cases", content=json.dumps({
     "label": "Vance claim", "seeds": ["kestrel_vane88", "Robert Vance", "employer:Example Health"], "kind": "insurance", "tool": "person",
     "purpose": "Fictional Mutual claim FM-1 (fictional): disputed knee injury; permissible purpose on file",
     "reference": "FM-1", "injury_date": "2026-03-01", "look_for": ["sport"], "client": "Fictional Mutual",
-    "assignment_date": "2026-03-20", "subject_dob": "1990-05-05", "limits": "No running"}), headers=JSON)
+    "assignment_date": "2026-03-20", "subject_dob": "1990-05-05", "limits": "No running", "subject_residence": "US-AZ"}), headers=JSON)
 assert r.status_code == 201, r.text
 slug = r.json()["slug"]
 api = f"/api/cases/{slug}"
@@ -226,6 +227,7 @@ rep = c.get(f"{api}/report").json()
 assert rep["checks"]["every_sentence_cited"] and not rep["checks"]["tampered"] and rep["checks"]["missing"] == [], rep["checks"]
 assert len(rep["exhibits"]) >= 4 and {r["source"] for r in rep["records"]} == {"fec", "npi"}, rep["records"]
 html = c.get(f"{api}/report.html").text
+assert "report exported" in {r["action"] for r in Case.open(slug).rows("select action from audit")}  # K2
 assert "Appendix A: Exhibits" in html and "Fictional Mutual" in html
 exported = c.get(f"{api}/report.json").json()
 assert all(m["ok"] for m in exported["manifest"])
@@ -299,7 +301,8 @@ r = c.post(f"{api}/delete", content=json.dumps({"confirm": slug, "reason": "rete
 assert r.json() == {"deleted": slug, "to": "Trash"}, r.text
 assert (TRASH / slug / "case.db").exists() and c.get(api).status_code == 404
 logged = json.loads((HOME / "deleted-cases.log").read_text().splitlines()[-1])
-assert logged["slug"] == slug and logged["reason"] == "retention period over"
+assert set(logged) == {"ts", "case", "created", "reason", "audit_rowid"} and logged["reason"] == "retention period over", logged
+assert logged["case"] == hashlib.sha256(slug.encode()).hexdigest()[:16] and slug not in json.dumps(logged)  # nothing that names them
 assert next(x for x in c.get("/api/startup").json()["checks"] if x["id"] == "retention")["ok"]
 c.__exit__(None, None, None)
 

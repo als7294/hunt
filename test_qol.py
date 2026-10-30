@@ -23,7 +23,7 @@ from starlette.testclient import TestClient  # noqa: E402
 
 from hunt import app as server
 from hunt import browser, inbox, pack, recheck, scan, seen, setup, watch
-from hunt.case import Case
+from hunt.case import HOME, Case
 from hunt.seed import Finding, Seed
 
 TOKEN, PORT = "test-token", 8124
@@ -207,6 +207,12 @@ r = c.post("/api/seen-before", json={"seeds": ["@kestrel_vane88"], "kind": "insu
 assert [m["case"] for m in r["matches"]] == sorted([again.name, case.name]), r
 assert not c.post("/api/seen-before", json={"seeds": ["kestrel_vane88"], "kind": "background"}, headers=JSON).json()["checked"]
 assert c.post("/api/seen-before", json={"seeds": "kestrel_vane88"}, headers=JSON).status_code == 400
+# Each lookup is on record (K2): in the case when what it found changes; the wizard's in a log without names
+c.get(f"/api/cases/{case.name}/seen-before")
+looked = [json.loads(r["detail"]) for r in case.rows("select detail from audit where action = 'seen lookup'")]
+assert looked == [{"identifiers": len(seen.identifiers(case)), "matches": [again.name]}], looked
+lines = (HOME / "seen-lookups.log").read_text().splitlines()
+assert len(lines) == 2 and "kestrel" not in lines[0] and json.loads(lines[0])["identifiers"] == 1, lines
 
 # First-run setup: sizes shown first; a download starts only for the size the investigator accepted
 async def planned():

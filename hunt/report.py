@@ -49,8 +49,21 @@ CEILING = "likely"  # the strongest wording a machine reading gets in a report
 # Not a bare "race": in posts that's nearly always a running race.
 PROTECTED = re.compile(r"\b(age|aged|born|birth\w*|gender|sex|pronouns?|racial|ethnic\w*|religio\w*|"
                        r"nationalit\w*|citizen\w*|marital|married|pregnan\w*|disab\w*|health|medical|injur\w*|"
-                       r"union|politic\w*|orientation|veteran|genetic)\b", re.I)
-READ_AUTOMATICALLY = re.compile(r"bsky|bluesky|mastodon|youtube", re.I)  # what posts.collect reads
+                       r"union|politic\w*|orientation|veteran|genetic|colou?r|ancestry|creed|gay|lesbian|bisexual|"
+                       r"transgender|trans|queer|church|mosque|synagogue|temple|wheelchair|cancer|chemo\w*|surger\w*|"
+                       r"hospital\w*|diagnos\w*|therap\w*|rehab\w*|arrest\w*|convict\w*|felon\w*|jail\w*|prison\w*|"
+                       r"criminal|probation|parole)\b", re.I)
+# Physical or health condition: what Washington's My Health My Data Act makes consumer health data (F3). A Washington
+# subject's report keeps to observed activity, so a sentence or item with one of these is left out.
+HEALTH = re.compile(r"\b(health\w*|medical\w*|injur\w*|disab\w*|pregnan\w*|cancer|chemo\w*|surger\w*|hospital\w*|"
+                    r"diagnos\w*|therap\w*|physio\w*|rehab\w*|wheelchair|crutch\w*|pain\w*|sore|limp\w*|ache\w*|"
+                    r"medicat\w*|pills?|prescri\w*|doctors?|clinic\w*|symptom\w*|recover\w*|heal\w*|condition|illness|sick)\b", re.I)
+# Family and other relationship words (graph.RELATIONS): screening drops any sentence about the subject that has one
+# (A8). Words of three letters or fewer only in lower case, so "Pittsburgh, PA" and "MA" stay.
+RELATION = re.compile(r"\b(?:(?i:" + "|".join(re.escape(w) for w in sorted(graph.RELATIONS, key=len, reverse=True)
+                                                if len(w) > 3) + r")|" + "|".join(re.escape(w) for w in graph.RELATIONS
+                                                                                 if len(w) <= 3) + r")(?![\w-])")
+READ_AUTOMATICALLY = re.compile(r"bsky|bluesky|mastodon|youtube|tiktok", re.I)  # what posts.collect and hunt.public read
 # Sources whose findings are records about a person, not accounts they run (hunt/sources: public records)
 RECORDS = {"fec": "FEC itemized political contributions", "edgar": "SEC EDGAR filings",
            "npi": "the NPI healthcare provider registry", "courtlistener": "federal court dockets in CourtListener's RECAP archive",
@@ -62,7 +75,7 @@ SCREENED = {"fec": "political affiliation", "npi": "health"}
 # …and court dockets whose subject is health or politics
 SENSITIVE_CASE = re.compile(r"medical|malpractice|health|disab|social security|medicare|medicaid|erisa|mental|"
                             r"pregnan|drug|politic|election|voting|campaign", re.I)
-KEPT = ("kept", "in report")
+KEPT = ("in report",)  # "kept" is kept with the case for her file, not printed (decision D4 (a))
 MAX_EMBED = 8 << 20  # images larger than this stay out of the HTML export
 WEEKDAYS = ("Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays")
 CERTIFY = ("I personally conducted or supervised the work described in this report, using only publicly available "
@@ -218,13 +231,15 @@ def exhibit_files(case: Case) -> dict[str, dict]:
 
 
 class _Doc:
-    def __init__(self, screening: bool):
-        self.screening, self.sentences = screening, []
+    def __init__(self, screening: bool, health: bool = False):
+        self.screening, self.health, self.sentences = screening, health, []
 
     def say(self, section: str, text: str, cites: list[str], boilerplate: bool = False):
         """boilerplate: fixed text about the report itself, never about the subject, so screening keeps it."""
         assert cites, f"uncited sentence: {text}"
-        if self.screening and not boilerplate and PROTECTED.search(text):
+        if self.screening and not boilerplate and (PROTECTED.search(text) or RELATION.search(text)):
+            return
+        if self.health and not boilerplate and HEALTH.search(text):  # a Washington subject (F3)
             return
         self.sentences.append({"section": section, "text": text, "cites": list(dict.fromkeys(cites))})
 
@@ -234,8 +249,15 @@ class _Doc:
 def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks: dict,
             screening: bool = False, labels: dict | None = None, prefs: dict | None = None) -> dict:
     """The report dict of docs/api.md. `snap` is search.build(); `checks` is case.verify(); `prefs` is
-    settings() (read here when not given)."""
-    labels, d, doc, prefs = labels or {}, case.details(), _Doc(screening), prefs or settings()
+    settings() (read here when not given). A background (employment) case is always the screening version, of
+    the accounts she confirmed only (K1, A8)."""
+    d = case.details()
+    red = minors(case, posts, snap["candidates"])  # before anything prints: a child's name never does (A5)
+    hits = [{**h, "what": red(h.get("what")), "caption": red(h.get("caption"))} for h in hits]
+    posts = [{**p, "text": red(p.get("text"))} for p in posts]
+    background, wa = d["kind"] == "background", case.mhmda
+    screening = screening or background
+    labels, doc, prefs = labels or {}, _Doc(screening, health=wa), prefs or settings()
     tz = prefs["timezone"]
     log, decided, audit = {}, {}, {}  # action → citations; norm_url ('' = the person) → its decisions; id → row
     for a in snap["audit"]:
@@ -247,7 +269,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     own = lambda c: decided.get(norm_url(c["url"]), []) + decided.get("", [])
     opened = log.get("case opened", ["M-a1"])[:1]
     scope = log.get("case details", opened)[:1]
-    cands = [c for c in snap["candidates"] if not (screening and _screened(c))]
+    cands = [c for c in snap["candidates"] if not (screening and _screened(c)) and not (background and c["decision"] != "him")]
     methodology = [r for r in snap["methodology"] if not (screening and r["source"] in SCREENED)]
     people = [c for c in cands if search.in_person(c) and not _record(c)]  # accounts
     records = [c for c in cands if search.in_person(c) and _record(c)]
@@ -258,10 +280,27 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     who = subject if confirmed else "a person matching the details supplied"
     acc = lambda c: f"A-{c['finding_ids'][0]}"
     by_post = {p["id"]: p for p in posts}
-    if screening:
-        hits = [h for h in hits if h.get("category") != "injury" and not PROTECTED.search(
-            f"{h.get('what', '')} {h.get('caption', '')}")]
-    kept = sorted((h for h in hits if h.get("status") in KEPT),
+    if background:  # only posts from the accounts she confirmed
+        mine = {norm_url(c["url"]) for c in people}
+        hits = [h for h in hits if norm_url(by_post.get(h.get("post_id"), {}).get("account_url") or "") in mine]
+    if screening or wa:
+        hits = [h for h in hits if h.get("category") != "injury" and not any(
+            r.search(f"{h.get('what', '')} {h.get('caption', '')}")
+            for r in ((PROTECTED, RELATION) if screening else ()) + ((HEALTH,) if wa else ()))]
+    # A Washington subject's items are described by the activity looked for, never the model's own words (F3)
+    said_as = lambda h: labels.get(h.get("category"), h.get("category")) if wa else h.get("what")
+    # Shown to a restricted audience (Friends, Followers…): out of the report until counsel approves that item (K3)
+    approvals = {str(json.loads(a["detail"]).get("hit")): (f"M-a{a['rowid']}", json.loads(a["detail"]).get("by"))
+                 for a in snap["audit"] if a["action"] == "counsel approved"}
+    held = [h for h in hits if h.get("status") in KEPT and audience(h, by_post) not in (None, "", "Public")
+            and str(h["id"]) not in approvals]
+    # From a page that isn't the subject's (capture marks its posts not_subject): a finding only with her note
+    # on the item saying why it concerns the subject (A7)
+    noted = {(n["about"], n["ref"]) for n in notesmod.list_notes(case) if not n["replaced_by"]}
+    foreign = [h for h in hits if h.get("status") in KEPT and h not in held
+               and ((by_post.get(h.get("post_id")) or {}).get("extra") or {}).get("not_subject")
+               and ("hit", str(h["id"])) not in noted and ("post", str(h.get("post_id"))) not in noted]
+    kept = sorted((h for h in hits if h.get("status") in KEPT and h not in held and h not in foreign),
                   key=lambda h: (h.get("source") or "", h.get("posted_at") or ""))
     ev = lambda hs: [f"E-{h['id']}" for h in hs]
     runs = [_run(r) for r in methodology]
@@ -291,8 +330,8 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         post = by_post.get(h.get("post_id"), {})
         exhibit(f"E-{h['id']}", h.get("file"), kind="post" if not h.get("file") else "post media",
                 platform=h.get("source") or post.get("source"), url=h.get("url") or post.get("url"),
-                account=post.get("account_url"), posted_at=h.get("posted_at"), description=h.get("what"),
-                relevance=_relevance(h, labels, screening))
+                account=post.get("account_url"), posted_at=h.get("posted_at"), description=said_as(h),
+                relevance=_relevance(h, labels, screening, wa), blurred=bool(h.get("blur") or h.get("child_visible")))
     ex = lambda cid: f"Exhibit {numbered[cid]}" if cid in numbered else None
 
     # Online presence table
@@ -345,6 +384,13 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
                          + ".", log.get("search", opened)[:1] + scope)
     if d["subject_dob"]:
         doc.say("scope", f"Date of birth supplied: {d['subject_dob']}.", scope)
+    if wa:
+        doc.say("scope", f"Washington subject (My Health My Data Act): this report describes observed activity only, "
+                         f"never physical condition. Fraud basis on record: {_end(d['mhmda_basis'] or 'none recorded')}",
+                scope, boilerplate=True)
+    if (country := (d["subject_residence"] or "").split("-")[0]) in casemod.ABROAD:  # F4: printed, so it can be checked
+        doc.say("scope", f"The subject lives in {country}. Lawful basis on record: {_end(d['abroad_basis'] or 'none recorded')} "
+                         f"Why they weren't told of this investigation: {_end(d['no_notice'] or 'none recorded')}", scope)
     if d["look_for"]:
         doc.say("scope", "Asked to look for: " + ", ".join(labels.get(k, k) for k in d["look_for"]) + ".", scope)
     if d["limits"]:
@@ -379,6 +425,11 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         at = _when(audit[log["capture"][-1]]["ts"], tz)
         doc.say("method", f"Profile pages of the likely accounts were captured as screenshots, logged out (latest {at}).",
                 log["capture"])
+    for c in people:  # posts read through Apify, a paid vendor, under her own key (C12)
+        if n := sum(p.get("origin") == "vendor" and norm_url(p.get("account_url") or "") == norm_url(c["url"]) for p in posts):
+            doc.say("method", f"{_many(n, 'post')} on {c['site']} {'was' if n == 1 else 'were'} obtained through Apify, a "
+                              "data vendor, under the investigator's own account.",
+                    log.get("vendor posts collected", log.get("vendor run", [acc(c)]))[:1] + [acc(c)])
     if "scan" in log or "posts collected" in log:
         doc.say("method", "Public posts from the accounts confirmed as the subject's were collected and scanned on this "
                           "computer for the listed activities.",
@@ -502,7 +553,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         shot = f" ({ex(acc(c))})" if ex(acc(c)) else ""
         tie = (f"the investigator confirmed it concerns {who}" if c["decision"] == "him"
                else f"{cap(c['verdict'])} to concern {who}" + (f" ({why})" if why else ""))
-        doc.say("records", f"{c['site']}{shot}: {_summary(c, None if screening else d['injury_date'])}; {tie}.",
+        doc.say("records", f"{c['site']}{shot}: {_summary(c, None if screening else d['injury_date'], screening)}; {tie}.",
                 [acc(c)] + (own(c) if c["decision"] else []))
     if others := [c for c in cands if _record(c) and not search.in_person(c) and c["decision"] != "not him"]:
         doc.say("records", f"{_many(len(others), 'other record')} under the same name {'was' if len(others) == 1 else 'were'} "
@@ -515,18 +566,24 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
             on_item.setdefault((n["about"], n["ref"]), []).append(n)
     for h in kept:
         cid = f"E-{h['id']}"
+        loss = "the date of loss" if wa else "the date of injury"  # F3: no health word, so the sentence stays
         timing = "" if screening or h.get("timing") not in ("before", "after") else (
-            f", {_many(h['days_after'], 'day')} after the date of injury" if h["timing"] == "after" and h.get("days_after") is not None
-            else f", {h['timing']} the date of injury")
+            f", {_many(h['days_after'], 'day')} after {loss}" if h["timing"] == "after" and h.get("days_after") is not None
+            else f", {h['timing']} {loss}")
         reading = cap(h["verdict"]) if h.get("verdict") in VERDICTS else "flagged"
+        shows = f"relates to {said_as(h)}" if wa else \
+            f"shows {h.get('what') or 'a flagged item'} ({labels.get(h.get('category'), h.get('category'))})"
         doc.say("found", f"{ex(cid)}: {h.get('source') or 'a post'}, posted {_when(h.get('posted_at'), tz, False)}{timing}, "
-                         f"shows {h.get('what') or 'a flagged item'} ({labels.get(h.get('category'), h.get('category'))}). "
-                         f"Machine reading: {reading}; reviewed and "
+                         f"{shows}. Machine reading: {reading}; reviewed and "
                          f"{'placed in the report' if h['status'] == 'in report' else 'kept'} by the investigator.", [cid])
         doc.sentences[-1]["platform"] = h.get("source") or "Other"
+        if (shown := audience(h, by_post)) not in (None, "", "Public"):
+            cid, by = approvals[str(h["id"])]
+            doc.say("found", f"It was shown to {shown}, not the public; counsel ({by}) approved its use in this report.", [cid])
+            doc.sentences[-1]["platform"] = h.get("source") or "Other"
         for n in on_item.pop(("hit", str(h["id"])), []) + on_item.pop(("post", str(h.get("post_id"))), []):
             before = len(doc.sentences)
-            doc.say("found", f"Investigator's note {n['cite']}, {_when(n['ts'], tz, False)}: “{n['text']}”", [n["cite"]])
+            doc.say("found", f"Investigator's note {n['cite']}, {_when(n['ts'], tz, False)}: “{red(n['text'])}”", [n["cite"]])
             if len(doc.sentences) > before:  # screening drops a note in protected words
                 doc.sentences[-1]["platform"] = h.get("source") or "Other"
     if not kept:
@@ -554,12 +611,14 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
                     elif (post := by_post.get(pid)) and (a := accounts_by.get(norm_url(post.get("account_url") or ""))):
                         out.append(acc(a))
             return out
-        chosen = [x for x in found["leads"] if (x["status"] in KEPT if x["kind"] == "scan" else said.get(x["id"]) == "kept")]
+        chosen = [x for x in found["leads"] if (x["status"] if x["kind"] == "scan" else said.get(x["id"])) in KEPT]
         method = log.get("scan finished", log.get("scan", log.get("search finished", opened)))[:1]
         rs = found["restrictions"]
         lower = lambda t: t[:1].lower() + t[1:]
+        loss = (lambda t: re.sub(r"\bdate of injury\b", "date of loss", re.sub(r"\bthe (?:date of )?injury\b", "the date of loss", t))) \
+            if wa else (lambda t: t)  # F3
         if not found.get("injury_date") or not rs:
-            doc.say("claim", "No date of injury is on file, so nothing was set against the claim." if not found.get("injury_date")
+            doc.say("claim", loss("No date of injury is on file, so nothing was set against the claim.") if not found.get("injury_date")
                     else "No restriction is on file to set the evidence against.", scope)
         else:
             if stated := [lower(r["claim"].rstrip(".")) for r in rs if r["stated"]]:
@@ -570,10 +629,13 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
                 label = r["key"].capitalize()
                 mine = [(x, c_) for x in chosen if x["restriction"] == r["key"] and (c_ := cited(x))]
                 for x, c_ in mine:
-                    doc.say("claim", f"{label}: {lower(x['shows'].rstrip('.'))}.", c_)
+                    shows = lower(x["shows"].rstrip(".")) if not (wa and x["kind"] == "scan") else (  # not the model's words
+                        f"an item posted on {x['date']}" + (f" ({x['days_after']} days after the date of loss)"
+                                                            if x.get("days_after") is not None else "") + " relates to this")
+                    doc.say("claim", loss(f"{label}: {shows}."), c_)
                 if not mine:
-                    doc.say("claim", f"{label}: nothing found after the injury that bears on this." if not r["leads"] else
-                            f"{label}: {_many(r['leads'], 'lead')} after the injury, none kept for this report.", method)
+                    doc.say("claim", loss(f"{label}: nothing found after the injury that bears on this." if not r["leads"] else
+                                          f"{label}: {_many(r['leads'], 'lead')} after the injury, none put in this report."), method)
 
     # Conclusion and recommendations
     if kept:
@@ -619,13 +681,23 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         if c["seed"]["kind"] == "email":
             doc.say("couldnt_see", f"{c['site']}: the email is registered there, but no public profile was seen, so nothing "
                                    "there was reviewed.", [acc(c)])
-        elif not READ_AUTOMATICALLY.search(c["url"]):
-            doc.say("couldnt_see", f"Posts on {c['site']} weren't read: Hunt reads Bluesky, Mastodon and YouTube, and never "
-                                   "logs in anywhere, so login-only or private content there wasn't seen.", [acc(c)])
+        elif not READ_AUTOMATICALLY.search(c["url"]) and not any(
+                norm_url(p.get("account_url") or "") == norm_url(c["url"]) for p in posts):  # read through Apify or her capture
+            doc.say("couldnt_see", f"Posts on {c['site']} weren't read: Hunt reads Bluesky, Mastodon, YouTube and public "
+                                   "TikTok videos, and never logs in anywhere, so login-only or private content there wasn't "
+                                   "seen.", [acc(c)])
     if ruled := [h for h in hits if h.get("status") == "not relevant"]:
         doc.say("couldnt_see", f"{_many(len(ruled), 'flagged item')} {'was' if len(ruled) == 1 else 'were'} ruled not "
                                "relevant by the investigator.", ev(ruled))
-    if undated := [h for h in hits if not h.get("posted_at")]:
+    if foreign:
+        doc.say("couldnt_see", f"{_many(len(foreign), 'item')} from pages that aren't the subject's "
+                               f"{'was' if len(foreign) == 1 else 'were'} left out: none has a note saying how it concerns "
+                               "the subject.", ev(foreign), boilerplate=True)
+    if held:
+        doc.say("couldnt_see", f"{_many(len(held), 'item')} shown to a restricted audience "
+                               f"({', '.join(sorted({audience(h, by_post) for h in held}))}) {'was' if len(held) == 1 else 'were'} "
+                               "left out pending counsel's approval.", ev(held), boilerplate=True)
+    if undated := [h for h in hits if not h.get("posted_at") and h.get("status") != "new"]:  # she has looked at it
         doc.say("couldnt_see", f"{_many(len(undated), 'item')} {'has' if len(undated) == 1 else 'have'} no date, so "
                                f"{'it' if len(undated) == 1 else 'they'} can't be placed in time.", ev(undated))
     if runs:
@@ -634,22 +706,26 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     searched = [r for r in methodology if r["source"] in RECORDS and not (r["note"] or "").startswith("not run")]
     if searched:
         kinds = list(dict.fromkeys(RECORDS[r["source"]] for r in searched))
-        doc.say("couldnt_see", f"Public records were limited to {', '.join(kinds)}; state and county court, criminal and "
-                               "property records weren't searched.", [_run(r) for r in searched])
+        courts = any(r["source"] == "courts" for r in searched)
+        doc.say("couldnt_see", f"Public records were limited to {', '.join(kinds)}; " + (
+            "criminal and property records weren't searched, and state and county court records only where a court "
+            "publishes them as open data." if courts else "state and county court, criminal and property records weren't searched."),
+            [_run(r) for r in searched], boilerplate=True)  # about the method, not the subject
     else:
         doc.say("couldnt_see", "Court and other public records weren't searched.", log.get("search", opened)[:1])
 
     # Disclaimers
     method = runs[:1] + log.get("capture", [])[:1] + log.get("posts collected", [])[:1] or opened
-    doc.say("disclaimers", "Everything in this report came from information open to the public, viewed while logged out. "
-                           "No account was created, no one was contacted, friended, followed or messaged, and no pretext "
-                           "was used.", method)
+    doc.say("disclaimers", "Everything in this report came from information open to the public. Hunt's own code created "
+                           "no account, contacted, friended, followed or messaged no one, and used no pretext: it has no "
+                           "way to. That is a statement about the software; the investigator's own conduct is covered "
+                           "by the certification.", method, boilerplate=True)  # D15 (a)
     doc.say("disclaimers", f"Each exhibit was saved with its SHA-256 hash when captured; all {checks['checked']} evidence "
                            f"files were hashed again for this report, and {len(checks['tampered'])} had changed.",
             log.get("capture", [])[:1] + log.get("file added", [])[:1] + log.get("posts collected", [])[:1] or opened)
     doc.say("disclaimers", "Online content can be edited, deleted, misdated or posted by someone else; dates are as each "
                            "platform displayed them, and times are given in " + tz + ".", runs[:1] or opened)
-    doc.say("disclaimers", FCRA if d["kind"] == "background" else NOT_CONSUMER, opened)
+    doc.say("disclaimers", FCRA if background else NOT_CONSUMER, opened, boilerplate=True)
     if screening:
         doc.say("disclaimers", "This screening version leaves out protected characteristics (such as age, health, "
                                "religion and family status), political-contribution and health-related records, and "
@@ -673,7 +749,9 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
               "subject_dob": None if screening else d["subject_dob"],
               "injury_date": None if screening else d["injury_date"], "assignment_date": d["assignment_date"],
               "report_date": _when(now(), tz, False), "timezone": tz, "confidentiality": prefs["confidentiality"]}
-    missing = [k for k in ("client", "reference", "assignment_date", "investigator", "licence") if not header[k]]
+    missing = [k for k in ("client", "reference", "assignment_date", "investigator", "licence") if not header[k]] + \
+        [k for k in ("abroad_basis", "no_notice") if (d["subject_residence"] or "").split("-")[0] in casemod.ABROAD and not d[k]] + \
+        (["mhmda_basis"] if wa and not d["mhmda_basis"] else [])
     cited = {c for s in doc.sentences for c in s["cites"] if c.startswith("M-")}
     return {
         "screening": screening,
@@ -681,7 +759,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         "sections": [{"id": k, "title": t, "done": done[k] and k in said} for k, t in SECTIONS],
         "sentences": [s for s in doc.sentences if s["section"] != "couldnt_see"],
         "presence": presence,
-        "records": [{"row": i + 1, "id": acc(c), "source": _record(c), "site": c["site"], "url": c["url"], "summary": _summary(c, None if screening else d["injury_date"]),
+        "records": [{"row": i + 1, "id": acc(c), "source": _record(c), "site": c["site"], "url": c["url"], "summary": _summary(c, None if screening else d["injury_date"], screening),
                      "status": "confirmed" if c["decision"] == "him" else cap(c["verdict"]),
                      "exhibit": numbered.get(acc(c))} for i, c in enumerate(records)],
         "exhibits": exhibits,
@@ -722,10 +800,29 @@ def _screened(c: dict) -> bool:
     return src in ("courtlistener", "courts") and bool(SENSITIVE_CASE.search(text) or PROTECTED.search(text))
 
 
-def _summary(c: dict, injury: str | None = None) -> str:
+def minors(case: Case, posts: list[dict], candidates: list[dict] | None = None):
+    """A function that withholds every name graph ties to a possible minor in this case (AN1's one rule), for the
+    report and the app's responses (C13, A5). Identity until graph has the hand-over."""
+    find = getattr(graph, "minor_names", None)
+    if not find:
+        return lambda t: t
+    names = find(posts, search.build(case)["candidates"] if candidates is None else candidates, case.seeds(),
+                 graph.photo_labels(case))
+    return (lambda t: graph.redact(t, names)) if names else (lambda t: t)
+
+
+def audience(h: dict, by_post: dict) -> str | None:
+    """Who the platform showed the item to, when it showed it: the hit's own, else its post's (the capture's)."""
+    return h.get("audience") or ((by_post.get(h.get("post_id")) or {}).get("extra") or {}).get("audience")
+
+
+def _summary(c: dict, injury: str | None = None, screening: bool = False) -> str:
     """What a public record says, in one line, from the fields its source sets; with the injury date, the
-    competition results after it."""
+    competition results after it. Screening gives a court record's court and docket only: its caption names others."""
     a, src = c["attrs"], _record(c)
+    if screening and src in ("courtlistener", "courts"):
+        return ", ".join(str(b) for b in (a.get("court"), f"docket {a['docket_number']}" if a.get("docket_number") else None) if b) \
+            or c["site"]
     bits = []
     if src == "fec":
         bits = [f"{a.get('contributions')} itemized contributions" + (f" totalling ${a['total_usd']:,.0f}" if a.get("total_usd") else ""),
@@ -784,10 +881,10 @@ def _version() -> str:
     return version("hunt-osint")
 
 
-def _relevance(h: dict, labels: dict, screening: bool) -> str:
+def _relevance(h: dict, labels: dict, screening: bool, wa: bool = False) -> str:
     what = labels.get(h.get("category"), h.get("category") or "the listed activities")
     if not screening and h.get("timing") == "after" and h.get("days_after") is not None:
-        return f"relates to {what}; posted {_many(h['days_after'], 'day')} after the date of injury"
+        return f"relates to {what}; posted {_many(h['days_after'], 'day')} after the date of {'loss' if wa else 'injury'}"
     return f"relates to {what}"
 
 
@@ -866,8 +963,9 @@ def _cite_label(cid: str, rep: dict) -> str:
     return cid
 
 
-def _embed(case: Case, file: str | None, alt: str) -> str:
-    """An evidence image as an <img> with a data URI, or '' if it isn't a small enough image."""
+def _embed(case: Case, file: str | None, alt: str, blur: bool = False) -> str:
+    """An evidence image as an <img> with a data URI, or '' if it isn't a small enough image. `blur`: a child may be
+    in it (K7, A5), so a heavily blurred copy goes in, never the original."""
     path = _evidence_path(case, file)
     if path and path.suffix == ".img":
         mime = f"image/{bundle._image_ext(path).replace('jpg', 'jpeg')}"
@@ -875,7 +973,17 @@ def _embed(case: Case, file: str | None, alt: str) -> str:
         mime = mimetypes.guess_type(path.name)[0] if path else None
     if not (path and path.is_file() and (mime or "").startswith("image/") and path.stat().st_size <= MAX_EMBED):
         return ""
-    return f'<img alt="{html.escape(alt)}" src="data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}">'
+    data = path.read_bytes()
+    if blur:
+        from PIL import Image, ImageFilter
+        try:
+            img = Image.open(io.BytesIO(data)).convert("RGB")
+        except OSError:
+            return ""  # can't blur it, so it isn't shown
+        out = io.BytesIO()
+        img.filter(ImageFilter.GaussianBlur(max(img.size) / 25)).save(out, "JPEG", quality=70)
+        data, mime = out.getvalue(), "image/jpeg"
+    return f'<img alt="{html.escape(alt)}" src="data:{mime};base64,{base64.b64encode(data).decode()}">'
 
 
 def _evidence_path(case: Case, file: str | None) -> Path | None:
@@ -946,6 +1054,8 @@ def to_html(case: Case, rep: dict, pdf: bool = False) -> str:
         for x in rep["exhibits"]:
             stamp = lambda ts: f"{_when(ts, h['timezone'])} ({_utc(ts)})" if _utc(ts) and len(str(ts)) > 10 else _when(ts, h["timezone"])
             facts = [("File", x["name"]), ("SHA-256", x["sha256"]), ("Page source", x.get("page_source")),
+                     ("Shown blurred", "a child may be visible; the original is in the evidence bundle under this name"
+                      if x.get("blurred") else None),
                      ("URL", x.get("url")), ("Account", x.get("account")),
                      ("Posted", stamp(x["posted_at"]) if x.get("posted_at") else None),
                      ("Captured", stamp(x["captured"]) if x.get("captured") else None),
@@ -953,7 +1063,7 @@ def to_html(case: Case, rep: dict, pdf: bool = False) -> str:
             out.append(f"<div class=ex><h3>Exhibit {x['no']}: {e(x.get('platform') or '')} {e(x['kind'])}</h3>"
                        f"<p>{e(x.get('description') or '')}</p><table>"
                        + "".join(f"<tr><td class=k>{k}</td><td>{e(str(v))}</td></tr>" for k, v in facts if v)
-                       + "</table>" + _embed(case, x["file"], f"Exhibit {x['no']}") + "</div>")
+                       + "</table>" + _embed(case, x["file"], f"Exhibit {x['no']}", x.get("blurred")) + "</div>")
         out.append("</section>")
     if rep["log"]:
         out.append("<section class=appendix><h2>Appendix B: Search and case log</h2><p class=mute>Case-log entries carry "
