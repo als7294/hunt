@@ -669,6 +669,14 @@ This is the hand-out list. Inside each owner, fixes run from most to least serio
 
 Each item is a place where the code and a rule conflict, or a rule is ambiguous. The main session or Aaron decides.
 
+**Decided 2026-10-30 (provisional).** All fifteen, plus G4, are decided. They're recorded in [legal.md's Decisions table](legal.md#decisions-provisional-2026-10-30), and the rule text there reflects them. Where a decision changes a fix in §3, the decision wins:
+- **D1(b)** replaces DS3's and DS4's drop-every-deny-host filter with one honest existence request per site.
+- **D2(b)** adds strava.com and snapchat.com to the deny list.
+- **D6(b)** drops AP10: retention is a reminder.
+- **D10(b)** keeps AP4 as written: only a shown non-Public audience is flagged.
+- **D13(b)** drops CA7's LinkedIn content script.
+- **D14(a)** needs no fix.
+
 **D1. C6 against the Maigret, WhatsMyName and user-scanner existence checks**
 - **The conflict.** automation-legal.md Q5 keeps Maigret and WhatsMyName existence checks as "one request each, and a standard practice": "keep them, but document the policy". Its §4 "`sources/`" says "one request each, honest UA". legal.md's C6 exempts nothing. The engines also spoof User-Agents and TLS fingerprints, which C7 bars outright. The policy is written down nowhere beyond docs/qol.md item 19.
 - **(a)** Exclude the default-deny hosts from all three engines (DS1, DS3, DS4 as written).
