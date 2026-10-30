@@ -13,7 +13,7 @@ _Research date: 2026-10-29. Licences and last-commit dates come from the GitHub 
 
 | Tool | Licence | Activity | Library? | Notes |
 |---|---|---|---|---|
-| **Maigret** | MIT, Python | v0.6.6 (2026-09-18), commits daily | Yes, documented import API | 3K+ sites; parses profiles for IDs/links and searches recursively. **Core pick.** |
+| **Maigret** | MIT, Python | v0.6.6 (2026-09-18), commits daily | Yes, documented import API | 3K+ sites; parses profiles for IDs/links and searches recursively. **Core pick**, pinned; Hunt checks 385 of its top 509 honestly (see Collection narrowed) |
 | **WhatsMyName** data (`wmn-data.json`) | CC BY-SA 4.0 | 2026-10-27 | JSON file | 700+ sites, curated for low false positives. Second engine: agreement raises confidence. |
 | Sherlock | MIT, Python | v0.16.2 (2026-09-08) | CLI-first, no documented API | 400+ sites. Optional plugin. |
 | user-scanner | MIT, Python | v1.5.2 (2026-09-17) | Yes | Usernames *and* emails. |
@@ -285,6 +285,19 @@ _Checked 2026-10-29. A claimant who can't lift entering a powerlifting meet, or 
 Rejected: Strava (private by design; `robots.txt` disallows athlete search; API terms forbid this use), parkrun (403 to scripts; results are by athlete number, no name search; terms reportedly forbid scraping, **unverified** today), Ironman's own results page (404 today; its results are on Athlinks), Boston Athletic Association results search (404), MarathonGuide (per-race pages, no runner search), Smoothcomp, RaceRoster (event search only), USA Triathlon and bowl.com (result pages 404), World Triathlon (terms forbid automated collection).
 
 **Fields for the matcher and the timeline.** One record per lifter: `fullname`, `sex`, `location` ("Arizona, USA"), `federations`, `meet_count`, `first_date`, `last_date`, `date` (the latest meet), `best_total_kg`, `age_class`, and `meets[]` with `date`, `meet`, `location`, `division`, `event`, `equipment`, `weight_class_kg`, `bodyweight_kg`, `age`, `squat_kg`, `bench_kg`, `deadlift_kg`, `total_kg`, `place`, `tested`. `birth_year` (a key `match.py` reads as a date of birth) is the meet year minus the age at the latest meet; `age` is deliberately **not** set at the top level, since the matcher would read it as today's age. `data_date` says which weekly file answered; the record's `body` is the lifter's rows as CSV, so the evidence locker holds what the data said.
+
+## Collection narrowed (compliance audit §3.6, 2026-10-29)
+
+DS1–DS5 of `docs/research/compliance-audit.md`, under decisions D1 (b) (existence checks stay: one request per site, Hunt's own User-Agent, no TLS or header impersonation) and D2 (b) (strava.com and snapchat.com join the deny list). The deny list is `hunt.sources._api.ROBOTS_DENY`, matched by hostname by `_api.denied(url)`. Measured with a public organisation's handle (`nasa`), before and after, from one laptop on one day; sites change their minds, so treat the numbers as the order of magnitude.
+
+| Engine | Before | After | What changed |
+|---|---|---|---|
+| **Maigret** (`maigret`, pinned 0.6.6) | 509 top sites; 408 answered (243 claimed, 165 available, 100 unknown); 18 s | **385 sites; 273 answered** (151 claimed, 122 available, 111 unknown); 48 s | `maigret.sites()` leaves out 7 deny-list hosts (Facebook, Instagram, Twitter, LinkedIn, Reddit, Threads, Snapchat), 118 sites behind bot walls Maigret would otherwise impersonate Chrome to pass (67 TLS-fingerprint, 31 Cloudflare JS challenge, 19 IP reputation, 10 Cloudflare firewall, 6 custom; overlapping), and 5 that need an activation step (X's guest token among them). The 2 non-GET checks (Discord, LeetCode) were read and kept. 13 sites' browser `User-Agent` and `sec-ch-*` headers are stripped; every request carries Hunt's UA |
+| **WhatsMyName** (`whatsmyname`, list pinned to commit `2de6024` of 2026-10-26) | 691 entries; 406 answered (242 found, 164 not found, 278 unknown, 7 error); 31 s | **684 entries; 408 answered** (241 found, 167 not found, 267 unknown, 9 error); 79 s | 7 deny-list entries skipped (Facebook, Instagram, Reddit, Snapchat, Strava, Threads, X); 12 entries' Chrome UA dropped for Hunt's; the 23 POST entries were read (each sends only the handle to a username or profile lookup) and kept in `POST_OK`; an entry added upstream with a POST is skipped until read. No loss from the honest UA |
+| **user-scanner** (`user-scanner`, pinned 1.5.2.3) | 127 of 220 modules ran; an unread module could run if its text looked harmless | **103 run** | `_skip` fails closed: nothing runs unless read at 1.5.2.3 and judged silent. Of the 127, 22 impersonate a browser's TLS (`curl_cffi`) and 2 name deny-list hosts (`instagram`, `x`); they are skipped and counted in the note |
+| **Facebook** (`facebook`) | Ran in every batch search, one GET per seed | **Out of `SOURCES`** | The app's click action (`sources.facebook.search` for one profile) stays |
+
+The 111 Maigret unknowns after the change: 72 "Request failed" inside Maigret's aiohttp client (four of six such sites sampled, GoodReads, ThemeForest, Flickr groups and WordPress, answer one honest `httpx` GET with a normal 200 page, so this is the client, not a refusal; open question for whoever next upgrades Maigret), 18 bot protection, 5 access denied, 5 login walls, 4 DNS, 4 server errors. A first run straight after the change gave 54 answering and 330 unknown; it didn't repeat and is treated as transient. `search.avatars` imports `wmn.UA`, so avatar downloads now carry Hunt's UA too.
 
 ## Free keys
 

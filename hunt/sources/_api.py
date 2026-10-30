@@ -2,12 +2,26 @@
 
 import os
 import time
+from urllib.parse import urlsplit
 
 import httpx
 
 from ..seed import detect
 
 UA = "Hunt/0.1 (+https://github.com/als7294/hunt)"  # as geo.py: says what is asking, never for whom
+# Hosts whose robots.txt denies unnamed agents or that are login-walled (legal.md C1, C6; compliance audit DS2, decision
+# D2 (b)): no automatic request ever goes to them. The investigator opens them herself, from the worklist.
+ROBOTS_DENY = ("facebook.com", "fb.com", "instagram.com", "threads.net", "threads.com", "linkedin.com", "x.com", "twitter.com",
+               "reddit.com", "strava.com", "snapchat.com")
+
+
+def denied(url: str) -> bool:
+    """Is this URL's host on the deny list (or under one of its domains), whatever the scheme?"""
+    try:
+        host = (urlsplit(url if "://" in url else f"https://{url}").hostname or "").lower()
+    except ValueError:
+        return False
+    return any(host == d or host.endswith("." + d) for d in ROBOTS_DENY)
 
 
 class Limited(Exception):
