@@ -245,7 +245,8 @@ hunt seen --case vance-claim [--screening]
 
 Laura installs and runs Hunt without knowing Python. The investigator-facing story is in [user-guide.md](user-guide.md).
 
-**Install, once, in Terminal:** `uv tool install git+https://github.com/als7294/hunt && hunt setup`.
+**Install, once, in Terminal:** `uv tool install --python 3.12 git+https://github.com/als7294/hunt && hunt setup`.
+- `--python 3.12` keeps the installed Hunt on the Python every self-check runs on. Without it, uv picks the newest Python it has (3.13 on the release test Mac).
 - This works before Hunt is on PyPI. Once it's published, `uv tool install hunt-osint`.
 - uv brings its own Python 3.12.
 - Getting uv itself is `brew install uv`, or uv's own installer. That one *is* a `curl | sh`; Hunt doesn't ship one of its own.
@@ -307,6 +308,21 @@ Hunt scans everything, but a report uses only what's material (10 CCR §2695.7(d
 - **Audited** as `media minimised`, with every file's path, SHA-256, size and post.
 
 **Afterwards:** the case's posts still list those media, but their files are gone. `Case.verify()` and the bundle skip missing files, and the evidence route answers 404. The UI should show "removed at retention" for media whose SHA-256 is in a `media minimised` entry (integration point 21).
+
+**Release test (0.1.0), on the development Mac, as a first-time user:** each step worked.
+- `uv tool install` from the checkout, pinned to `uv.lock`. Hunt Capture is packaged.
+- `hunt doctor` reports the real state.
+- `hunt setup` makes `~/Applications/Hunt.app`.
+- Double-clicking it starts `hunt app` from the installed tool and opens the sign-in page. Its log is mode 600.
+- Signing in shows the startup screen with "v0.1.0", then Connect your accounts, with no console errors.
+- A second double-click reopens the page without a second server.
+- Quit stops the server and removes the PID file.
+- `hunt uninstall` (keep data) moves Hunt.app to the Trash, removes the tool and keeps `~/Hunt`.
+
+Fixed along the way:
+- The disk row said "10 GB free" while failing a 10 GB minimum (it rounded 9.8); it now shows one decimal.
+- Its fix wording read "Free disk space: Free up space…" in setup's summary.
+- uv had picked Python 3.13, so the install is now pinned to 3.12.
 
 ### Self-checks
 
@@ -544,7 +560,7 @@ The real Trash call was checked once by hand, on a scratch file.
 
 ### J. Setup and version on the start screen
 
-- **The version:** "Hunt 0.1.0" in the corner, from `GET /api/startup` → `version` (or `GET /api/setup`). Beside it, "Update: run `hunt update`".
+- **The version:** done for 0.1.0. The startup screen shows "v0.1.0" beside the Hunt brand, from `GET /api/startup` → `version` (a two-line change in `hunt/static/app.js`, `#boot-version`). Still to do: "Update: run `hunt update`" beside it.
 - **A setup card** when `GET /api/setup` → `items` isn't empty. One row per item:
   - **Ollama** (`installable: false`): "Hunt runs its vision model with Ollama, a free app." A link to `https://ollama.com/download` (opened in her browser), plus "Open Ollama once, then **Check again**", which re-fetches `/api/setup`.
   - **The vision model / the browser:** label, `detail`, and the size in GB (`size / 2**30`, one decimal).

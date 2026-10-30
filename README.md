@@ -25,7 +25,7 @@ Your cases, evidence and the AI that reads photos and videos stay on your Mac.
 
 **Everyday helpers:**
 - File messy downloads (`ssstik.io_1745821072612.mp4`) under clear names, with the post time read from its ID.
-- Check the subject's accounts again over the life of a claim, or watch them on a schedule with local notifications.
+- Check the subject's accounts again over the life of a claim, or watch them on a schedule with local notifications. On Instagram, Facebook, X, LinkedIn and TikTok, Check again is a worklist you open yourself, and Hunt compares each capture with the last.
 - Timestamped notes you can cite.
 - "Have we seen this person before?" across your cases.
 - Move a case between Macs in one encrypted, hash-checked archive.
@@ -59,12 +59,12 @@ brew install uv
 ```
 
 ```bash
-uv tool install git+https://github.com/als7294/hunt && hunt setup
+uv tool install --python 3.12 git+https://github.com/als7294/hunt && hunt setup
 ```
 
 `hunt setup` puts **Hunt** in Applications, then shows the size of each download (the browser, about 0.2 GB; the vision model, 3.3 GB) and asks before fetching it.
 
-Then install [Ollama](https://ollama.com/download), which runs the vision model, and open it once. Double-click **Hunt** to start. Use `hunt doctor` to check everything, `hunt update` to update, and `hunt uninstall` to remove Hunt (it asks before moving your cases to the Trash). No `brew`? See [uv's installation page](https://docs.astral.sh/uv/getting-started/installation/).
+Then install [Ollama](https://ollama.com/download), which runs the vision model, and open it once. Double-click **Hunt** to start. On first run, Hunt checks itself, asks you to sign in to the platforms you use in the Hunt Browser, and offers optional free keys (GitHub, Gravatar, OpenFEC, CourtListener, state open-data portals) that unlock more from some sources. Use `hunt doctor` to check everything, `hunt update` to update, and `hunt uninstall` to remove Hunt (it asks before moving your cases to the Trash). No `brew`? See [uv's installation page](https://docs.astral.sh/uv/getting-started/installation/).
 
 **From source:**
 
@@ -87,13 +87,19 @@ Every hit is scored against everything the case knows, Fellegi-Sunter style. Eac
 
 ## Status
 
-Under active development: the app's screens are being rebuilt. Photo geolocation works and is benchmarked, but is on hold, shown as "coming soon". See the [roadmap](docs/roadmap.md).
+**0.1.0, the first release.** [CHANGELOG.md](CHANGELOG.md) lists what it does and what isn't built yet. Coming next:
+- **Guided mode:** how much of each profile you've covered, and what's left to open.
+- **"Read public preview"** on the worklist.
+- **Locate a photo:** photo geolocation. It works and is benchmarked, but is on hold.
+
+See the [roadmap](docs/roadmap.md).
 
 ## Docs
 
 | Doc | What's in it |
 |---|---|
 | [user-guide.md](docs/user-guide.md) | For investigators: install, first run, a case from start to report, verdicts, handing over evidence |
+| [CHANGELOG.md](CHANGELOG.md) | What each release does, and what isn't built yet |
 | [qol.md](docs/qol.md) | Everyday helpers: the Downloads inbox, evidence bundle, Check again, watching, notes, moving cases, seen before, setup |
 | [capture.md](docs/capture.md) | The Hunt Browser and Hunt Capture |
 | [api.md](docs/api.md) | The local app's API |
