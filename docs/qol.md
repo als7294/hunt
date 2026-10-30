@@ -661,10 +661,12 @@ The walkthrough followed the guide in the real app, from a clean `HUNT_HOME`, on
 **Not fixed**
 - **The search cluster crowds at 15 accounts.** On `nasa`, account labels overlap around the centre at 1400 px
   (`hunt/static/cluster.js` places them). It's readable on "Is it them?", which lists the same accounts.
-- **Mirror accounts score "likely".** Eight Mastodon instances showing a copy of `@NASA` scored 62% each, mostly on
-  the shared profile photo and links back to the real profiles. She ruled them out by hand (Is it them? now keeps
-  them listed, with Undo). A federated copy should probably not count the photo it copies as a second identifier
-  (`hunt/match.py`).
+- **Mirror accounts score high, and higher since the analysis merge.** Eight Mastodon instances showing a copy of
+  `@NASA` scored 62% each on the first run. On the re-run after the analysis merge (126de25) the same accounts scored
+  94–99% ("almost certain"), with the same three reasons: shared profile photo, a link back to the real profiles, and
+  the username. It isn't `hunt/learning.py`, which needs 30 decisions of each kind first. The UI words them "likely"
+  at most, and she ruled them out by hand (Is it them? keeps them listed, with Undo). A federated copy should
+  probably not count the photo it copies as a second identifier (`hunt/match.py`, analysis session).
 - **Text-only flags show an empty striped thumbnail** on the scan and worklist cards. Cosmetic.
 - **"Web page" on the Report screen downloads the HTML** rather than opening it (the export sends
   `Content-Disposition: attachment`).
@@ -675,7 +677,8 @@ The walkthrough followed the guide in the real app, from a clean `HUNT_HOME`, on
 **Not verified live, on purpose**
 - **Sign in / Open in Hunt Browser** (launches Chrome for Testing on the Mac) and **worklist opens**. Both routes
   were exercised only up to the click.
-- **Read public preview**: `hunt/public.py` isn't on main yet. The button says "Not available yet" (501).
+- **Read public preview**: `hunt/public.py` is on main now, but no case in the walkthrough had an Instagram,
+  Facebook or TikTok account it could read (nasa's TikTok is an archived link), so the button wasn't pressed.
 - **Downloads on the start screen**: nothing was missing on this Mac, so the Download button and its progress
   weren't seen. The doctor rows were (low disk space; Hunt not in Applications).
 - **"Keep watching when Hunt is closed"** installs a LaunchAgent. Only Watch on and off were tried.
@@ -684,8 +687,13 @@ The walkthrough followed the guide in the real app, from a clean `HUNT_HOME`, on
   test_qol.
 - **Dropping files onto Posts**: the browser pane can't drag from Finder. The two test files went in through
   From Downloads pointed at their folder, with the originals kept.
-- **The worklist's grid counter and "open these" list** wait for the capture extension's `progress` and `todo`
-  fields. They fall back to the checklist and the case's flags.
+- **The worklist's grid counter, "open these" list and grid labels** read the extension's `progress`, `todo` and
+  `extra.from` (on main since the facebook merge), but no capture with them was made in the walkthrough. Without
+  them the worklist falls back to the checklist and the case's flags, which is what was seen.
+- **Hard stops** were tested with a stop written by `browser.stop()` (the extension's watcher wasn't triggered):
+  the start screen, Connect your accounts and the worklist show it, and Resume lifts it after the confirmation.
+- **The capture switch** was tested without a Hunt Browser running: Start / Stop capturing changes Hunt's state;
+  the extension's mirroring of it wasn't seen.
 
 **Noticed while testing, not a Hunt bug**
 - Restarting `hunt app` makes a new sign-in link, so an open tab stops working. It now says "Open Hunt again"
