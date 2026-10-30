@@ -319,6 +319,13 @@ Hunt scans everything, but a report uses only what's material (10 CCR §2695.7(d
 - Quit stops the server and removes the PID file.
 - `hunt uninstall` (keep data) moves Hunt.app to the Trash, removes the tool and keeps `~/Hunt`.
 
+**Re-run on main `126de25`** (with Hunt Capture's capture record, public posts, court records, the face-check engine and the scan speed-ups):
+- Same result end to end.
+- The install pulled no new packages beyond Hunt itself; `yt-dlp` was already cached.
+- `doctor` showed the real state, with 11.5 GB free.
+- The start screen shows "Hunt 0.1.0" (main's walkthrough moved my label into the subtitle).
+- No console errors.
+
 Fixed along the way:
 - The disk row said "10 GB free" while failing a 10 GB minimum (it rounded 9.8); it now shows one decimal.
 - Its fix wording read "Free disk space: Free up space…" in setup's summary.
