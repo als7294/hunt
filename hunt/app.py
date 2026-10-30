@@ -39,7 +39,7 @@ from starlette.responses import HTMLResponse, FileResponse, JSONResponse, Redire
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import graph, keys, report, search, sources, vendor, vlm
+from . import graph, keys, leads, report, search, sources, vendor, vlm
 from . import bundle, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
@@ -750,6 +750,25 @@ async def hide_person(req: Request):
     c.db.execute("insert or replace into meta values ('people_hidden', ?)", (json.dumps(sorted(hidden)),))
     c.audit("associate not relevant" if on else "associate shown again", {"id": pid})
     return JSONResponse({"hidden": sorted(hidden)})
+
+
+async def _evidence(c: Case) -> tuple:
+    snap = await search.snapshot(c)
+    return c.details(), await _posts(c), await _hits(c), snap["candidates"]
+
+
+async def get_timeline(req: Request):
+    """The subject across posts, scan hits, public records and stated life events, injury date marked (leads.timeline)."""
+    details, posts, hits, cands = await _evidence(_case(req))
+    return JSONResponse({"injury_date": details.get("injury_date"), "events": leads.timeline(details, posts, hits, cands)})
+
+
+async def get_leads(req: Request):
+    """Each stated restriction against the evidence dated after the injury (leads.leads): leads, never findings."""
+    c = _case(req)
+    details, posts, hits, cands = await _evidence(c)
+    people = graph.associates(posts, cands, c.seeds(), graph.photo_labels(c))["people"]
+    return JSONResponse(leads.leads(details, posts, hits, cands, people))
 
 
 async def mark_photo_person(req: Request):
@@ -1795,6 +1814,8 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/jobs/{id}/{action:str}", job_control, methods=["POST"]),
         Route("/api/cases/{slug}/person", get_person),
         Route("/api/cases/{slug}/people", get_people),
+        Route("/api/cases/{slug}/timeline", get_timeline),
+        Route("/api/cases/{slug}/leads", get_leads),
         Route("/api/cases/{slug}/people/photo", mark_photo_person, methods=["POST"]),
         Route("/api/cases/{slug}/people/{id}/hide", hide_person, methods=["POST"]),
         Route("/api/cases/{slug}/decisions", post_decision, methods=["POST"]),
