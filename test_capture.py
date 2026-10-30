@@ -520,6 +520,19 @@ browser.running = lambda: False
 assert c.post("/api/browser/open", content=json.dumps({"url": "https://www.instagram.com/dorian.vell/", "window": {"width": 900, "height": 1000}}),
               headers=OPEN).status_code == 200 and "--window-size=900,1000" in launched[0][0]
 assert c.post("/api/browser/open", content=json.dumps({"url": "https://x.com/", "window": {"width": 9}}), headers=OPEN).status_code == 400
+# 8. LinkedIn (AP12): signed in, she confirms first; the same profile again within a week asks again; each view audited
+browser.STATUS.write_text(json.dumps({"linkedin": "signed_in"}))
+li = {"url": "https://www.linkedin.com/in/dorian-vell/details/experience/", "case": slug}
+r = c.post("/api/browser/open", content=json.dumps(li), headers=OPEN)
+assert r.status_code == 409 and "signed in to LinkedIn" in r.json()["error"], r.text
+assert c.post("/api/browser/open", content=json.dumps({**li, "confirmed": True}), headers=OPEN).status_code == 200
+viewed = [json.loads(x["detail"]) for x in Case.open(slug).rows("select detail from audit where action = 'linkedin view'")]
+assert viewed and viewed[-1]["account"] == "https://www.linkedin.com/in/dorian-vell/" and viewed[-1]["signed_in"], viewed
+browser.STATUS.write_text(json.dumps({"linkedin": "signed_out"}))
+r = c.post("/api/browser/open", content=json.dumps({**li, "url": "https://www.linkedin.com/in/dorian-vell/"}), headers=OPEN)
+assert r.status_code == 409 and "You opened this LinkedIn profile on" in r.json()["error"], r.text
+assert c.post("/api/browser/open", content=json.dumps({"url": "https://www.linkedin.com/login"}), headers=OPEN).status_code == 200  # signing in
+browser.STATUS.unlink()
 
 # --- Unpairing closes the capture routes ----------------------------------------------------------
 assert c.post("/api/pairing/forget", content="{}", headers=WEB).json() == {"paired": False}

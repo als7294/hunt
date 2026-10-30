@@ -1456,6 +1456,7 @@ async def post_worklist_open(req: Request):
         raise HTTPException(404, str(e))
     except ValueError as e:  # a pacing warning: shown, then sent again with confirmed: true
         raise HTTPException(409, str(e))
+    _linkedin_gate(item["url"], None, b.get("confirmed", False))  # signed in? (worklist open is its own audit row)
     try:
         opened = await asyncio.to_thread(browser.open_url, item["url"], req.url.port, c.name)
     except (ValueError, LookupError) as e:
@@ -1758,13 +1759,36 @@ async def browser_status(req: Request):
     return JSONResponse(await asyncio.to_thread(browser.status))
 
 
+def _linkedin_gate(url: str, case: Case | None, confirmed: bool):
+    """One gate for every LinkedIn profile page Hunt opens (C10, A4): LinkedIn can show the member who viewed a
+    profile, so she confirms while signed in, and a second view of the same profile within a week asks again
+    (recheck's pacing, counting every audited view and worklist open). The view is audited. Raises 409 to ask."""
+    if extension.platform(url) != "LinkedIn" or not (acct := extension.account_of(url)):
+        return
+    try:
+        signed_in = json.loads(browser.STATUS.read_text()).get("linkedin") == "signed_in"
+    except (OSError, ValueError):
+        signed_in = False
+    last = max((r["ts"] for r in case.rows("select ts, detail from audit where action in ('linkedin view', 'worklist open')")
+                if json.loads(r["detail"]).get("account") == acct), default=None) if case else None
+    asks = [w for w in ("You're signed in to LinkedIn in the Hunt Browser, so it can show this member that you viewed their "
+                        "profile: browse logged out, or set profile viewing to private, then confirm." if signed_in else None,
+                        recheck._pacing("LinkedIn", last)) if w]
+    if asks and not confirmed:
+        raise HTTPException(409, " ".join(asks))
+    if case:
+        case.audit("linkedin view", {"url": url, "account": acct, "signed_in": signed_in, "warned": bool(asks)})
+
+
 async def browser_open(req: Request):
     b = await _body(req)
+    case = None
     if b.get("case") is not None:
         try:
-            Case.open(str(b["case"]))
+            case = Case.open(str(b["case"]))
         except LookupError:
             raise HTTPException(404, "no such case")
+    _linkedin_gate(str(b.get("url") or ""), case, b.get("confirmed") is True)
     size = b.get("window") or {}
     if size and not (isinstance(size, dict) and all(isinstance(size.get(k), int) and 300 <= size[k] <= 5000
                                                       for k in ("width", "height"))):

@@ -1651,8 +1651,15 @@ const actions = {
   'pair-copy': async el => { try { await navigator.clipboard.writeText(el.dataset.code); toast('Copied.'); } catch { toast('Select the code and copy it.', true); } },
   'pair-forget': async () => { try { await api('/api/pairing/forget', { method: 'POST', body: {} }); toast('Unpaired. Its key stopped working.'); render(); } catch (e) { fail(e); } },
   'browser-open': async el => {
-    try { await api('/api/browser/open', { method: 'POST', body: { url: el.dataset.url, ...(el.dataset.case ? { case: el.dataset.case } : {}) } }); toast('Opened in the Hunt Browser. Hunt never sees your password.'); }
-    catch (e) { fail(e.status === 503 ? new Error('Install the Hunt Browser first: uv run playwright install chromium') : e); }
+    const confirmed = !!el.dataset.confirmed;
+    try { await api('/api/browser/open', { method: 'POST', body: { url: el.dataset.url, confirmed, ...(el.dataset.case ? { case: el.dataset.case } : {}) } }); toast('Opened in the Hunt Browser. Hunt never sees your password.'); }
+    catch (e) {
+      if (e.status === 409 && !confirmed) { // LinkedIn (AP12): she reads why, then opens it anyway or doesn't
+        const box = document.createElement('div'); box.className = 'reason warn'; box.style.cssText = 'flex-direction:column;align-items:stretch;gap:8px';
+        box.innerHTML = html`<span>${e.message}</span><span style="display:flex;gap:6px"><button class="btn sm" data-act="browser-open" data-url="${el.dataset.url}" data-case="${el.dataset.case || ''}" data-confirmed="1">Open anyway</button></span>`.s;
+        el.replaceWith(box);
+      } else fail(e.status === 503 ? new Error('Install the Hunt Browser first: uv run playwright install chromium') : e);
+    }
   },
   'life-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = (el.dataset.mode === 'pack' ? packForm(el.dataset.slug) : lifeForm(el.dataset.slug, el.dataset.mode)).s; box.querySelector('input').focus(); },
   'life-cancel': el => { const box = el.closest('.life'); box.innerHTML = box.dataset.was || ''; },
