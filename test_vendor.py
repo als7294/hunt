@@ -167,6 +167,10 @@ assert asyncio.run(vendor.collect(case, accounts, None, events.append, force=Tru
 assert calls[-1][1].startswith("/v2/datasets/") and [c for c in calls if c[0] == "POST" and c[1].endswith("/runs")][-1][3]["onlyPostsNewerThan"] == last[:19]
 assert len(case.rows("select 1 from audit where action = 'vendor run'")) == 4  # every run's cost is on record, found or not
 assert asyncio.run(vendor.plan(case, accounts, since="2026-10-01", force=True))["run"][0]["newer_than"] == "2026-10-01"
+s0 = vendor.settings()["fresh_days"]
+vendor.save_settings(fresh_days=0)  # due again, not forced: an earlier window start never re-buys what was read
+assert asyncio.run(vendor.plan(case, accounts, since="2026-10-01"))["run"][0]["newer_than"] == last
+vendor.save_settings(fresh_days=s0)
 
 # The monthly cap stops runs before the credit is spent; a cap reached mid-way stops the next account
 state["spent"] = 4.95

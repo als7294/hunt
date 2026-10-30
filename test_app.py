@@ -172,6 +172,10 @@ p = c.get("/api/cases/vance-claim/person").json()
 assert p["decision"] == "him" and [a["decision"] for a in p["accounts"]] == ["him"], p
 
 # --- Posts, media and scan, against stand-ins for hunt.posts / hunt.scan -------------------------
+from hunt import app as hunt_app
+assert hunt_app._window({"injury_date": "2026-03-01"}) == "2025-12-01" and hunt_app._window({"injury_date": None}) is None
+v = c.get("/api/cases/vance-claim/vendor").json()  # no Apify key in tests: nothing runs, nothing is spent
+assert v["key_set"] is False and v["run"] == [] and v["ok"] is False, v
 sys.modules["hunt.scan"] = None  # as if this build had no scanner; stand-ins replace it below
 assert c.post("/api/cases/vance-claim/scan", content="{}", headers=JSON).status_code == 501
 store = {"posts": [], "hits": []}
