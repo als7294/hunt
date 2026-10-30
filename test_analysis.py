@@ -227,7 +227,7 @@ c = Case("face test", "self-check")
 for where, ok in (("", False), ("US", False), ("US-IL", False), ("US-TX", False), ("US-WA", False), ("US-CO", False),
                   ("US-CA", False), ("GB", False), ("CA-ON", False), ("DE", False), ("NO", False), ("US-AZ", True), ("AU", True),
                   ("UK", False), ("EL", False), ("EU", False), ("XX", False), ("US-ZZ", False), ("GP", False), ("RE", False),
-                  ("JE", False), ("AU-NSW", True), ("US-PR", True), ("ZZ-1", False), ("U$", False)):  # AN2: allow-list only
+                  ("JE", False), ("AU-NSW", False), ("AU", True), ("US-PR", True), ("ZZ-1", False), ("U$", False)):  # AN2: allow-list only
     c.set_details(subject_residence=where)
     assert face.gate(c)[0] is ok, (where, face.gate(c))
     assert c.rows("select detail from audit where action = 'face gate' order by rowid desc limit 1")[0]["detail"].count("rule")
