@@ -106,11 +106,19 @@ function caseMenu(c) {
         ${st.legal_hold ? item('life-do', 'unhold', 'Lift the legal hold') : item('life-ask', 'hold', 'Put on legal hold…')}
         ${st.retention_due ? item('mini-ask', '', 'Remove unused media…') : ''}
         ${item('life-ask', 'pack', 'Move to another computer…')}
-        ${st.legal_hold ? '' : item('life-ask', 'delete', 'Move to the Trash…', 'bad')}</div></div></details>`;
+        ${st.legal_hold ? '' : c.demo ? item('demo-delete', '', 'Delete the demo', 'bad') : item('life-ask', 'delete', 'Move to the Trash…', 'bad')}</div></div></details>`;
 }
-const closedBar = c => c.status?.closed ? html`<div style="margin:0 20px 8px;padding:10px 12px 10px 16px;border-radius:var(--r);background:var(--raise);display:flex;gap:12px;align-items:center;font-size:14.5px;flex:none">
+const closedBar = c => c.demo ? demoBar(c) : c.status?.closed ? html`<div style="margin:0 20px 8px;padding:10px 12px 10px 16px;border-radius:var(--r);background:var(--raise);display:flex;gap:12px;align-items:center;font-size:14.5px;flex:none">
   <span class="dot"></span><span class="t2">Closed on ${longDay(c.status.closed)}. Searches, scans, checks and watching are off; the report and evidence stay as they are.</span>
   <button class="btn ghost sm" style="margin-left:auto" data-act="life-do" data-mode="reopen" data-slug="${c.slug}">Reopen</button></div>` : '';
+// The demo says so on every step (docs/qol.md L); rebuilding it is the reset
+const demoBar = c => html`<div class="life" style="margin:0 20px 8px;padding:10px 12px 10px 16px;border-radius:var(--r);background:var(--am-bg);display:flex;gap:12px;align-items:center;font-size:14.5px;flex:none;flex-wrap:wrap">
+  <span class="dot" style="background:var(--am)"></span><span class="t2">DEMO: everything here is fictional.${c.status?.closed ? ' Searches, scans, checks and watching are off.' : ''}</span>
+  <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" data-act="demo-rebuild">Rebuild the demo</button>
+  ${c.status?.closed ? html`<button class="btn ghost sm" data-act="life-do" data-mode="reopen" data-slug="${c.slug}">Reopen</button>` : ''}</span></div>`;
+const demoCard = () => html`<div class="row" style="gap:14px;flex-wrap:wrap"><span class="tile-ic" style="background:var(--am-bg);color:var(--am)">▶</span>
+  <div style="flex:1;min-width:220px"><div style="font-size:16px;font-weight:500">See what Hunt does</div><div class="muted" style="font-size:14px">A finished, fictional investigation, to see what Hunt does. It’s marked DEMO everywhere and can’t be changed by a search.</div></div>
+  <button class="btn" data-act="demo-open">Open the demo case</button></div>`;
 const glows = (...specs) => raw(specs.map(([l, t, s, col]) => `<div class="glow" style="left:${l};top:${t};width:${s}px;height:${s}px;background:radial-gradient(circle,${col},transparent 65%)"></div>`).join(''));
 function mount(content) { app().innerHTML = content.s; }
 
@@ -171,8 +179,9 @@ function bootRow(c, keys = []) {
         <div id="dl-${x.id}">${x.installable ? html`<button class="btn sm" data-act="setup-get" data-id="${x.id}" data-size="${x.size}">Download ${size(x.size)}</button>` : ''}</div></div>`)}</div>`
     : c.id === 'retention' && c.items?.length ? html`<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${c.items.map(x => html`<div class="card" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><a href="#/case/${x.slug}/report" style="font-weight:500">${x.label || x.slug}</a><span class="muted" style="font-size:13px">opened ${longDay(x.created)}</span></div>
-        <div class="life" id="life-${x.slug}" style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" data-act="life-ask" data-mode="hold" data-slug="${x.slug}">Keep: legal hold</button><button class="btn ghost sm" data-act="life-ask" data-mode="delete" data-slug="${x.slug}">Move to Trash</button>
-          <button class="btn ghost sm" data-act="mini-ask" data-slug="${x.slug}">Remove unused media</button></div></div>`)}</div>` : '';
+        <div class="life" id="life-${x.slug}" style="display:flex;gap:6px;flex-wrap:wrap">${x.demo ? html`<button class="btn ghost sm" data-act="demo-delete" data-slug="${x.slug}">Delete the demo</button>`
+          : html`<button class="btn ghost sm" data-act="life-ask" data-mode="hold" data-slug="${x.slug}">Keep: legal hold</button><button class="btn ghost sm" data-act="life-ask" data-mode="delete" data-slug="${x.slug}">Move to Trash</button>
+          <button class="btn ghost sm" data-act="mini-ask" data-slug="${x.slug}">Remove unused media</button>`}</div></div>`)}</div>` : '';
   return html`<div style="display:flex;align-items:flex-start;gap:13px">
     <span style="width:24px;height:24px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:${c.ok ? 'var(--gr-bg)' : 'var(--am-bg)'};color:${c.ok ? 'var(--gr)' : 'var(--am)'}">${c.ok ? '✓' : '!'}</span>
     <div style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1"><span style="font-size:16px">${c.label}</span><span style="font-size:13.5px;color:${c.ok ? 'var(--gr)' : 'var(--am)'}">${c.detail || ''}</span>${extra}</div></div>`;
@@ -208,7 +217,7 @@ function toolCard(kind) {
 const KIND_LABEL = { insurance: 'Insurance claim', background: 'Background check', diligence: 'Due diligence', journalism: 'Journalism' };
 const caseRow = c => html`<a class="row" href="#/case/${c.slug}/search">
   <span class="tile-ic">⌕</span>
-  <div style="flex:1;min-width:0"><div style="font-size:16.5px;font-weight:500">${c.label || c.slug}</div><div style="font-size:14px" class="muted">${[KIND_LABEL[c.kind], c.reference].filter(Boolean).join(' · ') || 'Case'}</div></div>
+  <div style="flex:1;min-width:0"><div style="font-size:16.5px;font-weight:500">${c.label || c.slug}${c.demo ? html` <span class="tag" style="background:var(--am-bg);color:var(--am);vertical-align:2px">DEMO</span>` : ''}</div><div style="font-size:14px" class="muted">${[KIND_LABEL[c.kind], c.reference].filter(Boolean).join(' · ') || 'Case'}</div></div>
   <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:2px"><div style="font-size:14px;color:${c.closed ? 'var(--mu)' : 'var(--am)'}">${c.headline || ''}</div>
     <div style="display:flex;gap:6px;align-items:center">${c.closed ? html`<span class="tag">Closed</span>` : ''}${c.legal_hold ? html`<span class="tag hold">Legal hold</span>` : c.retention_due ? html`<span class="tag warn" title="Opened over 90 days ago: hold it or delete it">Past 90 days</span>` : ''}<span style="font-size:13px" class="dim">${ago(c.updated || c.created)}</span></div></div></a>`;
 
@@ -226,6 +235,7 @@ screens.home = async () => {
       <div id="bring" class="hidden"></div>
       ${cases.length ? html`<div class="two-up" style="gap:10px">${cases.slice(0, 4).map(caseRow)}</div>`
         : html`<div class="empty">No cases yet. Start one with <b>Find a person</b>.</div>`}
+      ${cases.length ? '' : demoCard()}
     </div>
   </main>`);
 };
@@ -1615,6 +1625,24 @@ const actions = {
   },
   'life-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = (el.dataset.mode === 'pack' ? packForm(el.dataset.slug) : lifeForm(el.dataset.slug, el.dataset.mode)).s; box.querySelector('input').focus(); },
   'life-cancel': el => { const box = el.closest('.life'); box.innerHTML = box.dataset.was || ''; },
+  'demo-open': async el => {
+    el.disabled = true;
+    try { let d = await api('/api/demo');
+      if (!d.exists) { el.textContent = 'Building the demo…'; el.classList.add('busy'); d = await api('/api/demo', { method: 'POST', body: {} }); }
+      location.hash = `#/case/${d.slug}/identity`;
+    } catch (e) { el.disabled = false; el.textContent = 'Open the demo case'; el.classList.remove('busy'); fail(e); }
+  },
+  'demo-rebuild': async el => {
+    el.disabled = true; el.textContent = 'Rebuilding…';
+    try { await api('/api/demo', { method: 'POST', body: { reset: true } }); toast('The demo was rebuilt; the old copy is in the Trash.'); render(); }
+    catch (e) { el.disabled = false; el.textContent = 'Rebuild the demo'; fail(e); }
+  },
+  'demo-delete': async el => { // fictional and rebuilt in a second: no name to type
+    const slug = el.dataset.slug || location.hash.split('/')[2], box = el.closest('.life'); el.disabled = true;
+    try { await api(`/api/cases/${encodeURIComponent(slug)}/delete`, { method: 'POST', body: { confirm: slug, reason: 'the demo' } }); toast('Demo deleted: it’s in the Trash. Open it again from Home any time.');
+      if (el.closest('#boot')) box.innerHTML = html`<span class="muted" style="font-size:13.5px">Demo deleted.</span>`.s; else location.hash = '#/';
+    } catch (e) { el.disabled = false; fail(e); }
+  },
   'life-do': async el => {
     const { slug, mode } = el.dataset, box = el.closest('.life') || document.body, v = box.querySelector('input')?.value.trim() || '';
     if (mode === 'delete' && v !== slug) return toast(`Type ${slug} exactly to move it to the Trash.`, true);

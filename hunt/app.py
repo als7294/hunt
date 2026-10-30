@@ -390,7 +390,7 @@ async def startup(req: Request):
     due = [(s, c) for s in slugs if (c := Case.open(s)).status()["retention_due"]]
     check("retention", f"Cases past {RETENTION_DAYS} days", not due,
           f"{len(due)} past retention: delete them to the Trash, or put them on legal hold" if due else "none",
-          [{"slug": s, "label": c.details()["label"], "created": c.meta("created")} for s, c in due])
+          [{"slug": s, "label": c.details()["label"], "created": c.meta("created"), "demo": bool(c.meta("demo"))} for s, c in due])
     return JSONResponse({"version": version("hunt-osint"), "proxy": bool(proxy), "checks": checks})
 
 
@@ -430,8 +430,8 @@ async def list_cases(req: Request):
         out.append({"slug": s, "label": d["label"], "kind": d["kind"], "reference": d["reference"], "tool": d["tool"],
                     "created": d["created"], "updated": c.db.execute("select max(ts) from audit").fetchone()[0],
                     "headline": await _headline(c), "closed": bool(st["closed"]), "legal_hold": bool(st["legal_hold"]),
-                    "retention_due": st["retention_due"]})
-    return JSONResponse(sorted(out, key=lambda x: x["created"] or "", reverse=True))
+                    "retention_due": st["retention_due"], "demo": bool(c.meta("demo"))})
+    return JSONResponse(sorted(sorted(out, key=lambda x: x["created"] or "", reverse=True), key=lambda x: x["demo"]))  # the demo last
 
 
 async def _headline(c: Case) -> str:
@@ -527,6 +527,7 @@ async def get_case(req: Request):
                   "posts": "running" if running("scan") else "done" if _audited(c, "scan") else "todo",
                   "report": "done" if _audited(c, "report exported") else "todo"},
         "status": c.status(),
+        "demo": bool(c.meta("demo")),
         "active_job": {"id": job.id, "kind": job.kind} if job else None,
         "counts": {"accounts": await _accounts(c), "flagged": len(_flagged(hits)),
                    "evidence": sum(1 for f in (c.dir / "evidence").iterdir() if EVIDENCE_NAME.match(f.name))},
@@ -754,7 +755,7 @@ async def hide_person(req: Request):
 
 async def _evidence(c: Case) -> tuple:
     snap = await search.snapshot(c)
-    hits = [{"who": "unknown", "post_id": None, "p": None, **h,  # the keys leads reads; machine readings stop at "likely"
+    hits = [{"who": "unknown", "post_id": None, "p": None, "category": None, "status": None, **h,  # the keys leads reads; machine readings stop at "likely"
              "verdict": report.cap(h["verdict"]) if h.get("verdict") in report.VERDICTS else h.get("verdict")}
             for h in await _hits(c)]
     return c.details(), await _posts(c), hits, snap["candidates"]

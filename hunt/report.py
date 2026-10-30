@@ -537,7 +537,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     if screening:
         doc.say("claim", "This screening version leaves out the claim and the evidence set against it.", opened, boilerplate=True)
     else:
-        safe = [{"who": "unknown", "post_id": None, "p": None, **h,  # leads reads these keys; machine readings stop at "likely"
+        safe = [{"who": "unknown", "post_id": None, "p": None, "category": None, "status": None, **h,  # leads reads these keys; machine readings stop at "likely"
                  "verdict": cap(h["verdict"]) if h.get("verdict") in VERDICTS else h.get("verdict")} for h in hits]
         found = leadsmod.leads(d, posts, safe, cands, graph.associates(posts, cands, case.seeds(), graph.photo_labels(case))["people"])
         said, accounts_by = json.loads(case.meta("lead_status") or "{}"), {norm_url(c["url"]): c for c in people + records}
