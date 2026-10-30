@@ -325,7 +325,7 @@ assert "The claim states: no lifting over 5 kg; no running." in said_ and "The c
 run = next(t for t in said_ if t.startswith("Running: "))
 assert "finishing a 10k" in run and said_[run] == ["E-1"] and "almost certain" not in " ".join(said_), claim
 # the powerlifting meet of 2026-04-12 is a lead against lifting (leads.py), not yet kept for the report
-assert "Lifting: 1 lead after the injury, none kept for this report." in said_, said_
+assert "Lifting: 1 lead after the injury, none put in this report." in said_, said_
 assert [x["text"] for x in compose(screening=True)["sentences"] if x["section"] == "claim"] == \
     ["This screening version leaves out the claim and the evidence set against it."]
 
@@ -352,7 +352,7 @@ rep, t = compose(), text(compose())
 assert "mhmda_basis" not in rep["checks"]["missing"] and "Fraud basis on record: Claim fraud investigation" in t, t
 assert "E-2" not in {e["id"] for e in rep["evidence"]} and "knee" not in t and "finishing a 10k" not in t, t
 assert "relates to sport and gym" in t and "41 days after the date of loss" in t, t
-assert "Lifting: nothing found after the date of loss that bears on this." in t, t  # the claim section stays, reworded
+assert re.search(r"Lifting: [^.]*after the date of loss", t) and "injury" not in t.split("The claim states")[1], t  # stays, reworded
 assert not any(report.HEALTH.search(x["text"]) for x in rep["sentences"] if "My Health My Data" not in x["text"]), rep["sentences"]
 case.set_details(subject_residence="", mhmda_basis="")
 
