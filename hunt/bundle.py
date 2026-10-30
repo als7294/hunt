@@ -36,6 +36,7 @@ COLUMNS = ("exhibit", "sha256", "bytes", "hash_ok", "role", "collected", "what",
            "saved_at", "viewed_as", "audience", "tool_version", "original_name")
 READ, CAPTURED, ADDED = "read by Hunt", "captured in the Hunt Browser", "added by the investigator"  # the three ways
 RECORD = ("viewed_as", "audience", "tool_version")  # the capture record (legal.md K5), as Hunt Capture sends it
+WITHHELD = "(withheld: kept in the case)"
 UNNAMED = {"not known", "logged in (account not named in Hunt)"}  # viewed_as values that don't say which account
 README = """Evidence bundle for case "{label}" ({slug})
 Purpose on record: {purpose}
@@ -193,8 +194,7 @@ def make(case, out_dir: Path) -> dict:
                       "\n  ".join(changed) + "\n"
         text = {"manifest.csv": _csv(COLUMNS, rows), "README.txt": readme,
                 "SHA256SUMS": "".join(f"{r['sha256']}  exhibits/{r['exhibit']}\n" for r in rows),
-                "audit-log.csv": _csv(("id", "ts", "action", "detail"),
-                                      case.rows("select rowid as id, ts, action, detail from audit order by rowid")),
+                "audit-log.csv": _csv(("id", "ts", "action", "detail"), _shareable_log(case)),
                 "notes.csv": _csv(("cite", "ts", "about", "ref", "text", "replaces", "replaced_by"),
                                   [{**n, "replaces": n["replaces"] and f"N-{n['replaces']}",
                                     "replaced_by": n["replaced_by"] and f"N-{n['replaced_by']}"}
@@ -205,6 +205,17 @@ def make(case, out_dir: Path) -> dict:
     sha = _sha256(path)
     case.audit("evidence exported", {"file": path.name, "sha256": sha, "exhibits": len(rows), "changed": changed})
     return {"path": str(path), "sha256": sha, "exhibits": len(rows), "changed": changed}
+
+
+def _shareable_log(case) -> list[dict]:
+    """The audit log as handed over. Who the investigator marked in a photo ('Dan', 'my son') is withheld: a
+    label can name a child or another third party, and a minor check can miss one (compliance-audit.md Q1). The
+    label stays in the case; the row, its time and its media id stay in the log, so the chain is unbroken."""
+    rows = case.rows("select rowid as id, ts, action, detail from audit order by rowid")
+    for r in rows:
+        if r["action"] == "person marked in photo":
+            r["detail"] = json.dumps(json.loads(r["detail"]) | {"label": WITHHELD})
+    return rows
 
 
 def _record(d: dict) -> dict:
