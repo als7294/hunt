@@ -321,8 +321,21 @@ assert c.post("/api/keys", content=json.dumps({"HUNT_NOPE": "x"}), headers=JSON)
 assert c.post("/api/keys", content=json.dumps({"HUNT_GRAVATAR_KEY": "x"}), headers={**JSON, "origin": "http://evil.test"}).status_code == 403
 c.post("/api/keys", content=json.dumps({"HUNT_GRAVATAR_KEY": ""}), headers=JSON)
 assert "HUNT_GRAVATAR_KEY" not in os.environ
+# Preview reads only a confirmed account, or a post on one; someone the posts name is never a seed (A1, A3)
+r = c.post("/api/cases/vance-claim/preview", content=json.dumps({"url": "https://www.instagram.com/example"}), headers=JSON)
+assert r.status_code == 400 and "confirmed" in r.json()["error"], r.text
+Case.open("vance-claim").decide("https://www.instagram.com/example", "him")
 r = c.post("/api/cases/vance-claim/preview", content=json.dumps({"url": "https://www.instagram.com/example"}), headers=JSON)
 assert r.status_code == 200 and r.json()["status"] == "failed" and "Hunt Browser" in r.json()["note"], r.text  # a login-walled site: the note says so
+assert c.post("/api/cases/vance-claim/preview", content=json.dumps({"url": "https://www.instagram.com/example2"}), headers=JSON).status_code == 400
+Case.open("vance-claim").decide("https://www.instagram.com/example", "unsure")
+store["posts"].append({"id": 99, "source": "bluesky", "account_url": store["posts"][0]["account_url"], "url": "https://bsky.test/p/99",
+                       "posted_at": "2026-04-12T10:00:00+00:00", "text": "Fishing with my brother Dan Vell", "origin": "fetched", "media": []})
+for seed in ("Dan Vell", "dan_vell", "dan.vell@example.com"):
+    r = c.post("/api/cases/vance-claim/seeds", content=json.dumps({"seeds": [seed]}), headers=JSON)
+    assert r.status_code == 409 and "own case" in r.json()["error"], (seed, r.text)
+assert "Dan Vell" not in str(c.get("/api/cases/vance-claim").json()["seeds"])
+store["posts"].pop()
 
 # --- Report and exports -------------------------------------------------------------------------
 rep = c.get("/api/cases/vance-claim/report").json()

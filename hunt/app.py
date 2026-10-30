@@ -44,7 +44,7 @@ from . import bundle, demo, inbox, minimise, notes, pack, recheck, seen, setup, 
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
 from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, RETENTION_DAYS, Case, all_cases, residence  # watch.py reads RETENTION_DAYS here
-from .match import ICD203
+from .match import ICD203, norm_url
 from .seed import detect, now
 
 STATIC = Path(__file__).parent / "static"
@@ -613,9 +613,21 @@ async def remove_reference(req: Request):
     return JSONResponse(_face_state(c))
 
 
+def _fold(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
 async def add_seeds(req: Request):
     c = _case(req)
     seeds = [s for raw in _str_list((await _body(req)).get("seeds"), "seeds") for s in detect(raw)]
+    # Someone the subject's posts, bios or records name is not a seed: searching them needs its own case (A1)
+    around = {_fold(p["name"]): p for p in graph.associates(await _posts(c), (await search.snapshot(c))["candidates"],
+                                                            c.seeds(), graph.photo_labels(c))["people"] if p.get("name")}
+    for s in seeds:
+        key = _fold(s.value.split("@")[0] if s.kind == "email" else s.value)
+        if s.kind in ("name", "username", "email") and key in around:
+            raise HTTPException(409, f"{s.value} is named in what the case holds as someone around the subject "
+                                     f"({around[key]['labels'][0]}): open them as their own case, with its own purpose")
     c.add_seeds(seeds)
     c.audit("seeds added", {"seeds": [asdict(s) for s in seeds]})
     return JSONResponse({"seeds": [{"kind": s.kind, "value": s.value} for s in c.seeds()]})
@@ -1023,6 +1035,9 @@ async def public_preview(req: Request):
     url = b.get("url")
     if not (isinstance(url, str) and url.startswith("https://")):
         raise HTTPException(400, "url must be the account's https address")
+    mine = [u for u, x in c.decisions().items() if u and x["decision"] == "him"]
+    if not any(norm_url(url) == u or norm_url(url).startswith(u + "/") for u in mine):
+        raise HTTPException(400, "preview reads only an account you confirmed as the subject's, or a post on one")
     fn = getattr(_module("public"), "preview", None)
     if not fn:
         raise HTTPException(501, "the public preview reader isn't installed yet")
