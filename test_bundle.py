@@ -137,6 +137,37 @@ with zipfile.ZipFile(bundle.make(case, out)["path"]) as z:
     readme3 = z.read("README.txt").decode()
 assert "1 of 1 captured files lack them" in readme3  # "not known" names no account: the claim isn't made
 
+# Q5 (compliance-audit.md): the README's account of collection follows what this case really holds
+from hunt import capture  # noqa: E402
+vendor_post = case.db.execute("insert into posts (source, account_url, url, posted_at, text, origin, fetched_at) values "
+                              "('Instagram', 'https://instagram.example/kv/', 'https://instagram.example/p/V1/', "
+                              "'2026-05-01', 'via Apify', 'vendor', '2026-10-01')").lastrowid
+(tmp / "vendor.jpg").write_bytes(image("orange", "JPEG"))
+vfile, vsha = posts.store(case, tmp / "vendor.jpg")
+case.db.execute("insert into media values (null, ?, 'image', ?, ?, null, null)", (vendor_post, vfile, vsha))
+case.audit("guided step", {"action": "scroll", "url": "https://www.instagram.com/kestrel_vane88/"})
+case.audit("capture view", {"file": f"evidence/{view['sha256']}.png", "url": view["url"], "platform": "Instagram",
+                            "viewed_as": "logged out", "audience": "Public", "hunt_version": "0.1.0", "capture_version": "1.2"})
+case.db.execute("insert into hits (post_id, media_id, category, what, verdict, status, file) "
+                "values (?, null, 'sport', 'unreviewed', 'likely', 'new', null)", (run_post,))
+
+
+def readme_and_rows():
+    with zipfile.ZipFile(bundle.make(case, out)["path"]) as z:
+        return z.read("README.txt").decode(), {r["sha256"]: r for r in csv.DictReader(io.StringIO(z.read("manifest.csv").decode()))}
+
+
+text, by = readme_and_rows()
+flat = " ".join(text.split())
+assert by[vsha]["collected"] == bundle.VENDOR != bundle.ADDED and "one of four ways" in flat and "(Apify)" in flat
+assert "did not load, scroll" not in flat and '"guided step"' in flat  # guided steps did scroll and open
+assert "signed in to her own account or signed out" in flat  # a capture was made signed out
+assert "leads for the investigator to review" in flat  # a flag is still new
+assert "headless Chromium" in flat  # capture.py sets no User-Agent of its own (yet)
+capture.UA = "Hunt/0.1 (+https://github.com/als7294/hunt)"
+assert "headless Chromium" not in " ".join(readme_and_rows()[0].split())  # once it does, the README follows
+del capture.UA
+
 # The standard tool agrees: every exhibit checks out except the one edited after it was saved
 check = subprocess.run(["shasum", "-a", "256", "-c", "SHA256SUMS"], cwd=unzipped, capture_output=True, text=True)
 failed = [line for line in check.stdout.splitlines() if not line.endswith(": OK")]

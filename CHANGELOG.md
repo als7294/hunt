@@ -2,6 +2,42 @@
 
 What Hunt does, release by release, in an investigator's words. How to use each part is in the [user guide](docs/user-guide.md).
 
+## Unreleased
+
+Changes since 0.1.0, mostly from the compliance audit and the decisions in [Hunt's rules](docs/research/legal.md#decisions-provisional-2026-10-30). Those decisions are provisional, and Aaron may overrule them.
+
+### Changed
+- **Facebook is read one profile at a time,** only when you click **Read public preview**, never as part of a batch search.
+- **YouTube needs your free key.** YouTube's rules don't let software read its feed, so Hunt reads a channel's uploads only through the official API. Without the key it reads nothing from YouTube.
+- **More platforms Hunt never contacts itself:** Reddit, Threads, Strava and Snapchat join Facebook, Instagram, X and LinkedIn.
+  - **Check again** no longer screenshots them in the background; that's for TikTok, YouTube, Bluesky and Mastodon only.
+  - **No more Mastodon mix-ups:** Hunt no longer mistakes a Threads, TikTok or YouTube address for a Mastodon account.
+- **Hard stops on Hunt's own reads:**
+  - **Rate limits:** a "slow down" (429) ends that platform's automatic reads for the rest of the run.
+  - **Hard stops:** a CAPTCHA, a blocked address or a login wall on an automatic read stops that platform until you resume it.
+- **Site checks name Hunt.** The username checks send Hunt's own User-Agent, one request per site.
+- **Children are never named.** A child mentioned in a post ("my son Leo") appears only as "a child":
+  - in the people Hunt notices around the subject
+  - in the report
+  - in the evidence bundle's log, where the names you give people in photos are withheld (they stay in the case)
+- **Relationships are quoted, not labelled:** "posted 'my brother Dan'", never "brother: Dan".
+- **"Seen before"** compares only the subject's own photos and videos, never a friend's post captured in passing.
+- **The face check** (still not in the app) runs only for a subject whose recorded home is a place it recognises and doesn't block. California is always blocked.
+- **Retention is a reminder:** at 90 days Hunt asks you to delete, hold or trim the case.
+- **The evidence bundle's README** now describes this case exactly:
+  - how many ways its files came in (adding "through a vendor" when Apify was used)
+  - whether captures were made signed in or signed out
+  - any guided-mode steps
+  - whether the scan's leads are still to review
+  - which requests named Hunt
+  - It still carries the original, unblurred files, for chain of custody.
+
+### Decided, being built
+- **Guided mode** will be off until you turn it on in Hunt, with an acknowledgement of what it does. Until then, leave it alone.
+- **Background-check reports** will always be the screening version. Until then, choose it yourself.
+- **"Keep" keeps a flag for the case file only;** only **Add to report** puts it in the report. Today the report still lists kept flags too.
+- **Deleting a case** will leave only a minimal record: the time, a hash of the case's name, its opening date, the reason, and the log entry's number. Today `~/Hunt/deleted-cases.log` also keeps the case's name, label and purpose.
+
 ## 0.1.0: first release
 
 Hunt finds a person's accounts, helps you decide which are really theirs, looks through what they post for what your client needs, and hands over a report where every sentence cites its evidence. It runs on your Mac (Apple Silicon); your cases, evidence and the AI that reads photos and videos stay on it.
