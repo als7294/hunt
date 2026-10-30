@@ -391,5 +391,23 @@ assert [e["after_injury"] for e in tl[:2]] == [False, False] and all(e["after_in
 assert not any(e["kind"] == "stated" and "gym" in e["what"] for e in tl)  # life events only, not every caption
 assert any(e["what"] == "Stated in a post: “started a new job at Harbor Freight Movers”" for e in tl)
 assert next(e for e in tl if e["cites"] == ["E-2"])["categories"] == ["lifting"]
+# Wording: "A photo posted on …", "A post on …", captions quoted, the scan's description in mid-sentence form
+assert by["lifting"][0]["shows"].startswith("A photo posted on 2026-04-02 (32 days after the injury) appears to show lifting")
+assert leads._shows("Caption: “Carried the sofa down three flights”") == "has the caption “Carried the sofa down three flights”"
+assert [leads._shows(w) for w in ("A person lifting a barbell", "Carrying a box", "CDL truck", "Jane lifting")] == \
+    ["appears to show a person lifting a barbell", "appears to show carrying a box", "appears to show CDL truck",
+     "appears to show Jane lifting"]
+assert leads._media({"t0": None, "media_id": None}) == "A post"
+# Published competition results (sources/activity.py): a meet after the injury is a lead against lifting and sport;
+# every meet is on the timeline
+lifter = {"site": "OpenPowerlifting", "url": "https://www.openpowerlifting.org/u/x", "found_by": ["activity"], "probability": 0.8,
+          "decision": None, "finding_ids": [11], "attrs": {"meets": [
+              {"date": "2025-10-04", "meet": "Desert Classic", "event": "full power (squat, bench, deadlift)", "total_kg": 400.0, "place": "2"},
+              {"date": "2026-04-18", "meet": "Spring Open", "event": "deadlift only", "total_kg": 182.5, "place": "1"}]}}
+r2 = leads.leads({**details, "limits": "No lifting over 5 kg", "look_for": ["sport"]}, [], [], [lifter])
+assert [(x["restriction"], x["cites"], x["confidence"]) for x in r2["leads"]] == [("lifting", ["A-11"], 0.8), ("sport", ["A-11"], 0.8)]
+assert r2["leads"][0]["shows"] == ("OpenPowerlifting: competed in Spring Open (deadlift only), total 182.5 kg, place 1 "
+                                   "on 2026-04-18 (48 days after the injury)"), r2["leads"][0]["shows"]
+assert [e["after_injury"] for e in leads.timeline(details, [], [], [lifter]) if e["kind"] == "record"] == [False, True]
 
 print("ok")

@@ -19,12 +19,12 @@ from datetime import date
 # Restrictions: what the limits text says -> what would contradict it. `hits` are scan categories (hunt/scan.py),
 # `records` are record sources (report.RECORDS), `stated` is caption wording that says it outright.
 RESTRICTIONS = {
-    "lifting": {"says": r"lift|carry|levantar|cargar|peso", "hits": ["lifting"],
+    "lifting": {"says": r"lift|carry|levantar|cargar|peso", "hits": ["lifting"], "records": ["activity"],
                 "stated": r"moving day|helped (?:\w+ ){0,3}move|día de (?:la )?mudanza|mudanza"},
     "walking": {"says": r"walk|stand|hik|caminar|de pie|andar", "hits": ["walks"],
                 "stated": r"\b(?:hike|hiked|hiking|\d+ ?(?:km|miles?|mi) (?:walk|hike)|caminata)\b"},
     "running": {"says": r"\brun|jog|correr", "hits": ["sport"], "stated": r"\b(?:ran|running|5k|10k|marathon|corr[ií])\b"},
-    "sport": {"says": r"sport|gym|exercis|deporte|gimnasio|ejercicio|train", "hits": ["sport"],
+    "sport": {"says": r"sport|gym|exercis|deporte|gimnasio|ejercicio|train", "hits": ["sport"], "records": ["activity"],
               "stated": r"\b(?:gym|workout|leg day|entrenamiento|gimnasio)\b"},
     "bending": {"says": r"bend|kneel|squat|climb|crouch|agachar|arrodill|subir escaleras", "hits": ["activity"]},
     "driving": {"says": r"driv|manejar|conducir|behind the wheel", "hits": ["driving"], "records": ["fmcsa"],
@@ -83,6 +83,10 @@ def timeline(details: dict, posts: list[dict], hits: list[dict], candidates: lis
             if d := _day(c["attrs"].get(field)):
                 out.append({"date": d, "kind": "record", "what": f"{_what(c)} {verb}", "cites": [_acc(c)],
                             "categories": [], "after_injury": after(d)})
+        for m in c["attrs"].get("meets") or []:  # published competition results (sources/activity.py)
+            if d := _day(m.get("date")):
+                out.append({"date": d, "kind": "record", "what": _meet(c, m), "cites": [_acc(c)], "categories": [],
+                            "after_injury": after(d)})
     return sorted(out, key=lambda e: (e["date"] is None, e["date"] or "", e["kind"] != "injury"))
 
 
@@ -112,13 +116,16 @@ def leads(details: dict, posts: list[dict], hits: list[dict], candidates: list[d
                     not (h.get("timing") == "after" or (d and d >= injury)):
                 continue
             conf = (h.get("p") or 0.5) * (1.0 if h["who"] == "him" else 0.6) * (1.0 if h["status"] in ("kept", "in report") else 0.8)
-            where = f" at {h['t0']:.0f}–{h['t1']:.0f} s" if h.get("t0") is not None and h.get("t1") is not None else ""
-            lead(r, f"{_media(h)}{where} posted {_on(d, days(d))} appears to show {h['what'] or h['category']} "
+            where = f", at {h['t0']:.0f}–{h['t1']:.0f} s," if h.get("t0") is not None and h.get("t1") is not None else ""
+            lead(r, f"{_media(h)} {_on(d, days(d))}{where} {_shows(h['what'] or h['category'])} "
                     f"(scan: {h['verdict']}{'; who: not confirmed' if h['who'] != 'him' else ''})",
                  d, [f"E-{h['post_id']}"], "scan", conf, h["status"])
         for c in _records(candidates):
             if c["source"] not in spec.get("records", []):
                 continue
+            for m in c["attrs"].get("meets") or []:
+                if (d := _day(m.get("date"))) and d >= injury:
+                    lead(r, f"{_meet(c, m)} {_on(d, days(d))}", d, [_acc(c)], "record", 0.8)
             for field in WORK_EVENTS | ({"last_update", "registered"} if r["key"] == "driving" else set()):
                 if (d := _day(c["attrs"].get(field))) and d >= injury and (field in WORK_EVENTS or r["key"] == "driving"):
                     lead(r, f"{_what(c)} {EVENTS[field]} {_on(d, days(d))}", d, [_acc(c)], "record",
@@ -167,7 +174,7 @@ def _records(candidates: list[dict]) -> list[dict]:
     from .search import in_person
     out = []
     for c in candidates:
-        source = next((s for s in c.get("found_by", []) if s in RECORDS or s == "courts"), None)
+        source = next((s for s in c.get("found_by", []) if s in RECORDS or s in ("courts", "activity")), None)
         if source and in_person(c):
             out.append({**c, "source": source})
     return out
@@ -192,7 +199,30 @@ def _on(d: str | None, n: int | None) -> str:
 
 
 def _media(h: dict) -> str:
-    return "A video" if h.get("t0") is not None else "A photo" if h.get("media_id") else "A post"
+    return "A video posted" if h.get("t0") is not None else "A photo posted" if h.get("media_id") else "A post"
+
+
+LOWER = {"a", "an", "the", "someone", "somebody", "person", "people", "man", "woman", "men", "women", "two", "three",
+         "several", "one", "it", "this", "they", "he", "she"}
+
+
+def _shows(what: str) -> str:
+    """'appears to show …' in mid-sentence form: a caption is quoted as one, and a description's first word is
+    lower-cased when it's an ordinary word ('A person lifting…', 'Carrying…'), never a name or an acronym."""
+    if m := re.match(r"caption:\s*(.+)", what, re.I | re.S):
+        text = m[1].strip()
+        return f"has the caption {text if text.startswith(('“', '"')) else '“' + text + '”'}"
+    first = what.split(" ", 1)[0]
+    if first[:1].isupper() and (len(first) == 1 or first[1:].islower()) and (first.lower() in LOWER or first.lower().endswith("ing")):
+        what = what[:1].lower() + what[1:]
+    return f"appears to show {what}"
+
+
+def _meet(c: dict, m: dict) -> str:
+    """'Competed in the Desert Classic (full power), total 412.5 kg, 3rd' from a published result."""
+    total = f", total {m['total_kg']:g} kg" if isinstance(m.get("total_kg"), (int, float)) else ""
+    place = f", place {m['place']}" if m.get("place") else ""
+    return f"{c['site']}: competed in {m.get('meet') or 'a meet'}{' (' + m['event'] + ')' if m.get('event') else ''}{total}{place}"
 
 
 def _excerpt(text: str) -> str:

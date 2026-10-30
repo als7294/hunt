@@ -580,9 +580,9 @@ far; not working"). Each clause maps to a restriction and to what would contradi
 
 | restriction | the claim says (en/es) | contradicted by |
 |---|---|---|
-| lifting | lift, carry, levantar, cargar | `lifting` hits; captions "moving day", "helped … move", "mudanza" |
+| lifting | lift, carry, levantar, cargar | `lifting` hits; published competition results after the injury (`activity`: OpenPowerlifting meets, with total and place); captions "moving day", "helped … move", "mudanza" |
 | walking | walk, stand, hike, caminar | `walks` hits; "hike", "10 km walk", "caminata" |
-| running / sport | run, jog, gym, exercise, correr, gimnasio | `sport` hits; "ran", "5k", "leg day", "workout" |
+| running / sport | run, jog, gym, exercise, correr, gimnasio | `sport` hits; competition results (sport); "ran", "5k", "leg day", "workout" |
 | bending | bend, kneel, squat, climb, agachar | `activity` hits |
 | driving | drive, manejar, conducir | `driving` hits; FMCSA carrier records registered or updated after the injury; "road trip", "drove" |
 | travel | travel, fly, viajar | `travel` hits; "flight to", "vacation" |
@@ -600,6 +600,7 @@ lifting or carrying").
 **Confidence:**
 - scan hits: the scan's `p`, × 0.6 while who it shows isn't confirmed, × 0.8 until the investigator keeps it
 - the subject's own captions: 0.7
+- a published competition result: 0.8
 - a licence or business event: 0.7 (a renewal 0.6)
 - a carrier record: 0.5
 - a co-worker named in a post, or a court filing naming an employer: 0.5
@@ -608,6 +609,8 @@ One lead per piece of evidence per restriction, ranked by confidence. Each lead 
 "Wording"):
 > **Claim:** No lifting over 5 kg. **Evidence:** A photo posted on 2026-04-02 (32 days after the injury) appears to show
 > carrying a couch (scan: likely). [E-2]
+> **Claim:** No lifting over 5 kg. **Evidence:** A post on 2026-04-18 (48 days after the injury) has the caption "Carried
+> the sofa down three flights" (scan: likely). [E-9]
 > **Claim:** Not working. **Evidence:** Texas TDLR licence (Electrician) issued on 2026-04-15 (45 days after the injury).
 > [A-7]
 
@@ -617,6 +620,8 @@ Never "fraud", "lied", "faked" or "exaggerated": the self-check enforces it.
 - The injury date is one event.
 - Each post appears with the categories of its live scan hits.
 - The person's public records add their dated fields (issued, renewed, registered, formed, filed, carrier updated).
+- Each competition result in `attrs.meets` is its own event: "OpenPowerlifting: competed in Spring Open (deadlift
+  only), total 182.5 kg, place 1".
 - Life events stated in captions or by the importer are listed separately ("Stated in a post: 'first day at the new
   job'").
 - `after_injury` lets the screen shade everything after the line.
