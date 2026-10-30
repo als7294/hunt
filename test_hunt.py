@@ -226,7 +226,7 @@ ref = Path(tempfile.mkdtemp()) / "reference.jpg"
 ref.write_bytes(jpg.getvalue())
 face.add_reference(fc, ref)
 calls = []
-face.compare = lambda refs, imgs: calls.append(imgs) or [  # the models aren't loaded in tests
+face._compare = lambda refs, imgs: calls.append(imgs) or [  # the models aren't loaded in tests
     {"image": i, "faces_found": 1, "match": "yes", "score": 0.71, "why": "the same face as your reference photo (0.71)",
      "quality": {"face_px": 120, "sharpness": 150, "yaw": 5}, "model": "stub"} for i in imgs]
 logs = []

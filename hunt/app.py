@@ -735,7 +735,7 @@ async def get_people(req: Request):
     """Family and associates from what the case already holds (graph.associates): names and citations only."""
     c = _case(req)
     snap = await search.snapshot(c)
-    out = graph.associates(await _posts(c), snap["candidates"], c.seeds(), graph.photo_labels(c))
+    out = graph.associates(await _posts(c), snap["candidates"], c.seeds(), graph.photo_labels(c), case_key=c.name)
     hidden = set(json.loads(c.meta("people_hidden") or "[]"))
     for person in out["people"]:
         person["hidden"] = person["id"] in hidden
@@ -771,7 +771,7 @@ async def get_leads(req: Request):
     """Each stated restriction against the evidence dated after the injury (leads.leads): leads, never findings."""
     c = _case(req)
     details, posts, hits, cands = await _evidence(c)
-    people = graph.associates(posts, cands, c.seeds(), graph.photo_labels(c))["people"]
+    people = graph.associates(posts, cands, c.seeds(), graph.photo_labels(c), case_key=c.name)["people"]
     out, said = leads.leads(details, posts, hits, cands, people), json.loads(c.meta("lead_status") or "{}")
     for x in out["leads"]:  # a scan lead's status is its flag's; a caption's or record's is what she set here
         if x["kind"] != "scan" and x["id"] in said:
