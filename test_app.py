@@ -341,6 +341,19 @@ r = c.post("/api/cases/vance-claim/preview", content=json.dumps({"url": "https:/
 assert r.status_code == 200 and r.json()["status"] == "failed" and "Hunt Browser" in r.json()["note"], r.text  # a login-walled site: the note says so
 assert c.post("/api/cases/vance-claim/preview", content=json.dumps({"url": "https://www.instagram.com/example2"}), headers=JSON).status_code == 400
 Case.open("vance-claim").decide("https://www.instagram.com/example", "unsure")
+# A confirmed Facebook profile is read on her click: one request, through the facebook source, its finding stored (C6, AP8)
+fb_calls, fb_search = [], server.sources.facebook.search
+
+
+async def fake_fb(seed):
+    fb_calls.append(seed.value)
+    return [], 1, "Facebook shows this profile's name and picture logged out"
+server.sources.facebook.search = fake_fb
+Case.open("vance-claim").decide("https://www.facebook.com/kestrel.vane", "him")
+r = c.post("/api/cases/vance-claim/preview", content=json.dumps({"url": "https://www.facebook.com/kestrel.vane"}), headers=JSON)
+assert r.status_code == 200 and fb_calls == ["https://www.facebook.com/kestrel.vane"] and r.json()["source"] == "Facebook", r.text
+server.sources.facebook.search = fb_search
+Case.open("vance-claim").decide("https://www.facebook.com/kestrel.vane", "unsure")
 store["posts"].append({"id": 99, "source": "bluesky", "account_url": store["posts"][0]["account_url"], "url": "https://bsky.test/p/99",
                        "posted_at": "2026-04-12T10:00:00+00:00", "text": "Fishing with my brother Dan Vell", "origin": "fetched", "media": []})
 for seed in ("Dan Vell", "dan_vell", "dan.vell@example.com"):

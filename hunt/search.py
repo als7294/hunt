@@ -22,7 +22,7 @@ from .case import Case
 from .seed import Seed, now
 from .sources import SOURCES
 from .sources._api import Limited
-from .sources.wmn import UA
+from .sources._api import UA  # Hunt's own, honest User-Agent (C7), never a browser's
 
 LIKELY = 0.55  # ICD 203 "likely" or better: screenshot it and pivot from it
 HEAVY = asyncio.Lock()  # one heavy job at a time on the machine: Playwright, the media scan

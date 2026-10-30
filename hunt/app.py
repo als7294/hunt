@@ -47,7 +47,7 @@ from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
 from .case import ABROAD, DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, KINDS, RETENTION_DAYS, Case, all_cases, residence  # watch.py reads RETENTION_DAYS here
 from .match import ICD203, norm_url
-from .seed import detect, now
+from .seed import Seed, detect, now
 
 STATIC = Path(__file__).parent / "static"
 COOKIE = "hunt"
@@ -1046,11 +1046,19 @@ async def public_preview(req: Request):
     mine = [u for u, x in c.decisions().items() if u and x["decision"] == "him"]
     if not any(norm_url(url) == u or norm_url(url).startswith(u + "/") for u in mine):
         raise HTTPException(400, "preview reads only an account you confirmed as the subject's, or a post on one")
+    if why := c.blocked():
+        raise HTTPException(409, why)
+    if extension.platform(url) == "Facebook":  # her click reads what Facebook serves logged out (C6: not every search)
+        seed = Seed("url", url)
+        found, checked, note = await sources.facebook.search(seed)
+        for f in found:
+            c.add_finding(f)
+        c.add_run("facebook", seed, "found" if found else "nothing found", len(found), checked, note)
+        return JSONResponse({"source": "Facebook", "status": "found" if found else "nothing found", "added": 0,
+                             "checked": checked, "note": note or "Read what Facebook shows logged out for this profile."})
     fn = getattr(_module("public"), "preview", None)
     if not fn:
         raise HTTPException(501, "the public preview reader isn't installed yet")
-    if why := c.blocked():
-        raise HTTPException(409, why)
     try:
         return JSONResponse(await _call(fn, c, url))
     except ValueError as e:
