@@ -172,6 +172,7 @@ asyncio.run(go())
 u = [h for h in scan.hits(case) if h["post_id"] == box]
 assert len(u) == 1 and (u[0]["verdict"], u[0]["p"]) == ("unlikely", 0.3) and "not checked" in u[0]["what"], u
 assert any(e["type"] == "log" and "unavailable" in e["message"] for e in events)
+assert u[0]["blur"] is True  # AN4: the vision model never saw it, so nobody knows there's no child in it
 vlm.judge = fake_judge
 calls.clear()
 asyncio.run(go())
@@ -357,4 +358,21 @@ assert one == {"shows": "A person and a box", "image": "photo", "people": "adult
                "answer": "yes"}, one  # one question: one answer
 asyncio.run(vlm.unload())
 assert sent[-1] == {"model": vlm.MODEL, "messages": [], "keep_alive": 0}
+# AN3, AN5, AN10: hits carry the post's audience; a post marked not about the subject isn't scanned; a
+# Washington subject gets no "injury" category
+case.db.executescript(posts.EXTRA)
+other = post("Deadlifted 200kg, my knee injury is fine now", "2026-05-02T10:00:00Z")
+case.db.execute("insert into post_extra values (?, ?)", (other, '{"not_subject": true}'))
+case.db.execute("insert or replace into post_extra values (?, ?)", (deadlift, '{"audience": "Friends", "audience_flag": true}'))
+knee = post("My knee injury still hurts after the fall", "2026-05-03T10:00:00Z")
+asyncio.run(go(("lifting", "injury")))
+mine = scan.hits(case)
+assert not any(h["post_id"] == other for h in mine)
+assert {(h["audience"], h["audience_flag"]) for h in mine if h["post_id"] == deadlift} == {("Friends", 1)}
+assert any(h["post_id"] == knee and h["category"] == "injury" for h in mine)
+case.db.execute("delete from hits where post_id = ?", (knee,))
+case.set_details(subject_residence="US-WA")
+asyncio.run(go(("lifting", "injury")))
+assert not any(h["post_id"] == knee for h in scan.hits(case)) and case.mhmda
+case.set_details(subject_residence="")
 print("ok")

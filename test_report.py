@@ -301,7 +301,8 @@ said_ = {x["text"]: x["cites"] for x in claim}
 assert "The claim states: no lifting over 5 kg; no running." in said_ and "The case also asks about: sport." in said_, said_
 run = next(t for t in said_ if t.startswith("Running: "))
 assert "finishing a 10k" in run and said_[run] == ["E-1"] and "almost certain" not in " ".join(said_), claim
-assert "Lifting: nothing found after the injury that bears on this." in said_, said_
+# the powerlifting meet of 2026-04-12 is a lead against lifting (leads.py), not yet kept for the report
+assert "Lifting: 1 lead after the injury, none kept for this report." in said_, said_
 assert [x["text"] for x in compose(screening=True)["sentences"] if x["section"] == "claim"] == \
     ["This screening version leaves out the claim and the evidence set against it."]
 

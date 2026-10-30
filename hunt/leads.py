@@ -144,10 +144,8 @@ def leads(details: dict, posts: list[dict], hits: list[dict], candidates: list[d
                 for cite in person["cites"]:
                     pid = int(cite["ref"][2:]) if (cite.get("ref") or "").startswith("E-") and cite["ref"][2:].isdigit() else None
                     d = ((posts_by_id.get(pid) or {}).get("posted_at") or "")[:10] or None
-                    if cite["type"] == "co-worker" and d and d >= injury:
-                        lead(r, f"A post {_on(d, days(d))} names a {cite['label']}"
-                                f"{' (' + person['name'] + ')' if person['name'] else ''}: “{cite['quote']}”",
-                             d, [cite["ref"]], "post", 0.5)
+                    if _coworker(cite.get("words")) and d and d >= injury:  # observed wording only (legal.md A6)
+                        lead(r, f"A post {_on(d, days(d))} says: “{cite['quote']}”", d, [cite["ref"]], "post", 0.5)
     seen, ranked = set(), []
     for x in sorted(out, key=lambda x: (-x["confidence"], x["date"] or "")):
         if x["id"] not in seen:
@@ -155,6 +153,13 @@ def leads(details: dict, posts: list[dict], hits: list[dict], candidates: list[d
             ranked.append(x)
     counts = {r["key"]: sum(x["restriction"] == r["key"] for x in ranked) for r in rs}
     return {"injury_date": injury, "restrictions": [{**r, "leads": counts[r["key"]]} for r in rs], "leads": ranked}
+
+
+def _coworker(words: str | None) -> bool:
+    """Whether a cite's observed wording ("my coworker", "mi jefe") names someone the subject works with."""
+    from .graph import RELATIONS
+    return bool(words) and any(re.search(rf"\b{re.escape(w)}\b", words, re.I) for w, (_, kind, _m) in RELATIONS.items()
+                               if kind == "co-worker")
 
 
 def _stated(p: dict, pattern: str) -> list[str]:
