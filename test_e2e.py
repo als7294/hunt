@@ -227,6 +227,7 @@ rep = c.get(f"{api}/report").json()
 assert rep["checks"]["every_sentence_cited"] and not rep["checks"]["tampered"] and rep["checks"]["missing"] == [], rep["checks"]
 assert len(rep["exhibits"]) >= 4 and {r["source"] for r in rep["records"]} == {"fec", "npi"}, rep["records"]
 html = c.get(f"{api}/report.html").text
+assert "report exported" in {r["action"] for r in Case.open(slug).rows("select action from audit")}  # K2
 assert "Appendix A: Exhibits" in html and "Fictional Mutual" in html
 exported = c.get(f"{api}/report.json").json()
 assert all(m["ok"] for m in exported["manifest"])

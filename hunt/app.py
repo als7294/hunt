@@ -1381,14 +1381,28 @@ async def post_unpack(req: Request):
 
 
 async def get_seen(req: Request):
+    """Every other case on this computer, looked through for the same identifiers (K2: audited in the case
+    whenever what it found changes, so a screen redrawn doesn't fill the log)."""
     c = _case(req)
-    return JSONResponse(await asyncio.to_thread(seen.for_case, c, req.query_params.get("screening") == "1"))
+    r = await asyncio.to_thread(seen.for_case, c, req.query_params.get("screening") == "1")
+    if r.get("checked"):
+        found = sorted(m["case"] for m in r["matches"])
+        if c.meta("seen_audited") != json.dumps(found):
+            c.audit("seen lookup", {"identifiers": len(seen.identifiers(c)), "matches": found})
+            c.db.execute("insert or replace into meta values ('seen_audited', ?)", (json.dumps(found),))
+    return JSONResponse(r)
 
 
 async def post_seen(req: Request):
+    """The wizard's lookup, before the case exists: logged in ~/Hunt/seen-lookups.log with counts and hashed
+    case names only, since the line outlives every case."""
     b = await _body(req)
     ids = seen.from_seeds(_str_list(b.get("seeds"), "seeds"))
-    return JSONResponse(await asyncio.to_thread(seen.lookup, ids, None, b.get("kind") == seen.SCREENING))
+    r = await asyncio.to_thread(seen.lookup, ids, None, b.get("kind") == seen.SCREENING)
+    with open(HOME / "seen-lookups.log", "a") as f:
+        f.write(json.dumps({"ts": now(), "identifiers": len(ids), "matches": [
+            hashlib.sha256(m["case"].encode()).hexdigest()[:16] for m in r.get("matches", [])]}) + "\n")
+    return JSONResponse(r)
 
 
 async def get_setup(req: Request):
