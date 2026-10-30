@@ -709,7 +709,7 @@ async def get_person(req: Request):
         "namesakes": [{"url": x["url"], "site": x["site"], "label": x["attrs"].get("fullname") or x["attrs"].get("name")
                        or _handle(x), "why": [_plain(r) for r in x["reasons"]], "decision": x["decision"]}
                       for x in namesakes],
-        "records": [{"url": x["url"], "site": x["site"], "source": report._record(x), "summary": report._summary(x),
+        "records": [{"url": x["url"], "site": x["site"], "source": report._record(x), "summary": report._summary(x, c.details()["injury_date"]),
                      "attrs": x["attrs"], "verdict": x["verdict"], "probability": x["probability"],
                      "reasons": [_plain(r) for r in x["reasons"]], "name_only": _agreeing(x) <= {"name"},
                      "decision": x["decision"], "fetched": min((e["at"] for e in x["evidence"]), default=None)}
@@ -1554,6 +1554,33 @@ def _import_facebook(c: Case, posts, pages: list[Path], pictures: list[Path], tm
     return {"added": added, "posts": found, "pages": len(pages), "screenshots": len(pictures)}
 
 
+async def record_links(req: Request):
+    """The court portals and race-results sites Hunt never queries, prefilled for her to open; and whether the
+    OpenPowerlifting table is loaded (with the download size to show before she loads it)."""
+    seeds, loaded = _case(req).seeds(), sources.activity.meta()
+    return JSONResponse({"courts": sources.courts.search_links(seeds), "activity": sources.activity.search_links(seeds),
+                         "powerlifting": {"loaded": loaded or None,
+                                          "size": None if loaded else await setup._content_length(sources.activity.OPL)}})
+
+
+async def load_powerlifting(req: Request):
+    """POST {size}: the one-time OpenPowerlifting download (public domain), once she has seen its size."""
+    size = (await _body(req)).get("size")
+    if type(size) is not int or size != await setup._content_length(sources.activity.OPL):
+        raise HTTPException(400, "send size: the download size you showed and the investigator accepted")
+    if _active(req, ""):
+        raise HTTPException(409, "a download is already running")
+    job = Job("", "setup")  # one download at a time, as for setup
+    req.app.state.jobs[job.id] = job
+
+    async def work(job):
+        job.emit({"type": "progress", "item": "powerlifting",
+                  "message": f"Downloading OpenPowerlifting results ({size / 2**20:.0f} MB), then loading them"})
+        return await sources.activity.update()
+    job.start(work)
+    return JSONResponse({"job": job.id})
+
+
 async def facebook_links(req: Request):
     return JSONResponse({"links": facebook.search_links(_case(req).seeds())})
 
@@ -1561,6 +1588,8 @@ async def facebook_links(req: Request):
 FACEBOOK_ROUTES = [
     Route("/api/cases/{slug}/facebook", add_facebook, methods=["POST"]),
     Route("/api/cases/{slug}/facebook/links", facebook_links),
+    Route("/api/cases/{slug}/records/links", record_links),
+    Route("/api/powerlifting", load_powerlifting, methods=["POST"]),
 ]
 
 

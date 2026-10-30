@@ -503,12 +503,15 @@ screens.identity = async slug => {
         <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="unsure" title="Takes back “not them”: logged as unsure">Undo</button></div>`)}</div></details>`.s;
   }).catch(() => {});
   api(`/api/cases/${encodeURIComponent(slug)}/seen-before`).then(r => { if ($('#seen-here')) $("#seen-here").innerHTML = fmt(seenBox(r, slug)); }).catch(() => {});
+  if (document.querySelector('[data-links]')) api(`/api/cases/${encodeURIComponent(slug)}/records/links`).then(recordLinks).catch(() => {});
 };
 
 /* Public records on Is it them? (docs/research/tools.md, "Records in the app"): grouped by what they show */
 const RECORD_GROUPS = [['Working', ['licences', 'businesses', 'npi'], 'Licensed, trading or employed somewhere?'], ['Driving', ['fmcsa'], 'Runs or drives for a carrier?'],
-  ['Courts', ['courtlistener'], 'Earlier federal suits or claims?'], ['Money and politics', ['fec', 'edgar'], 'Where were they, and with whom, when they donated or filed?']];
-const RECORD_NAME = { fec: 'FEC', edgar: 'SEC EDGAR', npi: 'NPI registry', courtlistener: 'CourtListener', licences: 'Licences', businesses: 'Business registries', fmcsa: 'FMCSA' };
+  ['Courts', ['courtlistener', 'courts'], 'Earlier suits, claims, judgments or hearings?'], ['Sport and competition', ['activity'], 'Competing after the injury date?'],
+  ['Money and politics', ['fec', 'edgar'], 'Where were they, and with whom, when they donated or filed?']];
+const RECORD_NAME = { fec: 'FEC', edgar: 'SEC EDGAR', npi: 'NPI registry', courtlistener: 'CourtListener', courts: 'Court open data', licences: 'Licences', businesses: 'Business registries', fmcsa: 'FMCSA', activity: 'OpenPowerlifting' };
+const BY_HAND = { courtlistener: 'courts', activity: 'activity' }; // the group's portals Hunt can't query, filled in by recordLinks
 const ID_KEYS = [['licence_number', 'licence'], ['npi', 'NPI'], ['usdot', 'USDOT'], ['cik', 'CIK'], ['dos_id', 'NY DOS'], ['ubi', 'UBI'], ['docket_number', 'docket'], ['year_of_birth', 'born']];
 const WHEN_KEYS = ['issued', 'expires', 'registered', 'formed', 'last_update', 'filed', 'terminated'];
 const activeNow = a => { const st = String(a.status || '').toLowerCase();
@@ -527,6 +530,8 @@ function recordCard(x) {
     ${facts.length ? html`<div class="muted" style="font-size:13px">${facts.join(' · ')}</div>` : ''}
     <div class="muted" style="font-size:13px">${x.site} · <a href="${/^https?:\/\//.test(x.url) ? x.url : '#'}" target="_blank" rel="noopener noreferrer" style="color:var(--ac)">record page ↗</a>${x.fetched ? ` · fetched ${when(x.fetched)}` : ''}</div>
     ${onFile.length ? html`<details><summary class="dim" style="cursor:pointer;font-size:12.5px">Street address and contact on file</summary><div class="muted" style="font-size:13px">${onFile.join(' · ')}</div></details>` : ''}
+    ${a.meets?.length > 1 ? html`<details><summary class="dim" style="cursor:pointer;font-size:12.5px">Every meet (${a.meets.length})</summary><div class="muted" style="font-size:13px;display:flex;flex-direction:column;gap:2px;padding-top:4px">
+      ${[...a.meets].reverse().map(m => html`<span>${longDay(m.date)} · ${m.meet || 'a meet'}${m.location ? ` · ${m.location}` : ''}${m.total_kg ? ` · total ${m.total_kg} kg` : ''}${m.place ? ` · place ${m.place}` : ''}</span>`)}</div></details>` : ''}
     <div style="display:flex;gap:6px;margin-top:4px;align-items:center"><button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="him">${x.decision === 'him' ? '✓ Theirs' : 'Theirs'}</button>
       <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="not him">${x.decision === 'not him' ? '✓ Not them' : 'Not them'}</button>
       <button class="btn ghost sm" data-act="note-open" data-about="account" data-ref="${x.url}" data-title="Notes on this record">Note</button></div></div>`;
@@ -538,7 +543,19 @@ function recordsPanel(p) {
     ${RECORD_GROUPS.map(([title, srcs, q]) => { const rs = p.records.filter(r => srcs.includes(r.source)), cov = p.coverage.filter(r => srcs.includes(r.source));
       return rs.length || cov.length ? html`<div class="panel" style="padding:16px 18px;display:flex;flex-direction:column;gap:8px"><div><b>${title}</b> <span class="muted" style="font-size:13.5px">· ${q}</span></div>
         ${rs.length ? rs.map(recordCard) : html`<div class="muted" style="font-size:14px">Nothing found that looks like them in what was searched:</div>`}
-        ${cov.map(r => html`<div class="dim" style="font-size:12.5px">${RECORD_NAME[r.source] || r.source}: ${r.note || r.status}</div>`)}</div>` : ''; })}</div>`;
+        ${cov.map(r => html`<div class="dim" style="font-size:12.5px">${RECORD_NAME[r.source] || r.source}: ${r.note || r.status}</div>`)}
+        ${srcs.filter(s => BY_HAND[s]).map(s => html`<div data-links="${BY_HAND[s]}"></div>`)}</div>` : ''; })}</div>`;
+}
+// Filled in after the screen draws: the portals and results sites to open by hand, and the one-time powerlifting load
+function recordLinks(r) {
+  const list = (links, title) => html`<details><summary class="muted" style="cursor:pointer;font-size:13.5px">${title} (${links.length})</summary>
+    <div style="display:flex;flex-direction:column;gap:4px;padding:6px 0">${links.map(l => html`<a href="${/^https:\/\//.test(l.url) ? l.url : '#'}" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:13.5px">${l.label}${l.state ? ` (${l.state})` : ''} ↗</a>`)}</div></details>`;
+  const pl = r.powerlifting || {}, el = k => document.querySelector(`[data-links="${k}"]`);
+  if (el('courts') && r.courts.length) el('courts').innerHTML = list(r.courts, 'Court portals to search by hand: Hunt can’t query them').s;
+  if (el('activity')) el('activity').innerHTML = html`${!pl.loaded && pl.size ? html`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:4px 0">
+      <button class="btn sm" data-act="opl-load" data-size="${pl.size}">Load powerlifting results (${Math.round(pl.size / 2 ** 20)} MB, once)</button>
+      <span class="muted" style="font-size:13px">Every published powerlifting meet, public domain. Then search again to look the name up.</span></div>` : ''}
+    ${r.activity.length ? list(r.activity, 'Race results to search by hand') : ''}`.s;
 }
 
 // Face comparison results beside the photos they came from: a lead, one reason among the others, never the verdict
@@ -1551,6 +1568,16 @@ const actions = {
         if (ev.type === 'progress') { box.querySelector('i').style.transform = `scaleX(${ev.total ? ev.done / ev.total : 0})`; box.querySelector('span').textContent = ev.total ? `${size(ev.done)} of ${size(ev.total)}` : ev.message || ''; }
         if (ev.type === 'error') { es.close(); box.innerHTML = html`<span style="color:var(--rd);font-size:13px">${ev.message}</span>`.s; }
         if (ev.type === 'done') { es.close(); box.innerHTML = html`<span style="color:var(--gr);font-size:13px">Done.</span>`.s; }
+      });
+    } catch (e) { el.disabled = false; fail(e); }
+  },
+  'opl-load': async el => {
+    const box = el.parentElement; el.disabled = true;
+    try { const { job } = await api('/api/powerlifting', { method: 'POST', body: { size: +el.dataset.size } });
+      box.innerHTML = html`<span class="muted" style="font-size:13px">Downloading and loading the results: a few minutes. You can keep working.</span>`.s;
+      const es = follow(job, ev => {
+        if (ev.type === 'error') { es.close(); box.innerHTML = html`<span style="color:var(--rd);font-size:13px">${ev.message}</span>`.s; }
+        if (ev.type === 'done') { es.close(); box.innerHTML = html`<span style="color:var(--gr);font-size:13px">Loaded. Search again to look the name up in them.</span>`.s; }
       });
     } catch (e) { el.disabled = false; fail(e); }
   },

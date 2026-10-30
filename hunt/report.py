@@ -55,7 +55,8 @@ READ_AUTOMATICALLY = re.compile(r"bsky|bluesky|mastodon|youtube", re.I)  # what 
 RECORDS = {"fec": "FEC itemized political contributions", "edgar": "SEC EDGAR filings",
            "npi": "the NPI healthcare provider registry", "courtlistener": "federal court dockets in CourtListener's RECAP archive",
            "licences": "state occupational and professional licences", "businesses": "state business registries",
-           "fmcsa": "the FMCSA motor-carrier census"}
+           "fmcsa": "the FMCSA motor-carrier census", "courts": "state, county and city court records published as open data",
+           "activity": "published powerlifting results (OpenPowerlifting)"}
 # Screening (employment) mode leaves these sources out entirely: what they reveal is protected in several states
 SCREENED = {"fec": "political affiliation", "npi": "health"}
 # …and court dockets whose subject is health or politics
@@ -501,7 +502,8 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         shot = f" ({ex(acc(c))})" if ex(acc(c)) else ""
         tie = (f"the investigator confirmed it concerns {who}" if c["decision"] == "him"
                else f"{cap(c['verdict'])} to concern {who}" + (f" ({why})" if why else ""))
-        doc.say("records", f"{c['site']}{shot}: {_summary(c)}; {tie}.", [acc(c)] + (own(c) if c["decision"] else []))
+        doc.say("records", f"{c['site']}{shot}: {_summary(c, None if screening else d['injury_date'])}; {tie}.",
+                [acc(c)] + (own(c) if c["decision"] else []))
     if others := [c for c in cands if _record(c) and not search.in_person(c) and c["decision"] != "not him"]:
         doc.say("records", f"{_many(len(others), 'other record')} under the same name {'was' if len(others) == 1 else 'were'} "
                            f"judged unlikely to concern {who}.", [acc(c) for c in others])
@@ -679,7 +681,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         "sections": [{"id": k, "title": t, "done": done[k] and k in said} for k, t in SECTIONS],
         "sentences": [s for s in doc.sentences if s["section"] != "couldnt_see"],
         "presence": presence,
-        "records": [{"row": i + 1, "id": acc(c), "source": _record(c), "site": c["site"], "url": c["url"], "summary": _summary(c),
+        "records": [{"row": i + 1, "id": acc(c), "source": _record(c), "site": c["site"], "url": c["url"], "summary": _summary(c, None if screening else d["injury_date"]),
                      "status": "confirmed" if c["decision"] == "him" else cap(c["verdict"]),
                      "exhibit": numbered.get(acc(c))} for i, c in enumerate(records)],
         "exhibits": exhibits,
@@ -716,12 +718,13 @@ def _screened(c: dict) -> bool:
     src = _record(c)
     if src in SCREENED:
         return True
-    text = " ".join(str(c["attrs"].get(k) or "") for k in ("case", "nature_of_suit", "cause"))
-    return src == "courtlistener" and bool(SENSITIVE_CASE.search(text) or PROTECTED.search(text))
+    text = " ".join(str(c["attrs"].get(k) or "") for k in ("case", "case_type", "nature_of_suit", "cause"))
+    return src in ("courtlistener", "courts") and bool(SENSITIVE_CASE.search(text) or PROTECTED.search(text))
 
 
-def _summary(c: dict) -> str:
-    """What a public record says, in one line, from the fields its source sets."""
+def _summary(c: dict, injury: str | None = None) -> str:
+    """What a public record says, in one line, from the fields its source sets; with the injury date, the
+    competition results after it."""
     a, src = c["attrs"], _record(c)
     bits = []
     if src == "fec":
@@ -761,6 +764,18 @@ def _summary(c: dict) -> str:
         bits = [a.get("case"), f"{a['court']}, docket {a.get('docket_number')}" if a.get("court") else None,
                 f"filed {a['filed']}" if a.get("filed") else None, f"terminated {a['terminated']}" if a.get("terminated") else None,
                 f"nature of suit: {a['nature_of_suit']}" if a.get("nature_of_suit") else None]
+    elif src == "courts":
+        bits = [a.get("case"), a.get("case_type"), f"as {' and '.join(a['roles'])}" if a.get("roles") else None, a.get("court"),
+                f"docket {a['docket_number']}" if a.get("docket_number") else None, f"filed {a['filed']}" if a.get("filed") else None,
+                a.get("status"), a.get("disposition"), f"employer {a['employer']}" if a.get("employer") else None, a.get("location")]
+    elif src == "activity":
+        n, after = a.get("meet_count") or 0, [m for m in a.get("meets", []) if injury and m.get("date", "") >= injury]
+        bits = [f"1 powerlifting meet on {a['first_date']}" if n == 1 else f"{n} powerlifting meets from {a['first_date']} to {a['last_date']}",
+                ", ".join(a.get("federations", [])), f"best total {a['best_total_kg']:g} kg" if a.get("best_total_kg") else None,
+                f"home {a['location']}" if a.get("location") else None,
+                f"{_many(len(after), 'meet')} after the date of injury: " + "; ".join(
+                    f"{m['date']}, {m.get('meet') or 'a meet'}" + (f", total {m['total_kg']:g} kg" if m.get("total_kg") else "")
+                    for m in after[-3:]) + (" and earlier ones" if len(after) > 3 else "") if after else None]
     return ", ".join(str(b) for b in bits if b) or c["site"]
 
 

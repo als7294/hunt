@@ -227,6 +227,26 @@ lic = next(r for r in rep["records"] if r["source"] == "licences")
 assert lic["summary"] == "Electrician, licence TX-1, expires 2027-01-01", lic
 assert "Texas TDLR licence" not in {p["platform"] for p in rep["presence"]}, rep["presence"]
 assert all(x["cites"] for x in rep["sentences"])
+# Court open data and powerlifting results are records too; meets after the injury are named, never in screening
+for src in ("courts", "activity"):
+    case.add_run(src, name, "found", 1, 1, "")
+case.add_finding(Finding("courts", name, "Ohio Court of Claims", "https://data.ohio.gov/example/2026-00001",
+                         {"fullname": "Robert Vance", "roles": ["plaintiff"], "court": "Ohio Court of Claims",
+                          "docket_number": "2026-00001", "case_type": "Personal injury", "filed": "2026-02-01", "employer": "Example Health"}))
+case.add_finding(Finding("activity", name, "OpenPowerlifting", "https://www.openpowerlifting.org/u/robertvance",
+                         {"fullname": "Robert Vance", "meet_count": 2, "first_date": "2025-06-01", "last_date": "2026-04-12",
+                          "federations": ["USAPL"], "best_total_kg": 480.0, "location": "Arizona, USA", "birth_year": 1990,
+                          "meets": [{"date": "2025-06-01", "meet": "Desert Open", "total_kg": 450.0},
+                                    {"date": "2026-04-12", "meet": "Arizona State", "total_kg": 480.0}]}))
+rep = compose()
+by = {r["source"]: r["summary"] for r in rep["records"]}
+assert by["courts"] == "Personal injury, as plaintiff, Ohio Court of Claims, docket 2026-00001, filed 2026-02-01, employer Example Health", by
+assert by["activity"] == ("2 powerlifting meets from 2025-06-01 to 2026-04-12, USAPL, best total 480 kg, home Arizona, USA, "
+                          "1 meet after the date of injury: 2026-04-12, Arizona State, total 480 kg"), by
+assert "court records published as open data" in text(rep) and "published powerlifting results" in text(rep)
+rep = compose(screening=True)
+assert "courts" not in {r["source"] for r in rep["records"]}, rep["records"]  # a personal-injury case: protected
+assert all("after the date of injury" not in r["summary"] for r in rep["records"]), rep["records"]
 log_ids = {x["audit_log_id"] for x in compose()["log"] if x["audit_log_id"]}
 assert log_ids and all(isinstance(i, int) for i in log_ids)  # matches audit-log.csv in the evidence bundle
 
