@@ -206,14 +206,17 @@ p2, *_ = match.score(rare, "https://example.com/xq7dorianv", {"fullname": "Doria
 assert p2 > 0.95, p2  # with a name as the second identifier, the face adds its capped weight
 
 # Records found by name: the name alone barely counts, so namesakes sink; a fact the case knows lifts the right one
-name, subj = Seed("name", "John Smith"), [Seed("name", "John Smith")]
-facts = {"subject_dob": "1981-04-12", "subject_employer": "Acme Freight"}
-score = lambda attrs: match.score(name, "", {"fullname": "John Smith", **attrs}, subj, facts=facts)
+name = Seed("name", "John Smith")
+subj = [name, Seed("dob", "1981-04-12"), Seed("employer", "Acme Freight")]  # seeds, as typed in the search bar
+score = lambda attrs: match.score(name, "", {"fullname": "John Smith", **attrs}, subj)
 assert score({})[1] == "very unlikely" and "barely counts" in score({})[2][0]
 assert score({"dob": "04/12/1981"})[1] == "almost certain" and score({"employer": "Acme Freight LLC"})[0] > 0.8
 assert score({"age": str(__import__("datetime").date.today().year - 1981)})[1] == "likely"
 assert score({"birth_year": "1962"})[1] == "almost no chance" and score({"dob": "1981-05-02"})[0] < 0.1
-assert match.score(name, "", {"fullname": "John Smith", "age": "52"}, subj, facts={"subject_age_range": "40-45"})[0] < 0.05
+assert match.score(name, "", {"fullname": "John Smith", "age": "52"}, [name, Seed("age", "43")])[0] < 0.05
+assert match.score(name, "", {"fullname": "John Smith", "age": "44"}, [name, Seed("age", "43")])[1] == "likely"
+assert match.score(name, "", {"fullname": "John Smith", "dob": "1981-04-12"}, [name], facts={"subject_dob": "1981-04-12"})[1] == \
+    "almost certain"  # the report's subject_dob counts too
 
 # Face check gate: by the subject's residence; unknown means blocked; every decision audited with its rule
 c = Case("face test", "self-check")
@@ -294,5 +297,46 @@ if models:
         assert r[2]["match"] == "yes" and r[3]["match"] != "yes", r[2:]
     else:
         print("NASA portraits not cached (scripts/eval_similar.py fetches them): skipped the face-match check")
+
+# Family and associates from what the case holds (fictional people). Names and citations only; a possible
+# minor by relationship only; nothing from an account that isn't the subject's; never the subject themself.
+subject = [Seed("name", "Dorian Vell"), Seed("address", "12 Alder Lane, Tucson, AZ")]
+cands = [
+    {"site": "Facebook", "url": "https://facebook.com/dorian.vell", "probability": 0.9, "decision": None,
+     "attrs": {"bio": "Married to Ines Vell. Proud dad of 2."}},
+    {"site": "Instagram", "url": "https://instagram.com/notdorian", "probability": 0.1, "decision": None, "attrs": {"bio": "my brother Zed"}},
+    {"site": "Court", "url": "https://court.example/1", "probability": 0.8, "decision": None,
+     "attrs": {"fullname": "Dorian Vell", "caption": "Vell v. Example Builders LLC"}},
+    {"site": "Housing", "url": "https://housing.example/2", "probability": 0.1, "decision": None,
+     "attrs": {"fullname": "Marta Ruiz", "address": "12 Alder Lane, Tucson, AZ"}},
+]
+fb = "https://facebook.com/dorian.vell"
+posts_ = [
+    {"id": 1, "account_url": fb, "url": "https://facebook.com/p/1", "origin": "fetched", "extra": None,
+     "text": "Lake day with my brother Dan and my little sister! Back with mom for dinner."},
+    {"id": 2, "account_url": fb, "url": "https://facebook.com/p/2", "origin": "fetched", "extra": {"with": "Rafa Ortiz and 2 others"},
+     "text": "Feliz cumpleaños a mi hijo Tyler, 9 años ya. Con mi esposa Ines en la playa."},
+    {"id": 3, "account_url": "https://instagram.com/notdorian", "url": "https://instagram.com/p/3", "origin": "fetched",
+     "extra": None, "text": "my cousin Lena is here"},
+    {"id": 4, "account_url": fb, "url": "https://facebook.com/p/4", "origin": "fetched", "extra": None,
+     "text": "Gym with Rafa Ortiz and Kim Vell. Dinner with my coworker Sam Lee and Dorian Vell"},
+]
+r = graph.associates(posts_, cands, subject, [{"id": 1, "media_id": 7, "label": "Dan", "post_id": 1}])
+by = {(p["name"] or p["labels"][0]): p for p in r["people"]}
+assert by["Dan"]["types"] == ["sibling", "in photo with"] and by["Dan"]["cites"][0]["ref"] == "E-1"
+assert set(by["Ines Vell"]["types"]) == {"partner"} and {c["kind"] for c in by["Ines Vell"]["cites"]} == {"bio", "post"}  # es + en, one person
+assert by["mother"]["types"] == ["parent"] and by["mother"]["cites"][0]["quote"] == "Back with mom for dinner."
+assert by["sister"]["name"] is None and by["Sam Lee"]["types"] == ["co-worker"] and by["Rafa Ortiz"]["types"] == ["tagged with"]
+assert by["Example Builders LLC"]["types"] == ["co-party"] and by["Marta Ruiz"]["types"] == ["same address"]
+assert "possible relative" in by["Kim Vell"]["types"] and by["Kim Vell"]["confidence"] == 0.6  # surname: a hint, never more
+son = by["son"]
+assert son["minor"] and son["name"] is None and "[name withheld]" in son["cites"][0]["quote"]
+assert by["children"]["minor"] and by["children"]["cites"][0]["kind"] == "bio"
+dump = json.dumps(r)
+assert "Tyler" not in dump and "Zed" not in dump and "Lena" not in dump and "Dorian Vell" not in [p["name"] for p in r["people"]]
+assert r["notice"].startswith("Associates are named in the subject's own") and all(p["cites"] for p in r["people"])
+c = Case("people test", "self-check")
+graph.label_photo(c, 7, "Dan")
+assert [x["label"] for x in graph.photo_labels(c)] == ["Dan"] and c.rows("select action from audit")[-1]["action"] == "person marked in photo"
 
 print("ok")

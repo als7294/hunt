@@ -107,8 +107,8 @@ def score(seed, url: str, attrs: dict, subject: list,
     `places` maps place strings (subject's and profile's) → geocoded Place, from geo.locate.
     `extra` is (bits, tag, reason) evidence found across candidates, e.g. a shared profile photo.
     `confirmed` holds norm_url()s the investigator marked as the subject: known profiles from then on.
-    `facts` is the case's details: subject_dob, subject_age_range ("40-45") and subject_employer are
-    scored against what a record says (date of birth, age, employer).
+    The subject's dob, age and employer seeds (and `facts`, the case's details: subject_dob) are scored
+    against what a record says: date of birth, age, employer.
     Each reason has a tag (username, name, place, email, link, photo, face, dob, employer, confirmed), in order.
     Weights are scaled by what learning.py has learned from the investigator's decisions, if anything.
     """
@@ -175,7 +175,9 @@ def score(seed, url: str, attrs: dict, subject: list,
     elif shared:
         add("link", bits(0.5, 0.05), f"links to {shared}, which carries the subject's username")
 
-    reasons += [(w, tag, why) for tag, w, why in _facts(attrs, facts or {})]
+    dobs = of("dob") + [d for d in [(facts or {}).get("subject_dob")] if d]
+    ages = [int(a) for a in of("age") if str(a).strip().isdigit()]
+    reasons += [(w, tag, why) for tag, w, why in _facts(attrs, dobs, ages, of("employer"))]
     reasons += extra or []
     scales = learning.match_scales()  # {} until enough decisions: every weight as hand-set
     reasons = [(max(-learning.FACE_AGAINST, min(learning.FACE_FOR, w)) if tag == "face" else w * scales.get(tag, 1.0),
@@ -204,36 +206,35 @@ AGE_KEYS = ("age",)
 EMPLOYER_KEYS = ("employer", "company", "organization", "organisation", "work")
 
 
-def _facts(attrs: dict, facts: dict) -> list[tuple[str, float, str]]:
-    """(tag, bits, why) for a record's date of birth, age and employer against what the case knows.
-    Ages and birth years agree within a year. A different employer isn't counted: people change jobs."""
-    out = []
-    dob, rng = facts.get("subject_dob") or "", facts.get("subject_age_range") or ""
-    known_year = int(dob[:4]) if re.match(r"\d{4}-\d\d-\d\d$", dob) else None
-    lo_hi = [int(x) for x in re.findall(r"\d+", rng)[:2]]
+def _facts(attrs: dict, dobs: list[str], ages: list[int], employers: list[str]) -> list[tuple[str, float, str]]:
+    """(tag, bits, why) for a record's date of birth, age and employer against the subject's dob, age and
+    employer seeds. Ages and birth years agree within a year. A different employer isn't counted:
+    people change jobs."""
+    # ponytail: the first known date of birth and age only; several conflicting ones would need a best-of.
+    out, dob, age = [], dobs[0] if dobs else "", ages[0] if ages else None
+    known_year = int(dob[:4]) if dob else None
     years = (known_year - 1, known_year + 1) if known_year else \
-        (date.today().year - lo_hi[-1] - 1, date.today().year - lo_hi[0]) if lo_hi else None  # birth years
+        (date.today().year - age - 1, date.today().year - age) if age is not None else None  # birth years
+    known = f"birth year {known_year}" if known_year else f"age {age}"
     said = next((str(attrs[k]) for k in DOB_KEYS if attrs.get(k)), "")
     full = re.search(r"(\d{4})-(\d\d)-(\d\d)", said) or re.search(r"(\d\d?)/(\d\d?)/(\d{4})", said)
-    year = int(full.group(1) if full and len(full.group(1)) == 4 else full.group(3)) if full else \
+    year = int(full.group(1) if len(full.group(1)) == 4 else full.group(3)) if full else \
         int(m.group(0)) if (m := re.search(r"\b(19|20)\d\d\b", said)) else None
-    if year is None and (age := next((str(attrs[k]) for k in AGE_KEYS if attrs.get(k)), "")) and age.strip().isdigit():
-        year, said = date.today().year - int(age), f"age {age.strip()}"
+    if year is None and (theirs := next((str(attrs[k]) for k in AGE_KEYS if attrs.get(k)), "")).strip().isdigit():
+        year, said = date.today().year - int(theirs), f"age {theirs.strip()}"
     if years and year:
         iso = full and (full.group(0) if "-" in full.group(0) else f"{full.group(3)}-{int(full.group(1)):02d}-{int(full.group(2)):02d}")
-        if known_year and iso and iso == dob:
+        if dob and iso and iso == dob:
             out.append(("dob", bits(0.95, 0.0001), f"date of birth {iso} matches the subject's"))
-        elif known_year and iso:
+        elif dob and iso:
             out.append(("dob", bits(0.95, 0.0001, agree=False), f"date of birth {iso} conflicts with the subject's {dob}"))
         elif years[0] <= year <= years[1]:
-            out.append(("dob", bits(0.9, 0.05), f"{said or year} fits the subject's {'birth year' if known_year else 'age ' + rng}"))
+            out.append(("dob", bits(0.9, 0.05), f"{said or year} fits the subject's {known}"))
         elif year < years[0] - 1 or year > years[1] + 1:
-            out.append(("dob", bits(0.9, 0.05, agree=False), f"{said or year} doesn't fit the subject's "
-                                                              f"{'birth year ' + str(known_year) if known_year else 'age ' + rng}"))
-    employer = facts.get("subject_employer") or ""
+            out.append(("dob", bits(0.9, 0.05, agree=False), f"{said or year} doesn't fit the subject's {known}"))
     theirs = next((str(attrs[k]) for k in EMPLOYER_KEYS if attrs.get(k)), "")
-    if employer and theirs and fuzz.token_set_ratio(_clean(employer), _clean(theirs)) >= 90:
-        out.append(("employer", bits(0.6, 0.01), f"employer '{theirs}' matches the subject's '{employer}'"))
+    if theirs and (hit := next((e for e in employers if fuzz.token_set_ratio(_clean(e), _clean(theirs)) >= 90), None)):
+        out.append(("employer", bits(0.6, 0.01), f"employer '{theirs}' matches the subject's '{hit}'"))
     return out
 
 

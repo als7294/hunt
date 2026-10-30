@@ -107,7 +107,7 @@ def build(case: Case, places: dict | None = None) -> dict:
     subject = case.seeds()
     decided = case.decisions()
     him = {u for u, d in decided.items() if u and d["decision"] == "him"}
-    facts = case.details()  # subject_dob, subject_age_range, subject_employer: scored against records
+    facts = case.details()  # subject_dob, scored against records with the dob, age and employer seeds
     shots = defaultdict(list)
     for c in case.rows("select * from captures"):
         shots[c["finding_id"]].append({"kind": c["kind"], "at": c["ts"], "sha256": c["sha256"], "file": c["evidence"]})
