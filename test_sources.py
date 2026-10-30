@@ -434,7 +434,7 @@ assert any(f"profile lists {EMAIL}" in r for r in score(Seed("name", "Robert Van
 # Courts: the person's side of a caption and their role; Chicago's respondent list and "C/O"; dates in DOB's shape;
 # a tax warrant's own PDF is the record page; the matcher gets a city from each
 seen = serve({"59kj-x8nc": (200, [{"litigationid": "L1", "respondent": "VANCE, ROBERT", "casetype": "Tenant Action", "boroid": "3",
-                                   "housenumber": "100", "streetname": "EXAMPLE ST", "caseopendate": "2023-04-05T00:00:00.000",
+                                   "housenumber": "100", "streetname": "EXAMPLE ST", "zip": "11201", "caseopendate": "2023-04-05T00:00:00.000",
                                    "casestatus": "CLOSED", "casejudgement": "YES", "penalty": "2500"}]),
               "pjgc-h7uv": (200, [{"matter_name": "VANCE, ROBERT VS CITY OF NEW YORK", "court_name": "Supreme Court - Kings",
                                    "docket_index": "001234/2022", "lit_start": "2022-01-02T00:00:00.000", "disposition": "Settlement"},
@@ -444,11 +444,11 @@ seen = serve({"59kj-x8nc": (200, [{"litigationid": "L1", "respondent": "VANCE, R
                                    "type": "Personnel", "category": "Section 75", "opened": "2025-11-27T00:00:00.000",
                                    "dispo_code": "32 - Sec 75 --Suspended"}]),
               "6bgk-3dad": (200, [{"ecb_violation_number": "E1", "respondent_name": "VANCE ROBERT", "respondent_house_number": "100",
-                                   "respondent_street": "EXAMPLE ST", "respondent_city": "BROOKLYN", "issue_date": "20250922",
+                                   "respondent_street": "EXAMPLE ST", "respondent_city": "BROOKLYN", "respondent_zip": "11201", "issue_date": "20250922",
                                    "hearing_date": "20251103", "hearing_status": "IN VIOLATION", "ecb_violation_status": "ACTIVE",
                                    "penality_imposed": "800", "severity": "CLASS - 1"}]),
               "v7ua-z23v": (200, [{"warrant_id": "W1", "debtor_name_1": "ROBERT J VANCE", "debtor_name_2": "and/or",
-                                   "debtor_name_3": "VANCE BIRDING LLC", "city": "ALBANY", "state": "NY", "county_code": "ALBANY",
+                                   "debtor_name_3": "VANCE BIRDING LLC", "debtor_address_1": "1 STATE ST", "city": "ALBANY", "state": "NY", "zip_code": "12207", "county_code": "ALBANY",
                                    "status_code": "Added", "warrant_filed_amount": "1234.56",
                                    "warrant_filed_date": "2026-10-01T00:00:00.000",
                                    "url": {"url": "https://www.tax.ny.gov/warrants/lookup.html?document=e-1-w001.pdf"}}]),
@@ -468,24 +468,25 @@ by = {f.site: f for f in found}
 assert len(found) == 9 and checked == 8, (len(found), checked, note)
 hpd = by["New York City Housing Court case (HPD)"].attrs
 assert (hpd["fullname"], hpd["roles"], hpd["location"], hpd["address"], hpd["filed"], hpd["judgment"]) == \
-       ("VANCE, ROBERT", ["respondent"], "Brooklyn, NY", "100 Example St", "2023-04-05", "YES")
+       ("VANCE, ROBERT", ["respondent"], "Brooklyn, NY", "100 Example St, Brooklyn, NY 11201", "2023-04-05", "YES")
 law = [f for f in found if f.site == "New York City civil litigation (Law Department)"]
 assert [(f.attrs["fullname"], f.attrs["roles"], f.attrs.get("location")) for f in law] == \
        [("VANCE, ROBERT", ["plaintiff"], "Brooklyn, NY"), ("VANCE, ROBERT", ["defendant"], None)]
 assert law[0].url == "https://data.cityofnewyork.us/resource/pjgc-h7uv.json?docket_index=001234%2F2022&court_name=Supreme+Court+-+Kings"
 oath = by["New York City OATH trial"].attrs
-assert (oath["fullname"], oath["roles"], oath["case_type"], oath["docket_number"]) == ("Vance, Robert", ["respondent"], "Personnel Section 75", "T1")
+assert (oath["fullname"], oath["roles"], oath["case_type"], oath["docket_number"], oath["employer"]) == ("Vance, Robert", ["respondent"], "Personnel Section 75", "T1", "Department of Sanitation")
 ecb = by["New York City OATH/ECB summons (DOB)"].attrs
-assert (ecb["issued"], ecb["hearing"], ecb["location"], ecb["address"], ecb["penalty"]) == ("2025-09-22", "2025-11-03", "Brooklyn, NY", "100 Example St", "800")
+assert (ecb["issued"], ecb["hearing"], ecb["location"], ecb["address"], ecb["penalty"]) == ("2025-09-22", "2025-11-03", "Brooklyn, NY", "100 Example St, Brooklyn, NY 11201", "800")
 tax = by["New York State tax warrant"]
 assert tax.url == "https://www.tax.ny.gov/warrants/lookup.html?document=e-1-w001.pdf"
-assert (tax.attrs["fullname"], tax.attrs["roles"], tax.attrs["co_debtors"], tax.attrs["location"], tax.attrs["amount"]) == \
-       ("ROBERT J VANCE", ["debtor"], ["VANCE BIRDING LLC"], "Albany, NY", "1234.56")
+assert (tax.attrs["fullname"], tax.attrs["roles"], tax.attrs["co_debtors"], tax.attrs["location"], tax.attrs["amount"], tax.attrs["address"]) == \
+       ("ROBERT J VANCE", ["debtor"], ["VANCE BIRDING LLC"], "Albany, NY", "1234.56", "1 State St, Albany, NY 12207")
 ohio = by["Ohio Court of Claims case"].attrs
 assert (ohio["fullname"], ohio["roles"], ohio["docket_number"], ohio["case_type"]) == ("ROBERT VANCE", ["plaintiff"], "2026-00001AD", "Administrative Determination")
 chi = by["Chicago administrative hearing"].attrs
-assert (chi["fullname"], chi["business"], chi["respondents"], chi["disposition"], chi["location"]) == \
-       ("VANCE, ROBERT", "VANCE HOLDINGS LLC", ["VANCE HOLDINGS LLC C/O VANCE, ROBERT", "DANA HOLT"], "Liable", "Chicago, IL")
+assert (chi["fullname"], chi["business"], chi["respondents"], chi["disposition"], chi["address"]) == \
+       ("VANCE, ROBERT", "VANCE HOLDINGS LLC", ["VANCE HOLDINGS LLC C/O VANCE, ROBERT", "DANA HOLT"], "Liable", "100 S Example Ave, Chicago, IL")
+assert "employer" not in hpd and all(k not in f.attrs for f in found for k in ("dob", "age"))  # no open court table shows a birth date
 tceq = by["Texas TCEQ civil judgment"].attrs
 assert (tceq["fullname"], tceq["location"], tceq["docket_number"], tceq["ordered"]) == ("Robert Vance dba Vance Trucking", "Travis County, TX", "D-1-GN-26-000001", "2026-02-03")
 assert "searched 8 of 8 datasets" in note and "New York State tax warrant 1" in note, note
@@ -506,7 +507,9 @@ assert [l["state"] for l in courts.search_links([Seed("name", "Robert Vance")])]
 ok = courts.search_links([Seed("name", "Robert Vance"), Seed("location", "Tulsa, OK")])[-1]
 assert ok["url"] == "https://www.oscn.net/dockets/Results.aspx?db=all&lname=Vance&fname=Robert", ok
 assert courts.states_in([Seed("location", "Washington, DC"), Seed("location", "Seattle, Washington"), Seed("location", "Portland OR 97201"),
-                         Seed("location", "Office in Denver"), Seed("username", "or")]) == ["DC", "WA", "OR"]
+                         Seed("location", "Office in Denver"), Seed("username", "or"), Seed("location", "Hartford, Connecticut"),
+                         Seed("address", "1 Main St, Memphis TN 38103")]) == ["DC", "WA", "OR", "CT", "TN"]
+assert len(courts.PORTALS) == 47 and {"NH", "VT", "WV", "WY"}.isdisjoint(courts.PORTALS)  # not yet: no live portal URL found
 assert all(u.startswith("https://") for ps in courts.PORTALS.values() for _, u in ps) and set(courts.PORTALS) <= set(courts.STATES)
 
 # Health: HEAD, GET when HEAD isn't served, throttling and outages reported, keys reported (never their values)

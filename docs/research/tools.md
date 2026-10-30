@@ -195,6 +195,8 @@ _Checked 2026-10-29. Method: the Socrata discovery API for court, docket, litiga
 | [Ordinance Violations](https://data.cityofchicago.org/d/6br9-quuz) `6br9-quuz` | Chicago Department of Administrative Hearings | respondents (pipe-separated; "LLC C/O person"), docket, department, hearing date, disposition, fine, violation, property address | 825K | City of Chicago data [terms](https://www.chicago.gov/city/en/narr/foia/data_disclaimer.html) (the page 403s to scripts; reuse licence **unverified** today) |
 | [TCEQ Civil Judgments](https://data.texas.gov/d/7ift-kbgd) `7ift-kbgd` | Texas district courts: environmental judgments the Attorney General obtained for TCEQ | respondent, district-court docket number, county, order date, penalty, fees, costs | small, yearly | Texas Open Data |
 
+**Fields for the matcher.** `address` is one postal line ("100 Example St, Brooklyn, NY 11201"), the form `match.place_text` geocodes whole; `location` is "City, ST"; `employer` is set where a case is an employer against its employee (OATH personnel trials: the agency); `roles` and `court` say what the person was to the case. No open court table carries a date of birth or age (`dob`, `age`), so those seed kinds can't be scored against court records; OSCN's by-hand form filters on date of birth, and the Texas Medical Board licence table (`licences`) is the one records table with a birth year.
+
 Rejected on inspection: [OATH Hearings Division Case Status](https://data.cityofnewyork.us/d/jz4z-kudi) `jz4z-kudi` (24M summonses) **dropped the respondent's first name, street, city and state on 2026-05-04**; a last name alone can't tell people apart, so it isn't searched. OATH's [Summons Finder](https://a820-ecbticketfinder.nyc.gov/searchHome.action) is the by-hand route.
 
 **CourtListener** (`courtlistener`, already wired for RECAP) now also runs the case-law search (`type=o`, `caseName:"<name>"`), which covers every state's appellate courts, so a state case that was appealed shows up even where the trial court's portal bars scripts. Fields confirmed from the v4 search docs: `caseName`, `court`, `court_id`, `dateFiled`, `docketNumber`, `citation`, `judge`, `attorney`, `status`, `absolute_url`. Parties are split from the caption; there is no party field on opinions. Two requests per name against the free account's 5/min, 50/hr, 125/day (the API docs now state these; the earlier "third-party report" is official). Not verified live: Hunt has no token.
@@ -203,7 +205,7 @@ Rejected on inspection: [OATH Hearings Division Case Status](https://data.cityof
 
 ### Per state
 
-Built = searched by Hunt (`courts.DATASETS`); by hand = `courts.search_links` gives the URL and the investigator opens it under the portal's own terms. Liveness is one GET on 2026-10-29; a portal that was unreachable or 404 from a script that day isn't listed rather than guessed.
+Built = searched by Hunt (`courts.DATASETS`); by hand = `courts.search_links` gives the URL and the investigator opens it under the portal's own terms. Liveness is one GET on 2026-10-29 (a browser visit where the host refuses scripts); a portal that was unreachable or 404 that day isn't listed rather than guessed. 47 states and DC have at least one link; the Socrata catalogue has no court or hearing table with a party name for any state beyond NY, OH, IL and TX.
 
 | State | Built | By hand (why not built) |
 |---|---|---|
@@ -223,7 +225,10 @@ Built = searched by Hunt (`courts.DATASETS`); by hand = `courts.search_links` gi
 | AZ | nothing | Public Access to Court Information; Maricopa docket |
 | CO | nothing | Judicial Branch docket search (`robots.txt` disallows /dockets); CoCourts is paid |
 | MA, VA, WI, MN, MO, IN, OR, NV, SC, KS, NM, DC, AK, ID, RI, ND, IA | nothing | One statewide or main-county portal each (WI's WCCA REST interface is paid; MO Case.net, SC public index and AK CourtView disallow robots; OR needs free registration; RI's portal answered 403) |
-| AL, AR, CT, DE, HI, KY, LA, ME, MS, MT, NE, NH, NJ, SD, TN, UT, VT, WV, WY | **not yet** | AL (Alacourt), KY (CourtNet), NE (JUSTICE), UT (Xchange), WV and MS are paid; CT's and VT's hosts didn't answer a script on the day; NJ's portal sits behind single sign-on; the rest have county-by-county or no online search |
+| AR, CT, DE, HI, NJ, TN | nothing (no open-data court tables on any of their portals, checked 2026-10-29) | Arkansas CourtConnect; Connecticut Superior Court party search (civil, family, housing, small claims; the host refuses scripts, confirmed live in a browser); Delaware CourtConnect; Hawaii eCourt Kokua (guest access); New Jersey Courts public records (civil case jackets by party, judgments, Tax Court); Tennessee appellate public case history plus Davidson County circuit and criminal clerks and Shelby County's criminal justice portal (no statewide trial-court search) |
+| AL, KY, MS, SD, UT | nothing | The only online search is paid: Alacourt (per search), CourtNet 2.0 (`robots.txt` Disallow: /), Mississippi Electronic Courts, South Dakota PARS, Utah Xchange. Linked with "(paid)" in the label for an investigator who holds a subscription |
+| LA, ME, MT, NE | nothing | Only a partial public search: Louisiana Supreme Court docket (parish clerks are subscription services), Maine eCourts information page (its Odyssey portal didn't answer a script), Montana Supreme Court docket, Nebraska JUSTICE court calendar by name (case search is paid) |
+| NH, VT, WV, WY | **not yet** | NH's and VT's Odyssey portals didn't answer a script or the built-in browser on the day; WV's case search (Circuit Express) is paid and its public pages 404; WY has no public online case search |
 
 ### Considered and rejected (courts)
 
