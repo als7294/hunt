@@ -21,6 +21,46 @@ Why this is lawful, and what risk remains, is in [legal.md](research/legal.md#hu
 - The `/api/capture/*`, `/api/pairing` and `/api/browser/*` routes in `hunt/app.py`.
 - `test_capture.py`, with fictional fixtures in `fixtures/capture/`.
 
+## Status (2026-10-30)
+
+**Works, verified live on this Mac** (signed out, public organisation pages; see "Live QA"):
+- **The Hunt Browser starts as a plain process,** with no debugging port and the requested window
+  size.
+- **The extension pairs itself,** and new extension code reaches an existing profile.
+- **Sign-in states are reported,** and so is whether the extension is pinned.
+- **Hunt's capture switch works:** archives on each new page, a retry for apps that draw late, hashed
+  evidence, and the capture record (`viewed_as`, `capture_version`, `hunt_version`).
+- **Grid-first capture:**
+  - Instagram: 12 grid posts
+  - TikTok: 16 posts in the first screen; 31 once loaded
+  - X timeline: 5 full posts
+
+  With coverage `progress` and `todo`, and X's profile post count.
+- **The revocation watcher:**
+  - a challenge address hard-stops the platform
+  - nothing is recorded while it's stopped
+  - resume from Hunt works, and both are audited
+- **The per-site switch.** LinkedIn is never captured; Reddit pages are archived (no Reddit parser
+  yet).
+- **Evidence integrity:** every file re-hashes to its name.
+
+**Built, checked by tests only** (each needs a person's input, which QA couldn't give):
+- guided mode (Alt+Shift+N, or the popup's Next)
+- the popup's controls (case picker, on/off, mode, per-tab pause)
+- screenshots (after her click, or the "every view" opt-in), and video frames
+- Record video
+- the Story warning, and captures made signed in ("logged in as {handle}")
+- X's media-tab grid
+
+**Coming (not built):**
+- a Reddit post parser, and a Facebook photos-tab grid
+- saving videos from the segments the player fetched
+- a "Save this video" button
+- guided mode's optional blur/overlay
+- the Safari port
+- a branded-Chrome mode (a decision for Aaron; see below)
+- `serve()` remembering its port, so a hand-loaded extension doesn't need re-pairing
+
 ## The Hunt Browser
 
 **What it is.** `POST /api/browser/open {url}` starts Playwright's browser as a plain process. That's
@@ -319,8 +359,8 @@ account in the current tab.
   fetch a video's segments before anything can be captured.
 - `file` is the thumbnail's evidence path; `url` opens in the Hunt Browser.
 
-**Not built yet:** a grid parser for Facebook's photos tab. Its posts come through as full items from
-the timeline instead.
+**Coming:** a grid parser for Facebook's photos tab. Its posts come through as full items from the
+timeline for now.
 
 ## Capture record
 
@@ -379,7 +419,7 @@ through `POST /api/capture/guided`.
 **Window size.** `/api/browser/open` takes `window: {width, height}` (300–5000 px), applied when the
 browser starts, to sit beside Hunt's window. A smaller window means more presses.
 
-**Not built:** the optional blur/overlay toggle (default off in the brief). It would add to the page,
+**Coming:** the optional blur/overlay toggle (default off in the brief). It would add to the page,
 and the refined brief prefers nothing there.
 
 ## Hard stops: the revocation watcher
@@ -440,7 +480,7 @@ Extensions: the page's own code fetches segments and appends them to the player.
 4. **Posters.** The still shown before playing comes through in the archive, and becomes the post's
    picture.
 
-**Possible, not built: copying the segments the player appends.** A main-world content script could
+**Coming, if approved: copying the segments the player appends.** A main-world content script could
 wrap `SourceBuffer.appendBuffer` to keep a copy of each segment as the player feeds it. That sends no
 request, and Hunt could join the video and audio tracks with ffmpeg. But it changes the page's own
 JavaScript, which the platform can detect. It also breaks on quality switches and encrypted
@@ -668,11 +708,8 @@ pattern too. Not built.
   switches to it.
 - **Pinning is hers.** Chrome lets no extension pin itself, so the REC badge shows only after she
   pins Hunt Capture. Hunt can see whether she has (`browser.pinned`).
-- **Not built:**
-  - Facebook photos-tab grid parsing
-  - the optional guided blur/overlay
-  - a "Save this video" button (one click, one request, audited `human download`). Tab recording
-    covers the need without any request.
+- **Coming:** see the Status list at the top. Tab recording covers "Save this video" without any
+  request.
 - **`viewed_as` names her handle only if she gave it** to Hunt. Hunt never reads it from her cookies.
 - **Archives hold what the page had loaded,** and no scripts. Lazy-loaded pictures below the fold
   aren't in them (17 of NASA's 31 TikTok covers were), and embedded JSON isn't either.
@@ -741,6 +778,29 @@ pattern too. Not built.
 - frame screenshots while a video plays
 - Record video
 - signing in, and a real session's sign-in status
+
+### Round two (2026-10-30, after grid-first capture, the capture record and guided mode)
+
+- **Setup.** A fresh case with NASA's public Instagram, TikTok, X, Reddit and Facebook accounts
+  confirmed. Capture was switched on from Hunt, and the browser opened at 1100×950.
+- **Grid-first.**
+  - Instagram: 12 grid posts (media kind `grid`), 3 of them videos, so 3 on "open these".
+  - TikTok: 16 grid posts in the first screen, all videos.
+  - X: 5 full posts, and `grid_total` 74,500 from the header's "74.5K posts".
+- **The capture record.** Every capture carried `viewed_as: "logged out"` (Reddit: "not known", since
+  there's no Reddit sign-in check) and the stamped `capture_version`.
+- **Reddit.** It first sent the browser through its own JS anti-bot check (`?js_challenge=1`), which a
+  normal browser solves by itself. The archive was kept, and the checklist ticked Overview. This isn't
+  treated as a hard stop: it isn't about her account.
+- **The revocation watcher.** Opening `instagram.com/challenge/` hard-stopped Instagram, with the full
+  message and an audit row.
+  - Reopening Instagram while stopped recorded nothing.
+  - `POST /api/browser/resume` lifted it, also audited.
+- **Found and fixed:** TikTok's page showed an unrelated "N posts", which had been read as a profile
+  count. Counts now come only from Instagram and X headers.
+- **Evidence.** All 19 files verify.
+- **Guided mode** wasn't exercised: Alt+Shift+N and the popup need a person's key press or click.
+  The rest of the browser was watched read-only.
 
 ## Manual test plan
 
