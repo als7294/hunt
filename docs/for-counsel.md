@@ -15,17 +15,18 @@ _For Ethos Risk Services' counsel, from the investigator who uses Hunt. It descr
 | Public sites and APIs: Bluesky, Mastodon, YouTube, TikTok public pages (being built), public records (FEC, SEC, professional licences, business registries, motor carriers, court dockets), the Wayback Machine | Read automatically, without signing in. A User-Agent naming Hunt, rate limits, and a stop at the first refusal | Hunt |
 | Username and email checks on hundreds of sites | Does an account exist? Any check that could alert the account holder (password reset, login code, sign-up) is excluded; each module was read and classified | Hunt |
 | Facebook, Instagram, X, and TikTok when signed in | She browses herself in a separate browser window (the "Hunt Browser"), signed in to her own account. An extension ("Hunt Capture") records what she views: screenshots, the page as loaded, and, on her click, a recording of a video she plays | **She does.** The extension sends nothing to the platform and never loads, scrolls, clicks or opens anything |
-| LinkedIn, Strava, Snapchat | Capture off (being built); she saves pages or screenshots by hand and imports them | She does |
+| LinkedIn, Strava, Snapchat | Capture off; she saves pages or screenshots by hand and imports them | She does |
+| Instagram and Facebook through Apify, a data vendor (optional) | Only if she or Ethos adds their own Apify key. Apify reads the confirmed accounts' public posts under its own terms, which make the customer responsible for the data's legality and indemnify Apify (§5.8, §11.1). Each post is marked as obtained through Apify, and each run is audited with its cost | The vendor, at her request |
 | Her own files | Uploads, and files from her Downloads folder | She does |
 
-Hunt then hashes and stores each file, extracts the posts, and scans the media with AI models on her computer. Rechecks over the life of a claim run automatically only on public sources whose robots.txt allows it (being built). Login-walled accounts go on a list she opens herself. Until that's built, Hunt also reads, without signing in, the public preview of a Facebook profile and screenshots of likely profiles' public pages.
+Hunt then hashes and stores each file, extracts the posts, and scans the media with AI models on her computer. Rechecks over the life of a claim, by hand or on a schedule, run automatically only on public sources whose robots.txt allows it. Login-walled accounts go on a list she opens herself. During a search, Hunt also reads the public preview of a Facebook profile and screenshots likely profiles' public pages, without signing in. Both are being limited to her click (being built).
 
 ## 3. Authorisation and platform terms
 
 - **Hunt never logs in and never drives her account.** It doesn't read her passwords or cookies; it only asks whether she is signed in. The Hunt Browser has no automation driver or remote-control port.
 - **Her own real account only.** No fake, shared, bought or borrowed accounts, ever.
 - **No getting around limits.** No CAPTCHA solving. No proxies, IP rotation, or header or fingerprint spoofing to get past a block. Hunt stops at the first refusal.
-- **Hard stop (being built).** On any sign that a platform is limiting her account, Hunt stops on that platform for every case until Ethos approves turning it back on. The signs: a security check, an "automated activity" warning, a restriction, a disabled account, a CAPTCHA, or a letter. Hunt never falls back to another account, browser or network.
+- **Hard stop.** On any sign that a platform is limiting her account, Hunt stops recording that platform until she resumes it. It tells her not to use that account for casework and to tell Ethos. The signs: a security check or challenge, a "suspected automated behaviour" warning, an action block, a CAPTCHA, or a disabled account. Hunt never falls back to another account, browser or network.
 - **The remaining risk is contractual.** Meta's and TikTok's terms bar collecting data "using automated means" without permission, and a platform could argue that an extension that records automatically does that. On present case law, recording what her browser already received is not unauthorised access (*Van Buren*, 2021; *Meta v. BrandTotal*, N.D. Cal. 2022). The exposure is to her account (a ban), not criminal. A manual mode ("only when I press Capture") is the same act as taking a screenshot.
 - **Rejected:** a bot that drives her account. It plainly breaches every platform's terms and is the likeliest way to lose the account.
 
@@ -33,13 +34,14 @@ Hunt then hashes and stores each file, extracts the posts, and scans the media w
 
 - **Never contacts the subject or their associates:** no friend or follow requests, likes, comments, messages or story reactions.
 - **No pretexting:** never a false identity or a false purpose.
-- **Notifications (being built).** A warning before views the subject could see: Instagram and Facebook Stories while signed in, and LinkedIn profile views, where Hunt advises browsing logged out or in private mode. Hunt treats every claimant as represented.
+- **Notifications.** Before a Story opens while she's signed in to Instagram or Facebook, Hunt asks first, because Story viewers can see who watched. On LinkedIn, Hunt advises browsing logged out or in private mode (being built). Hunt treats every claimant as represented.
 
 ## 5. Privacy
 
 - **Public content.** Anything a platform doesn't show as Public is flagged and left out of the report unless counsel approves (being built).
-- **No face search.** An optional face check compares her own reference photo with candidate profile photos, one to one, and stores no face template. It is blocked unless the subject's home state or country is known and allowed (being built). Blocked: Illinois, Texas, Washington, Colorado, the EU, the UK, Canada, and California pending your view.
-- **Washington subjects:** findings are worded as observed activity, not physical condition, with the My Health My Data fraud basis recorded (being built).
+- **No face search.** An optional face check compares her own reference photo with candidate profile photos, one to one, and stores no face template. It is blocked unless the subject's home state or country is known and allowed. Blocked: Illinois, Texas, Washington, Colorado, the EU, the UK, Canada, and California pending your view.
+- **Associates** (family, friends, commenters, co-parties in records): Hunt keeps only their name and the items they appear in. It never searches, contacts or profiles them, and never names a child. Reports state what was observed, with citations, never a relationship as fact; employment screenings leave associates out (being built).
+- **Washington subjects:** findings are worded as observed activity, not physical condition, with the My Health My Data fraud basis recorded.
 - **Retention:** 90 days from opening unless she sets a legal hold. Deleting a case moves it to the Trash.
 
 ## 6. FCRA
@@ -62,10 +64,10 @@ Hunt never does any of these:
 - solve CAPTCHAs or evade blocks;
 - search by face;
 - use the Meta, TikTok, LinkedIn, Reddit or Strava APIs, whose terms bar this work;
-- buy data;
+- use a data vendor on an account of its own: Apify runs only on a key she or Ethos adds;
 - send case files or reports anywhere.
 
-Only two things leave her computer: search terms, which reach the sites being searched, and place names, which go to OpenStreetMap to compare locations.
+Only two things leave her computer. Search terms reach the sites being searched, and the confirmed account addresses reach Apify if she uses it. Place names go to OpenStreetMap to compare locations.
 
 ## 9. Questions for you
 
