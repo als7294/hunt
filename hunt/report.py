@@ -58,7 +58,7 @@ PROTECTED = re.compile(r"\b(age|aged|born|birth\w*|gender|sex|pronouns?|racial|e
 RELATION = re.compile(r"\b(?:(?i:" + "|".join(re.escape(w) for w in sorted(graph.RELATIONS, key=len, reverse=True)
                                                 if len(w) > 3) + r")|" + "|".join(re.escape(w) for w in graph.RELATIONS
                                                                                  if len(w) <= 3) + r")(?![\w-])")
-READ_AUTOMATICALLY = re.compile(r"bsky|bluesky|mastodon|youtube", re.I)  # what posts.collect reads
+READ_AUTOMATICALLY = re.compile(r"bsky|bluesky|mastodon|youtube|tiktok", re.I)  # what posts.collect and hunt.public read
 # Sources whose findings are records about a person, not accounts they run (hunt/sources: public records)
 RECORDS = {"fec": "FEC itemized political contributions", "edgar": "SEC EDGAR filings",
            "npi": "the NPI healthcare provider registry", "courtlistener": "federal court dockets in CourtListener's RECAP archive",
@@ -399,6 +399,11 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         at = _when(audit[log["capture"][-1]]["ts"], tz)
         doc.say("method", f"Profile pages of the likely accounts were captured as screenshots, logged out (latest {at}).",
                 log["capture"])
+    for c in people:  # posts read through Apify, a paid vendor, under her own key (C12)
+        if n := sum(p.get("origin") == "vendor" and norm_url(p.get("account_url") or "") == norm_url(c["url"]) for p in posts):
+            doc.say("method", f"{_many(n, 'post')} on {c['site']} {'was' if n == 1 else 'were'} obtained through Apify, a "
+                              "data vendor, under the investigator's own account.",
+                    log.get("vendor posts collected", log.get("vendor run", [acc(c)]))[:1] + [acc(c)])
     if "scan" in log or "posts collected" in log:
         doc.say("method", "Public posts from the accounts confirmed as the subject's were collected and scanned on this "
                           "computer for the listed activities.",
@@ -643,9 +648,11 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         if c["seed"]["kind"] == "email":
             doc.say("couldnt_see", f"{c['site']}: the email is registered there, but no public profile was seen, so nothing "
                                    "there was reviewed.", [acc(c)])
-        elif not READ_AUTOMATICALLY.search(c["url"]):
-            doc.say("couldnt_see", f"Posts on {c['site']} weren't read: Hunt reads Bluesky, Mastodon and YouTube, and never "
-                                   "logs in anywhere, so login-only or private content there wasn't seen.", [acc(c)])
+        elif not READ_AUTOMATICALLY.search(c["url"]) and not any(
+                norm_url(p.get("account_url") or "") == norm_url(c["url"]) for p in posts):  # read through Apify or her capture
+            doc.say("couldnt_see", f"Posts on {c['site']} weren't read: Hunt reads Bluesky, Mastodon, YouTube and public "
+                                   "TikTok videos, and never logs in anywhere, so login-only or private content there wasn't "
+                                   "seen.", [acc(c)])
     if ruled := [h for h in hits if h.get("status") == "not relevant"]:
         doc.say("couldnt_see", f"{_many(len(ruled), 'flagged item')} {'was' if len(ruled) == 1 else 'were'} ruled not "
                                "relevant by the investigator.", ev(ruled))

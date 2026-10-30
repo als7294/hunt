@@ -99,6 +99,13 @@ gaps = " ".join(rep["couldnt_see"])
 assert "phone details" in gaps and "whatsmyname failed" in gaps and "Posts on Instagram weren't read" in gaps, gaps
 assert "login-only" in gaps and "Bluesky weren't read" not in gaps and "ruled not relevant" in gaps, gaps
 assert "no date" in gaps and "Court and other public records" in gaps, gaps
+# Posts read through Apify: the method says so, and the account isn't listed as unread (C12)
+posts.append({"id": 3, "source": "Instagram", "account_url": "https://instagram.com/kestrel_vane88", "url": "https://instagram.com/p/x",
+              "posted_at": "2026-04-01T10:00:00+00:00", "origin": "vendor", "media": [], "extra": None, "text": "hello"})
+vend = compose()
+assert "1 post on Instagram was obtained through Apify, a data vendor, under the investigator's own account." in text(vend)
+assert "Posts on Instagram weren't read" not in " ".join(vend["couldnt_see"]), vend["couldnt_see"]
+posts.pop()
 disclaim = " ".join(s["text"] for s in rep["sentences"] if s["section"] == "disclaimers")
 assert "Hunt's own code created no account" in disclaim and "used no pretext" in disclaim and "SHA-256" in disclaim and report.CONFIDENTIAL in disclaim, disclaim
 assert report.NOT_CONSUMER in disclaim and report.FCRA not in disclaim, disclaim  # a claim, not employment screening
