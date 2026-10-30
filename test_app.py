@@ -386,6 +386,20 @@ assert {"label": "Facebook people: Dorian Vell", "url": "https://www.facebook.co
 assert any(link["url"] == "https://www.facebook.com/dorian.vell" for link in links)
 assert any('"Dorian Vell" "Port Alder"' in link["label"] for link in links)
 assert c.get("/api/cases/nope/facebook/links").status_code == 404
+# Court portals and race-results sites to open by hand; the powerlifting load only at the size she was shown
+async def opl_size(url):
+    return 170 << 20
+async def opl_update(*a, **k):
+    loaded.append(a)
+    return {"rows": "1"}
+loaded, server.setup._content_length, server.sources.activity.update = [], opl_size, opl_update
+links = c.get(f"/api/cases/{slug}/records/links").json()
+assert any(x["label"].startswith("PACER") for x in links["courts"]), links["courts"]
+assert any("athlinks.com" in x["url"] and "Dorian+Vell" in x["url"] for x in links["activity"]), links["activity"]
+assert links["powerlifting"] == {"loaded": None, "size": 170 << 20}, links["powerlifting"]
+assert c.post("/api/powerlifting", json={"size": 1}, headers={"origin": BASE}).status_code == 400
+wait_done(c, c.post("/api/powerlifting", json={"size": 170 << 20}, headers={"origin": BASE}).json()["job"])
+assert loaded == [()], loaded
 
 c.__exit__(None, None, None)
 

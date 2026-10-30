@@ -259,7 +259,9 @@ assert c.get("/api/demo").json()["exists"] is False
 r = c.post("/api/demo", json={}, headers=JSON)
 assert r.status_code == 200 and r.json()["slug"] == "demo-dorian-vell" and c.get("/api/demo").json()["exists"], r.text
 demo_case = c.get("/api/cases/demo-dorian-vell").json()
-assert "DEMO" in demo_case["details"]["label"]
+assert "DEMO" in demo_case["details"]["label"] and demo_case["demo"] is True
+listed = c.get("/api/cases").json()
+assert listed[-1]["slug"] == "demo-dorian-vell" and listed[-1]["demo"] and not any(x["demo"] for x in listed[:-1]), listed  # last, marked
 assert c.post("/api/cases/demo-dorian-vell/worklist/open", json={"account": "https://instagram.example/dorianvell/"},
               headers=JSON).status_code == 409
 assert c.get("/api/cases/demo-dorian-vell/report").json()["header"]["firm"].startswith("DEMO")
