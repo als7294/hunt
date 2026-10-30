@@ -10,6 +10,7 @@ Run: uv run python test_e2e.py   (HUNT_TEST_PDF=1 also prints the PDF with the l
 
 import asyncio
 import csv
+import hashlib
 import io
 import json
 import os
@@ -299,7 +300,8 @@ r = c.post(f"{api}/delete", content=json.dumps({"confirm": slug, "reason": "rete
 assert r.json() == {"deleted": slug, "to": "Trash"}, r.text
 assert (TRASH / slug / "case.db").exists() and c.get(api).status_code == 404
 logged = json.loads((HOME / "deleted-cases.log").read_text().splitlines()[-1])
-assert logged["slug"] == slug and logged["reason"] == "retention period over"
+assert set(logged) == {"ts", "case", "created", "reason", "audit_rowid"} and logged["reason"] == "retention period over", logged
+assert logged["case"] == hashlib.sha256(slug.encode()).hexdigest()[:16] and slug not in json.dumps(logged)  # nothing that names them
 assert next(x for x in c.get("/api/startup").json()["checks"] if x["id"] == "retention")["ok"]
 c.__exit__(None, None, None)
 

@@ -6,6 +6,7 @@ no CORS, a strict CSP. Long work runs as jobs whose events stream over SSE.
 """
 
 import asyncio
+import hashlib
 import hmac
 import importlib
 import inspect
@@ -1004,9 +1005,11 @@ async def delete_case(req: Request):
         await asyncio.to_thread(inbox._trash, c.dir)
     except OSError as e:
         raise HTTPException(500, f"couldn't move the case to the Trash: {e}")
-    with open(HOME / "deleted-cases.log", "a") as f:  # the case's own log went to the Trash with it
-        f.write(json.dumps({"ts": now(), "slug": c.name, "label": d["label"], "purpose": d["purpose"],
-                            "created": d["created"], "reason": _reason(b), "audit_rowid": rid}) + "\n")
+    # The case's own log went to the Trash with it. This line outlives both, so it keeps nothing that names the
+    # subject: not the label or purpose, and the slug (made from the label) only as a hash (K6, AP13)
+    with open(HOME / "deleted-cases.log", "a") as f:
+        f.write(json.dumps({"ts": now(), "case": hashlib.sha256(c.name.encode()).hexdigest()[:16], "created": d["created"],
+                            "reason": _reason(b), "audit_rowid": rid}) + "\n")
     return JSONResponse({"deleted": c.name, "to": "Trash"})
 
 
