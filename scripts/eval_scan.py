@@ -285,7 +285,7 @@ class Watch:
                 await asyncio.to_thread(self.sample)
 
     def sample(self):
-        pids = subprocess.run(["pgrep", "-f", "ollama runner"], capture_output=True, text=True).stdout.split()
+        pids = subprocess.run(["pgrep", "-f", "llama-server|ollama runner"], capture_output=True, text=True).stdout.split()
         if pids:
             rss = subprocess.run(["ps", "-o", "rss=", "-p", ",".join(pids)], capture_output=True, text=True).stdout
             self.ollama_mb.append(sum(int(x) for x in rss.split()) / 1024)

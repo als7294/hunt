@@ -24,6 +24,9 @@ MODEL = os.environ.get("HUNT_VLM", "qwen3-vl:4b-instruct")
 TIMEOUT = 180  # seconds for one answer; a cold model load alone can take ~20
 MAX_TOKENS = 1024  # an observation is ~200-350 tokens; a cap stops a looping model early
 MAX_SIDE = 1280  # px; larger photos cost tokens and time without sharper text
+# Ollama's default context is 32k tokens, which made this 4B model take 8.2 GB, mostly empty cache. A call
+# needs ~1.3k (image ~1.2k, prompt, answer); observe() at most ~2.8k with its 1,024-token cap.
+CONTEXT = 4096
 COUNTRIES = {r.lower() for r in phonenumbers.SUPPORTED_REGIONS}  # ISO 3166-1 alpha-2, territories included
 ALIASES = {"uk": "gb"}
 CLUES = ("road_markings", "plates", "signs", "poles_bollards", "architecture", "vegetation_terrain", "sun_shadows")
@@ -88,60 +91,74 @@ async def observe(image_path: str, ocr_text: str, candidates: list[str]) -> dict
     listed = "\n".join(f"{i}. {c}" for i, c in enumerate(candidates)) or "none"
     ask = (f"Text machine-read from the photo by OCR (may contain errors, use only what you can see):\n"
            f"{ocr_text.strip() or 'none'}\n\nCandidate places from an image-retrieval model (may all be wrong):\n{listed}")
-    body = {"model": MODEL, "stream": False, "format": SCHEMA, "options": {"temperature": 0, "num_predict": MAX_TOKENS},
+    body = {"model": MODEL, "stream": False, "format": SCHEMA,
+            "options": {"temperature": 0, "num_predict": MAX_TOKENS, "num_ctx": CONTEXT},
             "messages": [{"role": "system", "content": PROMPT},
                          {"role": "user", "content": ask, "images": [_image(image_path)]}]}
     raw = await _chat(body)
     return _clean(raw, len(candidates)) if raw else {}
 
 
-JUDGE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "shows": _text,
-        "person_visible": {"type": "boolean"},
-        "child_visible": {"type": "boolean"},
-        "object": _text,
-        "answer": {"enum": ["yes", "no", "unclear"]},
-        "why": _text,
-    },
-    "required": ["shows", "person_visible", "child_visible", "object", "answer", "why"],
-}
-
-JUDGE_PROMPT = """You help an investigator check a person's own photos and video frames against one question. \
+JUDGE_PROMPT = """You help an investigator check a person's own photos and video stills against a few questions. \
 Describe what is visible first, then answer.
 
-shows: one sentence describing what is visible, like "A person lifting a kayak overhead"
-person_visible: true if any person is visible.
+shows: one sentence of at most 15 words describing what is visible, like "A person lifting a kayak overhead".
 child_visible: true if a child or baby is visible.
-object: the main thing a person is holding, carrying or using, or "none".
-answer: "yes" only if the frames clearly show what the question asks; "no" if they clearly don't; "unclear" otherwise.
-why: the one visible detail behind the answer, under 20 words.
+q1, q2, ...: for each question, "yes" only if the image clearly shows it, "no" if it clearly doesn't, \
+"unclear" otherwise. Several video stills may be tiled in one image: answer for any of them.
 
 Never estimate weights or loads. Never say who anyone is, and never guess a person's identity, health or other \
 personal traits: write "a person" or "a child"."""
 
 JUDGE_KEEP_ALIVE = "2m"  # a scan's calls come back to back; unload() frees the model at the end
+GRID_TILE = 640  # px per tile when video stills share one image: Ollama resizes every image to the same size
 
 
-async def judge(frames: list[str], question: str, limits: str = "") -> dict:
-    """Does what these frames (≤3, from one photo or one stretch of video) show answer the question?
-    Returns {shows, person_visible, child_visible, object, answer: yes|no|unclear, why},
-    or {} after two invalid answers. Raises VLMUnavailable like observe()."""
-    ask = f"Question: do these frames show {question}?"
+async def judge(frames: list[str], question: str | dict[str, str], limits: str = "") -> dict:
+    """What do these frames (one photo, or up to 4 stills of one stretch of video, tiled into one image)
+    show? Ask one question, or several at once as {key: what to look for}.
+    Returns {shows, child_visible, answer: yes|no|unclear} for one question, {shows, child_visible,
+    answers: {key: yes|no|unclear}} for several, or {} after two invalid answers.
+    Raises VLMUnavailable like observe()."""
+    # Several questions in one call: reading the image costs ~3.5 s, each extra answer ~0.2 s.
+    questions = question if isinstance(question, dict) else {"answer": question}
+    keys = {f"q{i}": key for i, key in enumerate(questions, 1)}
+    ask = "Questions:\n" + "\n".join(f"{q}: does it show {questions[key]}?" for q, key in keys.items())
     if limits:
         ask += f"\nContext only (don't judge it): the person says {limits!r}."
-    body = {"model": MODEL, "stream": False, "format": JUDGE_SCHEMA, "keep_alive": JUDGE_KEEP_ALIVE,
-            "options": {"temperature": 0, "num_predict": 300},
+    schema = {"type": "object",
+              "properties": {"shows": _text, "child_visible": {"type": "boolean"},
+                             **{q: {"enum": ["yes", "no", "unclear"]} for q in keys}},
+              "required": ["shows", "child_visible", *keys]}
+    body = {"model": MODEL, "stream": False, "format": schema, "keep_alive": JUDGE_KEEP_ALIVE,
+            "options": {"temperature": 0, "num_predict": 60 + 8 * len(keys), "num_ctx": CONTEXT},
             "messages": [{"role": "system", "content": JUDGE_PROMPT},
-                         {"role": "user", "content": ask, "images": [_image(f) for f in frames[:3]]}]}
+                         {"role": "user", "content": ask, "images": [_image(frames[0]) if len(frames) == 1 else
+                                                                     _grid(frames[:4])]}]}
     raw = await _chat(body)
     if not raw:
         return {}
-    return {"shows": _str(raw.get("shows"))[:300], "person_visible": raw.get("person_visible") is True,
-            "child_visible": raw.get("child_visible") is True, "object": _str(raw.get("object"))[:100],
-            "answer": raw.get("answer") if raw.get("answer") in ("yes", "no") else "unclear",
-            "why": _str(raw.get("why"))[:200]}
+    answers = {key: raw.get(q) if raw.get(q) in ("yes", "no") else "unclear" for q, key in keys.items()}
+    out = {"shows": _str(raw.get("shows"))[:300], "child_visible": raw.get("child_visible") is True}
+    return out | ({"answers": answers} if isinstance(question, dict) else answers)
+
+
+def _grid(paths: list[str]) -> str:
+    """Up to 4 stills tiled 2x2 (2 side by side) into one JPEG: one image's cost instead of four."""
+    ims = []
+    for p in paths:
+        with Image.open(p) as im:
+            im = ImageOps.exif_transpose(im).convert("RGB")
+            im.thumbnail((GRID_TILE, GRID_TILE))
+            ims.append(im)
+    w, h = max(i.width for i in ims), max(i.height for i in ims)
+    cols, rows = (2, 1) if len(ims) <= 2 else (2, 2)
+    sheet = Image.new("RGB", (cols * w, rows * h), "black")
+    for k, im in enumerate(ims):
+        sheet.paste(im, ((k % cols) * w, (k // cols) * h))
+    buf = io.BytesIO()
+    sheet.save(buf, "JPEG", quality=85)
+    return base64.b64encode(buf.getvalue()).decode()
 
 
 async def unload():

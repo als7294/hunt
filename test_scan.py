@@ -48,7 +48,7 @@ def video(name: str, seconds: int, still: bool = False) -> Path:
 assert scan.ranges([(10.0, "a"), (12.0, "b"), (14.0, "c"), (30.0, "d")], video=True) == [
     (10.0, 14.0, [(10.0, "a"), (12.0, "b"), (14.0, "c")]), (30.0, 30.0, [(30.0, "d")])]  # 0:10-0:14 and 0:30
 assert scan.ranges([(None, "p")], video=False) == [(None, None, [(None, "p")])]
-assert scan.pick([(t, str(t)) for t in range(7)]) == [(0, "0"), (3, "3"), (6, "6")]
+assert scan.pick([(t, str(t)) for t in range(7)]) == [(0, "0"), (2, "2"), (4, "4"), (6, "6")]  # ≤4 stills, spread
 assert scan.capped(0.95) == (0.79, "likely") and scan.capped(scan.P_YES_MANY)[1] == "likely"  # never above likely
 assert scan._unweighed("A person lifting about 25.5 kg of bricks") == "A person lifting bricks"
 assert scan._unweighed("Carrying a 40lb sack, 2 kids") == "Carrying a sack, 2 kids"
@@ -86,7 +86,7 @@ hike = post("Lovely hike up the hill", "2026-01-15T10:00:00Z")
 file_of = {p["id"]: p["media"][0]["file"] for p in posts.list_posts(case) if p["media"]}
 
 
-async def fake_clip(frames, cats, pause, progress):
+async def fake_clip(frames, cats, pause, progress, **kw):
     """lifting at 0:10, 0:12, 0:14 and 0:30 of the video, and in the carrying photo; nothing elsewhere."""
     def score(t, f):
         hit = t in (10.0, 12.0, 14.0, 30.0) if t is not None else f.endswith(file_of[carry])
@@ -97,16 +97,17 @@ async def fake_clip(frames, cats, pause, progress):
 calls = []
 
 
-async def fake_judge(frames, question, limits=""):
-    calls.append((frames, question, limits))
-    return {"shows": "A person carrying a 20 kg box", "person_visible": True, "object": "box", "answer": "yes",
-            "child_visible": any(file_of[carry] in f for f in frames), "why": "a person lifts a large box"}
+async def fake_judge(frames, questions, limits=""):
+    calls.append((frames, questions, limits))
+    return {"shows": "A person carrying a 20 kg box", "child_visible": any(file_of[carry] in f for f in frames),
+            "answers": {key: "yes" for key in questions}}
 
 
 async def nothing():
     pass
 
 
+real_clip_scores = scan._clip_scores
 scan._clip_scores, vlm.judge, vlm.unload = fake_clip, fake_judge, nothing
 photo.read_text = lambda path: ["Kayak trip, 12 km paddle"] if path.endswith(".png") else []
 events = []
@@ -143,7 +144,7 @@ assert found[(carry, "lifting", None, None)]["blur"] is True and long["blur"] is
 # The vision model saw only candidates (not the food photo), ≤3 frames each, in order: newest after-injury first
 assert len(calls) == 3 and all(len(f) <= 3 for f, _, _ in calls), calls
 assert file_of[carry] in calls[0][0][0] and len(calls[1][0]) == 3 and len(calls[2][0]) == 1
-assert calls[0][1] == scan.CATEGORIES["lifting"]["question"] and calls[0][2] == "can't lift more than 5 kg"
+assert calls[0][1] == {"lifting": scan.CATEGORIES["lifting"]["question"]} and calls[0][2] == "can't lift more than 5 kg"
 # Progress: scan events up to checked == total, a hit event per hit
 assert {"type": "stage", "stage": "scanning"} in events
 progress = [e for e in events if e["type"] == "scan"]
@@ -162,7 +163,7 @@ file_of = {p["id"]: p["media"][0]["file"] for p in posts.list_posts(case) if p["
 carry_was, carry = carry, box  # the fake CLIP now flags this photo
 
 
-async def down(frames, question, limits=""):
+async def down(frames, questions, limits=""):
     raise vlm.VLMUnavailable("Ollama isn't reachable")
 
 vlm.judge = down
@@ -194,6 +195,73 @@ async def paused():
 calls.clear()
 assert asyncio.run(paused()) == (0, False) and len(calls) == 1
 
+# CLIP embeddings are cached in the case by media hash: the same media again doesn't load CLIP at all
+import numpy as np
+loads = []
+
+
+class FakeClip:
+    def __init__(self):
+        loads.append(1)
+
+    def text(self, prompts):
+        return [np.eye(768, dtype=np.float32)[i] for i in range(len(prompts))]
+
+    def images(self, paths):
+        return [np.eye(768, dtype=np.float32)[0] for _ in paths]  # matches the first lifting prompt
+
+    def close(self):
+        pass
+
+
+class Quiet:
+    case, shas = case, {7: "a" * 64, 8: "b" * 64}
+
+    def send(self):
+        pass
+
+
+real_clip, scan._Clip = scan._Clip, FakeClip
+ready = asyncio.Event()
+ready.set()
+seen_frames = {7: [(None, str(tmp / "carry.jpg"))], 8: [(1.0, str(tmp / "food.jpg")), (2.0, str(tmp / "box.jpg"))]}
+first = asyncio.run(real_clip_scores(seen_frames, scan.categories(["lifting"]), ready, Quiet()))
+again = asyncio.run(real_clip_scores(seen_frames, scan.categories(["lifting"]), ready, Quiet()))
+assert loads == [1] and first == again and first[7][0]["lifting"] > 0.99, (loads, first)
+asyncio.run(real_clip_scores(seen_frames, scan.categories(["lifting", "kayak"]), ready, Quiet()))
+assert loads == [1, 1]  # a new prompt ("a photo of kayak") needs CLIP again, once
+scan._Clip = real_clip
+
+# Asked several categories at once: an "unclear" beside a "yes" is dropped, an "unclear" alone is kept
+[mixed] = posts.add_files(case, [picture("mixed.jpg", 106)], None, "2026-04-07T10:00:00")
+[vague] = posts.add_files(case, [picture("vague.jpg", 107)], None, "2026-04-08T10:00:00")
+file_of = {p["id"]: p["media"][0]["file"] for p in posts.list_posts(case) if p["media"]}
+
+
+async def both_clip(frames, cats, pause, progress):
+    flagged = (file_of[mixed], file_of[vague])
+    return {mid: [{c: 0.9 if any(f.endswith(x) for x in flagged) and c in ("lifting", "walks") else 0.0
+                   for c in cats} for _, f in shots] for mid, shots in frames.items()}
+
+
+async def hedging(frames, questions, limits=""):
+    clear = any(f.endswith(file_of[mixed]) for f in frames)
+    return {"shows": "A person carrying a box", "child_visible": False,
+            "answers": {"lifting": "yes" if clear else "unclear", "walks": "unclear"}}
+
+scan._clip_scores, vlm.judge = both_clip, hedging
+asyncio.run(go())
+got = {(h["post_id"], h["category"]) for h in scan.hits(case) if h["post_id"] in (mixed, vague)}
+assert got == {(mixed, "lifting"), (vague, "lifting"), (vague, "walks")}, got
+scan._clip_scores, vlm.judge = fake_clip, fake_judge
+
+# A stuck OCR call (Vision can block forever) is given up, not waited on
+import threading
+stuck = threading.Event()
+photo.read_text, scan.OCR_TIMEOUT, logged = (lambda path: stuck.wait(5) and []), 0.2, []
+assert asyncio.run(scan._ocr(tmp / "shot.png", logged.append)) == [] and "timed out" in logged[0]["message"]
+stuck.set()
+
 # The investigator's decision
 hid = found[(deadlift, "lifting", None, None)]["id"]
 assert scan.set_status(case, hid, "kept")["status"] == "kept"
@@ -205,7 +273,7 @@ for bad, error in (("maybe", ValueError), ("kept", KeyError)):
     except error:
         pass
 
-# vlm.judge: what is sent to Ollama and how the answer is cleaned
+# vlm.judge: one call for every question, stills tiled into one image, answers cleaned
 from importlib import reload
 reload(vlm)
 sent = []
@@ -214,17 +282,21 @@ sent = []
 def ollama(request):
     sent.append(json.loads(request.content))
     return httpx.Response(200, json={"message": {"content": json.dumps({
-        "shows": "a person and a box", "person_visible": "yes", "child_visible": True, "object": "box",
-        "answer": "probably", "why": "box"})}})
+        "shows": "A person and a box", "child_visible": True, "q1": "yes", "q2": "probably"})}})
 
 real_init = httpx.AsyncClient.__init__
 httpx.AsyncClient.__init__ = lambda self, **kw: real_init(self, transport=httpx.MockTransport(ollama), **kw)
-j = asyncio.run(vlm.judge([str(tmp / "carry.jpg")] * 5, "a person lifting or carrying something", "can't lift 5 kg"))
-assert j == {"shows": "a person and a box", "person_visible": False, "child_visible": True, "object": "box",
-             "answer": "unclear", "why": "box"}, j  # only a real true counts; an off-list answer is unclear
+j = asyncio.run(vlm.judge([str(tmp / "carry.jpg")] * 5, {"lifting": "a person lifting or carrying something",
+                                                         "my kayak": "kayak"}, "can't lift 5 kg"))
+assert j == {"shows": "A person and a box", "child_visible": True,
+             "answers": {"lifting": "yes", "my kayak": "unclear"}}, j  # an off-list answer is unclear
 body = sent[0]
-assert body["keep_alive"] == "2m" and body["format"] == vlm.JUDGE_SCHEMA and len(body["messages"][1]["images"]) == 3
-assert "can't lift 5 kg" in body["messages"][1]["content"] and "Never estimate weights" in body["messages"][0]["content"]
+assert body["keep_alive"] == "2m" and len(body["messages"][1]["images"]) == 1  # 5 stills, one tiled image
+assert set(body["format"]["properties"]) == {"shows", "child_visible", "q1", "q2"}  # custom text can't break the JSON
+assert "q2: does it show kayak?" in body["messages"][1]["content"] and "can't lift 5 kg" in body["messages"][1]["content"]
+assert "Never estimate weights" in body["messages"][0]["content"]
+one = asyncio.run(vlm.judge([str(tmp / "carry.jpg")], "a person lifting or carrying something"))
+assert one == {"shows": "A person and a box", "child_visible": True, "answer": "yes"}, one  # one question: one answer
 asyncio.run(vlm.unload())
 assert sent[-1] == {"model": vlm.MODEL, "messages": [], "keep_alive": 0}
 print("ok")
