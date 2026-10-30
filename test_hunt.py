@@ -21,6 +21,11 @@ assert detect("(520) 555-0143") == [Seed("phone", "+15205550143")]
 assert detect("Marisol Vance") == [Seed("name", "Marisol Vance")]
 assert detect("@kestrel_vane88") == [Seed("username", "kestrel_vane88")]
 assert detect("1420 Saguaro Way, Tucson AZ") == [Seed("address", "1420 Saguaro Way, Tucson AZ")]
+for raw in ("1990-04-12", "04/12/1990", "4/12/90", "DOB: 12 April 1990", "born April 12, 1990", "dob:4/12/1990"):
+    assert detect(raw) == [Seed("dob", "1990-04-12")], raw
+assert detect("age 34") == [Seed("age", "34")] and detect("34 years old") == [Seed("age", "34")]
+assert detect("employer:Northgate Mutual") == [Seed("employer", "Northgate Mutual")]
+assert detect("2026-13-45") == [Seed("username", "2026-13-45")]  # not a date: unchanged behaviour
 assert detect("location:Tucson, AZ") == [Seed("location", "Tucson, AZ")]
 assert detect("https://www.youtube.com/@kestrel_vane88/about")[1] == Seed("username", "kestrel_vane88")
 assert detect("https://www.linkedin.com/in/marisol-vance")[1] == Seed("username", "marisol-vance")

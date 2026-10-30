@@ -43,10 +43,13 @@ const capped = v => ['almost certain', 'very likely'].includes(v) ? 'likely' : v
 const LOGIN_ONLY = /instagram|facebook|tiktok|strava|twitter|^x$|linkedin|snapchat|threads/i; // posts need a login: investigator adds them
 
 /* ---------- seeds (mirrors hunt/seed.py detect(), for pill colours only; the server decides) ---------- */
-const KINDS = ['username', 'email', 'phone', 'name', 'url', 'address', 'location'];
+const KINDS = ['username', 'email', 'phone', 'name', 'url', 'address', 'location', 'dob', 'age', 'employer'];
+const DOB = /^(?:(?:dob|d\.o\.b\.?|born|birthday|birth ?date|b\.)\s*:?\s*)?(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d{1,2} [A-Za-z]{3,9},? \d{4}|[A-Za-z]{3,9} \d{1,2},? \d{4})$/i;
 function seedKind(raw) {
   const s = raw.trim(), [k, ...rest] = s.split(':');
   if (rest.length && KINDS.includes(k)) return k;
+  if (DOB.test(s)) return 'dob';
+  if (/^(?:age|aged)\s*:?\s*\d{1,3}$|^\d{1,3}\s*(?:years? old|y\/?o)$/i.test(s)) return 'age';
   if (/^[^@\s:]+@[^@\s]+\.[^@\s]+$/.test(s)) return 'email';
   if (/^https?:\/\//i.test(s)) return 'url';
   if (/^\+?[\d\s().-]{7,}$/.test(s)) return 'phone';
@@ -232,7 +235,7 @@ function drawWizard() {
         <div class="h1" style="font-size:48px;line-height:1">Who are you<br><span class="grad">looking into?</span></div>
         <label style="padding:14px 14px 14px 20px;border-radius:20px;background:rgba(27,29,35,.85);box-shadow:0 0 0 1.5px #3A4466,0 24px 50px -24px rgba(163,181,242,.45);display:flex;flex-wrap:wrap;gap:8px;align-items:center;cursor:text">
           <span id="seed-pills" style="display:contents">${w.seeds.map(s => seedPill(s, seedKind(s), true))}</span>
-          <input id="seed-in" class="input" style="flex:1;min-width:220px;background:none;padding:6px 4px" placeholder="${w.seeds.length ? 'Add another…' : 'Paste anything… a name, email, phone, username or profile link'}" aria-label="Who are you looking into">
+          <input id="seed-in" class="input" style="flex:1;min-width:220px;background:none;padding:6px 4px" placeholder="${w.seeds.length ? 'Add another…' : 'Paste anything… a name, email, phone, username, profile link, date of birth or address'}" aria-label="Who are you looking into">
         </label>
         <span id="seed-hint" class="muted" style="font-size:14px;margin-top:-12px">${placeHint()}</span>
         <div style="display:flex;flex-direction:column;gap:12px">
@@ -305,7 +308,7 @@ const placeHint = () => wiz.seeds.some(x => seedKind(x) === 'name') && !wiz.seed
 function refreshSeeds() {
   wizSeen(); $('#seed-hint').textContent = placeHint();
   $('#seed-pills').innerHTML = fmt(wiz.seeds.map(s => seedPill(s, seedKind(s), true)));
-  $('#seed-in').placeholder = wiz.seeds.length ? 'Add another…' : 'Paste anything… a name, email, phone, username or profile link';
+  $('#seed-in').placeholder = wiz.seeds.length ? 'Add another…' : 'Paste anything… a name, email, phone, username, profile link, date of birth or address';
   refreshStart();
 }
 function refreshStart() {
