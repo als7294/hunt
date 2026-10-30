@@ -1,7 +1,10 @@
 """Have we seen this person before? A case's identifiers, looked up in the other cases on this computer.
 
 Identifiers: the seeds (username, email, phone, profile URL, address, name), the URLs and handles of
-accounts marked as the subject's, and the SHA-256 of the photos and videos in the case. Page sources
+accounts marked as the subject's, and the SHA-256 of the subject's photos and videos: media from an account
+marked as theirs, or files the investigator added herself. Media from anyone else (a friend's captured post,
+a namesake's account) is never compared: it would link two cases through a third party (compliance-audit.md
+Q3). Nor are names of people around the subject (photo labels, "my brother Dan"). Page sources
 and screenshots aren't compared: a site serves the same "not found" page to everyone. A match on
 anything but a name is strong; a name alone is weak (namesakes).
 
@@ -34,8 +37,12 @@ def identifiers(case) -> set[tuple[str, str]]:
         if url and d["decision"] == "him":
             out |= {_norm(s.kind, s.value) for s in detect(url)}  # the URL and its handle
     tables = {r["name"] for r in case.rows("select name from sqlite_master where type = 'table'")}
-    for table in ("media", "photos") if "media" in tables else ("photos",):
-        out |= {("file", r["sha256"]) for r in case.rows(f"select sha256 from {table} where sha256 is not null")}
+    out |= {("file", r["sha256"]) for r in case.rows("select sha256 from photos where sha256 is not null")}
+    if "media" in tables:
+        theirs = {norm_url(u) for u, d in case.decisions().items() if u and d["decision"] == "him"}
+        out |= {("file", r["sha256"]) for r in case.rows("select m.sha256, p.account_url, p.origin from media m "
+                                                         "join posts p on p.id = m.post_id where m.sha256 is not null")
+                if r["origin"] == "added" or (r["account_url"] and norm_url(r["account_url"]) in theirs)}
     return out
 
 

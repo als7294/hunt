@@ -209,7 +209,7 @@ def cartoons(n=40):
 # --- run ---------------------------------------------------------------------------------------------
 
 def run(images) -> list[dict]:
-    """face.compare's stages, but keeping every face's gate numbers and score so the report can apply
+    """face._compare's stages, but keeping every face's gate numbers and score so the report can apply
     (and tune) the gates afterwards. A probable child is never embedded, here as in Hunt."""
     out = []
     for i in range(0, len(images), 1500):

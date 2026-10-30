@@ -119,7 +119,9 @@ It is never an invented persona (that's a sock puppet, the hiQ loss pattern), an
 - one scroll by a screen on the subject's grid, which loads the next rows as her own scroll would; or
 - one navigation to the next post on Hunt's "open these" list.
 
-The next press is locked until that step's capture is recorded. Nothing repeats or runs on a timer, and each press is audited as `guided step`.
+The next press is locked until that step's capture is recorded, or for at most 20 s. If the 20 s run out first, the lock lifts and Hunt audits `guided step not recorded` (decision D3/G4). Nothing repeats, and the timer only unlocks; it never acts. Each press is audited as `guided step`.
+
+**Off by default (decision D3).** She turns guided mode on in Hunt, with an audited acknowledgement of the trade-off below. That isn't a counsel gate, because she can't reach counsel yet. Counsel should still confirm the trade-off before guided mode is used in casework.
 
 *Reasoning.* The request the platform receives (the grid's next rows, or the post's page) is caused by her one deliberate press, just as by PageDown or a click on a link. So the causal line holds: one input, one request.
 
@@ -128,7 +130,7 @@ The next press is locked until that step's capture is recorded. Nothing repeats 
 - **Detection risk:** a scroll with no wheel or key event behind it can look scripted, which may trigger a checkpoint. The hard stop then ends capture on that platform.
 - **The lower-risk path:** she scrolls and clicks herself. That's the default; guided mode only acts when she presses Next.
 
-Firms whose counsel prefers that should not use guided mode. This trade-off should be confirmed with counsel before guided mode is used in casework.
+Firms whose counsel prefers that should not use guided mode.
 
 ## Biometrics (relevant to photo features)
 
@@ -137,14 +139,14 @@ Firms whose counsel prefers that should not use guided mode. This trade-off shou
 - **[I] Decision (MVP):** no face recognition. If it's ever added: off by default, 1:1 comparison of investigator-supplied images only, no persistent face index, purpose recorded per use, permissive-licence models only.
 - **[I] Decision (2026-10-29): 1:1 face verification against a reference photo, built inside those limits** (`hunt/face.py`, details in [analysis.md](../analysis.md)):
   - **Gated on where the subject lives** (`face.gate`, rules F1–F2 below). The case detail `subject_residence` is an ISO 3166 code like `US-AZ` or `GB`.
-    - **Blocked:** an unknown residence, or a US residence without a state. Also IL (BIPA), TX (CUBI; TRAIGA (e)(3) untested), WA (My Health My Data Act), CO (HB 24-1130), CA (until counsel accepts §1798.145(a)(1)(E)), the EU/EEA, the UK and Canada (per-case basis records Hunt doesn't keep yet).
+    - **Allow-list only** (`face.gate`): a residence passes only if it's a known ISO 3166-1 code (as phonenumbers ships them; `UK`→GB, `EL`→GR) or `US-` plus a state, DC or a territory, and isn't blocked. **Blocked:** an unknown or unrecognised code (`EU`, `XX`, `US-ZZ`), a US residence without a state, IL (BIPA), TX (CUBI; TRAIGA (e)(3) untested), WA (My Health My Data Act), CO (HB 24-1130), CA (always, decision D5), the EU/EEA with the outermost regions and Åland, the UK, Canada, Jersey, Guernsey and the Isle of Man (per-case basis records Hunt doesn't keep yet).
     - **Checked at two points:** when the case turns the check on, and again before every run, because the residence can change.
     - **Audited:** every decision is written as `face gate` with `{allowed, residence, rule}`.
-  - **Washington MHMDA mode:** a `US-WA` subject sets `case.mhmda`, which the report can read. The fraud basis goes in the case detail `mhmda_basis`, and the report words findings as observed activity, not physical condition.
+  - **Washington MHMDA mode:** a `US-WA` subject sets `case.mhmda`, which the report can read. The fraud basis goes in the case detail `mhmda_basis`, and the report is to word findings as observed activity, not physical condition (rule F3; not built yet).
   - **Off by default.** Each case turns it on with a legal basis the investigator types in; it's stored and audited, and turning it off is audited too.
   - **Leads, never evidence.** A face result is one capped reason in the matcher. The report shouldn't cite it as proof of identity.
   - **1:1 only.** The case's own reference photos are compared with that case's candidate images: profile photos, kept post media, and hits from reverse image search or a face-search plug-in, which only ever get *verified* here. No face index, no searching by face, nothing compared across cases.
-  - **No templates kept, not even in a temp file.** Embeddings live in memory for one call; OpenCV runs both models in memory. The case stores only the result (match, score, quality numbers, which image), the reference photo itself (as evidence), and the audit trail. All of it is deleted with the case.
+  - **No templates kept, not even in a temp file.** Embeddings live in memory for one call; OpenCV runs both models in memory. `face.verify_all(case, …)` is the only way in: the bare comparison is private (`_compare`), and the self-check confirms a run adds no file and stores no vector. The case stores only the result (match, score, quality numbers, which image), the reference photo itself (as evidence), and the audit trail. All of it is deleted with the case.
   - **Hard cases go to the investigator.** No face, several faces, a small, blurred or turned face, a drawing or animal, or a probable child (judged by CLIP, and never compared) come back "unclear" with the reason.
   - **Never a verdict alone.** The match is one capped reason in the matcher and can't be the second identifier.
   - **Models:**
@@ -190,7 +192,7 @@ The key is a salted hash of case and profile URL. The store holds no names, URLs
 
 ## Hunt's rules
 
-_The single current statement, as of 2026-10-29. It replaces the earlier "Guardrails Hunt ships" list and folds in the guardrail changes from [automation-legal.md §5](automation-legal.md#5-guardrail-changes). The sections above, and the linked research, keep the reasoning behind each rule._
+_The single current statement, as of 2026-10-30. It replaces the earlier "Guardrails Hunt ships" list and folds in the guardrail changes from [automation-legal.md §5](automation-legal.md#5-guardrail-changes) and the provisional [decisions](#decisions-provisional-2026-10-30) of 2026-10-30. The sections above, and the linked research, keep the reasoning behind each rule._
 
 Disclaimers alone are not enough: the FTC has said so, and OpenOSINT was criticised for shipping a disclaimer without guardrails. These rules are real features, or are being built as real features (see "Not yet enforced" below).
 
@@ -200,17 +202,17 @@ Disclaimers alone are not enough: the FTC has said so, and OpenOSINT was critici
 
 | # | Rule | Why | Reasoned in |
 |---|---|---|---|
-| C1 | **No software-caused request to a login-walled platform.** Every page load, scroll, click and "See more" there comes from her own input in the Hunt Browser. Hunt and Hunt Capture only record what has already loaded. No auto-scroll (not even one she starts and watches), auto-expand, auto-advance or "open all" | Passive recording isn't CFAA "access"; active requests from inside a session are the *BrandTotal* line. Every platform's terms ban automated access, with no own-account or human-pace exception. A bot is the surest way to lose her account | [automation-legal.md Q1](automation-legal.md#q1-automating-her-own-logged-in-account), [Q2](automation-legal.md#q2-grey-zones) |
+| C1 | **No software-caused request to a login-walled platform.** Every page load, scroll, click and "See more" there comes from her own input in the Hunt Browser. Hunt and Hunt Capture only record what has already loaded. No auto-scroll (not even one she starts and watches), auto-expand, auto-advance or "open all". The one exception is guided mode: one press, one step, off by default, on only with her audited acknowledgement (D3) | Passive recording isn't CFAA "access"; active requests from inside a session are the *BrandTotal* line. Every platform's terms ban automated access, with no own-account or human-pace exception. A bot is the surest way to lose her account | [automation-legal.md Q1](automation-legal.md#q1-automating-her-own-logged-in-account), [Q2](automation-legal.md#q2-grey-zones) |
 | C2 | **Hunt's code never logs in or uses her session.** The Hunt Browser holds her sessions for her own browsing only: no automation driver, no remote-debugging port, no automation flags. Hunt never reads her cookies, only whether she is signed in | No program can drive her account through Hunt, and nothing marks her browser as automated | [Human-driven capture](#human-driven-capture-hunt-capture-browser-extension), [capture.md](../capture.md#the-hunt-browser) |
 | C3 | **Her own real account only.** No fake, shared, bought or borrowed account, and no second account after a ban | Fake accounts drove hiQ's $500k judgment and the *Voyager* settlement. After revocation, another account is "the back door" (*Nosal*). Online impersonation is a crime in CA (Penal Code §528.5) and TX (§33.07) | [CFAA, scraping, platform ToS](#cfaa-scraping-platform-tos), [automation-legal.md Q1](automation-legal.md#q1-automating-her-own-logged-in-account) |
-| C4 | **Never contact the subject or their associates.** No follow, friend, connection request, like, comment, message or story reaction. No email or username check that could notify anyone. Treat every claimant as represented by counsel | Ethics Rules 4.2 and 4.3 bind Ethos's work through counsel (NJ codified it in 2024). FCRA §1681d covers interviews "by electronic means" | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules), [user-scanner audit](../../hunt/sources/user_scanner.py) |
-| C13 | **Associates are minimised.** An associate found in the case (a relative in a caption, a tagged friend, a co-party) is a name and the evidence naming them, nothing more. Hunt never searches or collects on them: the investigator opens a separate case, with its own recorded purpose, to do that. A possible minor (a child, grandchild, niece or nephew, or anyone given an age under 18) is shown by relationship only: no name, redacted quotes | Data minimisation (GDPR Art. 5(1)(c), CCPA §1798.100(c)); third parties never consented and aren't the subject of the permissible purpose | [analysis.md §8](../analysis.md#8-family-and-associates) |
+| C4 | **Never contact the subject or their associates.** No follow, friend, connection request, like, comment, message or story reaction. No email or username check that could notify anyone. Treat every claimant as represented by counsel. The report's "no one was contacted" sentence speaks for Hunt's own code, and says so; her own clicks aren't recorded (D15) | Ethics Rules 4.2 and 4.3 bind Ethos's work through counsel (NJ codified it in 2024). FCRA §1681d covers interviews "by electronic means" | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules), [user-scanner audit](../../hunt/sources/user_scanner.py) |
+| C13 | **Associates are minimised.** An associate found in the case (a relative in a caption, a tagged friend, a co-party) is a name and the evidence naming them, nothing more. Hunt never searches or collects on them: the investigator opens a separate case, with its own recorded purpose, to do that. A possible minor (a child, grandchild, niece or nephew, or anyone given an age under 18) is shown only as "a child" (A5): no name, redacted quotes | Data minimisation (GDPR Art. 5(1)(c), CCPA §1798.100(c)); third parties never consented and aren't the subject of the permissible purpose | [analysis.md §8](../analysis.md#8-family-and-associates) |
 | C5 | **No pretexting.** Never a false identity or a false purpose, with anyone | Pretext-interview bans (NAIC Model 670; Cal. Ins. Code §791.03), PI licence "fraud or deceit" grounds, Rule 8.4(c) | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
-| C6 | **Logged-out reads follow robots.txt.** Automatic reads only where robots.txt allows: TikTok profile and video pages, Bluesky, Mastodon and the public APIs. Hosts that deny unnamed agents (Facebook, Instagram, Threads, LinkedIn, X, Reddit) get one page on her click: never in batch, never on a schedule, never as headless screenshots. Honest User-Agent and a polite gap | robots.txt isn't access authorisation (RFC 9309), but Meta, YouTube and Reddit write it into their terms. *Bright Data* protects logged-off reads less for an account holder | [automation-legal.md Q5](automation-legal.md#q5-logged-out-automation-per-platform-robotstxt-rate-limits-captchas) |
-| C7 | **Never get around a limit.** No CAPTCHA solving. No proxies, IP rotation, or header, User-Agent or fingerprint spoofing to get past a block. No randomised "human-like" pacing. Stop at the first 429, CAPTCHA or login wall. (`HUNT_PROXY` is one fixed proxy she chooses for her own privacy. It is never switched to get past a block.) | CAPTCHA circumvention supported a DMCA §1201 injunction (*Ticketmaster v. RMG*). Proxies after a block were "without authorization" (*3Taps*). TikTok and Meta terms ban "tricks" and circumvention | [automation-legal.md Q2](automation-legal.md#q2-grey-zones), [Q5](automation-legal.md#q5-logged-out-automation-per-platform-robotstxt-rate-limits-captchas) |
-| C8 | **Hard stop on revocation.** A ban, disabled account, checkpoint, "automated behaviour" warning, action block, CAPTCHA, IP block, or a platform letter to Laura, Ethos or Aaron stops capture and automatic reads on that platform. It is audited, and she tells Ethos. Never fall back to another account, browser profile, proxy or vendor | After revocation, continued access is a CFAA and Cal. Penal Code §502 violation (*Power Ventures*), and a PI licence ground in FL (§493.6118(1)(k)) | [automation-legal.md Hard stops](automation-legal.md#hard-stops), [Appendix B](automation-legal.md#appendix-b-hard-stop-message) |
+| C6 | **Logged-out reads follow robots.txt.** Automatic reads only where robots.txt allows: TikTok profile and video pages, Bluesky, Mastodon and the public APIs. The deny list is Facebook, Instagram, Threads, LinkedIn, X and Reddit, whose robots.txt denies unnamed agents, plus Strava and Snapchat, whose terms ban automated access (D2). Those hosts get one page on her click: never in batch, never on a schedule, never as headless screenshots. **One narrow exception (D1):** an existence check (Maigret, WhatsMyName, user-scanner) may send one request per site per seed, with an honest User-Agent and no TLS or header impersonation. The engines' other filters still apply: no protected or bot-walled sites, no token "activation", no unaudited non-GET checks, no stopped platform. Honest User-Agent and a polite gap everywhere | robots.txt isn't access authorisation (RFC 9309), but Meta, YouTube and Reddit write it into their terms. *Bright Data* protects logged-off reads less for an account holder | [automation-legal.md Q5](automation-legal.md#q5-logged-out-automation-per-platform-robotstxt-rate-limits-captchas) |
+| C7 | **Never get around a limit.** No CAPTCHA solving. No proxies, IP rotation, or header, User-Agent or fingerprint spoofing to get past a block. No randomised "human-like" pacing. A 429 ends that platform's automatic reads for the run. A CAPTCHA, IP block or login wall on an automatic read sets a hard stop (C8; D8). (`HUNT_PROXY` is one fixed proxy she chooses for her own privacy. It is never switched to get past a block.) | CAPTCHA circumvention supported a DMCA §1201 injunction (*Ticketmaster v. RMG*). Proxies after a block were "without authorization" (*3Taps*). TikTok and Meta terms ban "tricks" and circumvention | [automation-legal.md Q2](automation-legal.md#q2-grey-zones), [Q5](automation-legal.md#q5-logged-out-automation-per-platform-robotstxt-rate-limits-captchas) |
+| C8 | **Hard stop on revocation.** A ban, disabled account, checkpoint, "automated behaviour" warning, action block, CAPTCHA, IP block, a login wall on an automatic read (D8), or a platform letter to Laura, Ethos or Aaron stops capture and every automatic read on that platform, vendors included, until she resumes it. It is audited, and she tells Ethos. Never fall back to another account, browser profile, proxy or vendor | After revocation, continued access is a CFAA and Cal. Penal Code §502 violation (*Power Ventures*), and a PI licence ground in FL (§493.6118(1)(k)) | [automation-legal.md Hard stops](automation-legal.md#hard-stops), [Appendix B](automation-legal.md#appendix-b-hard-stop-message) |
 | C9 | **Capture off on LinkedIn, Strava and Snapchat.** There she saves pages or screenshots by hand and imports them | Their terms name browser extensions or "semi-automated" tools, and LinkedIn scans for extensions | [automation-legal.md Q2](automation-legal.md#q2-grey-zones) |
-| C10 | **Warn before a view the subject can see.** Before an Instagram or Facebook Story while signed in; on LinkedIn, browse logged out or in private mode, with a warning on repeat views of one profile | New York ethics guidance treats a "who viewed you" notice to a represented person as a possible communication. Colorado flags repeated viewing | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
+| C10 | **Warn before a view the subject can see.** Before an Instagram or Facebook Story while signed in. On LinkedIn, Hunt's own screens and the extension's popup advise browsing logged out or in private mode, and warn before Hunt opens one profile again soon. Hunt's code never runs on LinkedIn pages (D13), so views she makes there by herself carry no warning | New York ethics guidance treats a "who viewed you" notice to a represented person as a possible communication. Colorado flags repeated viewing | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
 | C11 | **No official API where its terms bar this work.** No Meta, TikTok, LinkedIn, Reddit or Strava API connectors for claimant work. YouTube through the Data API on her own key. X only with X's written approval | Meta Platform Terms §3.a.ii bar "eligibility determinations … including for … insurance". LinkedIn API Terms §3.1(17), (19); X Developer Agreement §XIV.B(a) | [automation-legal.md Q4](automation-legal.md#q4-official-apis-and-licensed-vendors) |
 | C12 | **Vendor connectors** are optional and off by default. Her own key only, never a bundled one. Provenance on every record; the vendor's permitted-use terms on file | With her key, Ethos is the licensee and the project isn't. A "public data" label isn't proof of lawful collection (*Voyager*) | [automation-legal.md Q4](automation-legal.md#q4-official-apis-and-licensed-vendors) |
 
@@ -218,21 +220,21 @@ Disclaimers alone are not enough: the FTC has said so, and OpenOSINT was critici
 
 | # | Rule | Why | Reasoned in |
 |---|---|---|---|
-| K1 | **A purpose on record before any search,** and the case's kind: claim, or employment and eligibility. Background cases carry the FCRA disclaimer. The report's screening version drops protected traits and the sources that reveal them. She confirms the subject's identity before anything reaches an employment report | Claims reports aren't consumer reports; anything used "in whole or in part" for eligibility is | [FCRA](#fcra), [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
+| K1 | **A purpose on record before any search,** and one of four kinds (D9):<br>• `insurance`: a claim, not a consumer report, unless the report is reused for underwriting, renewal or employment<br>• `background`: employment or eligibility, a consumer report<br>• `diligence`: not a consumer report when about a business transaction, but one if used for employment or eligibility [I]<br>• `journalism`: not a consumer report<br>Background cases carry the FCRA disclaimer and always get the screening version, which drops protected traits and the sources that reveal them (D9). She confirms the subject's identity before anything reaches an employment report | Claims reports aren't consumer reports; anything used "in whole or in part" for eligibility is | [FCRA](#fcra), [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
 | K2 | **Audit log** of every query, capture, import, worklist open, hard stop and export | Retraceable method; GLBA/DPPA-style accountability | [Knogin](https://knogin.com/api/docs/modules/analyst-driven-osint) [S] |
-| K3 | **Audience flag.** Anything not shown as Public is flagged and kept out of the report unless counsel approves | The CCPA, Virginia and Texas "publicly available" exclusions stop at content "restricted … to a specific audience" | [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
-| K4 | **Scan everything, report what's material.** Scan hits are leads that she confirms, never findings on their own | Insurers may not seek information "not reasonably required" (10 CCR §2695.7(d)); FCRA accuracy (§1681e(b)) | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
+| K3 | **Audience flag.** Anything the platform shows with an audience other than Public is flagged and kept out of the report unless counsel approves. Media with no audience recorded aren't flagged (D10) | The CCPA, Virginia and Texas "publicly available" exclusions stop at content "restricted … to a specific audience" | [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
+| K4 | **Scan everything, report what's material.** Scan hits are leads that she confirms, never findings on their own. Only hits she marks `in report` reach the report; `kept` keeps a hit for the file only (D4) | Insurers may not seek information "not reasonably required" (10 CCR §2695.7(d)); FCRA accuracy (§1681e(b)) | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
 | K5 | **A capture record and separate attribution.** Hash at capture, URL, UTC time, the account it was viewed from, the audience shown and the tool version. Who runs the account is shown separately from what it posted | FRE 902(13) and (14); *Vayner* and *Browne* on authorship | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules), [Appendix A](automation-legal.md#appendix-a-evidence-bundle-readme-paragraph) |
-| K6 | **Retention:** 90 days from opening, unless she sets a legal hold. Deleting moves the case to the Trash | Minimisation | [api.md](../api.md) |
-| K7 | **Minors:** children in pictures are blurred in the scan | No published standard; our own rule [I] | — |
+| K6 | **Retention is a reminder (D6).** At 90 days from opening, unless she sets a legal hold, Hunt asks her to delete, hold or trim the case; it doesn't refuse work. Deleting moves the case to the Trash. The deletion log keeps only the time, a hash of the slug (slugs often carry the subject's name), the created date, the reason and the audit row id, never the label or purpose | Minimisation | [api.md](../api.md) |
+| K7 | **Minors:** children in pictures are blurred in the app and in the report. The evidence bundle and the evidence route keep the originals for chain of custody (D11) | No published standard; our own rule [I] | — |
 | K8 | **Per-source rate limits;** stop on 429 (C7) | Courtesy, and the terms | — |
 
 ### Faces, health and subjects abroad
 
 | # | Rule | Why | Reasoned in |
 |---|---|---|---|
-| F1 | **No face search.** A face check, if offered, is 1:1 against her own reference photo, with no template written to disk | A face scan is never "publicly available" under the CCPA; the EU AI Act bans untargeted face scraping | [Biometrics](#biometrics-relevant-to-photo-features), [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
-| F2 | **The face check is gated on where the subject lives;** unknown means blocked. Blocked: IL, TX, WA, CO, the EU, the UK and Canada, and CA unless Ethos's counsel accepts the legal-claims exemption | BIPA has no investigator exemption. Texas's TRAIGA fraud exclusion is untested | [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
+| F1 | **No face search.** A face check, if offered, is 1:1 against her own reference photo, with no template written to disk. Whole-image CLIP embeddings of photos aren't face templates; they stay in the case and are deleted with it (D14) | A face scan is never "publicly available" under the CCPA; the EU AI Act bans untargeted face scraping | [Biometrics](#biometrics-relevant-to-photo-features), [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
+| F2 | **The face check is gated on where the subject lives;** only known, permitted ISO 3166 codes pass, so anything unknown or unrecognised is blocked. Blocked: IL, TX, WA, CO, CA (always: decision D5), the EU/EEA (with GP, MQ, GF, RE, YT, MF, AX), the UK, Canada, Jersey, Guernsey and the Isle of Man. The CCPA's legal-claims exemption (§1798.145(a)(1)(E)) may allow California; ask counsel before changing that | BIPA has no investigator exemption. Texas's TRAIGA fraud exclusion is untested | [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
 | F3 | **Washington subjects:** record the My Health My Data fraud basis per case. Word findings as observed activity, not physical condition | Health inferences from non-health data are "consumer health data"; the firm bears the burden of the exemption | [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
 | F4 | **EU, UK and Canadian subjects:** a per-case legal basis and a record of why the subject wasn't notified | GDPR Art. 3(2)(b), 6(1)(f), 14(5)(b); DPA 2018 Sch. 2 para 2; PIPEDA s.7(1)(b) | [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
 
@@ -252,31 +254,110 @@ An **associate** is anyone in the case other than the subject: a commenter, some
 |---|---|---|---|
 | A1 | **Built only from what's already in the case:** captions, captured comments, tags, bios, shared surnames, public-record co-parties. No search on an associate: no username, name, email, phone, records or face search, no Check again, no watch. A person is searched only as the subject of their own case, with its own purpose | Purpose limitation and proportionality (above) | This section |
 | A2 | **Name plus citing evidence, nothing else.** An entry holds the name or handle as shown, how they appear (commented, tagged, named, shares a surname, co-party), and the ids of the items that show it. None of their address, phone, email, date of birth, employer, photos or profile details | Minimisation. An associate's home address may be a Daniel's Law covered person's: the definition includes "any immediate family member residing in the same household" of a judge, prosecutor or officer [S] ([N.J.S.A. 56:8-166.1](https://law.justia.com/codes/new-jersey/title-56/section-56-8-166-1/)) | [State laws](#state-laws) |
-| A3 | **Their posts only as evidence about the subject.** She may open an associate's public posts to find the subject (tagged, shown or mentioned). Only items that show or mention the subject are kept, scanned or reported. A comment is quoted in a report only when it bears on the dispute (K4) | Same | This section |
+| A3 | **Their posts only as evidence about the subject.** She may open an associate's public posts to find the subject (tagged, shown or mentioned). Only posts that show or mention the subject are kept, scanned or reported. The page archive itself is kept whole as the capture record (K5), and only the posts read out of it are filtered (D12). A comment is quoted in a report only when it bears on the dispute (K4) | Same | This section |
 | A4 | **Never contact or notify an associate** (C4, C10): no requests, follows or messages. Story and profile-view warnings apply on their accounts too | Interviewing an associate turns a screening into an investigative consumer report (§1681a(e), §1681d). Ethics Rule 4.3 covers unrepresented persons; pretexting rules (C5) | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
 | A5 | **Minors are never named.** A child appears as "a child", or by initials where counsel needs a reference. No entry beyond that, nothing collected about them, never face-compared (F1), and blurred in the app (K7) | Federal court filings may include only "the minor's initials" [S] ([Fed. R. Civ. P. 5.2(a)(3)](https://www.law.cornell.edu/rules/frcp/rule_5.2)), and reports become exhibits. 5.2 exempts administrative records such as most workers' comp hearings, so the wider rule is ours [I] | This section |
-| A6 | **The report states what was observed, cited. It never asserts a relationship.** It says "@mara_q commented 'proud of you, son' on the subject's 3 May post [E-12]", not "Mara Quill is his mother". Hunt never generates a relationship label. A shared surname is never a relationship: at most "shares the surname", and only where it supports identity (A7). The investigator's own conclusion appears only as her note (`N-`), in her words | FCRA accuracy (§1681e(b)); ICD 203 keeps information apart from judgment. A wrongly asserted relationship about a named third party invites a defamation or false-light claim [I] | [Report format §8](report-format.md) |
+| A6 | **The report states what was observed, cited. It never asserts a relationship.** It says "@mara_q commented 'proud of you, son' on the subject's 3 May post [E-12]", not "Mara Quill is his mother". Hunt never generates a relationship label, in the report, the map or anywhere else in the app (D7): it quotes the words that were observed. A shared surname is never a relationship: at most "shares the surname", and only where it supports identity (A7). The investigator's own conclusion appears only as her note (`N-`), in her words | FCRA accuracy (§1681e(b)); ICD 203 keeps information apart from judgment. A wrongly asserted relationship about a named third party invites a defamation or false-light claim [I] | [Report format §8](report-format.md) |
 | A7 | **Associates support identity, never findings about themselves.** A relative's cited interaction can help show an account is the subject's, as report-format.md §8 lists relatives among identity identifiers. Nothing about an associate's own life is a finding | Purpose limitation | [Report format](report-format.md) |
 | A8 | **Employment screening names no associates.** Identity support cites item ids without naming or describing the person. The screening filter must drop relationship sentences outright: the `PROTECTED` regex in `report.py` matches "married" but not "wife", "son" or "mom" | Relationships reveal protected traits: marital and familial status ([Cal. Gov. Code §12940(a)](https://california.public.law/codes/government_code_section_12940); [N.Y. Exec. Law §296(1)(a)](https://www.nysenate.gov/legislation/laws/EXC/296)), and association with a disabled person ([42 U.S.C. §12112(b)(4)](https://www.law.cornell.edu/uscode/text/42/12112)) [S]. GINA's public-sources exception excludes "social networking sites" and intentional searches, so family medical history from social media is a GINA risk [S] ([29 C.F.R. §1635.8(b)(4)](https://www.law.cornell.edu/cfr/text/29/1635.8)) | [FCRA](#fcra), `seen.py` (screenings stay apart) |
 | A9 | **An associate's own health or other sensitive details are never kept.** A comment about the *subject's* health is about the subject; for a Washington subject it follows F3 | MHMDA; CCPA sensitive personal information; GINA in screenings | [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
 | A10 | **Associates stay in their case.** They are never identifiers in "Have we seen this person before?" (`seen.py` compares only the subject's; keep it that way), never in the learning store, and are deleted with the case (K6) | Linking third parties across cases would build files on people no case is about [I] | [qol.md](../qol.md) |
 
-### Not yet enforced (main at `9b3ee7a`, 2026-10-29)
+### Decisions (provisional, 2026-10-30)
 
-Built since `099144c`:
-- Check again's worklist for login-walled accounts (`recheck.NO_BOTS`)
-- the revocation watcher and the Story warning in Hunt Capture
-- capture never on LinkedIn, Strava or Snapchat
-- the capture record
-- the face gate and MHMDA mode
+These were taken by the main session on Aaron's behalf, and Aaron may overrule them. The options and the conflicts behind them are in [compliance-audit.md §4](compliance-audit.md#4-rule-text-that-needs-a-decision). The rule text above already reflects them.
+
+| # | Question | Decision | Rules |
+|---|---|---|---|
+| D1 | Existence checks (Maigret, WhatsMyName, user-scanner) against C6's deny list | **A narrow exception:** one existence request per site per seed, an honest User-Agent, no TLS or header impersonation. The engines' other filters (DS3, DS4) still apply: no protected or bot-walled sites, no token activation, no unaudited non-GET checks, no stopped platform. DS3's and DS4's drop-every-deny-host filter is replaced by this exception | C6 |
+| D2 | Which hosts the deny list covers | C6's six, **plus strava.com and snapchat.com** | C6, C1 |
+| D3 | Guided mode's default | **Off by default.** She turns it on in Hunt with an audited acknowledgement (not a counsel gate: she can't reach counsel yet). Counsel should confirm before casework | C1, guided mode |
+| G4 | The 20 s lock release | **Documented.** If no capture lands in 20 s, the lock lifts, audited as `guided step not recorded` | Guided mode |
+| D4 | "kept" vs "reported" | `KEPT = ("in report",)`. **"kept" means kept for the file only** | K4 |
+| D5 | California and the face check | **Always blocked;** F2 amended | F2 |
+| D6 | Retention, and the deletion log | **Retention is a reminder.** The deletion log is minimal: time, slug hash, created date, reason, audit row id | K6 |
+| D7 | Relationship labels | **Observed wording everywhere,** in the map and the UI as well as the report. analysis.md §8 rewritten | A6, C13 |
+| D8 | Is a 429 a hard stop? | **No.** A 429 ends that platform's automatic reads for the run. A CAPTCHA, IP block or login wall on an automatic read sets a hard stop | C7, C8 |
+| D9 | Case kinds, and screening | **The four kinds,** each marked consumer report or not (K1). **The screening version is forced for background cases** | K1 |
+| D10 | Media with no audience | **Flag only a shown non-Public audience** | K3 |
+| D11 | How far blurring reaches | **The app and the report.** The bundle and the evidence route keep originals for chain of custody | K7, A5 |
+| D12 | A3 against the capture record | **The archive is kept whole** as the capture record; posts read out of it are filtered | A3, K5 |
+| D13 | A LinkedIn notice script | **None:** Hunt's code stays off LinkedIn. Warnings come from Hunt's screens and the popup only | C10, A4 |
+| D14 | Whole-image CLIP embeddings | **Leave them:** F1 is about face templates | F1 |
+| D15 | The report's "no one was contacted" sentence | **Hunt's statement about its own code,** worded so | C4 |
+
+### Not yet enforced
+
+_Audited at `9e1e39c` ([compliance-audit.md](compliance-audit.md)), adjusted for the decisions above. The fixes went to their owners on 2026-10-30; this list doesn't track which have landed since._
+
+Built, with gaps:
+- **Check again's worklist** for login-walled accounts (`recheck.NO_BOTS`). It leaves out Reddit, Strava and Snapchat, and Threads and `http://` URLs slip past it, so those still get headless recaptures.
+- **The revocation watcher,** for capture only.
+- **The Story warning.** It shows only when the sign-in state is `signed_in`; a middle-click, and Stories that advance by themselves, skip it.
+- **Capture never on LinkedIn, Strava or Snapchat.** No gaps found.
+- **The capture record.** Screenshots and recordings carry no audience.
+- **The face gate.** It allows any residence code it doesn't recognise (`UK`, `EL`, `EU`, `XX`, `US-ZZ`), and nothing in the app runs the face check yet. California is always blocked, as D5 decided.
 
 Still open:
-- **C6:** `sources/facebook.py` still runs in every batch search ("Read public preview" is listed as coming next). `search.screenshot` still takes headless screenshots of every likely account, Facebook, Instagram, X and LinkedIn included.
-- **C6, C11:** `posts.YT_RSS` reads `/feeds/videos.xml`, which YouTube's robots.txt disallows.
-- **F4:** no per-case basis record. EU, UK and Canadian subjects are blocked from the face check for that reason, and collection on them has no record either.
-- **A1–A10:** the associates map is being built. A8's relationship filter is not in `report.py` yet.
-- **C8 with C12:** the scan route in `app.py` calls `vendor.collect` without checking `browser.stops()`. After a hard stop on Instagram or Facebook, the next scan still reads that platform through Apify, the vendor fallback C8 forbids. The fix is to skip a stopped platform's accounts in `vendor.collect`, or before the call, and to note why. Otherwise the Apify connector meets C12 as documented in [vendors.md](vendors.md): no shipped key, off until a key is added, `origin: vendor`, and each run audited.
-- **Not checked here:** whether non-Public items are kept out of reports by default (K3), and the LinkedIn view warning (C10).
+- **C1, guided mode (D3, G4):**
+  - It's on by default, with no acknowledgement step.
+  - Two quick presses can both step.
+  - A numeric Facebook profile (`profile.php?id=`) matches any other.
+  - The audit is sent after the step and doesn't gate it.
+  - In manual mode steps are never captured.
+  - The 20 s release isn't audited as `guided step not recorded`.
+- **C1, C6, C7, C11 (D1):**
+  - Maigret, user-scanner and WhatsMyName send browser User-Agents.
+  - 67 Maigret sites and 22 user-scanner modules use Chrome TLS impersonation.
+  - Maigret reaches X's GraphQL with a bundled bearer token and mints guest tokens.
+  - Protected and bot-walled sites aren't filtered out.
+
+  One honest existence request per site is now allowed; the rest isn't.
+- **C4:**
+  - user-scanner runs a module unless a regex finds a trigger word, whenever the version isn't the audited one or the module is new. `pyproject.toml` pins only `>=1.5.2.3`.
+  - WhatsMyName POSTs from an unpinned list fetched live.
+  - Nothing asks before her own follow, like or message click.
+  - The report's "no one was contacted" sentence isn't worded as Hunt's statement about its own code (D15).
+- **C6 (D2):**
+  - strava.com and snapchat.com aren't on any deny list.
+  - `sources/facebook.py` still runs in every batch search, while "Read public preview" on a Facebook URL reads nothing.
+  - `search.screenshot` takes headless screenshots of every likely account, Facebook, Instagram, X, LinkedIn, Threads and Reddit included.
+  - Threads accounts are read as Mastodon (`posts._site`, `recheck._read`).
+  - TikTok page reads have no gap between them.
+- **C6, C11:** `posts.YT_RSS` reads `/feeds/videos.xml`, which YouTube's robots.txt disallows, whenever no key is set, on watch's schedule too. `test_public.py:212-214` pins it.
+- **C7, K8 (D8):**
+  - After a TikTok 429, Hunt reads the next account instead of ending TikTok for the run, and `test_public.py:237` asserts this.
+  - `search.fan_out` runs every seed of a source at once, so no source's pacing or stop holds across seeds.
+  - `capture.screenshots` saves a CAPTCHA or login page as evidence and carries on.
+- **C8 with C12 (D8):**
+  - `vendor.plan` and `vendor.collect` don't read `browser.stops()`, so after a hard stop on Instagram or Facebook the next scan still reads that platform through Apify.
+  - No other automatic read honours a stop.
+  - No automatic CAPTCHA, IP block or login wall records one.
+- **C10 (D13):** the LinkedIn repeat-view warning covers worklist opens only; Hunt's other open buttons bypass it. No Hunt screen gives logged-out or private-mode advice before the first view.
+- **C12, K5:**
+  - The evidence bundle labels Apify media "added by the investigator", and the report never says posts came through Apify.
+  - Other README sentences aren't true of the code either: guided mode, signed-out captures, the screenshot User-Agent, and "leads the investigator reviewed".
+- **C13, A5:** a minor's name survives in other entries and other people's quotes, before the relationship word, and in lower case. Photo labels aren't checked. The report, the UI and the bundle don't redact at all.
+- **K1, A8 (D9):**
+  - Background reports include unconfirmed "likely" accounts and records.
+  - The screening version isn't forced for background cases.
+  - The screening filter is `PROTECTED` alone, so "wife", "son", "mom" and co-party captions stay.
+  - `/people` serves background cases.
+  - The CLI creates cases with no kind.
+- **K2:** a hard stop with no capture target, and "Have we seen this person before?" lookups, aren't audited.
+- **K3 (D10):** `audience_flag` is stored, but nothing reads it, and there's no counsel-approval record.
+- **K4 (D4):** `KEPT` is still `("kept", "in report")`, so "kept" hits reach the report.
+- **K6 (D6):** `deleted-cases.log` keeps the subject's name (the label) and the purpose. Retention as a reminder matches D6.
+- **K7 (D11):** caption, tag, OCR and "model unavailable" hits are never blurred, and report exports embed pictures unblurred.
+- **F1:** `face.compare()` is public and ungated.
+- **F3:** `case.mhmda` is never read. The fraud basis isn't required or printed, and the wording doesn't change.
+- **F4:** there's no per-case basis or no-notice record. EU, UK and Canadian subjects are blocked from the face check for that reason, and collection on them has no record either.
+- **A1, A3, A10 (D12):**
+  - An associate can be added as a seed and searched.
+  - `POST /preview` reads any account's feed.
+  - Capturing an associate's page keeps and scans all its posts; only the archive should be kept whole.
+  - Those posts' media hashes become `seen.py` identifiers.
+- **A2, A6, A9 (D7):** `graph.associates` stores an address in "same address" entries, keeps unfiltered quotes (an associate's health included), and generates relationship labels ("mother", "possible relative") for the map and the UI.
 
 ## FBI / IC portfolio relevance
 

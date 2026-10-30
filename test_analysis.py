@@ -59,16 +59,20 @@ report = {
 }
 s = pivot.suggestions(report)
 values = [x["value"] for x in s]
-assert set(values) == {"jane@janedoe.dev", "janedoe42", "janedoe_tw", "jane-doe-42", "https://janedoe.dev", "janed",
-                       "janed_codes"}, values  # no jdoe (known), no node.js, nothing from the unlikely Reddit
-assert values[0] in ("jane@janedoe.dev", "janedoe42") and values[-1] == "janed_codes", values  # bare mention is weakest
+assert set(values) == {"jane@janedoe.dev", "janedoe42", "janedoe_tw", "jane-doe-42", "https://janedoe.dev", "janed"}, values
+# no jdoe (known), no node.js, nothing from the unlikely Reddit, and no @mention: that's someone else (AN8)
+assert values[0] in ("jane@janedoe.dev", "janedoe42"), values
 by = {x["value"]: x for x in s}
 assert by["janedoe_tw"]["kind"] == "username" and by["janedoe_tw"]["source_url"] == "https://github.com/jdoe"
 assert by["https://janedoe.dev"]["kind"] == "url" and by["jane@janedoe.dev"]["kind"] == "email"
 assert by["janedoe42"]["why"] == "Gravatar (likely) account is named 'janedoe42'", by["janedoe42"]
 assert not pivot.suggestions(report, min_p=0.95)
 report["candidates"][0]["decision"], report["candidates"][2]["decision"] = "not him", "him"  # decisions beat scores
-assert {x["value"] for x in pivot.suggestions(report)} == {"janedoe42", "other@example.net", "someoneelse"}
+assert {x["value"] for x in pivot.suggestions(report)} == {"janedoe42", "other@example.net"}
+# AN8: a relative's handle or email in a bio is never a lead to search
+married = {"subject_seeds": [], "candidates": [cand("X", "https://x.com/jdoe", 0.9, {
+    "bio": "Married to @ines_vell. My wife's email is ines@example.com. Mine: jane@janedoe.dev"})]}
+assert [x["value"] for x in pivot.suggestions(married)] == ["jane@janedoe.dev"]
 
 # Namesakes: two people both use "jdoe" and the same display name. Jane links her accounts and
 # reuses one photo; the other Jane Doe reuses another. A shared name, @mentions of the same handle
@@ -221,7 +225,9 @@ assert match.score(name, "", {"fullname": "John Smith", "dob": "1981-04-12"}, [n
 # Face check gate: by the subject's residence; unknown means blocked; every decision audited with its rule
 c = Case("face test", "self-check")
 for where, ok in (("", False), ("US", False), ("US-IL", False), ("US-TX", False), ("US-WA", False), ("US-CO", False),
-                  ("US-CA", False), ("GB", False), ("CA-ON", False), ("DE", False), ("NO", False), ("US-AZ", True), ("AU", True)):
+                  ("US-CA", False), ("GB", False), ("CA-ON", False), ("DE", False), ("NO", False), ("US-AZ", True), ("AU", True),
+                  ("UK", False), ("EL", False), ("EU", False), ("XX", False), ("US-ZZ", False), ("GP", False), ("RE", False),
+                  ("JE", False), ("AU-NSW", True), ("US-PR", True), ("ZZ-1", False), ("U$", False)):  # AN2: allow-list only
     c.set_details(subject_residence=where)
     assert face.gate(c)[0] is ok, (where, face.gate(c))
     assert c.rows("select detail from audit where action = 'face gate' order by rowid desc limit 1")[0]["detail"].count("rule")
@@ -264,6 +270,31 @@ assert face.reason({"match": "unclear", "why": "no face found", "score": None, "
     (0.0, "face", "couldn't compare faces: no face found")
 face.disable(c)
 assert face.basis(c) is None
+# AN11: the only way to compare faces is verify_all on a case; it keeps no template, on disk or in the database
+assert not hasattr(face, "compare")
+import numpy as np  # noqa: E402
+
+c11 = Case("face template test", "self-check")
+c11.set_details(subject_residence="US-AZ")
+face.enable(c11, "basis on file")
+ref11 = Path(tempfile.mkdtemp()) / "ref.jpg"
+picture(3).save(ref11)
+face.add_reference(c11, ref11)
+saved = (face._faces, face._gate, face._embed)
+face._faces = lambda images: [{"image": i, "faces_found": 1, "quality": {"face_px": 100}, "why": None, "aligned": 1}
+                              for i in images]
+face._gate = lambda faces: None
+face._embed = lambda faces: {id(f): np.ones(512) / np.sqrt(512) for f in faces}
+snap = lambda: {p: p.stat().st_mtime_ns for root in (c11.dir, Path(os.environ["HUNT_HOME"]))
+                for p in root.rglob("*") if p.is_file() and not p.name.startswith("case.db")}
+before = snap()
+out11 = face.verify_all(c11, [("https://example.com/x", ref11)])
+face._faces, face._gate, face._embed = saved
+assert out11[0]["result"] == "yes" and snap() == before  # no file added or changed but the case database
+cols = [r["type"].lower() for r in c11.rows("select type from pragma_table_info('face_checks')")]
+assert "blob" not in cols, cols
+row = c11.rows("select * from face_checks")[0]
+assert not any(isinstance(v, (bytes, str)) and len(str(v)) > 500 for v in row.values()), row  # no 512 floats stored
 assert [r["action"] for r in c.rows("select action from audit") if r["action"] != "face gate"][-4:] == \
     ["face comparison on", "reference photo added", "reference photo removed", "face comparison off"]
 
@@ -290,7 +321,7 @@ if models:
     menon, birch = "File:Anil Menon portrait.jpg", "File:Christina Birch portrait.jpg"
     have = menon in titles and birch in titles and pick(menon).exists() and pick(birch).exists()
     ref = Image.open(pick(menon)).convert("RGB") if have else cartoon
-    r = face.compare([ref], [cartoon, Image.new("RGB", (300, 300), "white")]
+    r = face._compare([ref], [cartoon, Image.new("RGB", (300, 300), "white")]
                      + ([ref.crop((20, 20, ref.width - 20, ref.height - 40)), Image.open(pick(birch))] if have else []))
     assert all(x["score"] is None and x["match"] == "unclear" for x in r[:2]), r[:2]
     if have:
@@ -321,20 +352,64 @@ posts_ = [
     {"id": 4, "account_url": fb, "url": "https://facebook.com/p/4", "origin": "fetched", "extra": None,
      "text": "Gym with Rafa Ortiz and Kim Vell. Dinner with my coworker Sam Lee and Dorian Vell"},
 ]
-r = graph.associates(posts_, cands, subject, [{"id": 1, "media_id": 7, "label": "Dan", "post_id": 1}])
-by = {(p["name"] or p["labels"][0]): p for p in r["people"]}
-assert by["Dan"]["types"] == ["sibling", "in photo with"] and by["Dan"]["cites"][0]["ref"] == "E-1"
-assert set(by["Ines Vell"]["types"]) == {"partner"} and {c["kind"] for c in by["Ines Vell"]["cites"]} == {"bio", "post"}  # es + en, one person
-assert by["mother"]["types"] == ["parent"] and by["mother"]["cites"][0]["quote"] == "Back with mom for dinner."
-assert by["sister"]["name"] is None and by["Sam Lee"]["types"] == ["co-worker"] and by["Rafa Ortiz"]["types"] == ["tagged with"]
-assert by["Example Builders LLC"]["types"] == ["co-party"] and by["Marta Ruiz"]["types"] == ["same address"]
-assert "possible relative" in by["Kim Vell"]["types"] and by["Kim Vell"]["confidence"] == 0.6  # surname: a hint, never more
-son = by["son"]
-assert son["minor"] and son["name"] is None and "[name withheld]" in son["cites"][0]["quote"]
-assert by["children"]["minor"] and by["children"]["cites"][0]["kind"] == "bio"
+r = graph.associates(posts_, cands, subject, [{"id": 1, "media_id": 7, "label": "Dan", "post_id": 1}], case_key="vance")
+kids = [p for p in r["people"] if p["minor"]]
+by = {p["name"]: p for p in r["people"] if p["name"]}
+assert by["Dan"]["labels"] == ["my brother", "marked in a photo"] and by["Dan"]["cites"][0]["ref"] == "E-1"
+assert by["Ines Vell"]["labels"] == ["Married to", "mi esposa"] and {c["kind"] for c in by["Ines Vell"]["cites"]} == {"bio", "post"}
+unnamed = {p["labels"][0]: p for p in r["people"] if not p["name"] and not p["minor"]}
+assert set(unnamed) == {"my little sister", "with mom"} and unnamed["with mom"]["cites"][0]["quote"] == "Back with mom for dinner."
+assert by["Sam Lee"]["labels"] == ["my coworker"] and by["Rafa Ortiz"]["labels"] == ["tagged"]
+assert by["Example Builders LLC"]["labels"] == ["co-party"]
+# AN6: no "same address" entries, and no address in any quote
+assert "Marta Ruiz" not in by and "12 Alder Lane" not in json.dumps(r)
+# AN7: observed wording, never a generated relationship; a shared surname is only that
+REL = {"mother", "father", "brother", "sister", "parent", "sibling", "partner", "possible relative", "child", "co-worker", "friend"}
+assert not any(set(p["types"]) & REL or set(p["labels"]) & REL for p in r["people"])
+assert "shares the surname" in by["Kim Vell"]["labels"] and by["Kim Vell"]["confidence"] == 0.6
+# AN1: possible minors are "a child", with no name anywhere
+assert {tuple(p["labels"]) for p in kids} == {("a child",)} and all(p["name"] is None for p in kids)
+assert any("[name withheld]" in c["quote"] for p in kids for c in p["cites"]) and all(c["words"] is None for p in kids for c in p["cites"])
 dump = json.dumps(r)
-assert "Tyler" not in dump and "Zed" not in dump and "Lena" not in dump and "Dorian Vell" not in [p["name"] for p in r["people"]]
+assert "Tyler" not in dump and "Zed" not in dump and "Lena" not in dump and "Dorian Vell" not in by
 assert r["notice"].startswith("Associates are named in the subject's own") and all(p["cites"] for p in r["people"])
+# AN9: the same person has a different id in another case
+assert graph.associates(posts_, cands, subject, case_key="other")["people"][0]["id"] != r["people"][0]["id"] or \
+    not set(p["id"] for p in graph.associates(posts_, cands, subject, case_key="other")["people"]) & {p["id"] for p in r["people"]}
+
+
+def probe(*texts, labels=()):
+    """associates() on posts by the subject's own account; returns (result, its JSON)."""
+    ps = [{"id": k, "account_url": fb, "url": None, "origin": "fetched", "extra": None, "text": t} for k, t in enumerate(texts)]
+    rows = [{"id": k, "media_id": k, "label": lab, "post_id": None} for k, lab in enumerate(labels)]
+    out = graph.associates(ps, cands[:1], subject, rows, case_key="vance")
+    return out, json.dumps(out)
+
+
+# AN1 probes: a minor's name leaks nowhere, however it's written or where else it appears
+for texts, labels in ((["my son Leo Vell turned 9", "Dinner with Leo Vell"], ()),                     # probe 1: another entry
+                      (["My son Leo and my brother Dan"], ()),                                       # probe 2: Dan's quote
+                      (["Gym with Leo Vell, my stepson"], ()),                                       # before the word
+                      (["Leo Vell, age 9, won his match"], ()),                                      # an age, no word
+                      (["Picnic with Leo Vell (16yo)"], ()), (["Leo Vell is 15 today"], ()),
+                      (["Leo Vell's 16th birthday!"], ()), (["Proud of Leo Vell, a 5-year-old champ"], ()),
+                      (["my daughter leo is here"], ()),                                              # lower case
+                      (["Dad to Leo and Emma"], ()),                                                 # "dad to"
+                      (["Beach day with mijo Leo"], ()), (["my little girl Leo"], ()),
+                      ([], ["Leo (my son)"]), (["Dinner with Leo Vell"], ["Leo Vell, my boy"])):    # photo labels
+    out, js = probe(*texts, labels=labels)
+    assert "Leo" not in js and "leo" not in js.lower().replace("[name withheld]", ""), (texts, labels, js)
+    assert any(p["minor"] and p["labels"] == ["a child"] for p in out["people"]), (texts, out)
+out, js = probe("My son Leo and my brother Dan")
+assert "Dan" in [p["name"] for p in out["people"] if not p["minor"]] and "Leo" not in js
+assert not any(p["minor"] for p in probe("my brother Dan is 15 minutes late again")[0]["people"][:1])  # not an age
+# AN6: contact details, addresses and health words are withheld from quotes
+_, js = probe("Visiting my mom in hospital after her chemo.", "Call my brother Dan at (520) 555-0143 or dan.vell@example.com",
+              "My sister lives at 44 Birch Street now, see www.example.com/sis")
+for leak in ("hospital", "chemo", "555-0143", "dan.vell@example.com", "44 Birch Street", "www.example.com"):
+    assert leak not in js, leak
+assert "[detail withheld]" in js
+
 c = Case("people test", "self-check")
 graph.label_photo(c, 7, "Dan")
 assert [x["label"] for x in graph.photo_labels(c)] == ["Dan"] and c.rows("select action from audit")[-1]["action"] == "person marked in photo"
@@ -375,8 +450,8 @@ for x in r["leads"]:
 assert {x["kind"] for x in by["lifting"]} == {"scan", "post"} and by["lifting"][0]["confidence"] == 0.8  # kept, confirmed him
 assert "“Moving day.” … “Helped my brother move the couch.”" in next(x["shows"] for x in by["lifting"] if x["kind"] == "post")
 assert {tuple(x["cites"]) for x in by["working"]} == {("A-7",), ("E-3",), ("A-8",), ("E-6",)}, by["working"]
-assert next(x for x in by["working"] if x["cites"] == ["E-6"])["shows"].startswith("A post on 2026-06-10 (101 days after the injury) "
-                                                                                   "names a co-worker (Ana Ruiz)")
+assert next(x for x in by["working"] if x["cites"] == ["E-6"])["shows"] == \
+    "A post on 2026-06-10 (101 days after the injury) says: “Lunch with my coworker Ana Ruiz”"
 assert {tuple(x["cites"]) for x in by["driving"]} == {("E-4",), ("A-8",)}  # the driving hit was set aside: not a lead
 assert [x["kind"] for x in by["walking"]] == ["post"] and "sport" not in by  # her own caption counts; the hit shows
 assert [x["leads"] for x in r["restrictions"]] == [2, 1, 2, 4, 0]               # someone else; the gym post was before
@@ -391,5 +466,23 @@ assert [e["after_injury"] for e in tl[:2]] == [False, False] and all(e["after_in
 assert not any(e["kind"] == "stated" and "gym" in e["what"] for e in tl)  # life events only, not every caption
 assert any(e["what"] == "Stated in a post: “started a new job at Harbor Freight Movers”" for e in tl)
 assert next(e for e in tl if e["cites"] == ["E-2"])["categories"] == ["lifting"]
+# Wording: "A photo posted on …", "A post on …", captions quoted, the scan's description in mid-sentence form
+assert by["lifting"][0]["shows"].startswith("A photo posted on 2026-04-02 (32 days after the injury) appears to show lifting")
+assert leads._shows("Caption: “Carried the sofa down three flights”") == "has the caption “Carried the sofa down three flights”"
+assert [leads._shows(w) for w in ("A person lifting a barbell", "Carrying a box", "CDL truck", "Jane lifting")] == \
+    ["appears to show a person lifting a barbell", "appears to show carrying a box", "appears to show CDL truck",
+     "appears to show Jane lifting"]
+assert leads._media({"t0": None, "media_id": None}) == "A post"
+# Published competition results (sources/activity.py): a meet after the injury is a lead against lifting and sport;
+# every meet is on the timeline
+lifter = {"site": "OpenPowerlifting", "url": "https://www.openpowerlifting.org/u/x", "found_by": ["activity"], "probability": 0.8,
+          "decision": None, "finding_ids": [11], "attrs": {"meets": [
+              {"date": "2025-10-04", "meet": "Desert Classic", "event": "full power (squat, bench, deadlift)", "total_kg": 400.0, "place": "2"},
+              {"date": "2026-04-18", "meet": "Spring Open", "event": "deadlift only", "total_kg": 182.5, "place": "1"}]}}
+r2 = leads.leads({**details, "limits": "No lifting over 5 kg", "look_for": ["sport"]}, [], [], [lifter])
+assert [(x["restriction"], x["cites"], x["confidence"]) for x in r2["leads"]] == [("lifting", ["A-11"], 0.8), ("sport", ["A-11"], 0.8)]
+assert r2["leads"][0]["shows"] == ("OpenPowerlifting: competed in Spring Open (deadlift only), total 182.5 kg, place 1 "
+                                   "on 2026-04-18 (48 days after the injury)"), r2["leads"][0]["shows"]
+assert [e["after_injury"] for e in leads.timeline(details, [], [], [lifter]) if e["kind"] == "record"] == [False, True]
 
 print("ok")

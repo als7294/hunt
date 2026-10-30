@@ -57,4 +57,23 @@ assert seen.lookup(seen.from_seeds(["nobody_like_this"]))["matches"] == []
 for r in (seen.for_case(hired), seen.for_case(vance, screening=True), seen.lookup({("email", "kestrel@example.com")},
                                                                                     screening=True)):
     assert not r["checked"] and r["matches"] == [] and "employment screening" in r["why"]
+
+# Q3 (compliance-audit.md): only the subject's media identify them. A friend's post captured in one case doesn't
+# link it to another case holding the same file; nor do the names of people around the subject
+(tmp / "party.jpg").write_bytes(b"a made-up photo from a friend's account")
+friend = case("Friend's post", "insurance", ["quinn_example"])
+posts.add_posts(friend, [{"source": "Instagram", "url": "https://instagram.example/p/F1/",
+                          "account_url": "https://instagram.example/a_friend/", "media": [str(tmp / "party.jpg")]}],
+                origin="captured")
+mine = case("Same file, added", "insurance", ["unrelated_two"])
+posts.add_files(mine, [tmp / "party.jpg"], None, None)
+assert not any(m["case"] == "friend-s-post" for m in seen.for_case(mine)["matches"])  # a third party's file
+friend.decide("https://instagram.example/a_friend/", "him")  # once that account is marked as the subject's, it counts
+assert any(m["case"] == "friend-s-post" for m in seen.for_case(mine)["matches"])
+
+from hunt import graph  # noqa: E402
+[post] = posts.add_posts(vance, [{"source": "Bluesky", "text": "Dinner with my brother Dan Vell", "posted_at": "2026-05-01"}])
+graph.label_photo(vance, 1, "Dan")
+ids = seen.identifiers(vance)
+assert ("name", "dan vell") not in ids and ("name", "dan") not in ids
 print("ok")

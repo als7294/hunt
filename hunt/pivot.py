@@ -70,7 +70,10 @@ def suggestions(report: dict, min_p: float = LIKELY) -> list[dict]:
         found = facts(c["attrs"], c["url"])
         if c["seed"]["kind"] != "username" and (own := _handle(c["url"])):  # found by email or phone: its handle is new
             found.append({"kind": "username", "value": own, "how": f"account is named '{own}'", "rank": 0})
+        bio = " ".join(str(c["attrs"].get(k) or "") for k in TEXT_KEYS)
         for f in found:
+            if f["rank"] == 3 or f["kind"] == "email" and _about_someone(bio, f["value"]):
+                continue  # an @mention or a relative's email is someone else: never a lead to search (legal.md C13)
             key = match.norm_url(f["value"]) if f["kind"] == "url" else f["value"].lower()
             if key not in have and (key not in best or f["rank"] < best[key][0]):
                 best[key] = (f["rank"], {"value": f["value"], "kind": f["kind"], "source_url": c["url"],
@@ -116,6 +119,13 @@ def facts(attrs: dict, own_url: str = "") -> list[dict]:
             for h in MENTION.findall(text):
                 add("username", h, f"mentions @{h} in the bio", 3)
     return out
+
+
+def _about_someone(text: str, value: str) -> bool:
+    """Whether `value` sits in a sentence that names a relationship ("my wife's email is …", "Married to …")."""
+    from .graph import BIO, POSSESSIVE
+    return any(value.lower() in sentence.lower() and (POSSESSIVE.search(sentence) or BIO.search(sentence))
+               for sentence in re.split(r"(?<=[.!?])\s+", text))
 
 
 def gravatar(attrs: dict) -> set[str]:

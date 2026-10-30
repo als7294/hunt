@@ -138,4 +138,34 @@ assert gone["change"] == "posts gone" and gone["none_left"] and len(gone["posts"
 # 4. Nothing changed: nothing reported twice
 s, ev = look()
 assert changed(ev) == [] and s["changes"] == 0
+
+# Q2 (compliance-audit.md): '/@handle' isn't Mastodon. No WebFinger, no request of any kind, to these
+def no_request(*a, **kw):
+    raise AssertionError("a request to a host Hunt must not touch")
+
+
+recheck.bluesky.search = recheck.mastodon.search = no_request
+for url in ("https://www.threads.net/@x", "https://www.tiktok.com/@x", "https://www.youtube.com/@x", "https://medium.com/@x"):
+    assert asyncio.run(recheck._read(url, ""))[1] == "unreadable", url
+assert recheck._mastodon("https://mastodon.example/@bob", "") and recheck._mastodon("https://hachyderm.io/@bob", "Mastodon (hachyderm.io)")
+assert not recheck._mastodon("https://www.threads.net/@x", "Threads")
+
+# Q4: the headless recapture is an allowlist; login-walled and default-deny hosts are never screenshotted
+asked = []
+
+
+async def screenshots_seen(urls):
+    asked.extend(urls)
+    return {u: (b"\x89PNG fake", "<html>page</html>") for u in urls}
+
+
+recheck.screenshots = screenshots_seen
+walled = ["https://www.reddit.com/user/x", "https://www.strava.com/athletes/1", "https://www.snapchat.com/add/x",
+          "https://www.threads.net/@x", "https://www.instagram.com/x/", "https://www.facebook.com/x",
+          "https://x.com/x", "https://www.linkedin.com/in/x/", "https://github.com/x"]
+allowed = ["https://www.tiktok.com/@x", "https://www.youtube.com/@x", f"https://bsky.app/profile/{BSKY}",
+           "https://mastodon.example/@bob"]
+asyncio.run(recheck._recapture(case, [{"url": u, "site": "", "finding_id": 1} for u in walled + allowed], lambda e: None))
+assert asked == allowed, asked
+assert {"Reddit", "Threads", "Strava", "Snapchat"} <= recheck.NO_BOTS <= recheck.WORKLIST
 print("ok")

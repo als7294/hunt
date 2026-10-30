@@ -131,7 +131,7 @@ scan._clip_scores, vlm.judge, vlm.unload = clip_scores, judge, unload
 reads = []
 
 
-async def read_profile(url):
+async def read_profile(url, site=""):  # recheck._read(url, site): site says whether it is Mastodon
     reads.append(url)
     return "bluesky", "ok", {"fullname": "Bob Vance", "bio": f"bio v{len(reads) > 6}", "image": None}, ""
 

@@ -8,6 +8,7 @@ import asyncio
 import base64
 import hashlib
 import io
+import json
 import os
 import shutil
 import sys
@@ -26,8 +27,9 @@ import httpx
 from hunt.match import score
 from hunt.seed import KINDS, Seed
 import hunt.sources as registry
-from hunt.sources import (SOURCES, _api, _socrata, activity, bluesky, businesses, courtlistener, courts, edgar, fec, fmcsa,
-                          github, gravatar, keybase, licences, mastodon, npi, openpgp, stackexchange, wayback)
+from hunt.sources import (SOURCES, _api, _socrata, activity, bluesky, businesses, courtlistener, courts, edgar, facebook, fec,
+                          fmcsa, github, gravatar, keybase, licences, maigret, mastodon, npi, openpgp, stackexchange, user_scanner,
+                          wayback, wmn)
 
 NEW = [github, gravatar, keybase, bluesky, mastodon, stackexchange, openpgp, wayback, fec, edgar, npi, courtlistener,
        licences, businesses, fmcsa, courts, activity]
@@ -79,9 +81,74 @@ def raises(exc, mod, kind, value) -> str:
     raise AssertionError(f"{mod.NAME}: expected {exc.__name__}")
 
 
-# Registry: every source keeps the contract
+# Registry: every source keeps the contract; Facebook is never in a batch search (compliance audit DS5)
 assert set(NEW) <= set(SOURCES) and len({s.NAME for s in SOURCES}) == len(SOURCES)
 assert all(set(s.KINDS) <= set(KINDS) and asyncio.iscoroutinefunction(s.search) for s in SOURCES)
+assert facebook not in SOURCES and asyncio.iscoroutinefunction(facebook.search)  # the app's click action still has it
+
+# One deny list, by hostname whatever the scheme (DS2; decision D2 (b): Strava and Snapchat too)
+for url in ("https://www.instagram.com/x", "http://X.com/a", "strava.com/athletes/1", "https://m.facebook.com/p", "https://fb.com/p",
+            "https://www.snapchat.com/add/x", "https://old.reddit.com/u/x", "https://www.threads.com/@x"):
+    assert _api.denied(url), url
+for url in ("https://xnxx.com/", "https://www.dropbox.com/", "https://wix.com/", "https://notreddit.com/", "https://github.com/x"):
+    assert not _api.denied(url), url
+
+# Maigret: one honest request per site (DS3): no deny-list host, no bot-walled or activation-gated site, no browser headers
+import maigret.utils as maigret_utils
+msites = maigret.sites()
+assert len(msites) == 385 and maigret_utils.DEFAULT_USER_AGENTS == [_api.UA], len(msites)
+for name, site in msites.items():
+    for template in (site.url, site.url_probe, site.url_main):
+        assert not template or not _api.denied(maigret._url(site, template)), (name, template)
+    assert not any(p in maigret.WALLS for p in site.protection or ()) and not site.activation, name
+    assert (site.request_method or "GET").upper() == "GET" or name in maigret.POST_OK, name
+    assert not any(k.lower() == "user-agent" or k.lower().startswith("sec-ch") for k in site.headers), (name, site.headers)
+assert not {"Twitter", "Instagram", "Reddit", "Facebook", "LinkedIn", "Threads", "Snapchat", "Strava"} & set(msites)
+assert "GitHub" in msites and "GitHub" not in maigret.sites(extra_deny=("github.com",))  # a stopped platform's host
+assert maigret.AUDITED == "0.6.6"
+
+# user-scanner fails closed (DS1): only modules read at the audited release run; deny hosts and impersonators never
+us_mods = user_scanner._modules()
+us_loud = {m.__name__ for m in us_mods if user_scanner.is_loud(user_scanner.get_site_name(m), is_email=True)}
+by_name = {m.__name__: m for m in us_mods}
+assert user_scanner._skip(by_name["instagram"]) == user_scanner._skip(by_name["x"]) == "robots"
+assert user_scanner._skip(by_name["github"]) == "evades bot checks" and user_scanner._skip(by_name["anilist"]) == "audit"
+running = {m.__name__ for m in us_mods if not user_scanner._skip(m)}
+assert running <= user_scanner.AUDITED_SILENT - us_loud and len(running) == 103, len(running)
+assert not any(user_scanner.EVADES.search(open(by_name[n].__file__).read()) for n in running)
+assert not any(_api.denied(u) for n in running for u in user_scanner.URLS.findall(open(by_name[n].__file__).read()))
+assert not (user_scanner.NOTIFIES | user_scanner.AUDITED_SILENT) - set(by_name) and len(by_name) == len(us_mods)  # none gone
+real_version = user_scanner.version
+user_scanner.version = lambda dist: "9.9.9"
+assert all(user_scanner._skip(m) for m in us_mods) and user_scanner._skip(by_name["adobe"]) == "unaudited"
+user_scanner.version = real_version
+
+# WhatsMyName (DS4): a pinned list, Hunt's User-Agent, no deny-list host, a POST only for entries somebody read
+assert wmn.PIN in wmn.DATA_URL and wmn.PIN[:12] in wmn.CACHE.name and wmn.UA == _api.UA
+asyncio.run(wmn._client().aclose())
+assert wmn._client().headers["user-agent"] == _api.UA
+wmn.CACHE.parent.mkdir(parents=True, exist_ok=True)
+wmn.CACHE.write_text(json.dumps({"sites": [
+    {"name": "Instagram", "uri_check": "https://www.instagram.com/{account}", "e_code": 200, "e_string": "x", "m_code": 404, "m_string": "y", "cat": "social"},
+    {"name": "Example Forum", "uri_check": "https://forum.example/u/{account}", "e_code": 200, "e_string": "profile", "m_code": 404,
+     "m_string": "gone", "cat": "misc", "headers": {"User-Agent": "Mozilla/5.0 Chrome", "Accept": "text/html"}},
+    {"name": "Unread POST", "uri_check": "https://post.example/check", "post_body": "{\"username\":\"{account}\"}", "e_code": 200,
+     "e_string": "taken", "m_code": 200, "m_string": "free", "cat": "misc"},
+    {"name": "Tindie", "uri_check": "https://www.tindie.com/accounts/check_username/", "post_body": "username={account}", "e_code": 200,
+     "e_string": "taken", "m_code": 200, "m_string": "free", "cat": "shopping", "headers": {"Content-Type": "application/x-www-form-urlencoded"}}]}))
+wmn_seen = []
+def wmn_answer(request):
+    wmn_seen.append(request)
+    return httpx.Response(200, text="profile" if "forum.example" in str(request.url) else "taken")
+real_wmn_client = wmn._client
+wmn._client = lambda: httpx.AsyncClient(transport=httpx.MockTransport(wmn_answer), headers={"User-Agent": wmn.UA})
+found, checked, note = run(wmn, "username", "kvane")
+assert [f.site for f in found] == ["Example Forum", "Tindie"] and "checked 2 sites (2 skipped" in note, (found, note)
+assert {str(r.url): r.method for r in wmn_seen} == {"https://forum.example/u/kvane": "GET", "https://www.tindie.com/accounts/check_username/": "POST"}
+assert all(r.headers["user-agent"] == _api.UA for r in wmn_seen) and wmn_seen[0].headers["accept"] == "text/html"
+wmn._client = real_wmn_client
+assert [s["name"] for s in json.loads(wmn.CACHE.read_text())["sites"] if wmn.usable(s)] == ["Example Forum", "Tindie"]
+wmn.CACHE.unlink()
 
 # GitHub: profile + social links, cached; impossible handles cost nothing
 PROFILE = {"login": "kestrel-vane", "html_url": "https://github.com/kestrel-vane", "name": "Robert Vance",
