@@ -100,9 +100,15 @@ It is never an invented persona (that's a sock puppet, the hiQ loss pattern), an
 - **EU AI Act Art. 5(1)(e):** bans *untargeted* scraping to build face databases (in force 2025-02-02). GDPR Art. 9 treats biometrics as special-category data [S] ([FPF](https://fpf.org/blog/red-lines-under-the-eu-ai-act-understanding-the-ban-of-the-untargeted-scraping-of-facial-images-and-facial-recognition-databases/)).
 - **[I] Decision (MVP):** no face recognition. If it's ever added: off by default, 1:1 comparison of investigator-supplied images only, no persistent face index, purpose recorded per use, permissive-licence models only.
 - **[I] Decision (2026-10-29): 1:1 face verification against a reference photo, built inside those limits** (`hunt/face.py`, details in [analysis.md](../analysis.md)):
+  - **Gated on where the subject lives** (`face.gate`, rules F1–F2 below). The case detail `subject_residence` is an ISO 3166 code like `US-AZ` or `GB`.
+    - **Blocked:** an unknown residence, or a US residence without a state. Also IL (BIPA), TX (CUBI; TRAIGA (e)(3) untested), WA (My Health My Data Act), CO (HB 24-1130), CA (until counsel accepts §1798.145(a)(1)(E)), the EU/EEA, the UK and Canada (per-case basis records Hunt doesn't keep yet).
+    - **Checked at two points:** when the case turns the check on, and again before every run, because the residence can change.
+    - **Audited:** every decision is written as `face gate` with `{allowed, residence, rule}`.
+  - **Washington MHMDA mode:** a `US-WA` subject sets `case.mhmda`, which the report can read. The fraud basis goes in the case detail `mhmda_basis`, and the report words findings as observed activity, not physical condition.
   - **Off by default.** Each case turns it on with a legal basis the investigator types in; it's stored and audited, and turning it off is audited too.
+  - **Leads, never evidence.** A face result is one capped reason in the matcher. The report shouldn't cite it as proof of identity.
   - **1:1 only.** The case's own reference photos are compared with that case's candidate images: profile photos, kept post media, and hits from reverse image search or a face-search plug-in, which only ever get *verified* here. No face index, no searching by face, nothing compared across cases.
-  - **No templates kept.** Embeddings live in memory for one call. The case stores only the result (match, score, quality numbers, which image), the reference photo itself (as evidence), and the audit trail. All of it is deleted with the case.
+  - **No templates kept, not even in a temp file.** Embeddings live in memory for one call; OpenCV runs both models in memory. The case stores only the result (match, score, quality numbers, which image), the reference photo itself (as evidence), and the audit trail. All of it is deleted with the case.
   - **Hard cases go to the investigator.** No face, several faces, a small, blurred or turned face, a drawing or animal, or a probable child (judged by CLIP, and never compared) come back "unclear" with the reason.
   - **Never a verdict alone.** The match is one capped reason in the matcher and can't be the second identifier.
   - **Models:**

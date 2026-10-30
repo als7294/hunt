@@ -205,8 +205,34 @@ assert verdict == "roughly even chance" and "a face alone isn't a second identif
 p2, *_ = match.score(rare, "https://example.com/xq7dorianv", {"fullname": "Dorian Vell"}, subject, extra=face_yes)
 assert p2 > 0.95, p2  # with a name as the second identifier, the face adds its capped weight
 
-# Face check guardrails: off by default, needs a legal basis and a reference photo; audited
+# Records found by name: the name alone barely counts, so namesakes sink; a fact the case knows lifts the right one
+name, subj = Seed("name", "John Smith"), [Seed("name", "John Smith")]
+facts = {"subject_dob": "1981-04-12", "subject_employer": "Acme Freight"}
+score = lambda attrs: match.score(name, "", {"fullname": "John Smith", **attrs}, subj, facts=facts)
+assert score({})[1] == "very unlikely" and "barely counts" in score({})[2][0]
+assert score({"dob": "04/12/1981"})[1] == "almost certain" and score({"employer": "Acme Freight LLC"})[0] > 0.8
+assert score({"age": str(__import__("datetime").date.today().year - 1981)})[1] == "likely"
+assert score({"birth_year": "1962"})[1] == "almost no chance" and score({"dob": "1981-05-02"})[0] < 0.1
+assert match.score(name, "", {"fullname": "John Smith", "age": "52"}, subj, facts={"subject_age_range": "40-45"})[0] < 0.05
+
+# Face check gate: by the subject's residence; unknown means blocked; every decision audited with its rule
 c = Case("face test", "self-check")
+for where, ok in (("", False), ("US", False), ("US-IL", False), ("US-TX", False), ("US-WA", False), ("US-CO", False),
+                  ("US-CA", False), ("GB", False), ("CA-ON", False), ("DE", False), ("NO", False), ("US-AZ", True), ("AU", True)):
+    c.set_details(subject_residence=where)
+    assert face.gate(c)[0] is ok, (where, face.gate(c))
+    assert c.rows("select detail from audit where action = 'face gate' order by rowid desc limit 1")[0]["detail"].count("rule")
+    try:
+        face.enable(c, "basis on file")
+        assert ok, where
+        face.disable(c)
+    except PermissionError as e:
+        assert not ok and "blocked for this subject" in str(e), (where, e)
+c.set_details(subject_residence="US-WA")
+assert c.mhmda and not Case("other", "self-check").mhmda  # Washington subjects: MHMDA mode for the report
+c.set_details(subject_residence="US-AZ")
+
+# Face check guardrails: off by default, needs a legal basis and a reference photo; audited
 assert face.basis(c) is None
 try:
     face.verify(c, "x.jpg")
@@ -235,7 +261,7 @@ assert face.reason({"match": "unclear", "why": "no face found", "score": None, "
     (0.0, "face", "couldn't compare faces: no face found")
 face.disable(c)
 assert face.basis(c) is None
-assert [r["action"] for r in c.rows("select action from audit")][-4:] == \
+assert [r["action"] for r in c.rows("select action from audit") if r["action"] != "face gate"][-4:] == \
     ["face comparison on", "reference photo added", "reference photo removed", "face comparison off"]
 
 # With the models: a generated cartoon and a blank picture never get a score; if the public-domain

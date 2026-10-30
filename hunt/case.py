@@ -20,7 +20,12 @@ from .seed import Finding, Seed, now
 HOME = Path(os.environ.get("HUNT_HOME", Path.home() / "Hunt"))
 DETAILS = ("label", "kind", "reference", "injury_date", "limits", "look_for", "tool",
            # the report's header block and conclusion (docs/research/report-format.md)
-           "client", "adjuster", "file_number", "assignment_date", "subject_dob", "recommendations")
+           "client", "adjuster", "file_number", "assignment_date", "subject_dob", "recommendations",
+           # known facts the matcher scores records against (match.score `facts`; docs/analysis.md)
+           "subject_age_range", "subject_employer",
+           # where the subject lives, ISO 3166 ("US-AZ", "GB"): gates the face check (face.gate) and
+           # turns on Washington MHMDA mode; mhmda_basis records the fraud basis (RCW 19.373.100(3))
+           "subject_residence", "mhmda_basis")
 DATES = ("injury_date", "assignment_date", "subject_dob")  # YYYY-MM-DD
 RETENTION_DAYS = 90  # from opening; then the case is due for deletion unless on legal hold (watch.py stops then too)
 DECISIONS = ("him", "not him", "unsure")
@@ -104,6 +109,12 @@ class Case:
         self.db.executemany("insert or replace into meta values (?, ?)",
                             [(k, json.dumps(v) if k == "look_for" else v) for k, v in details.items() if v is not None])
         self.db.executemany("delete from meta where key = ?", [(k,) for k, v in details.items() if v == ""])
+
+    @property
+    def mhmda(self) -> bool:
+        """Washington My Health My Data Act mode: the subject lives in Washington, so findings are worded
+        as observed activity, not physical condition, and the fraud basis (mhmda_basis) is recorded."""
+        return (self.meta("subject_residence") or "").strip().upper() == "US-WA"
 
     def details(self) -> dict:
         d = {k: self.meta(k) for k in (*DETAILS, "purpose", "created")}

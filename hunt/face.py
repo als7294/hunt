@@ -1,7 +1,10 @@
 """Is the face in this picture the subject's? 1:1 verification against the case's reference photo.
 
 Biometric processing, so it only runs inside these guardrails (docs/research/legal.md, Biometrics):
+  - Gated on where the SUBJECT lives (gate()): blocked where biometric law needs consent Hunt can't
+    get or a record Hunt doesn't keep, and blocked when the residence is unknown. Audited every time.
   - Off by default: a case turns it on with a recorded legal basis (enable()), audited.
+  - Results are leads, never evidence: one capped reason in the matcher, never a verdict.
   - 1:1 only: the case's own reference photos against this case's candidate images. No face
     index, no face search, nothing compared across cases.
   - Nothing kept: face embeddings exist in memory for one call and are dropped. Only the result
@@ -60,6 +63,20 @@ ARCFACE = np.array([[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366], 
                    np.float32)
 
 
+# Blocked by the subject's residence (ISO 3166, case detail subject_residence), from
+# docs/research/automation-legal.md Q6 and section 5. Unknown residence is blocked too.
+BLOCKED = {
+    "US-IL": "Illinois BIPA: a written release is needed before any face-geometry scan, with no fraud exemption",
+    "US-TX": "Texas CUBI: blocked although TRAIGA (e)(3) may exempt fraud investigation (untested)",
+    "US-WA": "Washington My Health My Data Act: data derived by algorithms can be consumer health data",
+    "US-CO": "Colorado HB 24-1130: prior consent for biometric identifiers",
+    "US-CA": "California CCPA: blocked unless counsel accepts the legal-claims exemption, §1798.145(a)(1)(E)",
+    "GB": "UK GDPR: needs a per-case basis and notice-exemption record, which Hunt doesn't keep yet",
+    "CA": "Canada PIPEDA: needs a per-case basis record, which Hunt doesn't keep yet",
+}
+EEA = set("AT BE BG HR CY CZ DK EE FI FR DE GR IE IT LV LT LU MT NL PL PT RO SK SI ES SE IS LI NO".split())
+
+
 class FaceUnavailable(RuntimeError):
     pass
 
@@ -96,10 +113,31 @@ def compare(references: list, images: list) -> list[dict]:
 
 # --- per case: opt-in, reference photos, stored results -------------------------------------------
 
+def gate(case) -> tuple[bool, str]:
+    """(allowed, the rule that decided) for this case's subject, from where they live. Audited."""
+    r = (case.meta("subject_residence") or "").strip().upper()
+    rule = ("the subject's residence is unknown" if not r else
+            "the subject's US state is unknown" if r == "US" else
+            BLOCKED.get(r) or BLOCKED.get(r.split("-")[0]) or
+            ("EU/EEA GDPR Art. 9: needs a per-case basis and notice-exemption record, which Hunt doesn't keep yet"
+             if r.split("-")[0] in EEA else None))
+    allowed, rule = rule is None, rule or f"no biometric-law block for {r}"
+    case.audit("face gate", {"allowed": allowed, "residence": r or None, "rule": rule})
+    return allowed, rule
+
+
+def _gate_or_stop(case):
+    allowed, rule = gate(case)
+    if not allowed:
+        raise PermissionError(f"face comparison is blocked for this subject: {rule}")
+
+
 def enable(case, basis: str):
-    """Turn face comparison on for this case. `basis` is the investigator's legal basis, kept and audited."""
+    """Turn face comparison on for this case. `basis` is the investigator's legal basis, kept and audited.
+    Refused (PermissionError) where the subject's residence blocks it."""
     if not basis or not basis.strip():
         raise ValueError("face comparison needs a recorded legal basis")
+    _gate_or_stop(case)
     case.db.execute("insert or replace into meta values ('face_basis', ?)", (basis.strip(),))
     case.audit("face comparison on", {"basis": basis.strip()})
 
@@ -146,6 +184,7 @@ def verify_all(case, items: list[tuple[str | None, object]]) -> list[dict]:
     """verify() for many (url, image path) pairs with one load of each model."""
     if not basis(case):
         raise PermissionError("face comparison is off for this case: turn it on with a legal basis first")
+    _gate_or_stop(case)  # the residence may have changed since it was turned on
     refs = references(case)
     if not refs:
         raise ValueError("this case has no reference photo")

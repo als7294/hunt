@@ -449,7 +449,8 @@ async def create_case(req: Request):
 
 
 EDITABLE = ("reference", "injury_date", "limits", "look_for", "client", "adjuster", "file_number", "assignment_date",
-            "subject_dob", "recommendations")
+            "subject_dob", "recommendations", "subject_age_range", "subject_employer", "subject_residence", "mhmda_basis")
+RESIDENCE = re.compile(r"[A-Z]{2}(-[A-Z0-9]{1,3})?")  # ISO 3166: "US-AZ", "GB"
 
 
 def _details(b: dict) -> dict:
@@ -465,6 +466,10 @@ def _details(b: dict) -> dict:
             out[k] = ""
         elif not isinstance(v, str) or len(v) > 4000:
             raise HTTPException(400, f"{k} must be text of at most 4,000 characters")
+        elif k == "subject_residence":
+            if not RESIDENCE.fullmatch(v.strip().upper()):
+                raise HTTPException(400, "subject_residence must be an ISO 3166 code like US-AZ or GB")
+            out[k] = v.strip().upper()
         elif k in DATES:
             try:
                 date.fromisoformat(v)

@@ -266,7 +266,15 @@ Opt-in, 1:1, nothing kept: the guardrails and their legal reasoning are in
 [legal.md](research/legal.md#biometrics-relevant-to-photo-features). `similar.same_photo` stays separate and
 whole-image only: a reference photo that literally appears as an avatar is found by `similar`, not by `face`.
 
+**Gate first** (rules F1–F2 in [legal.md](research/legal.md#hunts-rules)): `face.gate(case) -> (allowed, rule)` reads the
+case detail `subject_residence` (ISO 3166). An unknown residence is blocked. So are IL, TX, WA, CO and CA, and the EU/EEA,
+UK and Canada. Each decision is audited as `face gate {allowed, residence, rule}`. `enable()` and every
+`verify_all()` refuse with `PermissionError("face comparison is blocked for this subject: <rule>")`.
+A `US-WA` subject also sets `case.mhmda` (the report words findings as observed activity; `mhmda_basis` records the fraud
+basis). Face results are **leads, never evidence**.
+
 ```python
+face.gate(case) -> (allowed, rule)         # by the subject's residence; audited every time
 face.enable(case, basis: str)              # per case, with the investigator's legal basis; audited
 face.disable(case)
 face.basis(case) -> str | None             # None = off (the default)
@@ -375,6 +383,8 @@ about 8% of photos. Then faces too small (96 px thumbnails) and turned faces.
 - **Install:** `uv sync --extra face` (OpenCV, 48 MB). Then `face.download()` (YuNet 0.2 MB + AuraFace 261 MB), run
   from a button on the startup screen. Add a startup check `{id: "face", ok, detail}`: OpenCV installed and models
   cached.
+- **Wizard: where the subject lives** (`subject_residence`, required before the face step shows): a country list, plus a US
+  state. While it's blocked or unknown, the face step shows the rule from `face.gate` and no switch.
 - **Wizard: reference photo** (a new optional step after the seeds; off by default):
   - A switch, "Compare faces with a reference photo", which needs a legal basis typed in. Placeholder: "e.g.
     claimant signed the consent form, file 4521". It POSTs `/api/cases/{slug}/face {basis}` → `face.enable`.
@@ -475,3 +485,52 @@ learning.status(), learning.set_enabled(on), learning.reset()    # hunt learning
     each way)".
   - on a Settings card, "Learning: on/off · Forget what Hunt learned", showing the `status()` counts
   - in the report's methodology
+
+## 7. Records against what the case knows
+
+Public-record sources search by name, so every namesake comes back. `match.score` now handles a finding found by searching a
+name differently:
+- **The name barely counts:** +0.1 bits instead of +6.5, with the reason
+  > name 'John Smith' matches 'John Smith' (the name searched for, so it barely counts; namesakes share it)
+- **The record's own facts decide** (`facts` = `case.details()`, passed by `search.build`):
+
+| fact (case) | record field | agree | disagree |
+|---|---|---|---|
+| `subject_dob` | `dob`, `date_of_birth`, `birth_date`, `born`… (`YYYY-MM-DD` or `MM/DD/YYYY`) | exact: +13.2 (`dob`) | another full date: −4.3 |
+| `subject_dob` or `subject_age_range` | a birth year, or `age` | within a year: +4.2 | off by 2+ years: −3.2 |
+| `subject_employer` | `employer`, `company`, `organization`, `work` | +5.9 (`employer`) | not counted: people change jobs |
+| `location` / `address` seeds (city/state, prior addresses) | `address`, else `location`/`city`/`state`/`country` | the geocoded place tiers, as for profiles | as for profiles |
+
+A name-only "John Smith" record scores "very unlikely" and joins the namesakes. One whose age fits rises to "likely", and an exact date of
+birth gives "almost certain". A wrong birth year sinks it to "almost no chance". The new tags `dob` and `employer`
+go into the learning store's patterns, so their weights are re-learned from decisions like the rest.
+
+**Why a record was kept or set aside:** the record's `reasons`, already in the report data. The report session can print,
+for each record, its verdict and top reasons ("kept: date of birth 1981-04-12 matches the subject's"; "set aside: 1962
+doesn't fit the subject's birth year 1981"). The fixture records in `test_report.py` and `test_e2e.py` now each carry
+an employer that the case knows, because a name alone no longer makes them the subject's.
+
+## Not yet
+
+- **Face thresholds are provisional.**
+  - `YES` 0.35 and `NO` 0.18 come from the first eval run, which had the early CLIP gate.
+  - The full re-run with the final gates was paused partway, at Aaron's request: the process is stopped, not killed.
+  - To finish: `kill -CONT` that process, or run `uv run --extra face python scripts/eval_face.py --fresh`, then set the
+    printed values in `face.py`.
+- **Not measured:**
+  - cross-age and cross-pose (CALFW, CPLFW: 546 MB, waiting for Aaron's OK)
+  - the child gate's recall (no licensed set of children's photos)
+  - real Facebook compression (volunteers' own photos, with consent)
+- **Not wired (main session):**
+  - the face, reference and learning API routes and the startup check
+  - `search.run` calling `face.verify_all`
+  - `search.build` adding `face.reason` to `extra` and `report["learning"]`
+  - `POST /decisions` calling `learning.record`
+  - the wizard fields and the side-by-side on "Is it them?"
+
+  Everything above specifies them; nothing is half-wired. The case facts are wired: `search.build` passes them, and the
+  details route accepts them.
+- **Report wording:** MHMDA mode (observed activity, not physical condition) and "kept or set aside because…" for records
+  belong to the report session. `case.mhmda` and each record's `reasons` are ready for it.
+- **Name commonness:** a searched name always counts +0.1, whatever the name. A name-frequency table would let a rare name
+  count for more.

@@ -22,7 +22,7 @@ from hunt.seed import Finding, Seed
 case = Case.create("Vance claim", "Insurer XYZ claim 123: disputed injury, permissible purpose on file", kind="insurance",
                    reference="CLM-123", injury_date="2026-03-01", look_for=["sport", "injury"], tool="person",
                    client="Fictional Mutual", adjuster="A. Adjuster", assignment_date="2026-03-20",
-                   subject_dob="1990-05-05", limits="No lifting over 5 kg; no running")
+                   subject_dob="1990-05-05", limits="No lifting over 5 kg; no running", subject_employer="Example Health")
 case.audit("case details", {"client": "Fictional Mutual"})
 handle = Seed("username", "kestrel_vane88")
 case.add_seeds([handle, Seed("name", "Robert Vance"), Seed("phone", "+15205550143")])
@@ -183,11 +183,13 @@ case.add_run("courtlistener", Seed("name", "Bob Vance"), "nothing found", 0, 0,
              "not run: CourtListener needs a free account token in HUNT_COURTLISTENER_TOKEN")
 records = [("fec", "FEC contributions", "https://www.fec.gov/data/receipts/individual-contributions/?contributor_name=vance",
             {"fullname": "Robert Vance", "contributions": 3, "total_usd": 450, "first_date": "2024-02-01",
-             "last_date": "2024-10-01", "recipients": ["Committee To Elect Example"], "occupation": "Engineer"}),
+             "last_date": "2024-10-01", "recipients": ["Committee To Elect Example"], "occupation": "Engineer",
+             "employer": "Example Health"}),
            ("npi", "NPI Registry", "https://npiregistry.cms.hhs.gov/provider-view/1234567890",
-            {"fullname": "Robert Vance", "npi": "1234567890", "credential": "RN", "specialty": "Registered Nurse"}),
+            {"fullname": "Robert Vance", "npi": "1234567890", "credential": "RN", "specialty": "Registered Nurse",
+             "organization": "Example Health Clinic"}),
            ("edgar", "SEC EDGAR (filer)", "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001234567",
-            {"fullname": "Robert Vance", "cik": 1234567, "filings": 2}),
+            {"fullname": "Robert Vance", "cik": 1234567, "filings": 2, "company": "Example Health Inc"}),
            ("courtlistener", "CourtListener (RECAP)", "https://www.courtlistener.com/docket/1/vance-v-example-health-plan/",
             {"case": "Vance v. Example Health Plan", "nature_of_suit": "ERISA", "court": "azd"}),
            ("courtlistener", "CourtListener (RECAP)", "https://www.courtlistener.com/docket/2/vance-v-example-builders/",
@@ -217,7 +219,8 @@ assert report.PROTECTED.search(" ".join(x["text"] for x in rep["sentences"] if "
 # Licences, business registries and FMCSA carriers are records too (hunt/sources), never accounts
 case.add_run("licences", name, "found", 1, 1, "")
 case.add_finding(Finding("licences", name, "Texas TDLR licence", "https://data.texas.gov/resource/7358-krk7.json?license_number=TX-1",
-                         {"fullname": "Robert Vance", "licence": "Electrician", "licence_number": "TX-1", "expires": "2027-01-01"}))
+                         {"fullname": "Robert Vance", "licence": "Electrician", "licence_number": "TX-1", "expires": "2027-01-01",
+                          "employer": "Example Health"}))
 rep = compose()
 lic = next(r for r in rep["records"] if r["source"] == "licences")
 assert lic["summary"] == "Electrician, licence TX-1, expires 2027-01-01", lic
