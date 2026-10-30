@@ -4,6 +4,7 @@ Offline; all subjects here are fictional.
 """
 
 import asyncio
+import base64
 import io
 import json
 import os
@@ -275,6 +276,15 @@ assert "<h3>Bluesky</h3>" in page and "Page source" in page and "Z)</td>" in pag
 assert "@bottom-right" not in report.to_html(case, rep, pdf=True)  # Chromium prints the PDF's own
 data = report.to_json(case, rep)
 assert all(m["ok"] for m in data["manifest"]) and any(m["exhibit_name"] for m in data["manifest"])
+# A picture that may show a child goes into the export blurred, never as the original (K7, A5)
+buf = io.BytesIO()
+Image.radial_gradient("L").convert("RGB").save(buf, "JPEG")
+_, kid = case._store(buf.getvalue(), "jpg")
+kid_hit = {"id": 9, "post_id": 1, "category": "sport", "what": "a bike ride", "verdict": "likely", "status": "in report",
+           "posted_at": "2026-04-12", "source": "Bluesky", "file": kid, "blur": True}
+page = report.to_html(case, compose(hs=[*hits, kid_hit]))
+assert base64.b64encode(buf.getvalue()).decode() not in page and "Shown blurred" in page
+assert page.count("data:image/jpeg;base64,") == 2  # the fake capture's original, and the blurred copy
 (case.dir / img).write_bytes(b"swapped")
 rep = compose()
 assert rep["checks"]["tampered"] == [img], rep["checks"]

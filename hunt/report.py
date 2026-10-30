@@ -312,7 +312,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         exhibit(f"E-{h['id']}", h.get("file"), kind="post" if not h.get("file") else "post media",
                 platform=h.get("source") or post.get("source"), url=h.get("url") or post.get("url"),
                 account=post.get("account_url"), posted_at=h.get("posted_at"), description=h.get("what"),
-                relevance=_relevance(h, labels, screening))
+                relevance=_relevance(h, labels, screening), blurred=bool(h.get("blur") or h.get("child_visible")))
     ex = lambda cid: f"Exhibit {numbered[cid]}" if cid in numbered else None
 
     # Online presence table
@@ -905,8 +905,9 @@ def _cite_label(cid: str, rep: dict) -> str:
     return cid
 
 
-def _embed(case: Case, file: str | None, alt: str) -> str:
-    """An evidence image as an <img> with a data URI, or '' if it isn't a small enough image."""
+def _embed(case: Case, file: str | None, alt: str, blur: bool = False) -> str:
+    """An evidence image as an <img> with a data URI, or '' if it isn't a small enough image. `blur`: a child may be
+    in it (K7, A5), so a heavily blurred copy goes in, never the original."""
     path = _evidence_path(case, file)
     if path and path.suffix == ".img":
         mime = f"image/{bundle._image_ext(path).replace('jpg', 'jpeg')}"
@@ -914,7 +915,17 @@ def _embed(case: Case, file: str | None, alt: str) -> str:
         mime = mimetypes.guess_type(path.name)[0] if path else None
     if not (path and path.is_file() and (mime or "").startswith("image/") and path.stat().st_size <= MAX_EMBED):
         return ""
-    return f'<img alt="{html.escape(alt)}" src="data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}">'
+    data = path.read_bytes()
+    if blur:
+        from PIL import Image, ImageFilter
+        try:
+            img = Image.open(io.BytesIO(data)).convert("RGB")
+        except OSError:
+            return ""  # can't blur it, so it isn't shown
+        out = io.BytesIO()
+        img.filter(ImageFilter.GaussianBlur(max(img.size) / 25)).save(out, "JPEG", quality=70)
+        data, mime = out.getvalue(), "image/jpeg"
+    return f'<img alt="{html.escape(alt)}" src="data:{mime};base64,{base64.b64encode(data).decode()}">'
 
 
 def _evidence_path(case: Case, file: str | None) -> Path | None:
@@ -985,6 +996,8 @@ def to_html(case: Case, rep: dict, pdf: bool = False) -> str:
         for x in rep["exhibits"]:
             stamp = lambda ts: f"{_when(ts, h['timezone'])} ({_utc(ts)})" if _utc(ts) and len(str(ts)) > 10 else _when(ts, h["timezone"])
             facts = [("File", x["name"]), ("SHA-256", x["sha256"]), ("Page source", x.get("page_source")),
+                     ("Shown blurred", "a child may be visible; the original is in the evidence bundle under this name"
+                      if x.get("blurred") else None),
                      ("URL", x.get("url")), ("Account", x.get("account")),
                      ("Posted", stamp(x["posted_at"]) if x.get("posted_at") else None),
                      ("Captured", stamp(x["captured"]) if x.get("captured") else None),
@@ -992,7 +1005,7 @@ def to_html(case: Case, rep: dict, pdf: bool = False) -> str:
             out.append(f"<div class=ex><h3>Exhibit {x['no']}: {e(x.get('platform') or '')} {e(x['kind'])}</h3>"
                        f"<p>{e(x.get('description') or '')}</p><table>"
                        + "".join(f"<tr><td class=k>{k}</td><td>{e(str(v))}</td></tr>" for k, v in facts if v)
-                       + "</table>" + _embed(case, x["file"], f"Exhibit {x['no']}") + "</div>")
+                       + "</table>" + _embed(case, x["file"], f"Exhibit {x['no']}", x.get("blurred")) + "</div>")
         out.append("</section>")
     if rep["log"]:
         out.append("<section class=appendix><h2>Appendix B: Search and case log</h2><p class=mute>Case-log entries carry "
