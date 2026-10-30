@@ -136,6 +136,9 @@ img.thumb.blur, .blur { filter: blur(10px) saturate(.6); }
 .report-grid { display: grid; grid-template-columns: 240px minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
 .claim-grid { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 18px; align-items: start; }
 .claim-rs { display: flex; flex-direction: column; gap: 8px; }
+.busy::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 8px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; vertical-align: -2px; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .busy::before { animation-duration: 3s; } }
 @media (max-width: 1180px) {
   .wiz-grid { grid-template-columns: 1fr; gap: 28px; padding: 16px 28px 32px; }
   .wiz-grid > div:last-child { padding-top: 0 !important; }

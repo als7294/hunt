@@ -106,11 +106,19 @@ function caseMenu(c) {
         ${st.legal_hold ? item('life-do', 'unhold', 'Lift the legal hold') : item('life-ask', 'hold', 'Put on legal hold…')}
         ${st.retention_due ? item('mini-ask', '', 'Remove unused media…') : ''}
         ${item('life-ask', 'pack', 'Move to another computer…')}
-        ${st.legal_hold ? '' : item('life-ask', 'delete', 'Move to the Trash…', 'bad')}</div></div></details>`;
+        ${st.legal_hold ? '' : c.demo ? item('demo-delete', '', 'Delete the demo', 'bad') : item('life-ask', 'delete', 'Move to the Trash…', 'bad')}</div></div></details>`;
 }
-const closedBar = c => c.status?.closed ? html`<div style="margin:0 20px 8px;padding:10px 12px 10px 16px;border-radius:var(--r);background:var(--raise);display:flex;gap:12px;align-items:center;font-size:14.5px;flex:none">
+const closedBar = c => c.demo ? demoBar(c) : c.status?.closed ? html`<div style="margin:0 20px 8px;padding:10px 12px 10px 16px;border-radius:var(--r);background:var(--raise);display:flex;gap:12px;align-items:center;font-size:14.5px;flex:none">
   <span class="dot"></span><span class="t2">Closed on ${longDay(c.status.closed)}. Searches, scans, checks and watching are off; the report and evidence stay as they are.</span>
   <button class="btn ghost sm" style="margin-left:auto" data-act="life-do" data-mode="reopen" data-slug="${c.slug}">Reopen</button></div>` : '';
+// The demo says so on every step (docs/qol.md L); rebuilding it is the reset
+const demoBar = c => html`<div class="life" style="margin:0 20px 8px;padding:10px 12px 10px 16px;border-radius:var(--r);background:var(--am-bg);display:flex;gap:12px;align-items:center;font-size:14.5px;flex:none;flex-wrap:wrap">
+  <span class="dot" style="background:var(--am)"></span><span class="t2">DEMO: everything here is fictional.${c.status?.closed ? ' Searches, scans, checks and watching are off.' : ''}</span>
+  <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" data-act="demo-rebuild">Rebuild the demo</button>
+  ${c.status?.closed ? html`<button class="btn ghost sm" data-act="life-do" data-mode="reopen" data-slug="${c.slug}">Reopen</button>` : ''}</span></div>`;
+const demoCard = () => html`<div class="row" style="gap:14px;flex-wrap:wrap"><span class="tile-ic" style="background:var(--am-bg);color:var(--am)">▶</span>
+  <div style="flex:1;min-width:220px"><div style="font-size:16px;font-weight:500">See what Hunt does</div><div class="muted" style="font-size:14px">A finished, fictional investigation, to see what Hunt does. It’s marked DEMO everywhere and can’t be changed by a search.</div></div>
+  <button class="btn" data-act="demo-open">Open the demo case</button></div>`;
 const glows = (...specs) => raw(specs.map(([l, t, s, col]) => `<div class="glow" style="left:${l};top:${t};width:${s}px;height:${s}px;background:radial-gradient(circle,${col},transparent 65%)"></div>`).join(''));
 function mount(content) { app().innerHTML = content.s; }
 
@@ -171,8 +179,9 @@ function bootRow(c, keys = []) {
         <div id="dl-${x.id}">${x.installable ? html`<button class="btn sm" data-act="setup-get" data-id="${x.id}" data-size="${x.size}">Download ${size(x.size)}</button>` : ''}</div></div>`)}</div>`
     : c.id === 'retention' && c.items?.length ? html`<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${c.items.map(x => html`<div class="card" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><a href="#/case/${x.slug}/report" style="font-weight:500">${x.label || x.slug}</a><span class="muted" style="font-size:13px">opened ${longDay(x.created)}</span></div>
-        <div class="life" id="life-${x.slug}" style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" data-act="life-ask" data-mode="hold" data-slug="${x.slug}">Keep: legal hold</button><button class="btn ghost sm" data-act="life-ask" data-mode="delete" data-slug="${x.slug}">Move to Trash</button>
-          <button class="btn ghost sm" data-act="mini-ask" data-slug="${x.slug}">Remove unused media</button></div></div>`)}</div>` : '';
+        <div class="life" id="life-${x.slug}" style="display:flex;gap:6px;flex-wrap:wrap">${x.demo ? html`<button class="btn ghost sm" data-act="demo-delete" data-slug="${x.slug}">Delete the demo</button>`
+          : html`<button class="btn ghost sm" data-act="life-ask" data-mode="hold" data-slug="${x.slug}">Keep: legal hold</button><button class="btn ghost sm" data-act="life-ask" data-mode="delete" data-slug="${x.slug}">Move to Trash</button>
+          <button class="btn ghost sm" data-act="mini-ask" data-slug="${x.slug}">Remove unused media</button>`}</div></div>`)}</div>` : '';
   return html`<div style="display:flex;align-items:flex-start;gap:13px">
     <span style="width:24px;height:24px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:${c.ok ? 'var(--gr-bg)' : 'var(--am-bg)'};color:${c.ok ? 'var(--gr)' : 'var(--am)'}">${c.ok ? '✓' : '!'}</span>
     <div style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1"><span style="font-size:16px">${c.label}</span><span style="font-size:13.5px;color:${c.ok ? 'var(--gr)' : 'var(--am)'}">${c.detail || ''}</span>${extra}</div></div>`;
@@ -208,7 +217,7 @@ function toolCard(kind) {
 const KIND_LABEL = { insurance: 'Insurance claim', background: 'Background check', diligence: 'Due diligence', journalism: 'Journalism' };
 const caseRow = c => html`<a class="row" href="#/case/${c.slug}/search">
   <span class="tile-ic">⌕</span>
-  <div style="flex:1;min-width:0"><div style="font-size:16.5px;font-weight:500">${c.label || c.slug}</div><div style="font-size:14px" class="muted">${[KIND_LABEL[c.kind], c.reference].filter(Boolean).join(' · ') || 'Case'}</div></div>
+  <div style="flex:1;min-width:0"><div style="font-size:16.5px;font-weight:500">${c.label || c.slug}${c.demo ? html` <span class="tag" style="background:var(--am-bg);color:var(--am);vertical-align:2px">DEMO</span>` : ''}</div><div style="font-size:14px" class="muted">${[KIND_LABEL[c.kind], c.reference].filter(Boolean).join(' · ') || 'Case'}</div></div>
   <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:2px"><div style="font-size:14px;color:${c.closed ? 'var(--mu)' : 'var(--am)'}">${c.headline || ''}</div>
     <div style="display:flex;gap:6px;align-items:center">${c.closed ? html`<span class="tag">Closed</span>` : ''}${c.legal_hold ? html`<span class="tag hold">Legal hold</span>` : c.retention_due ? html`<span class="tag warn" title="Opened over 90 days ago: hold it or delete it">Past 90 days</span>` : ''}<span style="font-size:13px" class="dim">${ago(c.updated || c.created)}</span></div></div></a>`;
 
@@ -226,6 +235,7 @@ screens.home = async () => {
       <div id="bring" class="hidden"></div>
       ${cases.length ? html`<div class="two-up" style="gap:10px">${cases.slice(0, 4).map(caseRow)}</div>`
         : html`<div class="empty">No cases yet. Start one with <b>Find a person</b>.</div>`}
+      ${cases.length ? '' : demoCard()}
     </div>
   </main>`);
 };
@@ -503,12 +513,15 @@ screens.identity = async slug => {
         <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="unsure" title="Takes back “not them”: logged as unsure">Undo</button></div>`)}</div></details>`.s;
   }).catch(() => {});
   api(`/api/cases/${encodeURIComponent(slug)}/seen-before`).then(r => { if ($('#seen-here')) $("#seen-here").innerHTML = fmt(seenBox(r, slug)); }).catch(() => {});
+  if (document.querySelector('[data-links]')) api(`/api/cases/${encodeURIComponent(slug)}/records/links`).then(recordLinks).catch(() => {});
 };
 
 /* Public records on Is it them? (docs/research/tools.md, "Records in the app"): grouped by what they show */
 const RECORD_GROUPS = [['Working', ['licences', 'businesses', 'npi'], 'Licensed, trading or employed somewhere?'], ['Driving', ['fmcsa'], 'Runs or drives for a carrier?'],
-  ['Courts', ['courtlistener'], 'Earlier federal suits or claims?'], ['Money and politics', ['fec', 'edgar'], 'Where were they, and with whom, when they donated or filed?']];
-const RECORD_NAME = { fec: 'FEC', edgar: 'SEC EDGAR', npi: 'NPI registry', courtlistener: 'CourtListener', licences: 'Licences', businesses: 'Business registries', fmcsa: 'FMCSA' };
+  ['Courts', ['courtlistener', 'courts'], 'Earlier suits, claims, judgments or hearings?'], ['Sport and competition', ['activity'], 'Competing after the injury date?'],
+  ['Money and politics', ['fec', 'edgar'], 'Where were they, and with whom, when they donated or filed?']];
+const RECORD_NAME = { fec: 'FEC', edgar: 'SEC EDGAR', npi: 'NPI registry', courtlistener: 'CourtListener', courts: 'Court open data', licences: 'Licences', businesses: 'Business registries', fmcsa: 'FMCSA', activity: 'OpenPowerlifting' };
+const BY_HAND = { courtlistener: 'courts', activity: 'activity' }; // the group's portals Hunt can't query, filled in by recordLinks
 const ID_KEYS = [['licence_number', 'licence'], ['npi', 'NPI'], ['usdot', 'USDOT'], ['cik', 'CIK'], ['dos_id', 'NY DOS'], ['ubi', 'UBI'], ['docket_number', 'docket'], ['year_of_birth', 'born']];
 const WHEN_KEYS = ['issued', 'expires', 'registered', 'formed', 'last_update', 'filed', 'terminated'];
 const activeNow = a => { const st = String(a.status || '').toLowerCase();
@@ -527,6 +540,8 @@ function recordCard(x) {
     ${facts.length ? html`<div class="muted" style="font-size:13px">${facts.join(' · ')}</div>` : ''}
     <div class="muted" style="font-size:13px">${x.site} · <a href="${/^https?:\/\//.test(x.url) ? x.url : '#'}" target="_blank" rel="noopener noreferrer" style="color:var(--ac)">record page ↗</a>${x.fetched ? ` · fetched ${when(x.fetched)}` : ''}</div>
     ${onFile.length ? html`<details><summary class="dim" style="cursor:pointer;font-size:12.5px">Street address and contact on file</summary><div class="muted" style="font-size:13px">${onFile.join(' · ')}</div></details>` : ''}
+    ${a.meets?.length > 1 ? html`<details><summary class="dim" style="cursor:pointer;font-size:12.5px">Every meet (${a.meets.length})</summary><div class="muted" style="font-size:13px;display:flex;flex-direction:column;gap:2px;padding-top:4px">
+      ${[...a.meets].reverse().map(m => html`<span>${longDay(m.date)} · ${m.meet || 'a meet'}${m.location ? ` · ${m.location}` : ''}${m.total_kg ? ` · total ${m.total_kg} kg` : ''}${m.place ? ` · place ${m.place}` : ''}</span>`)}</div></details>` : ''}
     <div style="display:flex;gap:6px;margin-top:4px;align-items:center"><button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="him">${x.decision === 'him' ? '✓ Theirs' : 'Theirs'}</button>
       <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="not him">${x.decision === 'not him' ? '✓ Not them' : 'Not them'}</button>
       <button class="btn ghost sm" data-act="note-open" data-about="account" data-ref="${x.url}" data-title="Notes on this record">Note</button></div></div>`;
@@ -538,7 +553,19 @@ function recordsPanel(p) {
     ${RECORD_GROUPS.map(([title, srcs, q]) => { const rs = p.records.filter(r => srcs.includes(r.source)), cov = p.coverage.filter(r => srcs.includes(r.source));
       return rs.length || cov.length ? html`<div class="panel" style="padding:16px 18px;display:flex;flex-direction:column;gap:8px"><div><b>${title}</b> <span class="muted" style="font-size:13.5px">· ${q}</span></div>
         ${rs.length ? rs.map(recordCard) : html`<div class="muted" style="font-size:14px">Nothing found that looks like them in what was searched:</div>`}
-        ${cov.map(r => html`<div class="dim" style="font-size:12.5px">${RECORD_NAME[r.source] || r.source}: ${r.note || r.status}</div>`)}</div>` : ''; })}</div>`;
+        ${cov.map(r => html`<div class="dim" style="font-size:12.5px">${RECORD_NAME[r.source] || r.source}: ${r.note || r.status}</div>`)}
+        ${srcs.filter(s => BY_HAND[s]).map(s => html`<div data-links="${BY_HAND[s]}"></div>`)}</div>` : ''; })}</div>`;
+}
+// Filled in after the screen draws: the portals and results sites to open by hand, and the one-time powerlifting load
+function recordLinks(r) {
+  const list = (links, title) => html`<details><summary class="muted" style="cursor:pointer;font-size:13.5px">${title} (${links.length})</summary>
+    <div style="display:flex;flex-direction:column;gap:4px;padding:6px 0">${links.map(l => html`<a href="${/^https:\/\//.test(l.url) ? l.url : '#'}" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:13.5px">${l.label}${l.state ? ` (${l.state})` : ''} ↗</a>`)}</div></details>`;
+  const pl = r.powerlifting || {}, el = k => document.querySelector(`[data-links="${k}"]`);
+  if (el('courts') && r.courts.length) el('courts').innerHTML = list(r.courts, 'Court portals to search by hand: Hunt can’t query them').s;
+  if (el('activity')) el('activity').innerHTML = html`${!pl.loaded && pl.size ? html`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:4px 0">
+      <button class="btn sm" data-act="opl-load" data-size="${pl.size}">Load powerlifting results (${Math.round(pl.size / 2 ** 20)} MB, once)</button>
+      <span class="muted" style="font-size:13px">Every published powerlifting meet, public domain. Then search again to look the name up.</span></div>` : ''}
+    ${r.activity.length ? list(r.activity, 'Race results to search by hand') : ''}`.s;
 }
 
 // Face comparison results beside the photos they came from: a lead, one reason among the others, never the verdict
@@ -1184,6 +1211,7 @@ screens.posts = async slug => {
   const claimable = ld.restrictions.length > 0 && (d.hits.length > 0 || ld.leads.length > 0), tab = claimable ? postsTab(slug) : 'flagged';
   const records = ld.leads.some(x => x.kind === 'record') || tl.events.some(e => e.kind === 'record')
     ? await api(`${base}/case.json`).then(j => Object.fromEntries(j.candidates.flatMap(x => x.finding_ids.map(id => [`A-${id}`, x.url])))).catch(() => ({})) : {};
+  window.__posts = d.posts; // hitDetail reads it while the screen is built
   const hits = d.hits.filter(h => h.status !== 'not relevant'), sel = hits.find(h => h.id === pickedHit) || hits[0], look = [...(c.details.look_for || [])].map(k => lookLabel(k).toLowerCase());
   mount(html`${topCase(c, 'posts')}<main class="screen" style="padding:8px 24px 24px;gap:16px">
     <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap">
@@ -1210,10 +1238,17 @@ screens.posts = async slug => {
     ${c.steps.identity === 'done' ? html`<div class="two-up" style="gap:16px;align-items:start">${recheckCard(slug, ch)}${watchCard(slug, w, al)}</div>` : ''}
     <a class="panel row" href="#/case/${slug}/worklist" style="flex:none;padding:18px;gap:16px"><span class="tile-ic">▤</span>
       <div style="flex:1"><b>Worklist: Instagram, Facebook, TikTok and the rest</b><div class="muted" style="font-size:14px">Open each confirmed account in the Hunt Browser; Hunt records and scans what you scroll past.</div></div><span style="color:var(--ac)">Open →</span></a></main>`);
-  window.__hits = hits; window.__case = c; window.__posts = d.posts;
+  window.__hits = hits; window.__case = c;
   refreshNoteCounts(slug);
   if (['recheck', 'watch'].includes(c.active_job?.kind)) watchRecheck(slug, c.active_job.id, c.active_job.kind === 'watch' ? 'Checking again (watching)' : '');
 };
+// What other people wrote under the post, as the page showed it when it was captured (replies indented)
+const commentsBlock = cs => !cs?.length ? '' : html`<details ${cs.length <= 5 ? 'open' : ''}><summary class="muted" style="cursor:pointer;font-size:13.5px">Comments shown with the post (${cs.length})</summary>
+  <div style="display:flex;flex-direction:column;gap:8px;padding-top:8px">${cs.map(x => html`<div style="font-size:13.5px;${x.reply_to ? 'margin-left:18px;padding-left:10px;border-left:2px solid var(--raise)' : ''}">
+    <b style="font-weight:500">${x.author || x.handle || 'Someone'}</b>${x.handle && x.author ? html` <span class="dim">${x.handle}</span>` : ''}
+    <span class="dim">${[x.posted_at ? day(x.posted_at) : x.posted_at_text, x.likes ? `${x.likes} like${x.likes === 1 ? '' : 's'}` : ''].filter(Boolean).map(t => ` · ${t}`).join('')}</span>
+    <div class="t2" style="overflow-wrap:anywhere">${x.text}</div></div>`)}
+    <span class="dim" style="font-size:12.5px">Only the comments the page showed; others may be hidden or folded.</span></div></details>`;
 function hitDetail(slug, c, h) {
   const src = evidenceUrl(slug, h.file), blur = h.blur || h.child_visible;
   return html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px">
@@ -1222,6 +1257,7 @@ function hitDetail(slug, c, h) {
     ${src ? html`<img class="thumb ${blur ? 'blur' : ''}" src="${src}" alt="" style="width:100%;max-height:300px">` : ''}
     ${h.caption ? html`<div class="t2" style="font-size:14.5px">“${h.caption}”</div>` : ''}
     ${(x => x ? html`<div class="muted" style="font-size:13.5px">${[x.place && `at ${x.place}`, x.activity, x.life_event].filter(Boolean).join(' · ')}${x.posted_at_precision && x.posted_at_precision !== 'second' ? html`${x.place || x.activity || x.life_event ? ' · ' : ''}date to the ${x.posted_at_precision}${x.posted_at_text ? `, as Facebook showed it: “${x.posted_at_text}”` : ''}` : ''}</div>` : '')((window.__posts || []).find(p => p.id === h.post_id)?.extra)}
+    ${commentsBlock((window.__posts || []).find(p => p.id === h.post_id)?.visible_comments)}
     ${c.details.limits ? html`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div class="card" style="padding:12px;background:var(--panel-3)"><div class="label">The claim says</div><div>${c.details.limits}</div></div>
       <div class="card" style="padding:12px;background:var(--am-bg)"><div class="label" style="color:var(--am)">The post shows</div><div>${h.who === 'him' ? '' : 'A person: '}${h.what}</div></div></div>` : ''}
@@ -1554,6 +1590,16 @@ const actions = {
       });
     } catch (e) { el.disabled = false; fail(e); }
   },
+  'opl-load': async el => {
+    const box = el.parentElement; el.disabled = true;
+    try { const { job } = await api('/api/powerlifting', { method: 'POST', body: { size: +el.dataset.size } });
+      box.innerHTML = html`<span class="muted" style="font-size:13px">Downloading and loading the results: a few minutes. You can keep working.</span>`.s;
+      const es = follow(job, ev => {
+        if (ev.type === 'error') { es.close(); box.innerHTML = html`<span style="color:var(--rd);font-size:13px">${ev.message}</span>`.s; }
+        if (ev.type === 'done') { es.close(); box.innerHTML = html`<span style="color:var(--gr);font-size:13px">Loaded. Search again to look the name up in them.</span>`.s; }
+      });
+    } catch (e) { el.disabled = false; fail(e); }
+  },
   'key-save': async el => {
     const key = el.dataset.key, input = document.querySelector(`.key-in[data-key="${key}"]`), value = el.dataset.clear ? '' : input.value.trim();
     if (!value && !el.dataset.clear) return toast('Paste the key first.', true);
@@ -1588,6 +1634,24 @@ const actions = {
   },
   'life-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = (el.dataset.mode === 'pack' ? packForm(el.dataset.slug) : lifeForm(el.dataset.slug, el.dataset.mode)).s; box.querySelector('input').focus(); },
   'life-cancel': el => { const box = el.closest('.life'); box.innerHTML = box.dataset.was || ''; },
+  'demo-open': async el => {
+    el.disabled = true;
+    try { let d = await api('/api/demo');
+      if (!d.exists) { el.textContent = 'Building the demo…'; el.classList.add('busy'); d = await api('/api/demo', { method: 'POST', body: {} }); }
+      location.hash = `#/case/${d.slug}/identity`;
+    } catch (e) { el.disabled = false; el.textContent = 'Open the demo case'; el.classList.remove('busy'); fail(e); }
+  },
+  'demo-rebuild': async el => {
+    el.disabled = true; el.textContent = 'Rebuilding…';
+    try { await api('/api/demo', { method: 'POST', body: { reset: true } }); toast('The demo was rebuilt; the old copy is in the Trash.'); render(); }
+    catch (e) { el.disabled = false; el.textContent = 'Rebuild the demo'; fail(e); }
+  },
+  'demo-delete': async el => { // fictional and rebuilt in a second: no name to type
+    const slug = el.dataset.slug || location.hash.split('/')[2], box = el.closest('.life'); el.disabled = true;
+    try { await api(`/api/cases/${encodeURIComponent(slug)}/delete`, { method: 'POST', body: { confirm: slug, reason: 'the demo' } }); toast('Demo deleted: it’s in the Trash. Open it again from Home any time.');
+      if (el.closest('#boot')) box.innerHTML = html`<span class="muted" style="font-size:13.5px">Demo deleted.</span>`.s; else location.hash = '#/';
+    } catch (e) { el.disabled = false; fail(e); }
+  },
   'life-do': async el => {
     const { slug, mode } = el.dataset, box = el.closest('.life') || document.body, v = box.querySelector('input')?.value.trim() || '';
     if (mode === 'delete' && v !== slug) return toast(`Type ${slug} exactly to move it to the Trash.`, true);

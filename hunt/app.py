@@ -390,7 +390,7 @@ async def startup(req: Request):
     due = [(s, c) for s in slugs if (c := Case.open(s)).status()["retention_due"]]
     check("retention", f"Cases past {RETENTION_DAYS} days", not due,
           f"{len(due)} past retention: delete them to the Trash, or put them on legal hold" if due else "none",
-          [{"slug": s, "label": c.details()["label"], "created": c.meta("created")} for s, c in due])
+          [{"slug": s, "label": c.details()["label"], "created": c.meta("created"), "demo": bool(c.meta("demo"))} for s, c in due])
     return JSONResponse({"version": version("hunt-osint"), "proxy": bool(proxy), "checks": checks})
 
 
@@ -430,8 +430,8 @@ async def list_cases(req: Request):
         out.append({"slug": s, "label": d["label"], "kind": d["kind"], "reference": d["reference"], "tool": d["tool"],
                     "created": d["created"], "updated": c.db.execute("select max(ts) from audit").fetchone()[0],
                     "headline": await _headline(c), "closed": bool(st["closed"]), "legal_hold": bool(st["legal_hold"]),
-                    "retention_due": st["retention_due"]})
-    return JSONResponse(sorted(out, key=lambda x: x["created"] or "", reverse=True))
+                    "retention_due": st["retention_due"], "demo": bool(c.meta("demo"))})
+    return JSONResponse(sorted(sorted(out, key=lambda x: x["created"] or "", reverse=True), key=lambda x: x["demo"]))  # the demo last
 
 
 async def _headline(c: Case) -> str:
@@ -527,6 +527,7 @@ async def get_case(req: Request):
                   "posts": "running" if running("scan") else "done" if _audited(c, "scan") else "todo",
                   "report": "done" if _audited(c, "report exported") else "todo"},
         "status": c.status(),
+        "demo": bool(c.meta("demo")),
         "active_job": {"id": job.id, "kind": job.kind} if job else None,
         "counts": {"accounts": await _accounts(c), "flagged": len(_flagged(hits)),
                    "evidence": sum(1 for f in (c.dir / "evidence").iterdir() if EVIDENCE_NAME.match(f.name))},
@@ -709,7 +710,7 @@ async def get_person(req: Request):
         "namesakes": [{"url": x["url"], "site": x["site"], "label": x["attrs"].get("fullname") or x["attrs"].get("name")
                        or _handle(x), "why": [_plain(r) for r in x["reasons"]], "decision": x["decision"]}
                       for x in namesakes],
-        "records": [{"url": x["url"], "site": x["site"], "source": report._record(x), "summary": report._summary(x),
+        "records": [{"url": x["url"], "site": x["site"], "source": report._record(x), "summary": report._summary(x, c.details()["injury_date"]),
                      "attrs": x["attrs"], "verdict": x["verdict"], "probability": x["probability"],
                      "reasons": [_plain(r) for r in x["reasons"]], "name_only": _agreeing(x) <= {"name"},
                      "decision": x["decision"], "fetched": min((e["at"] for e in x["evidence"]), default=None)}
@@ -754,7 +755,7 @@ async def hide_person(req: Request):
 
 async def _evidence(c: Case) -> tuple:
     snap = await search.snapshot(c)
-    hits = [{"who": "unknown", "post_id": None, "p": None, **h,  # the keys leads reads; machine readings stop at "likely"
+    hits = [{"who": "unknown", "post_id": None, "p": None, "category": None, "status": None, **h,  # the keys leads reads; machine readings stop at "likely"
              "verdict": report.cap(h["verdict"]) if h.get("verdict") in report.VERDICTS else h.get("verdict")}
             for h in await _hits(c)]
     return c.details(), await _posts(c), hits, snap["candidates"]
@@ -1554,6 +1555,33 @@ def _import_facebook(c: Case, posts, pages: list[Path], pictures: list[Path], tm
     return {"added": added, "posts": found, "pages": len(pages), "screenshots": len(pictures)}
 
 
+async def record_links(req: Request):
+    """The court portals and race-results sites Hunt never queries, prefilled for her to open; and whether the
+    OpenPowerlifting table is loaded (with the download size to show before she loads it)."""
+    seeds, loaded = _case(req).seeds(), sources.activity.meta()
+    return JSONResponse({"courts": sources.courts.search_links(seeds), "activity": sources.activity.search_links(seeds),
+                         "powerlifting": {"loaded": loaded or None,
+                                          "size": None if loaded else await setup._content_length(sources.activity.OPL)}})
+
+
+async def load_powerlifting(req: Request):
+    """POST {size}: the one-time OpenPowerlifting download (public domain), once she has seen its size."""
+    size = (await _body(req)).get("size")
+    if type(size) is not int or size != await setup._content_length(sources.activity.OPL):
+        raise HTTPException(400, "send size: the download size you showed and the investigator accepted")
+    if _active(req, ""):
+        raise HTTPException(409, "a download is already running")
+    job = Job("", "setup")  # one download at a time, as for setup
+    req.app.state.jobs[job.id] = job
+
+    async def work(job):
+        job.emit({"type": "progress", "item": "powerlifting",
+                  "message": f"Downloading OpenPowerlifting results ({size / 2**20:.0f} MB), then loading them"})
+        return await sources.activity.update()
+    job.start(work)
+    return JSONResponse({"job": job.id})
+
+
 async def facebook_links(req: Request):
     return JSONResponse({"links": facebook.search_links(_case(req).seeds())})
 
@@ -1561,6 +1589,8 @@ async def facebook_links(req: Request):
 FACEBOOK_ROUTES = [
     Route("/api/cases/{slug}/facebook", add_facebook, methods=["POST"]),
     Route("/api/cases/{slug}/facebook/links", facebook_links),
+    Route("/api/cases/{slug}/records/links", record_links),
+    Route("/api/powerlifting", load_powerlifting, methods=["POST"]),
 ]
 
 
