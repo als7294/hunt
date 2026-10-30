@@ -163,9 +163,10 @@ assert by[vsha]["collected"] == bundle.VENDOR != bundle.ADDED and "one of four w
 assert "did not load, scroll" not in flat and '"guided step"' in flat  # guided steps did scroll and open
 assert "signed in to her own account or signed out" in flat  # a capture was made signed out
 assert "leads for the investigator to review" in flat  # a flag is still new
-assert "headless Chromium" in flat  # capture.py sets no User-Agent of its own (yet)
-capture.UA = "Hunt/0.1 (+https://github.com/als7294/hunt)"
-assert "headless Chromium" not in " ".join(readme_and_rows()[0].split())  # once it does, the README follows
+assert "headless Chromium" not in flat  # capture.py names Hunt in its User-Agent now (CA4)
+real_ua, capture.UA = capture.UA, "Mozilla/5.0 HeadlessChrome"
+assert "headless Chromium" in " ".join(readme_and_rows()[0].split())  # if that ever regresses, the README says so
+capture.UA = real_ua
 del capture.UA
 
 # The standard tool agrees: every exhibit checks out except the one edited after it was saved
