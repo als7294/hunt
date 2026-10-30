@@ -39,7 +39,7 @@ From then on, you won't need Terminal for your daily work. The downloads above c
 
 ## 2. Starting and stopping Hunt
 
-- **To start Hunt,** double-click **Hunt** in Applications. Your browser opens on Hunt's start screen, with the version (for example v0.1.0) beside its name. Hunt is only reachable from this Mac; nothing else on your network can open it.
+- **To start Hunt,** double-click **Hunt** in Applications. Your browser opens on Hunt's start screen, which shows the version ("Hunt 0.1.0"). Hunt is only reachable from this Mac; nothing else on your network can open it.
 - **If you closed the browser tab,** click Hunt in the Dock to get the page back.
 - **To stop Hunt,** use Hunt in the Dock → **Quit**.
 
@@ -72,7 +72,10 @@ Hunt reads public pages **logged out**. Facebook, Instagram, TikTok, X and Linke
   - **Turning it on:** it's off whenever the browser starts. Turn it on from its toolbar button; a red **REC** badge shows while it's recording.
   - **How much it records:** either every page you settle on (the default), or only when you press **Capture this** (Alt+Shift+H).
   - **Video:** it can also record a video of the tab as you watch it.
+  - **The capture record:** each capture notes when it was made, whether you were signed in, the audience the platform showed (Public, Friends…), and the tool versions. If you tell Hunt your handle on a platform, it also records "logged in as" that handle; Hunt never reads it from your logins.
 - **What it never does:** clicks, scrolls, likes or follows. It only records what you chose to look at.
+- **LinkedIn is never recorded.** For LinkedIn, save the page yourself (File → Save Page As) or take a screenshot, and add it to the case.
+- **If a platform pushes back,** Hunt stops recording on that platform: a verification challenge, "suspected automated behaviour", a blocked action, or a disabled account. Stop using that account for casework, tell your firm, and resume from Hunt only once it's sorted.
 - **Use your own, real accounts.** Never fake ones.
 - **Never interact with the person you're looking into:** no follows, likes, messages or friend requests. Hunt can't stop a click for you.
 - **The checklist:** for each account you've confirmed, it lists the sections to open (posts, photos, tagged, videos, about…) and ticks each one off once you've captured it.
@@ -83,7 +86,10 @@ Hunt reads public pages **logged out**. Facebook, Instagram, TikTok, X and Linke
 Hunt works fully without keys. A few sources give more with a free key of your own. The **Keys** screen links to each sign-up page, and the keys are kept on this Mac only:
 - **GitHub, Gravatar, OpenFEC and state open-data portals:** more lookups each hour.
 - **CourtListener:** federal court records only run with a key.
+- **YouTube:** every upload of a channel instead of the latest 15.
 - **SEC EDGAR:** asks for your firm's name and a contact email instead of a key.
+
+One option costs money, on your own account: **Apify**, for public Instagram and Facebook posts. Hunt shows the estimated cost before each run, stops at the caps you set, and marks every post it fetched as obtained through Apify.
 
 ## 4. A case, from start to report
 
@@ -102,10 +108,11 @@ Before you create the case, Hunt tells you if **you've looked into this person b
 
 ### Find a person
 
-Enter whatever you have: a name, username, email, phone number, address or profile link. You can add more any time.
+Enter whatever you have: a name, username, email, phone number, address, profile link, date of birth, age or employer. You can add more any time.
 
 Hunt then:
-- checks hundreds of sites and public records at once
+- checks over a thousand sites and public records at once, including federal court records and the court tables some states and cities publish
+- lists the court websites that don't allow automated searches, as links for you to search by hand
 - notes every source it asked, including the ones that found nothing (your methodology section needs those)
 - screenshots the likely matches as evidence
 
@@ -113,16 +120,18 @@ Hunt then:
 
 This is where namesakes get caught. Hunt groups the accounts it believes belong to one person. For each account, it shows **why**: the name matches, the place matches, the same profile photo appears elsewhere, it links to another of their accounts. It also shows what **doesn't** match.
 
-People with the same name who are probably someone else are listed separately, with the reason. Public records (court cases, licences, businesses, donations, filings) are shown apart from the accounts, for you to judge the same way.
+People with the same name who are probably someone else are listed separately, with the reason. Public records (court cases, licences, businesses, donations, filings) are shown apart from the accounts. Each is weighed against what the case knows (date of birth or age, employer, place), so a namesake's record can be set aside with the reason.
 
 **You decide.** For each account, or for the whole person, mark it **them**, **not them** or **unsure**. Your decision is logged and goes in the report. Hunt never decides for you.
 
 ### Posts
 
-Hunt reads the confirmed accounts' public posts by itself where it can do so logged out: Bluesky, Mastodon and YouTube. For Facebook, Instagram, TikTok and X, the posts come from you:
+Hunt reads the confirmed accounts' public posts by itself where it can do so logged out: Bluesky, Mastodon, YouTube, and TikTok's public pages. On TikTok it reads where TikTok allows it, and stops at the first refusal. For Facebook, Instagram and X, the posts come from you:
 - what you viewed in the Hunt Browser with Hunt Capture on
+- **Read public preview** on the worklist: one logged-out read of a confirmed account, on your click
 - Facebook pages you saved
 - screenshots and videos you saved: use **From Downloads** (section 6)
+- optionally, Apify on your own account (section 3)
 
 Then Hunt's **media scan** looks through every photo and video, on your Mac, for what you asked it to look for. Each flag shows:
 - what was seen ("a person carrying a box")
@@ -142,7 +151,7 @@ A flag nobody reviewed is not a finding.
 The report is written from the case's own records, with no AI writing:
 - **Every sentence cites its evidence:** an account, a post, a source checked, a log entry or one of your notes.
 - **A sentence without evidence can't appear.**
-- **It says what Hunt couldn't see:** private accounts, failed sources, undated posts.
+- **It says what Hunt couldn't see:** sources that failed or weren't run, sites whose posts Hunt couldn't read, flags you ruled out, undated items, and which public records weren't searched.
 
 Download it as **PDF**, **HTML** or **JSON**.
 
@@ -226,8 +235,10 @@ Hunt is built for lawful, purpose-bound investigations:
 - **Its own collection is passive and logged out.** It never logs in anywhere by itself.
 - **It never uses fake accounts,** and never automates a logged-in session.
 - **It never contacts or notifies the person:** no follows, messages or email checks that could alert them.
-- **It never downloads videos from Instagram, TikTok or Facebook for you.**
-- **It never sends your cases anywhere.**
+- **It never fetches anything from Instagram or Facebook by itself.** The one exception is an Apify run you start on your own account.
+- **TikTok videos** are fetched only from public pages TikTok lets software read, and only when the uploader allows downloads. Otherwise Hunt keeps just the cover picture.
+- **No face search.** A one-to-one check of your own reference photo against candidate profile photos is built, but it isn't in the app yet. When it is, it will be off unless you turn it on, and allowed only where the subject's home state or country permits it.
+- **It never sends your cases anywhere.** If you use Apify, Apify receives the addresses of the accounts you ask it to read, and nothing else from the case.
 
 Logged-in viewing is something **you** do, as yourself, in the Hunt Browser. Scraping with sock-puppet accounts is the pattern that has lost in court, and employment and insurance reports carry FCRA and state-law duties that Hunt helps you meet but can't lift.
 
@@ -239,8 +250,9 @@ The reasoning, with sources, is in [legal.md](research/legal.md). It's engineeri
   - each case in its own folder, with its log and its evidence named by fingerprint
   - the Hunt Browser's profile, holding your logins
 - **What leaves your Mac:**
-  - the requests to the sites being checked (through your proxy, if you set one)
+  - the requests to the sites and public records being checked, and to TikTok's and YouTube's public pages (through your proxy, if you set one)
   - place names, never people's names, sent to OpenStreetMap to compare locations
+  - the account addresses you send to Apify, if you use it
   - the downloads you approve in setup
 - **Retention:** cases are due for deletion **90 days** after you open them, unless you put them on **legal hold**. Hunt reminds you, and offers three choices:
   - **Delete the case:** it goes to the Trash.
