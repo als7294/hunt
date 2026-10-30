@@ -351,8 +351,9 @@ before = len(scan.hits(case))
 asyncio.run(scan.run(case, ["sport", "walks", "other_job"], "", "2024-01-01", emitted.append, running))
 assert len(scan.hits(case)) == before  # a rescan finds nothing new
 
-# Registered, and merged with Maigret's facebook.com/<username> into one candidate by search.build
-assert source in SOURCES
+# Not in batch search (compliance audit DS5: one profile on her click only), and still merged with
+# Maigret's facebook.com/<username> into one candidate by search.build
+assert source not in SOURCES
 case.add_seeds([Seed("username", "dorian.vell"), Seed("name", "Dorian Vell")])
 case.add_finding(Finding("maigret", Seed("username", "dorian.vell"), "Facebook", "https://www.facebook.com/dorian.vell",
                          {"fullname": "Dorian Vell"}))
