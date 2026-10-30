@@ -672,9 +672,10 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
 
     # Disclaimers
     method = runs[:1] + log.get("capture", [])[:1] + log.get("posts collected", [])[:1] or opened
-    doc.say("disclaimers", "Everything in this report came from information open to the public, viewed while logged out. "
-                           "No account was created, no one was contacted, friended, followed or messaged, and no pretext "
-                           "was used.", method)
+    doc.say("disclaimers", "Everything in this report came from information open to the public. Hunt's own code created "
+                           "no account, contacted, friended, followed or messaged no one, and used no pretext: it has no "
+                           "way to. That is a statement about the software; the investigator's own conduct is covered "
+                           "by the certification.", method, boilerplate=True)  # D15 (a)
     doc.say("disclaimers", f"Each exhibit was saved with its SHA-256 hash when captured; all {checks['checked']} evidence "
                            f"files were hashed again for this report, and {len(checks['tampered'])} had changed.",
             log.get("capture", [])[:1] + log.get("file added", [])[:1] + log.get("posts collected", [])[:1] or opened)

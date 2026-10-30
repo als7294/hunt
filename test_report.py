@@ -100,7 +100,7 @@ assert "phone details" in gaps and "whatsmyname failed" in gaps and "Posts on In
 assert "login-only" in gaps and "Bluesky weren't read" not in gaps and "ruled not relevant" in gaps, gaps
 assert "no date" in gaps and "Court and other public records" in gaps, gaps
 disclaim = " ".join(s["text"] for s in rep["sentences"] if s["section"] == "disclaimers")
-assert "no pretext" in disclaim and "SHA-256" in disclaim and report.CONFIDENTIAL in disclaim, disclaim
+assert "Hunt's own code created no account" in disclaim and "used no pretext" in disclaim and "SHA-256" in disclaim and report.CONFIDENTIAL in disclaim, disclaim
 assert report.NOT_CONSUMER in disclaim and report.FCRA not in disclaim, disclaim  # a claim, not employment screening
 assert all(x.get("platform") == "Bluesky" for x in rep["sentences"] if x["section"] == "found"), rep["sentences"]
 
