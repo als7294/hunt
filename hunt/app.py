@@ -874,6 +874,11 @@ async def _heic_to_jpeg(path: Path) -> Path:
 async def get_posts(req: Request):
     c = _case(req)
     posts, hits = await _posts(c), await _hits(c)
+    by_post, approved = {p["id"]: p for p in posts}, {json.loads(r["detail"]).get("hit") for r in c.rows(
+        "select detail from audit where action = 'counsel approved'")}
+    for h in hits:  # the audience the platform showed, and whether counsel approved it (K3)
+        if aud := report.audience(h, by_post):
+            h |= {"audience": aud, "counsel": h["id"] in approved}
     flagged = _flagged(hits)
     weekly = Counter()
     for kind, items in (("posts", posts), ("flagged", flagged)):
@@ -897,6 +902,26 @@ def _week(when) -> str | None:
         return f"{y}-W{w:02d}"
     except ValueError:
         return None
+
+
+async def counsel_hit(req: Request):
+    """POST {by, note}: counsel approved using an item shown to a restricted audience (K3). Audited; the report
+    includes the item from then on, saying so."""
+    c = _case(req)
+    b = await _body(req)
+    by, note = b.get("by"), b.get("note")
+    if not isinstance(by, str) or not by.strip() or len(by) > 200:
+        raise HTTPException(400, "by: the name of the counsel who approved it")
+    if note is not None and (not isinstance(note, str) or len(note) > 2000):
+        raise HTTPException(400, "note must be text of at most 2,000 characters")
+    try:
+        hit_id = int(req.path_params["id"])
+    except ValueError:
+        raise HTTPException(404, "no such hit")
+    if not any(h["id"] == hit_id for h in await _hits(c)):
+        raise HTTPException(404, "no such hit")
+    c.audit("counsel approved", {"hit": hit_id, "by": by.strip(), "note": (note or "").strip() or None})
+    return JSONResponse({"hit": hit_id, "counsel": by.strip()})
 
 
 async def set_hit(req: Request):
@@ -1901,6 +1926,7 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/cases/{slug}/media", add_media, methods=["POST"]),
         Route("/api/cases/{slug}/posts", get_posts),
         Route("/api/cases/{slug}/hits/{id}", set_hit, methods=["POST"]),
+        Route("/api/cases/{slug}/hits/{id}/counsel", counsel_hit, methods=["POST"]),
         Route("/api/cases/{slug}/details", update_details, methods=["POST"]),
         Route("/api/face/gate", face_gate),
         Route("/api/cases/{slug}/face", face_on, methods=["POST"]),

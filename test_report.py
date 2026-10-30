@@ -308,6 +308,17 @@ assert [x["text"] for x in compose(screening=True)["sentences"] if x["section"] 
 one = compose(hs=[h for h in hits if h["status"] in ("kept", "in report")][:1])  # singular: "was", "Exhibit"
 assert "1 item relating to the listed activities was kept for this report (Exhibit " in text(one), text(one)
 
+# Shown to a restricted audience: out of the report until counsel approves that item, then in it, saying so (K3)
+posts[0]["extra"] = {"audience": "Friends"}
+rep = compose()
+assert "E-1" not in {e["id"] for e in rep["evidence"]} | {x["id"] for x in rep["exhibits"]}, rep["evidence"]
+assert any("1 item shown to a restricted audience (Friends) was left out pending counsel's approval." == x for x in rep["couldnt_see"]), rep["couldnt_see"]
+case.audit("counsel approved", {"hit": 1, "by": "A. Counsel", "note": None})
+rep = compose()
+assert "E-1" in {e["id"] for e in rep["evidence"]} and not any("restricted audience" in x for x in rep["couldnt_see"])
+assert "It was shown to Friends, not the public; counsel (A. Counsel) approved its use in this report." in text(rep), text(rep)
+posts[0]["extra"] = None
+
 # People around the subject (legal.md A1–A10): as observed and cited, never a relationship label; a minor unnamed;
 # none in screening; "Not relevant" leaves them out
 from hunt import graph  # noqa: E402

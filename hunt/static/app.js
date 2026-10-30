@@ -1230,7 +1230,7 @@ screens.posts = async slug => {
     <div class="split" style="--side:460px;flex:1 0 auto;min-height:460px">
       <div style="display:flex;flex-direction:column;gap:8px;overflow:auto">${hits.length ? hits.map(h => html`<button class="row" data-act="pick-hit" data-id="${h.id}" style="text-align:left;${sel && h.id === sel.id ? 'box-shadow:inset 0 0 0 1.5px var(--ac)' : ''}">
           <span class="dot" style="background:${siteColor(h.source)}"></span>
-          <div style="flex:1;min-width:0"><div style="font-weight:500">${h.what}</div><div class="muted" style="font-size:13.5px">${[h.source, h.posted_at ? 'posted ' + day(h.posted_at) : ''].filter(Boolean).join(' · ')}</div></div>
+          <div style="flex:1;min-width:0"><div style="font-weight:500">${h.what}</div><div class="muted" style="font-size:13.5px">${[h.source, h.posted_at ? 'posted ' + day(h.posted_at) : ''].filter(Boolean).join(' · ')}${restricted(h) ? html` <span class="tag warn">${h.audience} only</span>` : ''}</div></div>
           <div style="text-align:right;font-size:13.5px"><div style="color:${h.timing === 'after' ? 'var(--am)' : 'var(--mu)'}">${h.days_after != null && h.days_after >= 0 ? `+${h.days_after} days` : ''}</div><div class="muted">${h.verdict}${h.status === 'in report' ? ' · in report' : h.status === 'kept' ? ' · kept' : ''}</div></div></button>`)
         : html`<div class="empty">Nothing flagged yet. <a href="#/case/${slug}/scan" style="color:var(--ac)">See the scan →</a></div>`}</div>
       <div id="hit-detail">${sel ? hitDetail(slug, c, sel) : ''}</div>
@@ -1249,6 +1249,7 @@ const commentsBlock = cs => !cs?.length ? '' : html`<details ${cs.length <= 5 ? 
     <span class="dim">${[x.posted_at ? day(x.posted_at) : x.posted_at_text, x.likes ? `${x.likes} like${x.likes === 1 ? '' : 's'}` : ''].filter(Boolean).map(t => ` · ${t}`).join('')}</span>
     <div class="t2" style="overflow-wrap:anywhere">${x.text}</div></div>`)}
     <span class="dim" style="font-size:12.5px">Only the comments the page showed; others may be hidden or folded.</span></div></details>`;
+const restricted = h => h.audience && h.audience !== 'Public'; // K3: held for counsel
 function hitDetail(slug, c, h) {
   const src = evidenceUrl(slug, h.file), blur = h.blur || h.child_visible;
   return html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px">
@@ -1258,6 +1259,11 @@ function hitDetail(slug, c, h) {
     ${h.caption ? html`<div class="t2" style="font-size:14.5px">“${h.caption}”</div>` : ''}
     ${(x => x ? html`<div class="muted" style="font-size:13.5px">${[x.place && `at ${x.place}`, x.activity, x.life_event].filter(Boolean).join(' · ')}${x.posted_at_precision && x.posted_at_precision !== 'second' ? html`${x.place || x.activity || x.life_event ? ' · ' : ''}date to the ${x.posted_at_precision}${x.posted_at_text ? `, as Facebook showed it: “${x.posted_at_text}”` : ''}` : ''}</div>` : '')((window.__posts || []).find(p => p.id === h.post_id)?.extra)}
     ${commentsBlock((window.__posts || []).find(p => p.id === h.post_id)?.visible_comments)}
+    ${restricted(h) ? html`<div class="reason ${h.counsel ? '' : 'warn'}" style="flex-direction:column;align-items:stretch;gap:8px">
+      <div><span class="ic">${h.counsel ? '✓' : '!'}</span> Shown to <b>${h.audience}</b>, not the public. ${h.counsel ? 'Counsel approved its use: it can go in the report, which says so.' : 'It stays out of the report until counsel approves its use.'}</div>
+      ${h.counsel ? '' : html`<div class="life" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input class="input" id="counsel-by" placeholder="Counsel’s name" aria-label="Counsel’s name" style="flex:1;min-width:160px;font-size:14px">
+        <input class="input" id="counsel-note" placeholder="Note (optional)" aria-label="Note" style="flex:2;min-width:160px;font-size:14px">
+        <button class="btn sm" data-act="counsel-ok" data-slug="${slug}" data-id="${h.id}">Record approval</button></div>`}</div>` : ''}
     ${c.details.limits ? html`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div class="card" style="padding:12px;background:var(--panel-3)"><div class="label">The claim says</div><div>${c.details.limits}</div></div>
       <div class="card" style="padding:12px;background:var(--am-bg)"><div class="label" style="color:var(--am)">The post shows</div><div>${h.who === 'him' ? '' : 'A person: '}${h.what}</div></div></div>` : ''}
@@ -1635,6 +1641,13 @@ const actions = {
   },
   'life-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = (el.dataset.mode === 'pack' ? packForm(el.dataset.slug) : lifeForm(el.dataset.slug, el.dataset.mode)).s; box.querySelector('input').focus(); },
   'life-cancel': el => { const box = el.closest('.life'); box.innerHTML = box.dataset.was || ''; },
+  'counsel-ok': async el => {
+    const by = $('#counsel-by').value.trim(), note = $('#counsel-note').value.trim();
+    if (!by) return toast('Add the name of the counsel who approved it.', true);
+    el.disabled = true;
+    try { await api(`/api/cases/${encodeURIComponent(el.dataset.slug)}/hits/${el.dataset.id}/counsel`, { method: 'POST', body: { by, note: note || null } });
+      toast('Approval recorded in the case log.'); render(); } catch (e) { el.disabled = false; fail(e); }
+  },
   'demo-open': async el => {
     el.disabled = true;
     try { let d = await api('/api/demo');

@@ -276,7 +276,12 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     if screening:
         hits = [h for h in hits if h.get("category") != "injury" and not any(
             r.search(f"{h.get('what', '')} {h.get('caption', '')}") for r in (PROTECTED, RELATION))]
-    kept = sorted((h for h in hits if h.get("status") in KEPT),
+    # Shown to a restricted audience (Friends, Followers…): out of the report until counsel approves that item (K3)
+    approvals = {str(json.loads(a["detail"]).get("hit")): (f"M-a{a['rowid']}", json.loads(a["detail"]).get("by"))
+                 for a in snap["audit"] if a["action"] == "counsel approved"}
+    held = [h for h in hits if h.get("status") in KEPT and audience(h, by_post) not in (None, "", "Public")
+            and str(h["id"]) not in approvals]
+    kept = sorted((h for h in hits if h.get("status") in KEPT and h not in held),
                   key=lambda h: (h.get("source") or "", h.get("posted_at") or ""))
     ev = lambda hs: [f"E-{h['id']}" for h in hs]
     runs = [_run(r) for r in methodology]
@@ -539,6 +544,10 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
                          f"Machine reading: {reading}; reviewed and "
                          f"{'placed in the report' if h['status'] == 'in report' else 'kept'} by the investigator.", [cid])
         doc.sentences[-1]["platform"] = h.get("source") or "Other"
+        if (shown := audience(h, by_post)) not in (None, "", "Public"):
+            cid, by = approvals[str(h["id"])]
+            doc.say("found", f"It was shown to {shown}, not the public; counsel ({by}) approved its use in this report.", [cid])
+            doc.sentences[-1]["platform"] = h.get("source") or "Other"
         for n in on_item.pop(("hit", str(h["id"])), []) + on_item.pop(("post", str(h.get("post_id"))), []):
             before = len(doc.sentences)
             doc.say("found", f"Investigator's note {n['cite']}, {_when(n['ts'], tz, False)}: “{n['text']}”", [n["cite"]])
@@ -640,6 +649,10 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     if ruled := [h for h in hits if h.get("status") == "not relevant"]:
         doc.say("couldnt_see", f"{_many(len(ruled), 'flagged item')} {'was' if len(ruled) == 1 else 'were'} ruled not "
                                "relevant by the investigator.", ev(ruled))
+    if held:
+        doc.say("couldnt_see", f"{_many(len(held), 'item')} shown to a restricted audience "
+                               f"({', '.join(sorted({audience(h, by_post) for h in held}))}) {'was' if len(held) == 1 else 'were'} "
+                               "left out pending counsel's approval.", ev(held), boilerplate=True)
     if undated := [h for h in hits if not h.get("posted_at")]:
         doc.say("couldnt_see", f"{_many(len(undated), 'item')} {'has' if len(undated) == 1 else 'have'} no date, so "
                                f"{'it' if len(undated) == 1 else 'they'} can't be placed in time.", ev(undated))
@@ -738,6 +751,11 @@ def _screened(c: dict) -> bool:
         return True
     text = " ".join(str(c["attrs"].get(k) or "") for k in ("case", "case_type", "nature_of_suit", "cause"))
     return src in ("courtlistener", "courts") and bool(SENSITIVE_CASE.search(text) or PROTECTED.search(text))
+
+
+def audience(h: dict, by_post: dict) -> str | None:
+    """Who the platform showed the item to, when it showed it: the hit's own, else its post's (the capture's)."""
+    return h.get("audience") or ((by_post.get(h.get("post_id")) or {}).get("extra") or {}).get("audience")
 
 
 def _summary(c: dict, injury: str | None = None, screening: bool = False) -> str:

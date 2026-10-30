@@ -336,6 +336,13 @@ assert r.headers["content-disposition"].startswith("attachment") and "&lt;" not 
 r = c.get("/api/cases/vance-claim/report.json?screening=1").json()
 assert r["report"]["screening"] and all(m["ok"] for m in r["manifest"])
 assert c.get("/api/cases/vance-claim/report.docx").status_code == 404
+# Counsel's approval of a restricted-audience item: named, audited, for a hit that exists
+url = "/api/cases/vance-claim/hits/7/counsel"
+assert c.post(url, content=json.dumps({"by": " "}), headers=JSON).status_code == 400
+assert c.post("/api/cases/vance-claim/hits/999/counsel", content=json.dumps({"by": "A. Counsel"}), headers=JSON).status_code == 404
+assert c.post(url, content=json.dumps({"by": "A. Counsel", "note": "Friends-only post, approved"}), headers=JSON).json() == \
+    {"hit": 7, "counsel": "A. Counsel"}
+assert Case.open("vance-claim").rows("select action from audit order by rowid desc limit 1")[0]["action"] == "counsel approved"
 # A background check: no export until she confirms an account, and no map of the people around the subject (K1, A8)
 bg = c.post("/api/cases", content=json.dumps({**new, "label": "Quill check", "kind": "background", "seeds": ["rquill_example"],
                                               "purpose": "Employer XYZ: pre-employment check, consent on file"}), headers=JSON).json()["slug"]
