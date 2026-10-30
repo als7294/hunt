@@ -100,16 +100,14 @@ case = Case("posts test", purpose="self-check with made-up accounts")
 events = []
 accounts = [{"url": "https://bsky.app/profile/alice.example.social", "site": "Bluesky"},
             {"url": "https://mastodon.example/@bob", "site": "Mastodon"},
-            {"url": "https://www.youtube.com/@carol", "site": "YouTube"},
             {"url": "https://www.reddit.com/user/dave", "site": "Reddit"},
             {"url": "https://mastodon.example/@nobody", "site": "Mastodon"}]
 added = asyncio.run(posts.collect(case, accounts, "2026-01-01", events.append))
 
 # What each source returned
 got = posts.list_posts(case)
-assert added == 6 == len(got), (added, [p["url"] for p in got])  # 2 Bluesky (repost and pre-`since` skipped), 2 Mastodon, 2 YouTube
-assert [p["posted_at"][:10] for p in got] == ["2026-06-04", "2026-06-03", "2026-06-02", "2026-05-20", "2026-04-01",
-                                              "2026-03-01"]
+assert added == 4 == len(got), (added, [p["url"] for p in got])  # 2 Bluesky (repost and pre-`since` skipped), 2 Mastodon
+assert [p["posted_at"][:10] for p in got] == ["2026-06-04", "2026-06-02", "2026-05-20", "2026-03-01"]
 by_url = {p["url"]: p for p in got}
 moving = by_url["https://bsky.app/profile/alice.example.social/post/3kaaa"]
 assert moving["text"] == "Moving day!" and moving["origin"] == "fetched" and moving["source"] == "Bluesky"
@@ -121,8 +119,6 @@ hiking = by_url["https://mastodon.example/@bob/9"]
 assert hiking["text"] == "Hiking today\nGreat views & sun", hiking["text"]  # HTML stripped, lines kept
 assert [m["kind"] for m in hiking["media"]] == ["image"]  # audio ignored
 assert by_url["https://mastodon.example/users/bob/statuses/8"]["text"] == "quiet day"  # no url: falls back to uri
-ridge = by_url["https://www.youtube.com/watch?v=v1"]
-assert ridge["text"] == "Hiking the ridge\n12 km with a full pack" and ridge["media"][0]["kind"] == "image"
 for p in got:  # every media file is named by the hash of its bytes
     for m in p["media"]:
         assert m["file"] == f"evidence/{hashlib.sha256((case.dir / m['file']).read_bytes()).hexdigest()}.{m['file'].split('.')[1]}"
@@ -130,17 +126,16 @@ assert not list((case.dir / "evidence").glob("*.part"))  # no half-written downl
 
 # Methodology and progress
 runs = {r["seed"]: r for r in case.rows("select * from runs")}
-assert "latest 15" in runs["https://www.youtube.com/@carol"]["note"]
 assert runs["https://mastodon.example/@nobody"]["status"] == "failed" and "404" in runs["https://mastodon.example/@nobody"]["note"]
 assert events[0] == {"type": "stage", "stage": "collecting"}
 done = [e for e in events if e["type"] == "source" and e["status"] != "running"]
 assert [(e["source"], e["status"], e["found"]) for e in done] == [
-    ("Bluesky", "found", 2), ("Mastodon", "found", 2), ("YouTube", "found", 2), ("Reddit", "failed", 0),
-    ("Mastodon", "failed", 0)], done
+    ("Bluesky", "found", 2), ("Mastodon", "found", 2), ("Reddit", "failed", 0), ("Mastodon", "failed", 0)], done
+assert "robots.txt" in runs["https://www.reddit.com/user/dave"]["note"]  # a denied host: never requested (test_public.py)
 assert all(kw["proxy"] == "socks5h://127.0.0.1:9050" for kw in clients)  # everything through HUNT_PROXY
 
 # Reading again adds nothing
-assert asyncio.run(posts.collect(case, accounts[:3], "2026-01-01", events.append)) == 0 and len(posts.list_posts(case)) == 6
+assert asyncio.run(posts.collect(case, accounts[:2], "2026-01-01", events.append)) == 0 and len(posts.list_posts(case)) == 4
 
 # The investigator's own files
 tmp = Path(tempfile.mkdtemp())
@@ -155,7 +150,7 @@ try:
     posts.add_files(case, [tmp / "a.jpg", tmp / "x.svg"], None, None)
     raise AssertionError("SVG should be refused")
 except ValueError:
-    assert len(posts.list_posts(case)) == 6  # refused before anything was added
+    assert len(posts.list_posts(case)) == 4  # refused before anything was added
 ids = posts.add_files(case, [tmp / "a.jpg", tmp / "shot.png", tmp / "clip.mp4", tmp / "b.heic"], "Instagram",
                       "2026-06-10T12:00:00")
 mine = {p["id"]: p for p in posts.list_posts(case) if p["origin"] == "added"}

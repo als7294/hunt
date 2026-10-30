@@ -14,14 +14,21 @@ tiktok   TikTok's robots.txt lets a generic agent read profile and video pages (
          are read from the page.
 youtube  The Data API v3 on the investigator's own key, HUNT_YOUTUBE_KEY: the channel's uploads playlist, full
          descriptions, thumbnails kept as evidence copies; videos aren't downloaded. API data must be refreshed
-         or deleted within 30 days (Developer Policies III.E.4). Without a key, posts._youtube's RSS read.
-instagram, facebook   Login-walled, robots default-deny: not read automatically. The fetchers here only say so.
-         They come through the Hunt Browser, or the investigator's own Apify key (vendor.py). The earlier gallery-dl
-         and embed-page readers are parked on branch parked/hunt-facebook-instagram-readers.
-X and Threads return nothing logged out and have the same robots default; not collected.
+         or deleted within 30 days (Developer Policies III.E.4). Without a key there is no read: YouTube's
+         robots.txt disallows its feed.
+ROBOTS_DENY   Facebook, Instagram, Threads, X, LinkedIn, Reddit, Strava and Snapchat deny generic agents or are
+         login-walled (legal.md C1, C6; decision D2): never read automatically. Their fetcher only says so, so a
+         threads.net/@user address is never mistaken for a Mastodon handle. They come through the Hunt Browser, or,
+         for Instagram and Facebook, the investigator's own Apify key (vendor.py). The earlier gallery-dl and
+         embed-page readers are parked on branch parked/hunt-facebook-instagram-readers.
 
-posts.py registers FETCHERS here (see the bottom) and hands TikTok video pages to download() from posts._download.
-preview(case, url) is the app's "Read public preview": one account or post URL, on her click.
+Walls and hard stops (legal.md C7, C8; decision D8): every automatic read first asks blocked(url). A platform under a
+capture hard stop (browser.stops()) isn't read until she resumes it from the app. A 429 ends that platform's reads
+for the run; a CAPTCHA, an IP block or a login wall also sets a hard stop (browser.stop), audited "capture hard stop".
+Nothing is retried, rotated or spoofed, and yt-dlp is refused outright if it could impersonate a browser.
+
+posts.py registers FETCHERS here (see the bottom), clears WALLED per run, asks blocked() per account and hands TikTok
+video pages to download() from posts._download. preview(case, url) is the app's "Read public preview".
 """
 
 import asyncio
@@ -30,6 +37,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
@@ -37,7 +45,13 @@ from urllib.parse import urlparse
 
 from . import posts
 
-NAMES = {"tiktok": "TikTok", "instagram": "Instagram", "facebook": "Facebook"}
+NAMES = {"tiktok": "TikTok", "instagram": "Instagram", "facebook": "Facebook", "threads": "Threads", "x": "X",
+         "linkedin": "LinkedIn", "reddit": "Reddit", "strava": "Strava", "snapchat": "Snapchat"}
+HOSTS = {"tiktok.com": "tiktok", "facebook.com": "facebook", "fb.com": "facebook", "instagram.com": "instagram",
+         "threads.net": "threads", "threads.com": "threads", "x.com": "x", "twitter.com": "x", "linkedin.com": "linkedin",
+         "reddit.com": "reddit", "strava.com": "strava", "snapchat.com": "snapchat"}
+ROBOTS_DENY = tuple(h for h, k in HOSTS.items() if k != "tiktok")  # never read automatically (C1, C6; D2)
+ALIASES = {"x": ("twitter",)}  # other names a site list may use
 MAX_VIDEO_BYTES = 500 << 20  # one video
 MAX_ACCOUNT_BYTES = 5 << 30  # videos from one account, per read (reset when its profile is read)
 SLEEP = 1  # seconds between requests to one platform
@@ -46,17 +60,60 @@ YT_API = "https://www.googleapis.com/youtube/v3"
 TT_PROFILE = re.compile(r"tiktok\.com/@([\w.-]+)/?(?:[?#]|$)")
 TT_POST = re.compile(r"tiktok\.com/@[\w.-]+/(?:video|photo)/\d+")
 REHYDRATION = re.compile(r'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>', re.S)
-WALLS = (("login wall", r"log ?in|sign ?in|authenticat|cookies|private"),
-         ("rate limit", r"\b429\b|rate.?limit|too many requests"),
-         ("CAPTCHA", r"captcha|challenge|verify"))
+WALLS = (("rate limit", r"\b429\b|rate.?limit|too many requests"),
+         ("IP block", r"ip (?:address )?(?:is )?blocked|\b10204\b"),
+         ("CAPTCHA", r"captcha|challenge|verify (?:that )?you"),
+         ("login wall", r"log ?in|sign ?in|authenticat|cookies"))
 LOCKS = {p: asyncio.Lock() for p in NAMES}  # one tool run per platform at a time
+WALLED: dict[str, str] = {}  # platform → why, after this run's first wall (posts.collect clears it per run)
 _spent: dict[str, int] = {}  # video bytes downloaded per account, this read
+_last = 0.0  # when the last TikTok page was requested (the polite gap)
+_TARGETS = None  # yt-dlp's browser-impersonation targets, looked up once
+
+
+class Wall(ValueError):
+    """A refusal met on an automatic read. kind: 'rate limit' ends the platform's reads for this run; 'CAPTCHA',
+    'IP block' and 'login wall' also set a hard stop until she resumes the platform (decision D8)."""
+
+    def __init__(self, kind: str, message: str):
+        super().__init__(message)
+        self.kind, self.hard = kind, kind != "rate limit"
 
 
 def site(url: str, site: str = "") -> str | None:
     """Which of these platforms an account or post URL belongs to, or None."""
-    host = re.sub(r"^(?:[\w-]+\.)*(tiktok|facebook|fb|instagram)\.com$", r"\1", urlparse(url).netloc.lower())
-    return next((k for k in NAMES if host in (k, k[:1] + "b") or k in site.lower()), None)
+    host = urlparse(url).netloc.lower().split(":")[0]
+    by_host = next((k for h, k in HOSTS.items() if host == h or host.endswith("." + h)), None)
+    return by_host or next((k for k in NAMES if site.lower() in (k, NAMES[k].lower(), *ALIASES.get(k, ()))), None)
+
+
+def denied(url: str) -> bool:
+    """A host Hunt never reads automatically (ROBOTS_DENY), whatever the scheme or subdomain."""
+    return site(url) not in (None, "tiktok")
+
+
+def blocked(url: str) -> str | None:
+    """Why an automatic read of this address must not happen now: a hard stop on its platform, or a wall met
+    earlier in this run. None when it may go ahead."""
+    k = site(url)
+    if not k:
+        return None
+    if k in WALLED:
+        return WALLED[k]
+    from . import browser
+    if stop := browser.stops().get(NAMES[k]):
+        return (f"hard stop on {NAMES[k]} since {(stop.get('ts') or '')[:16]} ({stop.get('reason')}): no automatic read until "
+                "you resume it from the app, after speaking to Ethos")
+    return None
+
+
+def hit_wall(case, url: str, wall: Wall) -> None:
+    """Record a wall: the platform's reads end for this run; a CAPTCHA, IP block or login wall also sets a hard stop."""
+    k = site(url) or urlparse(url).netloc
+    WALLED[k] = f"stopped after a {wall.kind} on {url}: {wall}"
+    if wall.hard:
+        from . import browser
+        browser.stop(NAMES.get(k, k), f"a {wall.kind} on an automatic read", url, case)
 
 
 async def preview(case, url: str) -> dict:
@@ -80,6 +137,10 @@ async def download(case, url: str) -> tuple[str, str]:
     """yt-dlp fetches a video page's file into the evidence locker: ('evidence/<sha>.<ext>', sha).
     ValueError, in the tool's words, when it can't, or when a cap is reached."""
     account = _account(url)
+    if impersonation():
+        raise ValueError(f"{_tool()} could impersonate a browser (curl_cffi targets {impersonation()}); Hunt won't run it")
+    if why := blocked(url):
+        raise ValueError(why)
     if _spent.get(account, 0) >= MAX_ACCOUNT_BYTES:
         raise ValueError(f"{_tool()}: {MAX_ACCOUNT_BYTES >> 20} MB of video already taken from {account} this read; "
                          "the rest is skipped")
@@ -88,7 +149,12 @@ async def download(case, url: str) -> tuple[str, str]:
                                                      "-o", f"{tmp}/%(id)s.%(ext)s", url))
         files = sorted((f for f in Path(tmp).iterdir() if f.suffix != ".part"), key=lambda f: f.stat().st_size, reverse=True)
         if not files:
-            raise ValueError(f"{_tool()}: " + (_said(lines, err, rc) or f"nothing downloaded (bigger than {MAX_VIDEO_BYTES >> 20} MB?)"))
+            said = _said(lines, err, rc)
+            if (kind := _wall(said)) != "tool error":  # the platform refused: its reads end here (and a hard stop, if not a 429)
+                wall = Wall(kind, f"{_tool()}: {said}")
+                hit_wall(case, url, wall)
+                raise wall
+            raise ValueError(f"{_tool()}: " + (said or f"nothing downloaded (bigger than {MAX_VIDEO_BYTES >> 20} MB?)"))
         (file, sha), size = posts._store_file(case, files[0], posts._ext(files[0].name)), files[0].stat().st_size
     _spent[account] = _spent.get(account, 0) + size
     case.audit("media downloaded", {"url": url, "tool": _tool(), "file": file, "bytes": size})
@@ -101,10 +167,11 @@ async def _tiktok(client, url, since):
     m = TT_PROFILE.search(url)
     if not m:  # a video or photo page, or a short link TikTok redirects to one
         return await _tiktok_post(client, url, since)
+    await _pace()
     r = await client.get(f"https://www.tiktok.com/@{m[1]}")
     info = _page_json(r, "webapp.user-detail").get("userInfo") or {}
     if r.status_code != 200 or not info:
-        raise ValueError(_tt_wall(r))
+        raise _tt_wall(r)
     user, stats, listed = info.get("user") or {}, info.get("stats") or {}, info.get("itemList") or []
     if user.get("privateAccount"):
         raise ValueError("TikTok profile page: a private account; nothing is served logged out")
@@ -117,10 +184,11 @@ async def _tiktok(client, url, since):
 
 
 async def _tiktok_post(client, url, since):
+    await _pace()
     r = await client.get(url)
     item = (_page_json(r, "webapp.video-detail").get("itemInfo") or {}).get("itemStruct")
     if r.status_code != 200 or not item:
-        raise ValueError(_tt_wall(r))
+        raise _tt_wall(r)
     post = _tt_item(item)
     items = [] if since and post["posted_at"] < since else [post]
     off = (item.get("author") or {}).get("downloadSetting", 0) != 0 and not item.get("imagePost")
@@ -131,8 +199,9 @@ async def _tiktok_post(client, url, since):
 
 async def _youtube(client, url, since):
     key = os.environ.get("HUNT_YOUTUBE_KEY")
-    if not key:  # the channel's RSS feed: the latest 15 uploads, titles and thumbnails only
-        return await posts._youtube(client, url, since)
+    if not key:
+        raise ValueError("YouTube's robots.txt disallows its feed, so Hunt doesn't read it; add a free YouTube Data API key "
+                         "(Connect free keys: HUNT_YOUTUBE_KEY)")
     if channel := re.search(r"youtube\.com/channel/(UC[\w-]{22})", url):
         uploads = "UU" + channel[1][2:]
     else:
@@ -165,11 +234,13 @@ async def _youtube(client, url, since):
 
 
 async def _walled(client, url, since):
-    raise ValueError("a login-walled site whose robots.txt denies generic agents: Hunt doesn't read it automatically. "
-                     "Open it in the Hunt Browser, or add your own Apify key (Settings) to fetch public posts through Apify")
+    k = site(url)
+    raise ValueError(f"{NAMES.get(k, 'this site')} denies generic agents in its robots.txt or needs a login: Hunt doesn't read it "
+                     "automatically. Open it in the Hunt Browser" + (", or add your own Apify key (Connect free keys) to fetch "
+                                                                     "public posts through Apify" if k in ("instagram", "facebook") else ""))
 
 
-FETCHERS = {"tiktok": _tiktok, "instagram": _walled, "facebook": _walled}
+FETCHERS = {"tiktok": _tiktok} | {k: _walled for k in NAMES if k != "tiktok"}
 
 
 def _yt_done(items, since):
@@ -214,19 +285,38 @@ def _tt_item(item: dict) -> dict:
             "media": [m for m in media if m[1]]}
 
 
-def _tt_wall(r) -> str:
+def _tt_wall(r) -> ValueError:
+    """What a page without data means: a Wall (ends the platform's reads; a hard stop unless it's a 429) or a plain error."""
     if r.status_code == 429:
-        return "TikTok answered 429 Too Many Requests: rate limit; stopped"
+        return Wall("rate limit", "TikTok answered 429 Too Many Requests")
     if "login" in str(r.url):
-        return "TikTok redirected to a login page: login wall; stopped"
+        return Wall("login wall", "TikTok redirected to a login page")
     if re.search(r"captcha|verify", r.text[:20000], re.I) and not REHYDRATION.search(r.text):
-        return "TikTok served a CAPTCHA page; stopped"
+        return Wall("CAPTCHA", "TikTok served a CAPTCHA page")
     status = _page_json(r, "webapp.video-detail").get("statusCode") or _page_json(r, "webapp.user-detail").get("statusCode")
     if status in (10216, 10222):
-        return f"TikTok says the post or account is private (status {status})"
+        return ValueError(f"TikTok says the post or account is private (status {status})")
     if status == 10204:
-        return "TikTok says this IP address is blocked (status 10204); stopped, not retried from elsewhere"
-    return f"TikTok answered HTTP {r.status_code} with no page data (the post or profile is gone, or a challenge page)"
+        return Wall("IP block", "TikTok says this IP address is blocked (status 10204)")
+    return ValueError(f"TikTok answered HTTP {r.status_code} with no page data (the post or profile is gone, or a challenge page)")
+
+
+async def _pace():
+    """The polite gap: at least SLEEP seconds between TikTok page requests, across accounts and runs."""
+    global _last
+    wait = _last + SLEEP - time.monotonic()
+    if wait > 0:
+        await asyncio.sleep(wait)
+    _last = time.monotonic()
+
+
+def impersonation() -> list:
+    """yt-dlp's available browser-impersonation targets (curl_cffi). Any means yt-dlp isn't run (legal.md C7)."""
+    global _TARGETS
+    if _TARGETS is None:
+        from yt_dlp import YoutubeDL
+        _TARGETS = [str(t) for t in YoutubeDL({"quiet": True})._get_available_impersonate_targets()]
+    return _TARGETS
 
 
 # yt-dlp
