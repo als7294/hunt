@@ -7,11 +7,13 @@ fake proxy on localhost, so nothing leaves the machine. The people here are fict
 import asyncio
 import base64
 import hashlib
+import io
 import os
 import shutil
 import sys
 import tempfile
 import time
+import zipfile
 from urllib.parse import unquote
 
 os.environ["HUNT_HOME"] = tempfile.mkdtemp()  # before hunt.case reads it
@@ -24,11 +26,11 @@ import httpx
 from hunt.match import score
 from hunt.seed import KINDS, Seed
 import hunt.sources as registry
-from hunt.sources import (SOURCES, _api, _socrata, bluesky, businesses, courtlistener, courts, edgar, fec, fmcsa, github,
-                          gravatar, keybase, licences, mastodon, npi, openpgp, stackexchange, wayback)
+from hunt.sources import (SOURCES, _api, _socrata, activity, bluesky, businesses, courtlistener, courts, edgar, fec, fmcsa,
+                          github, gravatar, keybase, licences, mastodon, npi, openpgp, stackexchange, wayback)
 
 NEW = [github, gravatar, keybase, bluesky, mastodon, stackexchange, openpgp, wayback, fec, edgar, npi, courtlistener,
-       licences, businesses, fmcsa, courts]
+       licences, businesses, fmcsa, courts, activity]
 CLIENTS = [m for m in NEW if hasattr(m, "client")] + [_socrata, registry]  # every module that opens a client
 REAL_CLIENT = _api.client
 wayback.PAUSE = 0
@@ -53,7 +55,7 @@ def serve(routes):
                 if isinstance(answer_, Exception):
                     raise answer_
                 status, payload, *headers = answer_
-                body = {"text": payload} if isinstance(payload, str) else {"json": payload}
+                body = {"text": payload} if isinstance(payload, str) else {"content": payload} if isinstance(payload, bytes) else {"json": payload}
                 return httpx.Response(status, headers=headers[0] if headers else None, **body)
         return httpx.Response(404, json={})
 
@@ -510,6 +512,43 @@ assert courts.states_in([Seed("location", "Washington, DC"), Seed("location", "S
                          Seed("location", "Office in Denver"), Seed("username", "or"), Seed("location", "Hartford, Connecticut"),
                          Seed("address", "1 Main St, Memphis TN 38103")]) == ["DC", "WA", "OR", "CT", "TN"]
 assert len(courts.PORTALS) == 47 and {"NH", "VT", "WV", "WY"}.isdisjoint(courts.PORTALS)  # not yet: no live portal URL found
+
+# Activity: OpenPowerlifting's bulk file loaded once into a local table; namesakes split by "#n"; one record per lifter
+# with dated meets and a birth year from the age at the latest meet; nothing is downloaded during a search
+assert not activity.DB.exists() and "not run" in run(activity, "name", "Robert Vance")[2]
+OPL_CSV = "\n".join([",".join(activity.COLS),
+    "Robert Vance,M,SBD,Raw,34,24-34,Open,82.3,83,180,120,220,520,1,Yes,USA,AZ,USAPL,2024-03-02,USA,AZ,Tucson,Arizona State Championships",
+    "Robert Vance,M,SBD,Raw,36.5,35-39,Masters 1,81,83,,,230,230,DQ,Yes,USA,AZ,USAPL,2026-05-10,USA,AZ,Phoenix,Desert Open",
+    "Robert Vance #2,M,B,Raw,,,Open,100,105,,150,,150,2,,New Zealand,,NZPF,2023-08-19,New Zealand,,Auckland,Auckland Bench Classic",
+    "Rob Vance,F,SBD,Raw,29,24-34,Open,63,63,100,60,140,300,1,Yes,USA,TX,USAPL,2025-01-11,USA,TX,Austin,Texas Open",  # not a ROBERT…
+    "Dana Holt,F,SBD,Wraps,41,40-44,Masters 1,70,72,120,70,160,350,3,,USA,OR,USPA,2025-02-01,USA,OR,Bend,Cascade Classic", ""])
+buf = io.BytesIO()
+with zipfile.ZipFile(buf, "w") as zf:
+    zf.writestr("openpowerlifting-2026-10-24/openpowerlifting-2026-10-24-abc.csv", OPL_CSV)
+seen = serve({"openpowerlifting-latest.zip": (200, buf.getvalue(), {"last-modified": "Sat, 24 Oct 2026 02:07:31 GMT"})})
+info = asyncio.run(activity.update())
+assert (info["data_date"], info["rows"], info["last_modified"]) == ("2026-10-24", "5", "Sat, 24 Oct 2026 02:07:31 GMT"), info
+assert [r.method for r in seen] == ["HEAD", "GET"] and activity.DB.exists() and not activity.DB.with_suffix(".zip").exists()
+asked = len(seen)
+assert asyncio.run(activity.update()) == info and len(seen) == asked + 1  # unchanged upstream: HEAD only, no download
+found, checked, note = run(activity, "name", "Robert J. Vance")
+assert len(found) == 2 and checked == 1 and "2 lifters named Robert… Vance, 3 meet entries" in note, (len(found), note)
+az, nz = found
+assert az.url == "https://www.openpowerlifting.org/u/robertvance" and nz.url == "https://www.openpowerlifting.org/u/robertvance2"
+assert (az.attrs["fullname"], az.attrs["location"], az.attrs["meet_count"], az.attrs["first_date"], az.attrs["date"], az.attrs["birth_year"],
+        az.attrs["age_at_last_meet"], az.attrs["best_total_kg"], az.attrs["federations"]) == \
+       ("Robert Vance", "Arizona, USA", 2, "2024-03-02", "2026-05-10", 1989, "36.5", 520.0, ["USAPL"])
+m = az.attrs["meets"][1]
+assert (m["meet"], m["location"], m["division"], m["deadlift_kg"], m["place"], m["tested"], m["event"]) == \
+       ("Desert Open", "Phoenix, Arizona, USA", "Masters 1", 230.0, "DQ", True, "full power (squat, bench, deadlift)")
+assert "squat_kg" not in m and "age" not in az.attrs and "dob" not in az.attrs  # the matcher must not read a meet-day age as today's
+assert (nz.attrs["fullname"], nz.attrs["location"], "birth_year" in nz.attrs) == ("Robert Vance", "New Zealand", False)
+assert az.body.startswith("Name,Sex,Event") and "Desert Open" in az.body and "Dana Holt" not in az.body
+assert run(activity, "name", "Dana Holt")[0][0].attrs["meets"][0]["equipment"] == "Wraps"
+assert run(activity, "name", "Cher")[:2] == ([], 0)
+links = activity.search_links([Seed("name", "Robert Vance"), Seed("location", "Tucson, AZ")])
+assert links[0]["url"] == "https://www.athlinks.com/search/athletes?category=athletes&term=Robert+Vance" and len(links) == len(activity.LINKS)
+assert any(l["url"].endswith("fname=Robert&lname=Vance") for l in links) and activity.search_links([Seed("email", EMAIL)]) == []
 assert all(u.startswith("https://") for ps in courts.PORTALS.values() for _, u in ps) and set(courts.PORTALS) <= set(courts.STATES)
 
 # Health: HEAD, GET when HEAD isn't served, throttling and outages reported, keys reported (never their values)
@@ -578,6 +617,8 @@ for mod, seed, host in [(github, Seed("username", "proxy-check"), "api.github.co
 for mod in (licences, businesses, courts):  # every dataset's portal, all through the proxy
     lines = asyncio.run(proxy_lines(lambda: mod.search(name)))
     assert sorted(lines) == sorted(f"CONNECT {d.domain}:443 HTTP/1.1" for d in mod.DATASETS), (mod.NAME, lines)
+lines = asyncio.run(proxy_lines(lambda: activity.update(force=True)))  # the bulk download, through the proxy too
+assert lines and lines[0].startswith("CONNECT openpowerlifting.gitlab.io:443 "), lines
 lines = asyncio.run(proxy_lines(registry.health))
 probed = {u for s in SOURCES for u in ([s.HEALTH] if isinstance(getattr(s, "HEALTH", None), str) else getattr(s, "HEALTH", []))}
 assert len(lines) >= len(probed) and all(l.startswith("CONNECT ") for l in lines), lines
@@ -589,7 +630,8 @@ if "--live" in sys.argv:  # a few real logged-out calls: public organisations, e
                              (gravatar, "email", "test@example.com"), (openpgp, "email", "test@example.com"),
                              (keybase, "username", "zzyzxquuxington"), (stackexchange, "name", "Zzyzx Quuxington"),
                              (fec, "name", "Zzyzx Quuxington"), (edgar, "name", "Zzyzx Quuxington"),
-                             (npi, "name", "Zzyzx Quuxington"), (courts, "name", "Zzyzx Quuxington")]:  # not Bluesky: its search matches any one word
+                             (npi, "name", "Zzyzx Quuxington"), (courts, "name", "Zzyzx Quuxington"),
+                             (activity, "name", "Zzyzx Quuxington")]:  # activity: the local table, if loaded  # not Bluesky: its search matches any one word
         found, checked, note = run(mod, kind, value)
         print(f"{mod.NAME:>14}  {kind}={value}: {len(found)} found; {note}")
 
