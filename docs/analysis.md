@@ -492,13 +492,14 @@ Public-record sources search by name, so every namesake comes back. `match.score
 name differently:
 - **The name barely counts:** +0.1 bits instead of +6.5, with the reason
   > name 'John Smith' matches 'John Smith' (the name searched for, so it barely counts; namesakes share it)
-- **The record's own facts decide** (`facts` = `case.details()`, passed by `search.build`):
+- **The record's own facts decide**, scored against the subject's seeds (typed in the search bar, e.g. `dob:1981-04-12`,
+  `age:43`, `employer:Acme Freight`) and the report's `subject_dob` detail, which `search.build` passes as `facts`:
 
-| fact (case) | record field | agree | disagree |
+| subject's | record field | agree | disagree |
 |---|---|---|---|
-| `subject_dob` | `dob`, `date_of_birth`, `birth_date`, `born`… (`YYYY-MM-DD` or `MM/DD/YYYY`) | exact: +13.2 (`dob`) | another full date: −4.3 |
-| `subject_dob` or `subject_age_range` | a birth year, or `age` | within a year: +4.2 | off by 2+ years: −3.2 |
-| `subject_employer` | `employer`, `company`, `organization`, `work` | +5.9 (`employer`) | not counted: people change jobs |
+| `dob` seed or `subject_dob` | `dob`, `date_of_birth`, `birth_date`, `born`… (`YYYY-MM-DD` or `MM/DD/YYYY`) | exact: +13.2 (`dob`) | another full date: −4.3 |
+| `dob` or `age` seed | a birth year, or `age` | within a year: +4.2 | off by 2+ years: −3.2 |
+| `employer` seed | `employer`, `company`, `organization`, `work` | +5.9 (`employer`) | not counted: people change jobs |
 | `location` / `address` seeds (city/state, prior addresses) | `address`, else `location`/`city`/`state`/`country` | the geocoded place tiers, as for profiles | as for profiles |
 
 A name-only "John Smith" record scores "very unlikely" and joins the namesakes. One whose age fits rises to "likely", and an exact date of
@@ -529,7 +530,7 @@ an employer that the case knows, because a name alone no longer makes them the s
   - the wizard fields and the side-by-side on "Is it them?"
 
   Everything above specifies them; nothing is half-wired. The case facts are wired: `search.build` passes them, and the
-  details route accepts them.
+  details route accepts `subject_residence` and `mhmda_basis`.
 - **Report wording:** MHMDA mode (observed activity, not physical condition) and "kept or set aside because…" for records
   belong to the report session. `case.mhmda` and each record's `reasons` are ready for it.
 - **Name commonness:** a searched name always counts +0.1, whatever the name. A name-frequency table would let a rare name

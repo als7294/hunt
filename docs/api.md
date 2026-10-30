@@ -28,12 +28,12 @@ Errors are `{"error": "message"}` with a 4xx or 5xx status.
 | GET | `/api/startup` | `{version, proxy: bool, checks: [{id, label, ok, detail, items?}]}`. Check ids, in order: `cases`, `evidence` (re-hash; quick for unchanged files), `ai` (Ollama `/api/tags` lists `HUNT_VLM`; the model isn't loaded), `network`, `proxy`, `sources` (`hunt.sources.health()`: "N of M ready; K of L keys set"; `items: [{source, ready, reachable, key, key_set, key_required, detail}]`), `browser` (the Hunt Browser and its sign-ins; below), then `retention` (cases past 90 days without a legal hold; `items: [{slug, label, created}]`, each to be deleted or held) |
 | GET | `/api/cases` | `[{slug, label, kind, reference, tool, created, updated, headline, closed, legal_hold, retention_due}]`, newest first. `headline` reads like "9 flagged posts" or "Confirmed · report ready" |
 | POST | `/api/cases` | `{label, seeds: [str], kind: "insurance"\|"background"\|"diligence"\|"journalism", reference?, purpose (required: who asked and why it's lawful), injury_date?: "YYYY-MM-DD", limits?: str, look_for: [category key or custom text], tool: "person"}` plus any **report header fields** (below) → `201 {slug}`. A label that's already taken gets a `-2` suffix; nothing is ever merged |
-| GET | `/api/cases/{slug}` | `{slug, details: {label, kind, reference, purpose, injury_date, limits, look_for, tool, created, client, adjuster, file_number, assignment_date, subject_dob, recommendations, subject_age_range, subject_employer, subject_residence, mhmda_basis}, seeds: [{kind, value}], steps: {search, identity, posts, report}` (each `"todo"`, `"running"` or `"done"`), `status: {closed, legal_hold, retention_ends, retention_due}, active_job: {id, kind} \| null, counts: {accounts, flagged, evidence}}` |
+| GET | `/api/cases/{slug}` | `{slug, details: {label, kind, reference, purpose, injury_date, limits, look_for, tool, created, client, adjuster, file_number, assignment_date, subject_dob, recommendations, subject_residence, mhmda_basis}, seeds: [{kind, value}], steps: {search, identity, posts, report}` (each `"todo"`, `"running"` or `"done"`), `status: {closed, legal_hold, retention_ends, retention_due}, active_job: {id, kind} \| null, counts: {accounts, flagged, evidence}}` |
 | POST | `/api/cases/{slug}/close` | `{reason?}` → status. Watching stops, and no search, scan, re-check or watch run starts until it's reopened (409). Audited (`case closed`); the report says when it was closed. 409 while a job runs |
 | POST | `/api/cases/{slug}/reopen` | `{}` → status. Audited (`case reopened`). Watching doesn't restart by itself |
 | POST | `/api/cases/{slug}/hold` | `{on: bool, reason?}` → status. A legal hold keeps the case past its retention period, keeps watching it, and blocks deleting. Audited (`legal hold`); the report's disclaimers mention it |
 | POST | `/api/cases/{slug}/delete` | `{confirm: <slug>, reason?}` → `{deleted, to: "Trash"}`. Moves the whole case folder to the Trash (Finder's Put Back restores it). 409 under a legal hold or while a job runs. Audited in the case (`case deleted`, which goes to the Trash with it) and in `~/Hunt/deleted-cases.log` |
-| POST | `/api/cases/{slug}/details` | Any of `{reference, injury_date, limits, look_for, client, adjuster, file_number, assignment_date, subject_dob, recommendations, subject_age_range, subject_employer, subject_residence, mhmda_basis}`; `""` clears a field → `{details}`. Audited. Dates are `YYYY-MM-DD` |
+| POST | `/api/cases/{slug}/details` | Any of `{reference, injury_date, limits, look_for, client, adjuster, file_number, assignment_date, subject_dob, recommendations, subject_residence, mhmda_basis}`; `""` clears a field → `{details}`. Audited. Dates are `YYYY-MM-DD` |
 | POST | `/api/cases/{slug}/seeds` | `{seeds: [str]}` → `{seeds}` |
 | GET | `/api/cases/{slug}/case.json` | The full `search.build()` dict (candidates, methodology, audit…) |
 
@@ -313,14 +313,9 @@ See [qol.md](qol.md) for the screens that use these.
   - One local macOS notification sums up the run's alerts.
   - A failed run is tried again an hour later.
 
-### Known facts about the subject (wizard: "What you know", app-screens session)
-The matcher scores records against these (`match.score` `facts`; [analysis.md](analysis.md#7-records-against-what-the-case-knows)).
-`POST /api/cases` and `POST /api/cases/{slug}/details` accept them:
-- `subject_dob`: `YYYY-MM-DD`, as before
-- `subject_age_range`: `"40-45"`, for when the date of birth isn't known
-- `subject_employer`: free text
+### Known facts about the subject
+The matcher scores records against seeds of kind `dob`, `age`, `employer`, `location` and `address`, plus the `subject_dob`
+detail ([analysis.md](analysis.md#7-records-against-what-the-case-knows)). Two case details are new; `POST /api/cases` and
+`POST /api/cases/{slug}/details` accept them:
 - `subject_residence`: ISO 3166, e.g. `"US-AZ"`, `"GB"`, `"CA-ON"`; anything else gets a 400. It gates the face check, and `US-WA` turns on MHMDA mode
 - `mhmda_basis`: Washington subjects only; the RCW 19.373.100(3) fraud basis, as text
-
-City/state and prior addresses stay seeds of kind `location` and `address`. The wizard should offer them as fields that
-become those seeds.

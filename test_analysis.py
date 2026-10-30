@@ -206,14 +206,17 @@ p2, *_ = match.score(rare, "https://example.com/xq7dorianv", {"fullname": "Doria
 assert p2 > 0.95, p2  # with a name as the second identifier, the face adds its capped weight
 
 # Records found by name: the name alone barely counts, so namesakes sink; a fact the case knows lifts the right one
-name, subj = Seed("name", "John Smith"), [Seed("name", "John Smith")]
-facts = {"subject_dob": "1981-04-12", "subject_employer": "Acme Freight"}
-score = lambda attrs: match.score(name, "", {"fullname": "John Smith", **attrs}, subj, facts=facts)
+name = Seed("name", "John Smith")
+subj = [name, Seed("dob", "1981-04-12"), Seed("employer", "Acme Freight")]  # seeds, as typed in the search bar
+score = lambda attrs: match.score(name, "", {"fullname": "John Smith", **attrs}, subj)
 assert score({})[1] == "very unlikely" and "barely counts" in score({})[2][0]
 assert score({"dob": "04/12/1981"})[1] == "almost certain" and score({"employer": "Acme Freight LLC"})[0] > 0.8
 assert score({"age": str(__import__("datetime").date.today().year - 1981)})[1] == "likely"
 assert score({"birth_year": "1962"})[1] == "almost no chance" and score({"dob": "1981-05-02"})[0] < 0.1
-assert match.score(name, "", {"fullname": "John Smith", "age": "52"}, subj, facts={"subject_age_range": "40-45"})[0] < 0.05
+assert match.score(name, "", {"fullname": "John Smith", "age": "52"}, [name, Seed("age", "43")])[0] < 0.05
+assert match.score(name, "", {"fullname": "John Smith", "age": "44"}, [name, Seed("age", "43")])[1] == "likely"
+assert match.score(name, "", {"fullname": "John Smith", "dob": "1981-04-12"}, [name], facts={"subject_dob": "1981-04-12"})[1] == \
+    "almost certain"  # the report's subject_dob counts too
 
 # Face check gate: by the subject's residence; unknown means blocked; every decision audited with its rule
 c = Case("face test", "self-check")

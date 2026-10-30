@@ -458,7 +458,7 @@ async def create_case(req: Request):
 
 
 EDITABLE = ("reference", "injury_date", "limits", "look_for", "client", "adjuster", "file_number", "assignment_date",
-            "subject_dob", "recommendations", "subject_age_range", "subject_employer", "subject_residence", "mhmda_basis")
+            "subject_dob", "recommendations", "subject_residence", "mhmda_basis")
 RESIDENCE = re.compile(r"[A-Z]{2}(-[A-Z0-9]{1,3})?")  # ISO 3166: "US-AZ", "GB"
 
 
