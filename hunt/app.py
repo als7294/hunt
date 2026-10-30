@@ -38,7 +38,7 @@ from starlette.responses import HTMLResponse, FileResponse, JSONResponse, Redire
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import keys, report, search, sources, vlm
+from . import keys, report, search, sources, vendor, vlm
 from . import bundle, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
@@ -550,6 +550,19 @@ async def start_search(req: Request):
     return _new_job(req, c.name, "search", work)
 
 
+def _window(d: dict) -> str | None:
+    """From 90 days before the injury: the claim's period plus a baseline, so a paid first read buys what matters."""
+    return (date.fromisoformat(d["injury_date"][:10]) - timedelta(days=90)).isoformat() if d.get("injury_date") else None
+
+
+async def vendor_plan(req: Request):
+    """What an Apify read of the confirmed Instagram and Facebook accounts would cost now, and the credit left."""
+    c = _case(req)
+    accounts = [{"url": x["url"], "site": x["site"]} for x in (await search.snapshot(c))["candidates"]
+                if x["decision"] == "him" and vendor.site(x["url"])]
+    return JSONResponse(await vendor.plan(c, accounts, _window(c.details())))
+
+
 async def start_scan(req: Request):
     c = _case(req)
     posts, scan = _needs("posts", "scan")
@@ -563,6 +576,8 @@ async def start_scan(req: Request):
     async def work(job):
         async with search.HEAVY:  # the modules announce their own stages: collecting, scanning
             n = await _call(posts.collect, c, accounts, None, job.emit)
+            if vendor.settings()["apify_key"]:  # Instagram and Facebook through her own Apify account, within its caps
+                n += await vendor.collect(c, [a for a in accounts if vendor.site(a["url"])], _window(d), job.emit)
             await job.pause.wait()
             await _call(scan.run, c, d["look_for"], d["limits"] or "", d["injury_date"], job.emit, job.pause,
                         check_everything=check_everything)
@@ -1647,6 +1662,7 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/cases/{slug}/case.json", case_json),
         Route("/api/cases/{slug}/search", start_search, methods=["POST"]),
         Route("/api/cases/{slug}/scan", start_scan, methods=["POST"]),
+        Route("/api/cases/{slug}/vendor", vendor_plan),
         Route("/api/jobs/{id}/events", job_events),
         Route("/api/jobs/{id}/{action:str}", job_control, methods=["POST"]),
         Route("/api/cases/{slug}/person", get_person),
