@@ -124,7 +124,10 @@ def _compare(references: list, images: list) -> list[dict]:
 def gate(case) -> tuple[bool, str]:
     """(allowed, the rule that decided) for this case's subject, from where they live. Audited."""
     import phonenumbers  # its region list is ISO 3166-1 alpha-2, as shipped: an allow-list, never a guess
+    from . import case as cases
     r = (case.meta("subject_residence") or "").strip().upper()
+    if r and hasattr(cases, "residence"):  # the API's shared allow-list (case.residence), where it exists
+        r = cases.residence(r) or f"?{r}"  # None: not a known code, blocked below
     country, _, sub = r.partition("-")
     country = ALIASES.get(country, country)
     rule = ("the subject's residence is unknown" if not r else

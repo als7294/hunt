@@ -237,6 +237,25 @@ def associates(posts: list[dict], candidates: list[dict], subject: list, photo_l
     `subject` is the case's seeds (names, for surnames and to leave the subject out). `photo_labels` are
     label_photo() rows.
     """
+    return _associates(posts, candidates, subject, photo_labels, case_key)[0]
+
+
+def minor_names(posts: list[dict], candidates: list[dict], subject: list, photo_labels: list[dict] = ()) -> list[str]:
+    """Every name and first name tied to a possible minor in the case, as written, longest first: what redact()
+    takes, for the report, the app's responses and the bundle (compliance AP1, Q1). Server-side only: never
+    put the list itself in a response."""
+    return _associates(posts, candidates, subject, photo_labels)[1]
+
+
+def redact(text: str | None, names: list[str]) -> str | None:
+    """`text` with each of `names` replaced by "[name withheld]", case-insensitively, as a whole word."""
+    for n in names:
+        text = re.sub(rf"(?<!\w){re.escape(n)}(?!\w)", WITHHELD, text, flags=re.I) if text else text
+    return text
+
+
+def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_labels: list[dict] = (),
+               case_key: str = "") -> tuple[dict, list[str]]:
     from .search import in_person  # here: search imports a lot, and graph is imported by tests that need none of it
     person = [c for c in candidates if in_person(c)]
     mine = {match.norm_url(c["url"]) for c in person}
@@ -347,14 +366,12 @@ def associates(posts: list[dict], candidates: list[dict], subject: list, photo_l
         for c in p["cites"]:
             c["quote"] = _withhold(c["quote"], names)
     out = sorted(people.values(), key=lambda p: (-p["confidence"], p["name"] or p["labels"][0]))
-    return {"notice": MINIMISED, "people": [{"id": p.pop("id"), **p} for p in out]}
+    return {"notice": MINIMISED, "people": [{"id": p.pop("id"), **p} for p in out]}, names
 
 
 def _withhold(quote: str, names: list[str]) -> str:
     """A minor's names, contact details, addresses and health words out of a quote."""
-    for n in names:
-        quote = re.sub(rf"(?<![\w]){re.escape(n)}(?![\w])", WITHHELD, quote, flags=re.I)
-    quote = pivot.EMAIL.sub(DETAIL, quote)
+    quote = pivot.EMAIL.sub(DETAIL, redact(quote, names))
     import phonenumbers
     for m in reversed(list(phonenumbers.PhoneNumberMatcher(quote, "US"))):
         quote = quote[:m.start] + DETAIL + quote[m.end:]
