@@ -768,7 +768,25 @@ async def get_leads(req: Request):
     c = _case(req)
     details, posts, hits, cands = await _evidence(c)
     people = graph.associates(posts, cands, c.seeds(), graph.photo_labels(c))["people"]
-    return JSONResponse(leads.leads(details, posts, hits, cands, people))
+    out, said = leads.leads(details, posts, hits, cands, people), json.loads(c.meta("lead_status") or "{}")
+    for x in out["leads"]:  # a scan lead's status is its flag's; a caption's or record's is what she set here
+        if x["kind"] != "scan" and x["id"] in said:
+            x["status"] = said[x["id"]]
+    return JSONResponse(out)
+
+
+async def set_lead(req: Request):
+    """{status: "kept" | "not relevant" | null} for a lead from a caption or a record, audited. (A scan lead is
+    kept or set aside through its flag, POST /hits/{id}, so the Posts step and the report agree.)"""
+    c, b = _case(req), await _body(req)
+    status, lid = b.get("status"), req.path_params["id"]
+    if status not in ("kept", "not relevant", None):
+        raise HTTPException(400, "status must be kept, not relevant or null")
+    said = json.loads(c.meta("lead_status") or "{}")
+    said.pop(lid, None) if status is None else said.update({lid: status})
+    c.db.execute("insert or replace into meta values ('lead_status', ?)", (json.dumps(said),))
+    c.audit("lead " + (status or "status cleared"), {"id": lid})
+    return JSONResponse({"id": lid, "status": status})
 
 
 async def mark_photo_person(req: Request):
@@ -1837,6 +1855,7 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/cases/{slug}/people", get_people),
         Route("/api/cases/{slug}/timeline", get_timeline),
         Route("/api/cases/{slug}/leads", get_leads),
+        Route("/api/cases/{slug}/leads/{id}", set_lead, methods=["POST"]),
         Route("/api/cases/{slug}/people/photo", mark_photo_person, methods=["POST"]),
         Route("/api/cases/{slug}/people/{id}/hide", hide_person, methods=["POST"]),
         Route("/api/cases/{slug}/decisions", post_decision, methods=["POST"]),

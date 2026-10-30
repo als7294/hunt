@@ -299,6 +299,12 @@ sha = refs[0].rsplit("/", 1)[1].split(".")[0]
 assert c.request("DELETE", f"{api}/reference/{sha}", content="{}", headers=JSON).json()["references"] == []
 assert c.request("DELETE", f"{api}/face", content="{}", headers=JSON).json()["on"] is False
 
+# --- Leads: a caption's or record's lead is kept or set aside here, audited --------------------------------
+assert c.post("/api/cases/vance-claim/leads/abc123", content=json.dumps({"status": "kept"}), headers=JSON).json() == {"id": "abc123", "status": "kept"}
+assert c.post("/api/cases/vance-claim/leads/abc123", content=json.dumps({"status": "maybe"}), headers=JSON).status_code == 400
+assert c.post("/api/cases/vance-claim/leads/abc123", content=json.dumps({"status": None}), headers=JSON).json()["status"] is None
+assert "restrictions" in c.get("/api/cases/vance-claim/leads").json()
+
 # --- People around the subject: "Not relevant" hides one, audited, and can be undone ------------------------
 r = c.post("/api/cases/vance-claim/people/abc123/hide", content="{}", headers=JSON)
 assert r.status_code == 200 and r.json()["hidden"] == ["abc123"], r.text

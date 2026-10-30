@@ -80,7 +80,7 @@ assert report.settings()["logo"] and report.logo_path().suffix == ".png"
 # Before the investigator confirms: neutral wording, machine readings no stronger than "likely"
 rep = compose()
 assert [x["id"] for x in rep["sections"]] == ["summary", "scope", "method", "presence", "identity", "people", "records",
-                                             "found", "conclusion", "couldnt_see", "disclaimers"]
+                                             "found", "claim", "conclusion", "couldnt_see", "disclaimers"]
 assert all(s["cites"] for s in rep["sentences"]) and rep["checks"]["every_sentence_cited"], rep["sentences"]
 assert len(rep["couldnt_see"]) == len(rep["couldnt_see_cites"]) and all(rep["couldnt_see_cites"])
 assert not any(x["section"] == "couldnt_see" for x in rep["sentences"])  # the app shows them as bullets, once
@@ -273,6 +273,17 @@ said = [x for x in rep["sentences"] if x["cites"] in ([n1["cite"]], [n2["cite"]]
 assert len(said) == 2 and "The backpack looks heavy" in said[0]["text"], said
 assert f"[Note {n1['id']}]" in report.to_html(case, rep) or f"Note {n1['id']}" in report.to_html(case, rep)
 assert not any(n2["cite"] in x["cites"] for x in compose(screening=True)["sentences"])
+
+# Claim and evidence (analysis.md §9): the restrictions, each kept lead in its own facts, cited to the kept item;
+# a restriction with nothing behind it says so; never a machine reading above "likely"; none in screening
+claim = [x for x in compose()["sentences"] if x["section"] == "claim"]
+said_ = {x["text"]: x["cites"] for x in claim}
+assert "The claim states: no lifting over 5 kg; no running." in said_ and "The case also asks about: sport." in said_, said_
+run = next(t for t in said_ if t.startswith("Running: "))
+assert "finishing a 10k" in run and said_[run] == ["E-1"] and "almost certain" not in " ".join(said_), claim
+assert "Lifting: nothing found after the injury that bears on this." in said_, said_
+assert [x["text"] for x in compose(screening=True)["sentences"] if x["section"] == "claim"] == \
+    ["This screening version leaves out the claim and the evidence set against it."]
 
 one = compose(hs=[h for h in hits if h["status"] in ("kept", "in report")][:1])  # singular: "was", "Exhibit"
 assert "1 item relating to the listed activities was kept for this report (Exhibit " in text(one), text(one)
