@@ -16,11 +16,12 @@ from dataclasses import asdict
 import httpx
 from PIL import Image
 
-from . import geo, match, photo
+from . import browser, geo, match, photo
 from .capture import screenshots
 from .case import Case
 from .seed import Seed, now
 from .sources import SOURCES
+from .sources._api import Limited
 from .sources.wmn import UA
 
 LIKELY = 0.55  # ICD 203 "likely" or better: screenshot it and pivot from it
@@ -61,27 +62,42 @@ async def run(case: Case, seeds: list[Seed], emit, capture: bool = True, pause: 
 
 
 async def fan_out(case: Case, seeds: list[Seed], emit):
-    async def one(source, seed):
-        emit({"type": "source", "source": source.NAME, "seed": seed.value, "status": "running",
-              "found": 0, "checked": 0, "note": ""})
-        try:
-            found, checked, note = await source.search(seed)
-            status = "found" if found else "nothing found"
-        except Exception as e:  # a broken source is a methodology fact, not a crash
-            found, checked, note, status = [], 0, f"{type(e).__name__}: {e}", "failed"
+    """Every source at once, each over its seeds in turn: a source's own pacing holds across seeds, and once it
+    says slow down (Limited) it isn't called again this search (K8). Facebook isn't read while it's stopped (C8)."""
+    stopped = browser.stops()
+
+    def done(source, seed, status, found, checked, note):
         for f in found:
             case.add_finding(f)
         case.add_run(source.NAME, seed, status, len(found), checked, note)
         emit({"type": "source", "source": source.NAME, "seed": seed.value, "status": status,
               "found": len(found), "checked": checked, "note": note})
 
+    async def run(source, mine):
+        held = f"Facebook is stopped: {stopped['Facebook']['reason']}" if source.NAME == "facebook" and "Facebook" in stopped else None
+        for seed in mine:
+            if held:
+                done(source, seed, "skipped", [], 0, held)
+                continue
+            emit({"type": "source", "source": source.NAME, "seed": seed.value, "status": "running",
+                  "found": 0, "checked": 0, "note": ""})
+            try:
+                found, checked, note = await source.search(seed)
+                status = "found" if found else "nothing found"
+            except Limited as e:
+                found, checked, note, status = [], 0, f"rate limit reached: {e}", "failed"
+                held = f"skipped: {source.NAME} was rate-limited earlier in this search"
+            except Exception as e:  # a broken source is a methodology fact, not a crash
+                found, checked, note, status = [], 0, f"{type(e).__name__}: {e}", "failed"
+            done(source, seed, status, found, checked, note)
+
     for seed in seeds:
         logged = case.rows("select 1 from runs where source = '-' and seed_kind = ? and seed = ?", seed.kind, seed.value)
         if not logged and not any(seed.kind in src.KINDS for src in SOURCES):
             case.add_run("-", seed, "skipped", 0, 0, "no source searches this kind yet; used to score matches")
-    jobs = [one(src, seed) for seed in seeds for src in SOURCES if seed.kind in src.KINDS]
-    emit({"type": "log", "message": f"searching: {len(jobs)} source runs"})
-    await asyncio.gather(*jobs)
+    jobs = [(src, mine) for src in SOURCES if (mine := [s for s in seeds if s.kind in src.KINDS])]
+    emit({"type": "log", "message": f"searching: {sum(len(m) for _, m in jobs)} source runs"})
+    await asyncio.gather(*(run(src, mine) for src, mine in jobs))
 
 
 async def geocode(case: Case, emit=None, audit: bool = True) -> dict:

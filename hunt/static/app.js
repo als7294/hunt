@@ -602,7 +602,7 @@ const sourceRows = rows => html`${rows.map(r => { const url = /^https?:/.test(r.
   return html`<div style="display:flex;gap:10px;align-items:baseline;font-size:13.5px;min-width:0">
   <span class="dot" style="background:${SOURCE_DOT[r.status] || 'var(--dim)'};align-self:center"></span><b style="font-weight:500;white-space:nowrap">${r.source}</b>
   <span class="muted" style="white-space:nowrap">${url ? handleOf(url) : r.seed}${host && !r.source.toLowerCase().includes(host) ? html` <span class="dim">on ${host}</span>` : ''}</span>
-  <span class="t2" style="white-space:nowrap">${r.status === 'running' ? 'reading…' : r.status === 'failed' ? 'couldn’t read' : `${r.found ?? 0} found`}</span>
+  <span class="t2" style="white-space:nowrap">${r.status === 'running' ? 'reading…' : r.status === 'failed' ? 'couldn’t read' : r.status === 'skipped' ? 'skipped' : `${r.found ?? 0} found`}</span>
   ${r.note ? html`<span class="dim" style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.note}">${raw ? 'the site didn’t answer as expected (details on hover)' : r.note}</span>` : ''}</div>`; })}`;
 
 /* People around the subject (docs/analysis.md §8; legal.md A1–A10): only what the case already holds, by name and
