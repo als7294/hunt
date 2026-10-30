@@ -16,8 +16,8 @@ User-Agent).
 import asyncio
 import os
 
-from . import (bluesky, businesses, courtlistener, courts, edgar, facebook, fec, fmcsa, github, gravatar, keybase,
-               licences, maigret, mastodon, npi, openpgp, phone, stackexchange, user_scanner, wayback, wmn)
+from . import (activity, bluesky, businesses, courtlistener, courts, edgar, facebook, fec, fmcsa, github, gravatar,
+               keybase, licences, maigret, mastodon, npi, openpgp, phone, stackexchange, user_scanner, wayback, wmn)
 from ._api import client, probe
 
 SOURCES = [maigret, wmn, user_scanner, phone,
@@ -25,7 +25,8 @@ SOURCES = [maigret, wmn, user_scanner, phone,
            facebook,  # username / Facebook URL → what the profile shows logged out (docs/facebook.md)
            gravatar, openpgp,  # email → verified name and accounts
            fec, edgar, npi, courtlistener, courts,  # name → public records (courts.search_links: portals opened by hand)
-           licences, businesses, fmcsa]  # name → work and driving records
+           licences, businesses, fmcsa,  # name → work and driving records
+           activity]  # name → published competition results (a local copy of OpenPowerlifting; activity.search_links for the rest)
 
 
 def _key_status(src, is_set: bool) -> str:
