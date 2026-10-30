@@ -31,7 +31,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import inbox, recheck, search
+from . import inbox, recheck, search, vendor
 from .case import HOME, RETENTION_DAYS, Case, all_cases
 from .seed import now
 
@@ -153,6 +153,8 @@ async def run(case, emit, pause: asyncio.Event | None = None) -> dict:
             emit(e)
     before = {h["id"] for h in scan.hits(case)}
     checked = await recheck.run(case, accounts, heard, pause)
+    if vendor.watch_enabled(case):  # opt-in per case: the vendor's scheduled read, within its caps (vendor.py)
+        checked["new_posts"] += await vendor.recheck(case, accounts, heard)
     d = case.details()
     async with search.HEAVY:
         await scan.run(case, d["look_for"], d["limits"] or "", d["injury_date"], emit, pause)

@@ -204,6 +204,39 @@ asyncio.run(vendor.collect(fresh, accounts[1:], None, events.append))
 assert events[-1]["status"] == "failed" and "ended FAILED: boom" in events[-1]["note"] and len(posts.list_posts(fresh)) == 2
 assert json.loads(fresh.rows("select detail from audit where action = 'vendor run'")[0]["detail"])["status"] == "FAILED"
 
+# Hard stops: a platform the revocation watcher stopped is never read through the vendor either
+from hunt import browser
+state["spent"], state["fail"] = 0.5, set()
+browser.stop("Instagram", "a challenge page", "https://www.instagram.com/challenge/")
+plan = asyncio.run(vendor.plan(case, accounts, force=True))
+assert [a["url"] for a in plan["run"]] == [accounts[1]["url"]] and len(plan["skipped"]) == 1
+assert plan["skipped"][0]["url"] == accounts[0]["url"] and plan["skipped"][0]["why"].startswith("hard stop on Instagram since 20")
+assert "a challenge page" in plan["skipped"][0]["why"] and "never uses a vendor to get around a block" in plan["skipped"][0]["why"]
+events.clear()
+asyncio.run(vendor.collect(case, accounts, None, events.append, force=True))
+assert [(e["source"], e["status"]) for e in events if e["status"] != "running"] == [("Instagram (via Apify)", "failed"), ("Facebook (via Apify)", "nothing found")]
+browser.resume("Instagram")
+assert len(asyncio.run(vendor.plan(case, accounts, force=True))["run"]) == 2
+
+# Watch: off by default; on, a scheduled read asks only for posts newer than the last read, and never runs past the warning threshold
+assert not vendor.watch_enabled(case) and asyncio.run(vendor.recheck(case, accounts, events.append)) == 0
+assert vendor.set_watch(case, True) and vendor.watch_enabled(case) and case.rows("select 1 from audit where action = 'vendor watch'")
+vendor.save_settings(fresh_days=0)  # the accounts were read moments ago; let the scheduled read look again
+state["spent"] = 3.5
+events.clear()
+n_starts = len([c for c in calls if c[0] == "POST"])
+assert asyncio.run(vendor.recheck(case, accounts, events.append)) == 0
+assert [e["status"] for e in events] == ["nothing found", "nothing found"] and events[0]["note"].startswith("a scheduled read doesn't run past 80% of the month's cap")
+assert len([c for c in calls if c[0] == "POST"]) == n_starts and case.rows("select 1 from audit where action = 'vendor watch skipped'")
+state["spent"] = 0.5
+last_fb = case.db.execute("select max(ts) from runs where source = 'apify-facebook' and status in ('found', 'nothing found')").fetchone()[0]
+events.clear()
+asyncio.run(vendor.recheck(case, accounts, events.append))
+assert [e["status"] for e in events if e["status"] != "running"] == ["nothing found", "nothing found"]  # the same posts: nothing new
+assert [c for c in calls if c[0] == "POST"][-1][3]["onlyPostsNewerThan"] == last_fb[:19]
+vendor.save_settings(fresh_days=7)
+assert not vendor.set_watch(case, False) and not vendor.watch_enabled(case)
+
 # Item shapes the Actors document
 assert vendor._item("facebook", {"url": "https://www.facebook.com/NASA/posts/1?__cft__[0]=x&__tn__=y", "time": "t", "text": None,
                                  "media": [{"__typename": "Video", "playable_url": "https://v/x.mp4"}]}) == \
