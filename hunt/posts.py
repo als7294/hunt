@@ -3,8 +3,8 @@
 Sources, logged out and through HUNT_PROXY:
   bluesky   public.api.bsky.app app.bsky.feed.getAuthorFeed: text, images, video (HLS, kept as .ts)
   mastodon  /api/v1/accounts/lookup + /statuses: text (HTML stripped), images, video
-  youtube   the channel's RSS feed: titles, descriptions and thumbnails of the latest 15 uploads only,
-            not the videos (no logged-out download API; YouTube's terms forbid scraping them)
+  youtube   the Data API v3 on HUNT_YOUTUBE_KEY (public.py): titles, descriptions, dates and thumbnails, not the
+            videos. No key, no read: YouTube's robots.txt disallows its feed
   tiktok, facebook, instagram  see public.py: yt-dlp and gallery-dl, run logged out as subprocesses
 Reddit answers 403 logged out, so it isn't read. Media are hashed as they stream into the
 evidence locker, so a multi-GB video is never held in memory.
@@ -38,7 +38,6 @@ from .seed import Seed, now
 
 UA = "Hunt/0.1 (+https://github.com/als7294/hunt)"
 BSKY = "https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed"
-YT_RSS = "https://www.youtube.com/feeds/videos.xml"
 NAMES = {"bluesky": "Bluesky", "mastodon": "Mastodon", "youtube": "YouTube"}  # how each source is shown
 ADDED = "Added by you"  # the source of files dropped in without a platform
 MAX_POSTS = 1000  # per account; older posts are rarely the point and paging costs requests
@@ -73,6 +72,7 @@ async def collect(case, accounts: list[dict], since: str | None, emit) -> int:
     case.db.executescript(SCHEMA)
     emit({"type": "stage", "stage": "collecting"})
     added = 0
+    public.WALLED.clear()  # a wall ends a platform's reads for this run (public.py; decision D8)
     async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers={"User-Agent": UA},
                                  proxy=os.environ.get("HUNT_PROXY")) as client:
         for account in accounts:
@@ -80,7 +80,11 @@ async def collect(case, accounts: list[dict], since: str | None, emit) -> int:
             if not site:
                 emit({"type": "source", "source": account.get("site") or urlparse(url).netloc, "seed": url,
                       "status": "failed", "found": 0, "checked": 0,
-                      "note": "this site's posts can't be read logged out (Reddit answers 403)"})
+                      "note": "this site's posts can't be read logged out"})
+                continue
+            if why := public.blocked(url):  # a hard stop on the platform, or a wall met earlier in this run
+                case.add_run(site, Seed("url", url), "failed", 0, 0, why)
+                emit({"type": "source", "source": NAMES[site], "seed": url, "status": "failed", "found": 0, "checked": 0, "note": why})
                 continue
             emit({"type": "source", "source": NAMES[site], "seed": url, "status": "running", "found": 0, "checked": 0,
                   "note": ""})
@@ -91,6 +95,9 @@ async def collect(case, accounts: list[dict], since: str | None, emit) -> int:
                     found += await _save(case, client, site, url, item)
                 _seen(case, NAMES[site], items)
                 status = "found" if found else "nothing found"
+            except public.Wall as e:  # the platform refused: no more reads there this run; a hard stop unless it was a 429
+                status, note = "failed", f"{e.kind}: {str(e)[:200]}"
+                public.hit_wall(case, url, e)
             except (httpx.HTTPError, ValueError, KeyError, ET.ParseError) as e:
                 status, note = "failed", f"{type(e).__name__}: {str(e)[:200]}"
             case.add_run(site, Seed("url", url), status, found, len(items), note)
@@ -323,33 +330,7 @@ async def _mastodon(client, url, since):
     return items, _note(f"Mastodon API on {host}", items, since)
 
 
-async def _youtube(client, url, since):
-    channel = re.search(r"youtube\.com/channel/(UC[\w-]{22})", url)
-    if not channel:
-        r = await client.get(url)
-        r.raise_for_status()
-        channel = re.search(r'"(?:externalId|channelId)":"(UC[\w-]{22})"', r.text) or \
-            re.search(r'youtube\.com/channel/(UC[\w-]{22})', r.text)
-        if not channel:
-            raise ValueError("no channel id on the channel page (a cookie-consent page? give the /channel/UC… URL)")
-    r = await client.get(YT_RSS, params={"channel_id": channel[1]})
-    r.raise_for_status()
-    ns = {"a": "http://www.w3.org/2005/Atom", "m": "http://search.yahoo.com/mrss/"}
-    items = []
-    for e in ET.fromstring(r.content).findall("a:entry", ns):
-        published = e.findtext("a:published", "", ns)
-        if since and published < since:
-            continue
-        thumb = e.find("m:group/m:thumbnail", ns)
-        items.append({"url": e.find("a:link", ns).get("href"), "posted_at": published,
-                      "text": "\n".join(filter(None, (e.findtext("a:title", "", ns),
-                                                       e.findtext("m:group/m:description", "", ns)))),
-                      "media": [("image", thumb.get("url"))] if thumb is not None else []})
-    return items, (f"YouTube channel RSS, logged out: {len(items)} uploads. The feed only lists the latest 15, "
-                   "and only titles, descriptions and thumbnails are read, not the videos")
-
-
-FETCHERS = {"bluesky": _bluesky, "mastodon": _mastodon, "youtube": _youtube}
+FETCHERS = {"bluesky": _bluesky, "mastodon": _mastodon}  # public.py adds tiktok and youtube, and the sites that are never read
 
 
 def _site(account: dict) -> str | None:
