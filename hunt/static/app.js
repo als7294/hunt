@@ -1211,6 +1211,7 @@ screens.posts = async slug => {
   const claimable = ld.restrictions.length > 0 && (d.hits.length > 0 || ld.leads.length > 0), tab = claimable ? postsTab(slug) : 'flagged';
   const records = ld.leads.some(x => x.kind === 'record') || tl.events.some(e => e.kind === 'record')
     ? await api(`${base}/case.json`).then(j => Object.fromEntries(j.candidates.flatMap(x => x.finding_ids.map(id => [`A-${id}`, x.url])))).catch(() => ({})) : {};
+  window.__posts = d.posts; // hitDetail reads it while the screen is built
   const hits = d.hits.filter(h => h.status !== 'not relevant'), sel = hits.find(h => h.id === pickedHit) || hits[0], look = [...(c.details.look_for || [])].map(k => lookLabel(k).toLowerCase());
   mount(html`${topCase(c, 'posts')}<main class="screen" style="padding:8px 24px 24px;gap:16px">
     <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap">
@@ -1237,10 +1238,17 @@ screens.posts = async slug => {
     ${c.steps.identity === 'done' ? html`<div class="two-up" style="gap:16px;align-items:start">${recheckCard(slug, ch)}${watchCard(slug, w, al)}</div>` : ''}
     <a class="panel row" href="#/case/${slug}/worklist" style="flex:none;padding:18px;gap:16px"><span class="tile-ic">▤</span>
       <div style="flex:1"><b>Worklist: Instagram, Facebook, TikTok and the rest</b><div class="muted" style="font-size:14px">Open each confirmed account in the Hunt Browser; Hunt records and scans what you scroll past.</div></div><span style="color:var(--ac)">Open →</span></a></main>`);
-  window.__hits = hits; window.__case = c; window.__posts = d.posts;
+  window.__hits = hits; window.__case = c;
   refreshNoteCounts(slug);
   if (['recheck', 'watch'].includes(c.active_job?.kind)) watchRecheck(slug, c.active_job.id, c.active_job.kind === 'watch' ? 'Checking again (watching)' : '');
 };
+// What other people wrote under the post, as the page showed it when it was captured (replies indented)
+const commentsBlock = cs => !cs?.length ? '' : html`<details ${cs.length <= 5 ? 'open' : ''}><summary class="muted" style="cursor:pointer;font-size:13.5px">Comments shown with the post (${cs.length})</summary>
+  <div style="display:flex;flex-direction:column;gap:8px;padding-top:8px">${cs.map(x => html`<div style="font-size:13.5px;${x.reply_to ? 'margin-left:18px;padding-left:10px;border-left:2px solid var(--raise)' : ''}">
+    <b style="font-weight:500">${x.author || x.handle || 'Someone'}</b>${x.handle && x.author ? html` <span class="dim">${x.handle}</span>` : ''}
+    <span class="dim">${[x.posted_at ? day(x.posted_at) : x.posted_at_text, x.likes ? `${x.likes} like${x.likes === 1 ? '' : 's'}` : ''].filter(Boolean).map(t => ` · ${t}`).join('')}</span>
+    <div class="t2" style="overflow-wrap:anywhere">${x.text}</div></div>`)}
+    <span class="dim" style="font-size:12.5px">Only the comments the page showed; others may be hidden or folded.</span></div></details>`;
 function hitDetail(slug, c, h) {
   const src = evidenceUrl(slug, h.file), blur = h.blur || h.child_visible;
   return html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px">
@@ -1249,6 +1257,7 @@ function hitDetail(slug, c, h) {
     ${src ? html`<img class="thumb ${blur ? 'blur' : ''}" src="${src}" alt="" style="width:100%;max-height:300px">` : ''}
     ${h.caption ? html`<div class="t2" style="font-size:14.5px">“${h.caption}”</div>` : ''}
     ${(x => x ? html`<div class="muted" style="font-size:13.5px">${[x.place && `at ${x.place}`, x.activity, x.life_event].filter(Boolean).join(' · ')}${x.posted_at_precision && x.posted_at_precision !== 'second' ? html`${x.place || x.activity || x.life_event ? ' · ' : ''}date to the ${x.posted_at_precision}${x.posted_at_text ? `, as Facebook showed it: “${x.posted_at_text}”` : ''}` : ''}</div>` : '')((window.__posts || []).find(p => p.id === h.post_id)?.extra)}
+    ${commentsBlock((window.__posts || []).find(p => p.id === h.post_id)?.visible_comments)}
     ${c.details.limits ? html`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div class="card" style="padding:12px;background:var(--panel-3)"><div class="label">The claim says</div><div>${c.details.limits}</div></div>
       <div class="card" style="padding:12px;background:var(--am-bg)"><div class="label" style="color:var(--am)">The post shows</div><div>${h.who === 'him' ? '' : 'A person: '}${h.what}</div></div></div>` : ''}
