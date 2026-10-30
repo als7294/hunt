@@ -24,11 +24,11 @@ import httpx
 from hunt.match import score
 from hunt.seed import KINDS, Seed
 import hunt.sources as registry
-from hunt.sources import (SOURCES, _api, _socrata, bluesky, businesses, courtlistener, edgar, fec, fmcsa, github, gravatar,
-                          keybase, licences, mastodon, npi, openpgp, stackexchange, wayback)
+from hunt.sources import (SOURCES, _api, _socrata, bluesky, businesses, courtlistener, courts, edgar, fec, fmcsa, github,
+                          gravatar, keybase, licences, mastodon, npi, openpgp, stackexchange, wayback)
 
 NEW = [github, gravatar, keybase, bluesky, mastodon, stackexchange, openpgp, wayback, fec, edgar, npi, courtlistener,
-       licences, businesses, fmcsa]
+       licences, businesses, fmcsa, courts]
 CLIENTS = [m for m in NEW if hasattr(m, "client")] + [_socrata, registry]  # every module that opens a client
 REAL_CLIENT = _api.client
 wayback.PAUSE = 0
@@ -321,16 +321,24 @@ assert run(npi, "name", "Cher")[:2] == ([], 0) and len(seen) == asked
 serve({"npiregistry": (200, {"Errors": [{"description": "No valid search criteria"}]})})
 raises(ValueError, npi, "name", "Robert Vance")
 
-# CourtListener: opt-in; with a token, RECAP dockets by party name
+# CourtListener: opt-in; with a token, RECAP dockets by party name and case law by caption
 seen = serve({})
 assert run(courtlistener, "name", "Robert Vance")[0] == [] and seen == []
 os.environ["HUNT_COURTLISTENER_TOKEN"] = "test-token"
-seen = serve({"api/rest/v4/search": (200, {"count": 1, "next": None, "results": [{
+seen = serve({"type=r": (200, {"count": 1, "next": None, "results": [{
     "caseName": "Vance v. Example Corp", "court": "District Court, D. Arizona", "docketNumber": "4:24-cv-00001",
-    "dateFiled": "2024-01-02", "docket_absolute_url": "/docket/1/vance-v-example-corp/", "party": ["Robert Vance", "Example Corp"]}]})})
-f = run(courtlistener, "name", "Robert Vance")[0][0]
-assert f.url == "https://www.courtlistener.com/docket/1/vance-v-example-corp/" and f.attrs["parties"] == ["Robert Vance", "Example Corp"]
+    "dateFiled": "2024-01-02", "docket_absolute_url": "/docket/1/vance-v-example-corp/", "party": ["Robert Vance", "Example Corp"]}]}),
+              "type=o": (200, {"count": 30, "next": "https://www.courtlistener.com/api/rest/v4/search/?cursor=x", "results": [{
+    "caseName": "State v. Vance", "court": "Court of Appeals of Arizona", "docketNumber": "2 CA-CR 2023-0001",
+    "dateFiled": "2024-03-04", "citation": ["256 Ariz. 1"], "status": "Published", "absolute_url": "/opinion/2/state-v-vance/"}]})})
+found, checked, note = run(courtlistener, "name", "Robert Vance")
+docket, opinion = found
+assert docket.url == "https://www.courtlistener.com/docket/1/vance-v-example-corp/" and docket.attrs["parties"] == ["Robert Vance", "Example Corp"]
+assert (opinion.url, opinion.attrs["parties"], opinion.attrs["citation"], opinion.attrs["court"]) == \
+       ("https://www.courtlistener.com/opinion/2/state-v-vance/", ["State", "Vance"], ["256 Ariz. 1"], "Court of Appeals of Arizona")
+assert checked == 2 and "dockets with party 'Robert Vance': 1;" in note and "case law with 'Robert Vance' in the caption: 30, read the first page" in note, note
 assert seen[0].headers["authorization"] == "Token test-token" and seen[0].url.params["q"] == 'party:"Robert Vance"'
+assert dict(seen[1].url.params) == {"type": "o", "q": 'caseName:"Robert Vance"'}
 
 
 def licence_rows(request):
@@ -423,6 +431,84 @@ assert (officer.attrs["fullname"], officer.attrs["carrier"], officer.attrs["offi
 assert any(f"profile lists {EMAIL}" in r for r in score(Seed("name", "Robert Vance"), own.url, own.attrs,
                                                          [Seed("name", "Robert Vance"), Seed("email", EMAIL)])[2])
 
+# Courts: the person's side of a caption and their role; Chicago's respondent list and "C/O"; dates in DOB's shape;
+# a tax warrant's own PDF is the record page; the matcher gets a city from each
+seen = serve({"59kj-x8nc": (200, [{"litigationid": "L1", "respondent": "VANCE, ROBERT", "casetype": "Tenant Action", "boroid": "3",
+                                   "housenumber": "100", "streetname": "EXAMPLE ST", "caseopendate": "2023-04-05T00:00:00.000",
+                                   "casestatus": "CLOSED", "casejudgement": "YES", "penalty": "2500"}]),
+              "pjgc-h7uv": (200, [{"matter_name": "VANCE, ROBERT VS CITY OF NEW YORK", "court_name": "Supreme Court - Kings",
+                                   "docket_index": "001234/2022", "lit_start": "2022-01-02T00:00:00.000", "disposition": "Settlement"},
+                                  {"matter_name": "DOE, JANE VS VANCE, ROBERT", "court_name": "US District Court - EDNY",
+                                   "docket_index": "1:22-cv-9", "lit_start": "2022-03-04T00:00:00.000"}]),
+              "y3hw-z6bm": (200, [{"case_number": "T1", "name": "Department of Sanitation v. Vance, Robert (01/02/2026)",
+                                   "type": "Personnel", "category": "Section 75", "opened": "2025-11-27T00:00:00.000",
+                                   "dispo_code": "32 - Sec 75 --Suspended"}]),
+              "6bgk-3dad": (200, [{"ecb_violation_number": "E1", "respondent_name": "VANCE ROBERT", "respondent_house_number": "100",
+                                   "respondent_street": "EXAMPLE ST", "respondent_city": "BROOKLYN", "issue_date": "20250922",
+                                   "hearing_date": "20251103", "hearing_status": "IN VIOLATION", "ecb_violation_status": "ACTIVE",
+                                   "penality_imposed": "800", "severity": "CLASS - 1"}]),
+              "v7ua-z23v": (200, [{"warrant_id": "W1", "debtor_name_1": "ROBERT J VANCE", "debtor_name_2": "and/or",
+                                   "debtor_name_3": "VANCE BIRDING LLC", "city": "ALBANY", "state": "NY", "county_code": "ALBANY",
+                                   "status_code": "Added", "warrant_filed_amount": "1234.56",
+                                   "warrant_filed_date": "2026-10-01T00:00:00.000",
+                                   "url": {"url": "https://www.tax.ny.gov/warrants/lookup.html?document=e-1-w001.pdf"}}]),
+              "etc6-cwcf": (200, [{"casenbr": "2026-00001AD", "style": "ROBERT VANCE Plaintiff v. OHIO DEPARTMENT OF TRANSPORTATION Defendant",
+                                   "utypename": "Administrative Determination", "fileddate": "2026-10-28T00:00:00.000",
+                                   "casestatdesc": "ACTIVE PENDING"},
+                                  {"casenbr": "2026-00001AD", "style": "ROBERT VANCE Plaintiff v. OHIO DEPARTMENT OF TRANSPORTATION Defendant",
+                                   "utypename": "Administrative Determination"}]),  # the portal repeats a case per party
+              "6br9-quuz": (200, [{"docket_number": "26BT1", "respondents": "VANCE HOLDINGS LLC C/O VANCE, ROBERT | DANA HOLT",
+                                   "issuing_department": "Buildings", "hearing_date": "2026-10-29T00:00:00.000",
+                                   "case_disposition": "Liable", "imposed_fine": "1500", "address": "100 S EXAMPLE AVE"}]),
+              "7ift-kbgd": (200, [{"case_no": "C1", "respondent_name": "Robert Vance dba Vance Trucking",
+                                   "district_court_docket_no": "D-1-GN-26-000001", "county": "TRAVIS",
+                                   "order_date": "2026-02-03T00:00:00.000", "penalty_assessed": "5000"}])})
+found, checked, note = run(courts, "name", "Robert J. Vance Jr.")
+by = {f.site: f for f in found}
+assert len(found) == 9 and checked == 8, (len(found), checked, note)
+hpd = by["New York City Housing Court case (HPD)"].attrs
+assert (hpd["fullname"], hpd["roles"], hpd["location"], hpd["address"], hpd["filed"], hpd["judgment"]) == \
+       ("VANCE, ROBERT", ["respondent"], "Brooklyn, NY", "100 Example St", "2023-04-05", "YES")
+law = [f for f in found if f.site == "New York City civil litigation (Law Department)"]
+assert [(f.attrs["fullname"], f.attrs["roles"], f.attrs.get("location")) for f in law] == \
+       [("VANCE, ROBERT", ["plaintiff"], "Brooklyn, NY"), ("VANCE, ROBERT", ["defendant"], None)]
+assert law[0].url == "https://data.cityofnewyork.us/resource/pjgc-h7uv.json?docket_index=001234%2F2022&court_name=Supreme+Court+-+Kings"
+oath = by["New York City OATH trial"].attrs
+assert (oath["fullname"], oath["roles"], oath["case_type"], oath["docket_number"]) == ("Vance, Robert", ["respondent"], "Personnel Section 75", "T1")
+ecb = by["New York City OATH/ECB summons (DOB)"].attrs
+assert (ecb["issued"], ecb["hearing"], ecb["location"], ecb["address"], ecb["penalty"]) == ("2025-09-22", "2025-11-03", "Brooklyn, NY", "100 Example St", "800")
+tax = by["New York State tax warrant"]
+assert tax.url == "https://www.tax.ny.gov/warrants/lookup.html?document=e-1-w001.pdf"
+assert (tax.attrs["fullname"], tax.attrs["roles"], tax.attrs["co_debtors"], tax.attrs["location"], tax.attrs["amount"]) == \
+       ("ROBERT J VANCE", ["debtor"], ["VANCE BIRDING LLC"], "Albany, NY", "1234.56")
+ohio = by["Ohio Court of Claims case"].attrs
+assert (ohio["fullname"], ohio["roles"], ohio["docket_number"], ohio["case_type"]) == ("ROBERT VANCE", ["plaintiff"], "2026-00001AD", "Administrative Determination")
+chi = by["Chicago administrative hearing"].attrs
+assert (chi["fullname"], chi["business"], chi["respondents"], chi["disposition"], chi["location"]) == \
+       ("VANCE, ROBERT", "VANCE HOLDINGS LLC", ["VANCE HOLDINGS LLC C/O VANCE, ROBERT", "DANA HOLT"], "Liable", "Chicago, IL")
+tceq = by["Texas TCEQ civil judgment"].attrs
+assert (tceq["fullname"], tceq["location"], tceq["docket_number"], tceq["ordered"]) == ("Robert Vance dba Vance Trucking", "Travis County, TX", "D-1-GN-26-000001", "2026-02-03")
+assert "searched 8 of 8 datasets" in note and "New York State tax warrant 1" in note, note
+assert "debtor_name_4" in next(r.url.params["$where"] for r in seen if "v7ua-z23v" in str(r.url))
+assert all("caption" not in f.attrs for f in found)
+assert any("name 'VANCE, ROBERT' matches" in r for r in score(Seed("name", "Robert Vance"), law[0].url, law[0].attrs, [Seed("name", "Robert Vance")])[2])
+assert courts._party("Doe v. Vance, Robert", "VANCE") == ("Vance, Robert", None, 1)
+assert courts._party("JOHN RITTER Requester v. VILLAGE Respondent", "RITTER") == ("JOHN RITTER", "requester", 0)
+
+# Court portals the investigator opens by hand: national links for every name, state portals from location seeds
+links = courts.search_links([Seed("name", "Robert Vance"), Seed("location", "Houston, TX"), Seed("address", "1 Main St, Tucson Arizona 85701")])
+assert links[0] == {"label": 'CourtListener: federal dockets (RECAP) with party "Robert Vance"',
+                    "url": "https://www.courtlistener.com/?type=r&q=party%3A%22Robert+Vance%22", "state": None}
+assert [l["state"] for l in links] == [None] * 3 + ["TX"] * len(courts.PORTALS["TX"]) + ["AZ"] * len(courts.PORTALS["AZ"])
+assert any(l["label"] == "Harris County district courts" for l in links)
+assert courts.search_links([Seed("location", "Houston, TX")]) == []  # nothing to search without a name
+assert [l["state"] for l in courts.search_links([Seed("name", "Robert Vance")])] == [None] * 3
+ok = courts.search_links([Seed("name", "Robert Vance"), Seed("location", "Tulsa, OK")])[-1]
+assert ok["url"] == "https://www.oscn.net/dockets/Results.aspx?db=all&lname=Vance&fname=Robert", ok
+assert courts.states_in([Seed("location", "Washington, DC"), Seed("location", "Seattle, Washington"), Seed("location", "Portland OR 97201"),
+                         Seed("location", "Office in Denver"), Seed("username", "or")]) == ["DC", "WA", "OR"]
+assert all(u.startswith("https://") for ps in courts.PORTALS.values() for _, u in ps) and set(courts.PORTALS) <= set(courts.STATES)
+
 # Health: HEAD, GET when HEAD isn't served, throttling and outages reported, keys reported (never their values)
 seen = serve({"HEAD api.github.com/rate_limit": (404, {}), "api.github.com/rate_limit": (200, {}),
               "mastodon.social": (429, {}), "keys.openpgp.org": httpx.ConnectError("no route"),
@@ -486,7 +572,7 @@ for mod, seed, host in [(github, Seed("username", "proxy-check"), "api.github.co
                         (courtlistener, name, "www.courtlistener.com"), (fmcsa, name, "data.transportation.gov")]:
     lines = asyncio.run(proxy_lines(lambda: mod.search(seed)))
     assert lines and lines[0].startswith(f"CONNECT {host}:443 "), (mod.NAME, lines)
-for mod in (licences, businesses):  # every dataset's portal, all through the proxy
+for mod in (licences, businesses, courts):  # every dataset's portal, all through the proxy
     lines = asyncio.run(proxy_lines(lambda: mod.search(name)))
     assert sorted(lines) == sorted(f"CONNECT {d.domain}:443 HTTP/1.1" for d in mod.DATASETS), (mod.NAME, lines)
 lines = asyncio.run(proxy_lines(registry.health))
@@ -500,7 +586,7 @@ if "--live" in sys.argv:  # a few real logged-out calls: public organisations, e
                              (gravatar, "email", "test@example.com"), (openpgp, "email", "test@example.com"),
                              (keybase, "username", "zzyzxquuxington"), (stackexchange, "name", "Zzyzx Quuxington"),
                              (fec, "name", "Zzyzx Quuxington"), (edgar, "name", "Zzyzx Quuxington"),
-                             (npi, "name", "Zzyzx Quuxington")]:  # not Bluesky: its search matches any one word
+                             (npi, "name", "Zzyzx Quuxington"), (courts, "name", "Zzyzx Quuxington")]:  # not Bluesky: its search matches any one word
         found, checked, note = run(mod, kind, value)
         print(f"{mod.NAME:>14}  {kind}={value}: {len(found)} found; {note}")
 
