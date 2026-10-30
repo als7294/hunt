@@ -10,6 +10,8 @@ Today Hunt ranks each found profile on its own (`match.score`). These modules ad
 | `hunt/similar.py` | decides whether two profile photos are the same picture | none | CLIP ViT-L/14, local cache |
 | `hunt/face.py` | opt-in 1:1 check: is the face in this picture the one in the case's reference photo? | `download()` once | YuNet + AuraFace via OpenCV; CLIP for the child gate |
 | `hunt/learning.py` | learns face calibration and matcher weights from the investigator's decisions | none | none |
+| `graph.associates` | family and associates named in the case's own posts, bios, records and photo marks | none | none |
+| `hunt/leads.py` | the claim against the evidence: a timeline, and ranked leads per stated restriction | none | none |
 
 **Dependencies:** `similar.py` imports `scipy`, `torch`, `transformers` and `huggingface_hub` (the test only).
 All are installed today only as dependencies of `reverse-geocoder` and `geoclip`; declare `scipy` and
@@ -492,13 +494,14 @@ Public-record sources search by name, so every namesake comes back. `match.score
 name differently:
 - **The name barely counts:** +0.1 bits instead of +6.5, with the reason
   > name 'John Smith' matches 'John Smith' (the name searched for, so it barely counts; namesakes share it)
-- **The record's own facts decide** (`facts` = `case.details()`, passed by `search.build`):
+- **The record's own facts decide**, scored against the subject's seeds (typed in the search bar, e.g. `dob:1981-04-12`,
+  `age:43`, `employer:Acme Freight`) and the report's `subject_dob` detail, which `search.build` passes as `facts`:
 
-| fact (case) | record field | agree | disagree |
+| subject's | record field | agree | disagree |
 |---|---|---|---|
-| `subject_dob` | `dob`, `date_of_birth`, `birth_date`, `born`… (`YYYY-MM-DD` or `MM/DD/YYYY`) | exact: +13.2 (`dob`) | another full date: −4.3 |
-| `subject_dob` or `subject_age_range` | a birth year, or `age` | within a year: +4.2 | off by 2+ years: −3.2 |
-| `subject_employer` | `employer`, `company`, `organization`, `work` | +5.9 (`employer`) | not counted: people change jobs |
+| `dob` seed or `subject_dob` | `dob`, `date_of_birth`, `birth_date`, `born`… (`YYYY-MM-DD` or `MM/DD/YYYY`) | exact: +13.2 (`dob`) | another full date: −4.3 |
+| `dob` or `age` seed | a birth year, or `age` | within a year: +4.2 | off by 2+ years: −3.2 |
+| `employer` seed | `employer`, `company`, `organization`, `work` | +5.9 (`employer`) | not counted: people change jobs |
 | `location` / `address` seeds (city/state, prior addresses) | `address`, else `location`/`city`/`state`/`country` | the geocoded place tiers, as for profiles | as for profiles |
 
 A name-only "John Smith" record scores "very unlikely" and joins the namesakes. One whose age fits rises to "likely", and an exact date of
@@ -509,6 +512,139 @@ go into the learning store's patterns, so their weights are re-learned from deci
 for each record, its verdict and top reasons ("kept: date of birth 1981-04-12 matches the subject's"; "set aside: 1962
 doesn't fit the subject's birth year 1981"). The fixture records in `test_report.py` and `test_e2e.py` now each carry
 an employer that the case knows, because a name alone no longer makes them the subject's.
+
+## 8. Family and associates
+
+`graph.associates(posts, candidates, subject, photo_labels) -> {notice, people}` connects the people the case already
+names. It runs on what's stored and searches nothing. `GET /api/cases/{slug}/people` serves it; see
+[api.md](api.md).
+
+**Where associates come from:**
+
+| from | example | type | confidence |
+|---|---|---|---|
+| the subject's own posts (the person's accounts, or posts the investigator added) | "my brother Dan", "mi esposa Ines", "with mom", "con mi mamá" | sibling, parent, child, grandparent, grandchild, partner, relative, friend, co-worker | 0.9 named, 0.8 unnamed, 0.7 "with mom" |
+| post tags | `extra.with`, `extra.tagged`, "— with Rafa Ortiz", "is with…" | tagged with | 0.8 |
+| a plain caption | "Gym with Rafa Ortiz and Kim Vell" (two-word names only; could be a place) | tagged with | 0.6 |
+| the person's bios | "Married to Ines Vell", "Proud dad of 2", "esposa de…" | partner, child | 0.9 / 0.8 |
+| the person's public records | "Vell v. Example Builders LLC", `parties` | co-party | 0.9 |
+| any record of someone else at the subject's `address` seed | "Marta Ruiz, 12 Alder Lane" | same address | 0.6 |
+| the investigator's marks on kept photos (`label_photo`; the same label = one person; no face search) | "Dan" in two photos | in photo with | 1.0 |
+| a shared surname with the subject, added to someone already found | "Kim Vell" | possible relative | 0.3 (a hint) |
+
+There are 125 relationship words, in English and Spanish. A first name merges into the one full name that fits ("Ines" →
+"Ines Vell"). Unnamed relatives merge by role (one "mother"). The subject is never listed as their own associate, and
+posts from accounts that aren't the subject's are ignored.
+
+**Minimisation** (`legal.md` C4 and C13):
+- **Name and citation only:** an associate is a name, the relationship, and the exact sentence that implied it, with its
+  post, bio, record or photo reference.
+- **No collection on associates:** Hunt never searches or collects on them. The screen offers "Open as a new case…",
+  which starts the wizard with its own purpose field. Nothing is prefilled except the name.
+- **Possible minors:** a child, grandchild, niece or nephew, or anyone given an age under 18 ("9 años"), is `minor:
+  true`. The name is dropped everywhere, the quote reads "mi hijo [name withheld]", and the person is shown by
+  relationship only.
+
+**The screen** ("People around the subject", a tab beside "Is it them?"):
+- **Header:** the `notice`.
+- **Card list,** most confident first:
+  - each card shows the name, or the relationship for a minor ("son (name withheld)"), plus the relationship chips,
+    with confidence as words (0.9+ stated, 0.6–0.8 likely, below 0.6 hint)
+  - and the citations: each quote with a link to its exhibit (post `E-…`, record, bio URL, kept photo)
+  - no profile links or photos of associates
+- **Actions per card:**
+  - "Not relevant" hides it, audited.
+  - "Open as a new case…" isn't offered for minors.
+- **"Mark people in this photo"** sits on kept photos in the posts screen: a free-text label, posted to
+  `POST /api/cases/{slug}/people/photo`.
+
+**Report sentences** (for `report.py`, a "People around the subject" section, each sentence cited):
+> The subject's own posts, bios and public records name 6 people around them; none of them was searched. [method]
+> Brother: Dan, in a post of 2026-06-01 ("Lake day with my brother Dan…") and marked by the investigator in a kept
+> photo. [E-1]
+> Partner: Ines Vell, in the Facebook bio ("Married to Ines Vell") and a post. [A-3] [E-2]
+> A child (name withheld), in a post of 2026-05-12. [E-2]
+> Co-party: Example Builders LLC, in Vell v. Example Builders LLC. [Rec. 2]
+
+In screening mode, leave the section out: family status is a protected characteristic, as the screening rules say.
+In MHMDA mode, keep relationships as stated and never infer health from them.
+
+## 9. The claim against the evidence: leads and timeline
+
+`hunt/leads.py`, pure functions over what the case holds: `timeline(details, posts, hits, candidates)` and
+`leads(details, posts, hits, candidates, people)`. They're served by `GET /api/cases/{slug}/timeline` and `/leads`
+([api.md](api.md)).
+
+**Restrictions.** The case's `limits` text is split into clauses ("No lifting over 5 kg; no long walks; can't drive
+far; not working"). Each clause maps to a restriction and to what would contradict it:
+
+| restriction | the claim says (en/es) | contradicted by |
+|---|---|---|
+| lifting | lift, carry, levantar, cargar | `lifting` hits; captions "moving day", "helped … move", "mudanza" |
+| walking | walk, stand, hike, caminar | `walks` hits; "hike", "10 km walk", "caminata" |
+| running / sport | run, jog, gym, exercise, correr, gimnasio | `sport` hits; "ran", "5k", "leg day", "workout" |
+| bending | bend, kneel, squat, climb, agachar | `activity` hits |
+| driving | drive, manejar, conducir | `driving` hits; FMCSA carrier records registered or updated after the injury; "road trip", "drove" |
+| travel | travel, fly, viajar | `travel` hits; "flight to", "vacation" |
+| working | work, job, employ, duty, trabajar | `other_job` hits; a licence issued or renewed, a business formed or registered, or a carrier record updated after the injury; a court filing after it that names an employer; "first day at the new job", "my shift", "back to work", "nuevo trabajo"; the importer's `life_event`; a co-worker named in a post (associates) |
+
+Without `limits`, the wizard's `look_for` categories become restrictions, marked `stated: false` ("The case asks about
+lifting or carrying").
+
+**What counts as a lead:**
+- dated after the injury
+- not marked "not relevant"
+- a hit that doesn't show someone else (`who: "other"`)
+- a record only from the person (search.in_person), never a namesake's
+
+**Confidence:**
+- scan hits: the scan's `p`, × 0.6 while who it shows isn't confirmed, × 0.8 until the investigator keeps it
+- the subject's own captions: 0.7
+- a licence or business event: 0.7 (a renewal 0.6)
+- a carrier record: 0.5
+- a co-worker named in a post, or a court filing naming an employer: 0.5
+
+One lead per piece of evidence per restriction, ranked by confidence. Each lead reads as facts only (report-format.md
+"Wording"):
+> **Claim:** No lifting over 5 kg. **Evidence:** A photo posted on 2026-04-02 (32 days after the injury) appears to show
+> carrying a couch (scan: likely). [E-2]
+> **Claim:** Not working. **Evidence:** Texas TDLR licence (Electrician) issued on 2026-04-15 (45 days after the injury).
+> [A-7]
+
+Never "fraud", "lied", "faked" or "exaggerated": the self-check enforces it.
+
+**Timeline:**
+- The injury date is one event.
+- Each post appears with the categories of its live scan hits.
+- The person's public records add their dated fields (issued, renewed, registered, formed, filed, carrier updated).
+- Life events stated in captions or by the importer are listed separately ("Stated in a post: 'first day at the new
+  job'").
+- `after_injury` lets the screen shade everything after the line.
+
+**The screen** ("Claim vs evidence", the first tab once a scan has run):
+- **Left:** the restrictions as cards, each with its claim text and lead count.
+  - A restriction with 0 leads reads "Nothing found that contradicts this", so the absence is recorded too.
+  - Clicking a card filters the leads.
+- **Centre: the leads list,** each lead shown as
+  - "Claim: … / Evidence: …"
+  - a thumbnail of the cited post or record
+  - the date and days after the injury
+  - confidence in words (≥ 0.7 strong, 0.5–0.7 moderate, below 0.5 weak)
+  - **Actions:** Keep (sets the hit's status to kept, which raises its confidence), Not relevant (hides it,
+    audited), Open evidence.
+- **Below: the timeline,** a horizontal strip with a vertical line at the injury date.
+  - Posts are dots coloured by hit category, records are squares, stated life events are flags.
+  - Hovering shows the event; clicking opens its exhibit.
+
+**Report section** ("Claim and evidence", after Findings; for `report.py`, every sentence cited):
+> The claim states: no lifting over 5 kg; no long walks; can't drive far; not working. [case details]
+> Lifting: a photo posted on 2 April 2026, 32 days after the injury, appears to show carrying a couch. [E-2] A post the
+> same day says "Moving day." [E-2]
+> Working: a Texas electrician's licence was issued on 15 April 2026, 45 days after the injury. [A-7]
+> Walking: nothing found after the injury that bears on this. [method]
+
+Only leads the investigator kept, or put in the report, go in it, worded exactly as `shows`. In MHMDA mode, keep
+`shows` to observed activity: never a word about physical condition.
 
 ## Not yet
 
@@ -529,8 +665,19 @@ an employer that the case knows, because a name alone no longer makes them the s
   - the wizard fields and the side-by-side on "Is it them?"
 
   Everything above specifies them; nothing is half-wired. The case facts are wired: `search.build` passes them, and the
-  details route accepts them.
+  details route accepts `subject_residence` and `mhmda_basis`.
 - **Report wording:** MHMDA mode (observed activity, not physical condition) and "kept or set aside because…" for records
   belong to the report session. `case.mhmda` and each record's `reasons` are ready for it.
+- **Associates:**
+  - Facebook's parser reads "is with Mara Quill" out of post headers but doesn't keep the names. Storing them as
+    `post_extra.with` (facebook session) lets `associates` cite them as tags.
+  - Comments aren't stored, only counted, so "tagged or named in comments" waits on that.
+  - The "People around the subject" screen and its report section are for the app-screens and report sessions.
+    The API is wired.
+- **Leads:**
+  - Records and captions can't show a weight, so "over 5 kg" only matters to the investigator looking at a lifting
+    lead.
+  - Leads from records count only the person's records.
+  - The "Claim vs evidence" screen and report section are for the app-screens and report sessions. The API is wired.
 - **Name commonness:** a searched name always counts +0.1, whatever the name. A name-frequency table would let a rare name
   count for more.

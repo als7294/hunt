@@ -205,4 +205,40 @@ with tempfile.TemporaryDirectory() as d:
     assert cli.load_keys(f) == ["HUNT_FEC_KEY"]
     assert os.environ["HUNT_FEC_KEY"] == "abc" and os.environ["HUNT_GITHUB_TOKEN"] == "already" and "OTHER" not in os.environ
     assert cli.load_keys(Path(d) / "missing.env") == []
+
+# Face comparison (docs/analysis.md §5): with it on, search compares each likely account's stored profile photo
+# with the reference, once, and build() turns the result into one capped reason; /person shows it beside the photo
+import asyncio, io
+from PIL import Image
+from hunt import face, search
+fc = Case.create("face test", "Test: face comparison plumbing", kind="insurance", tool="person")
+handle = Seed("username", "examplehandle")
+fc.add_seeds([handle])
+url, pic = "https://bsky.app/profile/examplehandle", "https://cdn.example/avatar.jpg"
+fc.add_finding(Finding("bluesky", handle, "Bluesky", url, {"image": pic}))
+jpg = io.BytesIO()
+Image.new("RGB", (64, 64), "tan").save(jpg, "JPEG")
+fc.add_avatar(pic, jpg.getvalue(), "0" * 16)
+fc.decide(url, "him")
+fc.set_details(subject_residence="US-AZ")
+face.enable(fc, "claimant signed the consent form, file 1")
+ref = Path(tempfile.mkdtemp()) / "reference.jpg"
+ref.write_bytes(jpg.getvalue())
+face.add_reference(fc, ref)
+calls = []
+face.compare = lambda refs, imgs: calls.append(imgs) or [  # the models aren't loaded in tests
+    {"image": i, "faces_found": 1, "match": "yes", "score": 0.71, "why": "the same face as your reference photo (0.71)",
+     "quality": {"face_px": 120, "sharpness": 150, "yaw": 5}, "model": "stub"} for i in imgs]
+logs = []
+asyncio.run(search.compare_faces(fc, build(fc), logs.append))
+asyncio.run(search.compare_faces(fc, build(fc), logs.append))  # once per account: not compared again
+cand = build(fc)["candidates"][0]
+assert len(calls) == 1 and logs[0]["message"] == "compared faces on 1 profile photo", logs
+assert cand["face"]["match"] == "yes" and any("same face as your reference photo" in r for r in cand["reasons"]), cand
+# an unusable reference doesn't block a later, better one: those accounts are compared again
+fc.db.execute("update face_checks set match = 'unclear', why = 'no usable reference photo (x.png: no face found)'")
+asyncio.run(search.compare_faces(fc, build(fc), logs.append))
+assert len(calls) == 2, calls
+face.disable(fc)
+assert "face" not in build(fc)["candidates"][0]  # off: results aren't used
 print("ok")

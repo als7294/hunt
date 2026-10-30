@@ -319,10 +319,62 @@ Hunt scans everything, but a report uses only what's material (10 CCR §2695.7(d
 - Quit stops the server and removes the PID file.
 - `hunt uninstall` (keep data) moves Hunt.app to the Trash, removes the tool and keeps `~/Hunt`.
 
+**Re-run on main `126de25`** (with Hunt Capture's capture record, public posts, court records, the face-check engine and the scan speed-ups):
+- Same result end to end.
+- The install pulled no new packages beyond Hunt itself; `yt-dlp` was already cached.
+- `doctor` showed the real state, with 11.5 GB free.
+- The start screen shows "Hunt 0.1.0" (main's walkthrough moved my label into the subtitle).
+- No console errors.
+
 Fixed along the way:
 - The disk row said "10 GB free" while failing a 10 GB minimum (it rounded 9.8); it now shows one decimal.
 - Its fix wording read "Free disk space: Free up space…" in setup's summary.
 - uv had picked Python 3.13, so the install is now pinned to 3.12.
+
+### 11. The demo case (`hunt/demo.py`, `hunt demo`, `/api/demo`)
+
+**Purpose:** anyone opening Hunt, Laura's interviewer included, should see a finished investigation in thirty seconds.
+
+**What it is:** `hunt demo` builds `demo-dorian-vell` from `fixtures/demo/` alone, with no network. It's a fictional workers' compensation claim against Dorian Vell, a mover with a reported back injury. The case contains:
+- **The search:**
+  - eleven source runs, one of them failed
+  - Instagram, TikTok, Bluesky and an email registration on Strava, with verdicts and reasons
+  - two namesakes (GitHub, Mastodon) set aside
+  - records: a contractor licence and a motor-carrier entry that match the employer, and a namesake's court record that its birth year rules out
+  - profile screenshots
+- **The decisions:**
+  - the confirmed person
+  - TikTok confirmed by hand: its display name only repeats the handle, so the handle alone left it at "roughly even chance"
+- **Posts:**
+  - five Bluesky posts "read automatically"
+  - an Instagram video captured in the Hunt Browser, with its capture record
+- **Scan flags,** reviewed: three in the report (a caption, a photo, and the video's 3–8 s stretch), two kept, and one ruled not relevant. They're written with the scan's own `_hit`, so they're shaped exactly as a real scan's.
+- **Check again:** a deleted post and a rewritten bio.
+- **Notes:** a note, its correction, and a note on the video flag.
+- **Exports:** in `exports/`, the finished report (HTML and JSON) and the evidence bundle.
+
+**DEMO everywhere:**
+- the label ("DEMO · Dorian Vell claim (fictional)"), purpose, client, reference and file number
+- meta `demo`
+- every picture ("DEMO · generated illustration")
+- the bundle's README
+- **the report:** it's built with DEMO report settings, both in `exports/` and in the app (`app._report` passes `demo.PREFS` for a demo case). So the firm, investigator, licence and confidentiality line say DEMO, and no real investigator's name or licence is ever printed on it.
+
+**Kept apart from real work:**
+- **Unreachable accounts:** accounts are on `.example` hosts (`instagram.example/dorianvell`), which never resolve. No click can reach a real person who happens to share a handle.
+- **Read-only:** the case is closed when built, so no search, scan, re-check or worklist open runs on it.
+- **Never matched:** "Seen before" never matches it, in either direction.
+- **Rebuilding:** `hunt demo --reset` moves it to the Trash and builds it again.
+
+**Media:** drawn by `scripts/demo_media.py` from shapes and text, and dedicated to the public domain (CC0, `fixtures/demo/LICENSE.md`): 164 KB in all. The wheel force-includes them as `hunt/demo_media`, so an installed Hunt can build the demo too.
+
+**The self-check** (`test_demo.py`):
+- builds it with every network connection refused
+- checks the DEMO marking everywhere it should appear, that the case is read-only, and that it stays out of "seen before"
+- checks every report section is done
+- resolves every `A-`, `E-`, `M-`, `M-a` and `N-` citation anywhere in the report to a row of the case
+- checks the exports
+- checks that `--reset` sends the old case to the Trash
 
 ### Self-checks
 
@@ -581,6 +633,16 @@ The real Trash call was checked once by hand, on a scratch file.
 - **409:** shown as is (legal hold, not yet due, changed since shown).
 - **Under legal hold:** the row says "On legal hold: nothing may be removed", and there's no button.
 
+### L. "Open the demo case" on the first run and on Home
+
+- **On the first run** (after Connect your accounts and free keys), and on Home whenever there are no other cases: a quiet card or secondary button, **Open the demo case**.
+  - Helper: "A finished, fictional investigation, to see what Hunt does. It's marked DEMO everywhere and can't be changed by a search."
+  - It calls `GET /api/demo`. If `exists` is false, it calls `POST /api/demo` `{}`, which builds the case in a second or two (show a spinner), then opens `#/case/demo-dorian-vell/identity`.
+- **On Home,** the demo appears in the case list like any case: its label already says DEMO. Give it a "DEMO" chip, and sort it after real cases.
+- **In the demo case,** a banner on every step: "DEMO: everything here is fictional." The closed banner's **Reopen** can stay, but a **Rebuild the demo** link (`POST /api/demo` `{reset: true}`) is the better reset.
+- **On the report screen,** read the firm, investigator, licence and confidentiality line from the report's `header`, not from the report settings. For the demo, the header carries DEMO values. Today the screen shows "Add your firm, name and licence" there.
+- **In the retention prompt,** after 90 days the demo appears like any case: its delete is just "Delete the demo".
+
 ## Audit actions for the report (to pass to the report owner)
 
 Every row below is an audit entry, so its citation is `M-a<rowid>`, except notes, which are `N-<id>`. The sentences are suggestions in the report's neutral wording. Dates are the audit `ts`.
@@ -659,23 +721,39 @@ The walkthrough followed the guide in the real app, from a clean `HUNT_HOME`, on
 1400 px. What it found and fixed is in the hunt-server commits from that day. What's left:
 
 **Not fixed**
-- **The search cluster crowds at 15 accounts.** On `nasa`, account labels overlap around the centre at 1400 px
-  (`hunt/static/cluster.js` places them). It's readable on "Is it them?", which lists the same accounts.
-- **Mirror accounts score "likely".** Eight Mastodon instances showing a copy of `@NASA` scored 62% each, mostly on
-  the shared profile photo and links back to the real profiles. She ruled them out by hand (Is it them? now keeps
-  them listed, with Undo). A federated copy should probably not count the photo it copies as a second identifier
-  (`hunt/match.py`).
-- **Text-only flags show an empty striped thumbnail** on the scan and worklist cards. Cosmetic.
-- **"Web page" on the Report screen downloads the HTML** rather than opening it (the export sends
-  `Content-Disposition: attachment`).
-- **Media removed at retention** still shows as a broken image (point 21 above).
+- **Mirror accounts score high, and higher since the analysis merge.** Eight Mastodon instances showing a copy of
+  `@NASA` scored 62% each on the first run. On the re-run after the analysis merge (126de25) the same accounts scored
+  94–99% ("almost certain"), with the same three reasons: shared profile photo, a link back to the real profiles, and
+  the username. It isn't `hunt/learning.py`, which needs 30 decisions of each kind first. The UI words them "likely"
+  at most, and she ruled them out by hand (Is it them? keeps them listed, with Undo). A federated copy should
+  probably not count the photo it copies as a second identifier (`hunt/match.py`, analysis session).
 - **Case-level notes aren't in the report**; only notes on an item that's in the report are (cited "Note n"). A
   choice of which case notes to print would be a new screen.
+- **`posts.collect` calls every unreadable site "Reddit".** For an account on a site it has no reader for (GitHub,
+  SoundCloud…) it emits `failed` with "this site's posts can't be read logged out (Reddit answers 403)", now visible
+  in the scan's source list. The note should name the site, and "not readable logged out" isn't a failure
+  (`hunt/posts.py`, posts owner).
+- **The subject's name in the search cluster** can sit under a match badge ("✓ 12 of 16 accounts share a profile
+  photo"); the account labels now step aside, the subject's doesn't. Cosmetic; the name is in the case pill.
+- **Face comparison isn't downloadable from Hunt yet.** The start-up row says when OpenCV or the two models are
+  missing, but the "button on the startup screen" (docs/analysis.md "Plug in") would be a `setup.plan` item: the
+  setup owner's.
+
+**Fixed** (2026-10-30, hunt-server)
+- **The search cluster crowded at 15 accounts.** Each account label is measured every frame against the subject's
+  name, the headline, the match badges and the labels already placed; one that would overlap stays hidden until its
+  node is hovered.
+- **Text-only flags showed an empty striped thumbnail.** They show a quote mark, and the card is shorter.
+- **"Web page" downloaded the HTML.** It opens in a tab (`report.html?view=1`), inline and sandboxed (no script, no
+  requests, not the app's origin), and prints as the download does.
+- **Media removed at retention showed as a broken image.** An evidence picture that no longer loads becomes a box
+  reading "Removed from the case".
 
 **Not verified live, on purpose**
 - **Sign in / Open in Hunt Browser** (launches Chrome for Testing on the Mac) and **worklist opens**. Both routes
   were exercised only up to the click.
-- **Read public preview**: `hunt/public.py` isn't on main yet. The button says "Not available yet" (501).
+- **Read public preview**: `hunt/public.py` is on main now, but no case in the walkthrough had an Instagram,
+  Facebook or TikTok account it could read (nasa's TikTok is an archived link), so the button wasn't pressed.
 - **Downloads on the start screen**: nothing was missing on this Mac, so the Download button and its progress
   weren't seen. The doctor rows were (low disk space; Hunt not in Applications).
 - **"Keep watching when Hunt is closed"** installs a LaunchAgent. Only Watch on and off were tried.
@@ -684,8 +762,20 @@ The walkthrough followed the guide in the real app, from a clean `HUNT_HOME`, on
   test_qol.
 - **Dropping files onto Posts**: the browser pane can't drag from Finder. The two test files went in through
   From Downloads pointed at their folder, with the originals kept.
-- **The worklist's grid counter and "open these" list** wait for the capture extension's `progress` and `todo`
-  fields. They fall back to the checklist and the case's flags.
+- **The worklist's grid counter, "open these" list and grid labels** read the extension's `progress`, `todo` and
+  `extra.from` (on main since the facebook merge), but no capture with them was made in the walkthrough. Without
+  them the worklist falls back to the checklist and the case's flags, which is what was seen.
+- **Hard stops** were tested with a stop written by `browser.stop()` (the extension's watcher wasn't triggered):
+  the start screen, Connect your accounts and the worklist show it, and Resume lifts it after the confirmation.
+- **The capture switch** was tested without a Hunt Browser running: Start / Stop capturing changes Hunt's state;
+  the extension's mirroring of it wasn't seen.
+- **Face comparison** ran for real on `nasa` (16 profile photos, OpenCV and the cached models) with a generated
+  reference image that has no face, so every result was "couldn't compare", and the screen says the reference can't
+  be used. "Same face" / "Different face" were seen only with a simulated `/person` answer in the page: no real
+  person's face was processed.
+- **The Apify estimate** was seen only with a simulated `/vendor` answer in the page. The real one, with Aaron's key,
+  answered "nothing to run" (no Instagram or Facebook account in the case). No Apify run was started: it spends his
+  credit.
 
 **Noticed while testing, not a Hunt bug**
 - Restarting `hunt app` makes a new sign-in link, so an open tab stops working. It now says "Open Hunt again"

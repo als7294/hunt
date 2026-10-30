@@ -65,7 +65,8 @@ function seedKind(raw) {
 }
 const SEED_LABEL = { name: 'NAME', email: 'EMAIL', phone: 'PHONE', username: 'USER', url: 'LINK', address: 'ADDRESS', location: 'PLACE' };
 const unprefixed = v => { const [k, ...rest] = v.split(':'); return rest.length && KINDS.includes(k) ? rest.join(':').trim() : v; };
-const seedPill = (value, kind, removable) => html`<span class="seed ${kind}"><b>${SEED_LABEL[kind] || kind.toUpperCase()}</b><span>${unprefixed(value)}</span>${removable ? html`<button class="x" data-act="seed-remove" data-value="${value}" aria-label="Remove">×</button>` : ''}</span>`;
+const shown = (v, kind) => kind === 'dob' || kind === 'age' ? unprefixed(v).replace(/^(?:dob|d\.o\.b\.?|born|birthday|birth ?date|b\.|age|aged)\s*:?\s*/i, '') : unprefixed(v);
+const seedPill = (value, kind, removable) => html`<span class="seed ${kind}"><b>${SEED_LABEL[kind] || kind.toUpperCase()}</b><span>${shown(value, kind)}</span>${removable ? html`<button class="x" data-act="seed-remove" data-value="${value}" aria-label="Remove">×</button>` : ''}</span>`;
 
 /* ---------- chrome ---------- */
 const brand = html`<a class="brand" href="#/"><span class="logo"></span>Hunt</a>`;
@@ -145,11 +146,15 @@ screens.startup = async () => {
   const firstBoot = (() => { try { return !localStorage.getItem('hunt-connect-seen'); } catch { return false; } })();
   const next = () => { if (['', '#/', '#/startup'].includes(location.hash)) { const to = firstBoot ? '#/connect' : '#/'; if (location.hash === to) render(); else location.hash = to; } };
   // Cases past retention wait for a decision; otherwise carry on by itself
-  if (checks.some(c => (c.id === 'retention' || c.id === 'downloads') && c.items?.length)) box.insertAdjacentHTML('beforeend', html`<a class="btn primary sm" href="#/" style="align-self:flex-start;margin-top:6px">Continue →</a>`.s);
+  if (checks.some(c => ((c.id === 'retention' || c.id === 'downloads') && c.items?.length) || Object.keys(c.stopped || {}).length)) box.insertAdjacentHTML('beforeend', html`<a class="btn primary sm" href="#/" style="align-self:flex-start;margin-top:6px">Continue →</a>`.s);
   else setTimeout(next, checks.every(c => c.ok) ? 500 : 2500);
 };
 
 const SIGNIN = { signed_in: 'signed in', signed_out: 'not signed in', unknown: 'not checked yet' };
+const stopsBlock = stopped => Object.entries(stopped || {}).map(([pf, x]) => html`<div class="reason bad" style="flex-direction:column;align-items:stretch;gap:8px">
+  <div style="display:flex;gap:12px;align-items:flex-start"><span class="ic">!</span><div><b style="font-weight:600">${x.message}</b>
+    <div class="muted" style="font-size:13px;overflow-wrap:anywhere">${when(x.ts)}${x.url ? ` · ${x.url}` : ''}</div></div></div>
+  <div class="life" style="padding-left:40px"><button class="btn ghost sm" data-act="resume-ask" data-platform="${pf}">Resume ${pf}…</button></div></div>`);
 // `hunt doctor`'s findings the other rows don't already cover, and the downloads still missing (GET /api/setup)
 const COVERED = ['ollama', 'model', 'chromium', 'python', 'uv', 'hunt'];
 const setupRows = su => !su ? [] : [...su.doctor.filter(d => !d.ok && !COVERED.includes(d.id)).map(d => ({ id: `doctor-${d.id}`, label: d.label, ok: false, detail: [d.detail, d.fix && `To fix: ${d.fix}`].filter(Boolean).join(' · ') })),
@@ -158,7 +163,7 @@ const skipped = () => { try { return JSON.parse(localStorage.getItem('hunt-skipp
 function bootRow(c, keys = []) {
   const extra = c.id === 'sources' ? html`${(c.items || []).filter(x => x.reachable === false).map(x => html`<span class="muted" style="font-size:13px">${x.source}: can’t be reached (${x.detail})</span>`)}
       ${keys.length ? html`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${keys.map(k => html`<a class="acct" href="#/keys" style="font-size:13px;${k.set ? '' : k.required ? 'color:var(--am)' : 'color:var(--mu)'}">${k.set ? html`${k.label} <span style="color:var(--gr)">✓</span>` : `${k.label} · ${k.required ? 'key needed' : k.url ? 'free key available' : 'not set'}`}</a>`)}</div>` : ''}`
-    : c.id === 'browser' && c.items ? html`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${c.items.map(x => html`<span class="acct" style="font-size:13px" title="${x.label}: ${SIGNIN[x.state]}">${x.label}${x.state === 'signed_in' ? html` <span style="color:var(--gr)">✓</span>` : skipped().includes(x.platform) ? html` <span class="dim">skipped</span>` : html` <button data-act="browser-open" data-url="${x.url}" style="color:var(--ac)">Sign in</button>`}</span>`)}</div>
+    : c.id === 'browser' && c.items ? html`${Object.keys(c.stopped || {}).length ? html`<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">${stopsBlock(c.stopped)}</div>` : ''}<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${c.items.map(x => html`<span class="acct" style="font-size:13px" title="${x.label}: ${SIGNIN[x.state]}">${x.label}${x.state === 'signed_in' ? html` <span style="color:var(--gr)">✓</span>` : skipped().includes(x.platform) ? html` <span class="dim">skipped</span>` : html` <button data-act="browser-open" data-url="${x.url}" style="color:var(--ac)">Sign in</button>`}</span>`)}</div>
       ${c.checked_at ? html`<span class="dim" style="font-size:12.5px">checked ${ago(c.checked_at).toLowerCase()}</span>` : ''}`
     : c.id === 'downloads' ? html`<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">${c.items.map(x => html`<div class="card" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
         <div style="display:flex;justify-content:space-between;gap:8px"><b style="font-weight:500">${x.label}</b><span class="muted" style="font-size:13px">${x.size ? size(x.size) : ''}</span></div>
@@ -240,7 +245,7 @@ const KIND_CHOICES = [['insurance', 'Insurance claim', '⛨', 'var(--am)', 'rgba
 let wiz;
 const WIZ_HEADER = ['client', 'adjuster', 'file_number', 'assignment_date', 'subject_dob']; // optional, for the report header
 const newWizard = () => ({ seeds: [], kind: 'insurance', look_for: LOOK_FOR.filter(l => l[2]).map(l => l[0]), custom: [], purpose: '', reference: '', injury_date: '', limits: '',
-  ...Object.fromEntries(WIZ_HEADER.map(k => [k, ''])) });
+  ...Object.fromEntries(WIZ_HEADER.map(k => [k, ''])), country: '', state: '', faceOn: false, faceBasis: '', faceFiles: [], gate: null });
 screens.new = () => { wiz ??= newWizard(); drawWizard(); };
 function drawWizard() {
   const w = wiz, step = wizStep();
@@ -266,6 +271,7 @@ function drawWizard() {
             <summary class="muted" style="cursor:pointer;padding:8px 4px">For the report header <span class="dim">· optional, and can be filled in later</span></summary>
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;padding:6px 0 12px">
               ${DETAIL_FIELDS.filter(([k]) => WIZ_HEADER.includes(k)).map(([k, label, hint]) => html`<label class="field"><span class="label">${label}</span><input class="input" name="${k}" ${hint === 'date' ? raw('type="date"') : ''} value="${w[k]}" placeholder="${hint === 'date' ? '' : hint}"></label>`)}</div></details>
+          ${faceStep(w)}
           ${w.kind === 'insurance' ? html`<div style="padding:18px;border-radius:18px;background:linear-gradient(160deg,rgba(51,41,26,.7),rgba(27,29,35,.9) 70%);box-shadow:inset 0 0 0 1px rgba(237,190,98,.3);display:flex;flex-direction:column;gap:14px">
             <div style="display:grid;grid-template-columns:200px 1fr;gap:10px">
               <div class="field"><span class="label">Injury date</span><input class="input" type="date" name="injury_date" value="${w.injury_date}"></div>
@@ -299,18 +305,53 @@ function drawWizard() {
   input.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addSeeds(input.value); } else if (e.key === 'Backspace' && !input.value && w.seeds.length) { w.seeds.pop(); refreshSeeds(); } });
   input.addEventListener('paste', e => { const t = e.clipboardData.getData('text'); if (/[\n,;]/.test(t)) { e.preventDefault(); addSeeds(t); } });
   input.addEventListener('blur', () => input.value.trim() && addSeeds(input.value));
-  $('#wiz').addEventListener('input', e => { if (e.target.name) { w[e.target.name] = e.target.value; if (e.target.name === 'purpose') refreshStart(); } });
+  $('#wiz').addEventListener('input', e => { if (e.target.name) { w[e.target.name] = e.target.value; if (['purpose', 'faceBasis'].includes(e.target.name)) refreshStart(); } });
   if (w.seeds.length) input.placeholder = 'Add another…';
   $('#wiz').addEventListener('submit', e => e.preventDefault());
   if (document.activeElement === document.body) input.focus();
   wizSeen();
 }
+/* Face comparison with a reference photo (docs/analysis.md §5): optional, off by default, allowed only where the
+   subject lives permits it. The rule that decides is shown as the server words it. */
+const US_STATES = 'AL Alabama|AK Alaska|AZ Arizona|AR Arkansas|CA California|CO Colorado|CT Connecticut|DE Delaware|DC District of Columbia|FL Florida|GA Georgia|HI Hawaii|ID Idaho|IL Illinois|IN Indiana|IA Iowa|KS Kansas|KY Kentucky|LA Louisiana|ME Maine|MD Maryland|MA Massachusetts|MI Michigan|MN Minnesota|MS Mississippi|MO Missouri|MT Montana|NE Nebraska|NV Nevada|NH New Hampshire|NJ New Jersey|NM New Mexico|NY New York|NC North Carolina|ND North Dakota|OH Ohio|OK Oklahoma|OR Oregon|PA Pennsylvania|RI Rhode Island|SC South Carolina|SD South Dakota|TN Tennessee|TX Texas|UT Utah|VT Vermont|VA Virginia|WA Washington|WV West Virginia|WI Wisconsin|WY Wyoming'.split('|').map(x => [x.slice(0, 2), x.slice(3)]);
+let countries = null; // [[ISO code, name]], from the browser's own region names
+const countryList = () => countries ??= (() => { const dn = new Intl.DisplayNames(['en'], { type: 'region' }), out = [];
+  for (let a = 65; a < 91; a++) for (let b = 65; b < 91; b++) { const code = String.fromCharCode(a, b); let name; try { name = dn.of(code); } catch { continue; }
+    if (name && name !== code && !/unknown/i.test(name) && !['EU', 'EZ', 'UN', 'QO', 'XA', 'XB', 'ZZ'].includes(code)) out.push([code, name]); }
+  return out.sort((x, y) => x[1].localeCompare(y[1])); })();
+const residenceOf = w => w.country === 'US' ? (w.state ? `US-${w.state}` : 'US') : w.country;
+function faceStep(w) {
+  const r = residenceOf(w), g = w.gate;
+  return html`<details id="wiz-face" ${w.faceOpen || w.country ? 'open' : ''} style="border-radius:14px;background:rgba(255,255,255,.02);padding:4px 12px">
+    <summary class="muted" style="cursor:pointer;padding:8px 4px">Where they live, and comparing faces <span class="dim">· optional, off by default</span></summary>
+    <div style="display:flex;flex-direction:column;gap:10px;padding:6px 0 12px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">
+        <label class="field"><span class="label">Country they live in</span><select class="input" id="wiz-country"><option value="">Not known</option><option value="US" ${w.country === 'US' ? 'selected' : ''}>United States</option>
+          ${countryList().filter(([c]) => c !== 'US').map(([c, n]) => html`<option value="${c}" ${w.country === c ? 'selected' : ''}>${n}</option>`)}</select></label>
+        ${w.country === 'US' ? html`<label class="field"><span class="label">State</span><select class="input" id="wiz-state"><option value="">Not known</option>${US_STATES.map(([c, n]) => html`<option value="${c}" ${w.state === c ? 'selected' : ''}>${n}</option>`)}</select></label>` : ''}</div>
+      ${!r ? html`<span class="muted" style="font-size:13.5px">Face comparison needs to know where the subject lives: several states and countries forbid it without written consent.</span>`
+        : !g ? html`<span class="muted" style="font-size:13.5px">Checking the rules for ${r}…</span>`
+        : !g.allowed ? html`<div class="reason warn" style="font-size:14px"><span class="ic">!</span><span>Face comparison isn’t available for this subject: ${g.rule}.</span></div>`
+        : html`<div class="reason" style="font-size:14px"><span class="ic">✓</span><span>Allowed where they live (${g.rule}). It stays off unless you turn it on.</span></div>
+          <label style="display:flex;gap:10px;align-items:center;cursor:pointer"><input type="checkbox" id="wiz-face-on" ${w.faceOn ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--ac)"><b>Compare faces with a reference photo</b></label>
+          ${w.faceOn ? html`<label class="field"><span class="label">Your legal basis <span style="color:var(--am)">· required</span></span><input class="input" name="faceBasis" value="${w.faceBasis}" placeholder="e.g. claimant signed the consent form, file 4521"></label>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="btn sm" for="wiz-ref" style="cursor:pointer">Choose reference photos</label>
+              <span class="muted" style="font-size:13.5px">${w.faceFiles.length ? w.faceFiles.map(f => f.name).join(', ') : 'A clear, recent, front-facing photo of the subject'}</span></div>
+            <input type="file" id="wiz-ref" accept="image/jpeg,image/png,.heic" multiple hidden>
+            <span class="dim" style="font-size:12.5px">Hunt compares faces on this Mac, one photo at a time, and keeps the reference photo as case evidence, never a face template. A match is a lead to check, never proof on its own.</span>` : ''}`}
+    </div></details>`;
+}
+async function wizGate() { // the rule for where they live, as the server words it
+  const r = residenceOf(wiz); wiz.gate = null; if (!r) return;
+  try { const g = await api(`/api/face/gate?residence=${encodeURIComponent(r)}`); if (residenceOf(wiz) === r) { wiz.gate = g; if (!g.allowed) wiz.faceOn = false; drawWizard(); } } catch (e) { fail(e); }
+}
 const lookFor = w => html`<div style="display:flex;flex-direction:column;gap:8px"><span style="font-size:15px;font-weight:500">What should Hunt look for in their posts?</span>
   <div style="display:flex;flex-wrap:wrap;gap:7px">${LOOK_FOR.map(([k, label]) => html`<button type="button" class="tick ${w.look_for.includes(k) ? 'on' : ''}" data-act="wiz-look" data-key="${k}">${w.look_for.includes(k) ? '✓ ' : ''}${label}</button>`)}
   ${w.custom.map(c => html`<button type="button" class="tick on" data-act="wiz-custom-remove" data-value="${c}">✓ ${c} ×</button>`)}
   <input class="tick add" id="custom-in" placeholder="+ Add your own" style="width:150px;outline:0" aria-label="Add your own thing to look for"></div></div>`;
-const wizStep = () => !wiz.seeds.length ? 1 : !wiz.purpose.trim() ? 2 : 3;
-const wizHint = step => step === 1 ? 'Add at least one thing you know about them.' : step === 2 ? 'Say who asked and why it’s lawful.' : '';
+const wizStep = () => !wiz.seeds.length ? 1 : !wiz.purpose.trim() ? 2 : wiz.faceOn && (!wiz.faceBasis.trim() || !wiz.faceFiles.length) ? 2.5 : 3;
+const wizHint = step => step === 1 ? 'Add at least one thing you know about them.' : step === 2 ? 'Say who asked and why it’s lawful.'
+  : step === 2.5 ? 'Comparing faces needs your legal basis and a reference photo, or turn it off.' : '';
 const wizPills = step => [[1, 'Who', 'var(--ac)'], [2, 'Why', 'var(--violet)'], [3, 'Tool', 'var(--teal)']].map(([n, label, col]) =>
   html`<span class="step ${step === n ? 'now' : step > n ? 'done' : ''}" style="padding:7px 14px 7px 7px"><span class="n" style="${step >= n ? `background:${col};color:var(--ink);box-shadow:none` : ''}">${n}</span>${label}</span>`);
 // Seeds and the start state refresh in place: re-rendering the form would steal focus from the field being typed in.
@@ -334,10 +375,17 @@ function refreshStart() {
   if (b) b.disabled = step < 3;
   $('#wiz-steps').innerHTML = fmt(wizPills(step)); $('#wiz-hint').textContent = wizHint(step);
 }
+// An evidence picture that no longer loads (removed at retention, docs/qol.md point 21) shows as such, not as a broken image
+document.addEventListener('error', e => {
+  const el = e.target; if (el.tagName !== 'IMG' || !/\/evidence\//.test(el.src)) return;
+  const box = document.createElement('span'); box.className = 'thumb gone'; box.style.cssText = el.style.cssText; box.title = 'This file is no longer in the case; the case log says when and why';
+  box.textContent = 'Removed from the case'; el.replaceWith(box);
+}, true);
 const keepOpen = new Set(); // sections she opened stay open when the screen redraws after a decision
 document.addEventListener('toggle', e => {
   if (['acct-details', 'rej-details'].includes(e.target.id)) keepOpen[e.target.open ? 'add' : 'delete'](e.target.id);
   if (e.target.id === 'wiz-header' && wiz) wiz.headerOpen = e.target.open;
+  if (e.target.id === 'wiz-face' && wiz) wiz.faceOpen = e.target.open;
   if (e.target.id === 'alerts' && e.target.open) api(`/api/cases/${encodeURIComponent(e.target.dataset.slug)}/alerts/seen`, { method: 'POST', body: {} }).catch(() => {});
 }, true);
 document.addEventListener('keydown', e => { if (e.target.id === 'note-text' && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveNote(); } });
@@ -405,6 +453,7 @@ screens.identity = async slug => {
   const accts = p.accounts, n = accts.length, weakest = p.weakest_verdict, low = Math.min(...accts.map(a => a.probability ?? 1));
   const avatar = accts.find(a => a.avatar)?.avatar;
   mount(html`${topCase(c, 'identity')}<main class="screen" style="align-items:center;padding:6px 16px 32px;gap:18px">
+    ${identityTabs(slug, 'identity')}
     <div style="text-align:center;display:flex;flex-direction:column;gap:8px"><div class="h2">Is this them?</div>
       <div class="sub">${n ? `We found ${n} account${n > 1 ? 's' : ''} that look like the same person.` : 'No account looks likely enough yet. Add more of what you know and search again.'}</div></div>
     ${n ? html`<div style="width:min(880px,100%);background:linear-gradient(180deg,#1E2230,#1B1D23 40%);border-radius:24px;padding:28px;box-shadow:inset 0 0 0 1px var(--edge);display:flex;flex-direction:column;gap:20px">
@@ -428,7 +477,9 @@ screens.identity = async slug => {
         <button class="btn ghost" data-act="decide-all" data-decision="not him">No</button>
         ${p.decision ? html`<span class="muted" style="align-self:center;margin-left:8px">You said: ${p.decision === 'him' ? 'yes' : p.decision === 'not him' ? 'no' : 'not sure'}</span>` : ''}
       </div>
+      <div id="vendor-line"></div>
     </div>` : ''}
+    ${faceRows(p)}
     ${recordsPanel(p)}
     ${p.namesakes.length ? html`<div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:600;font-size:19px">Others with the same name</span><span class="muted" style="font-size:14.5px">We’ll mention these in the report</span></div>
@@ -443,6 +494,7 @@ screens.identity = async slug => {
   if (p.decision === 'him' || accts.some(a => a.decision === 'him')) api(`/api/cases/${encodeURIComponent(slug)}/checklist`).then(cl => {
     if ($('#person-browse') && cl.accounts.length) $('#person-browse').innerHTML = html`<a class="panel row" href="#/case/${slug}/worklist" style="padding:18px;gap:16px"><span class="tile-ic">▤</span>
       <div style="flex:1"><b>Next: the worklist</b><div class="muted" style="font-size:14px">${cl.accounts.map(a => a.platform).join(', ')}: open each in the Hunt Browser and scroll; Hunt records and scans what loads.</div></div><span style="color:var(--ac)">Open →</span></a>`.s; }).catch(() => {});
+  if (n) api(`/api/cases/${encodeURIComponent(slug)}/vendor?who=person`).then(v => { if ($('#vendor-line')) $('#vendor-line').innerHTML = fmt(vendorLine(v)); }).catch(() => {});
   api(`/api/cases/${encodeURIComponent(slug)}/case.json`).then(cj => { // what she ruled out stays visible, and can be taken back
     const out = cj.candidates.filter(x => x.decision === 'not him' && !p.namesakes.some(n => n.url === x.url));
     if (out.length && $('#rejected')) $('#rejected').innerHTML = html`<details id="rej-details" ${keepOpen.has('rej-details') ? 'open' : ''} class="panel" style="padding:4px 16px"><summary class="muted" style="cursor:pointer;padding:12px 0">You said not them (${out.length})</summary>
@@ -489,6 +541,77 @@ function recordsPanel(p) {
         ${cov.map(r => html`<div class="dim" style="font-size:12.5px">${RECORD_NAME[r.source] || r.source}: ${r.note || r.status}</div>`)}</div>` : ''; })}</div>`;
 }
 
+// Face comparison results beside the photos they came from: a lead, one reason among the others, never the verdict
+const FACE_CHIP = { yes: ['Same face', 'var(--gr)', 'var(--gr-bg)'], no: ['Different face', 'var(--rd)', 'var(--rd-bg)'], unclear: ['Couldn’t compare', 'var(--am)', 'var(--am-bg)'] };
+const faceWhy = why => String(why || '').replace(/\(?[0-9a-f]{64}\.\w+: /g, '').replace(/\)$/, ''); // reasons name files by hash
+function faceRows(p) {
+  const rows = p.accounts.filter(a => a.face), ref = p.reference?.[0];
+  if (!rows.length) return '';
+  if (rows.every(a => /^no usable reference photo/.test(a.face.why))) return html`<div class="panel" style="width:min(880px,100%);padding:18px;display:flex;flex-direction:column;gap:10px">
+    <b>Face comparison with your reference photo</b>
+    <div class="reason warn"><span class="ic">!</span><span>Your reference photo can’t be used: ${faceWhy(rows[0].face.why).replace(/^no usable reference photo ?/, '') || 'no usable face'}. Nothing was compared.</span></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="btn sm" for="face-ref-add" style="cursor:pointer">Add a reference photo</label>
+      <span class="muted" style="font-size:13.5px">A clear, recent, front-facing photo of the subject. Then search again to compare.</span></div>
+    <input type="file" id="face-ref-add" accept="image/jpeg,image/png,.heic" multiple hidden></div>`;
+  return html`<div class="panel" style="width:min(880px,100%);padding:18px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap"><b>Face comparison with your reference photo</b>
+      <span class="muted" style="font-size:13.5px">Face comparison is one reason among the others; it can’t confirm an account on its own.</span></div>
+    ${rows.map(a => { const [label, col, bg] = FACE_CHIP[a.face.match] || FACE_CHIP.unclear;
+      return html`<div class="row" style="background:var(--panel-2);gap:16px;flex-wrap:wrap">
+        <div style="display:flex;gap:8px;align-items:center">${[[ref, 'Your reference photo'], [a.avatar, `${a.site}’s profile photo`]].map(([src, alt]) => src ? html`<img class="thumb" src="${src}" alt="${alt}" title="${alt}" style="width:64px;height:64px;flex:none">` : html`<span class="thumb" style="width:64px;height:64px"></span>`)}</div>
+        <div style="flex:1;min-width:200px"><b style="font-weight:500">${a.site}</b> <span class="muted">${a.handle || handleOf(a.url)}</span>
+          <div class="muted" style="font-size:13px">${faceWhy(a.face.why)}</div></div>
+        <span class="tag" style="background:${bg};color:${col}">${label}${a.face.match === 'unclear' ? '' : ` · ${(+a.face.score).toFixed(2)}`}</span></div>`; })}</div>`;
+}
+
+// Apify (her own key, docs/research/vendors.md): what reading the Instagram and Facebook accounts would cost, before she confirms
+const vendorLine = v => !v?.key_set ? '' : html`<div style="display:flex;flex-direction:column;gap:3px;font-size:13.5px">
+  ${v.run?.length ? html`<span class="t2">Apify, after the free collectors: ${v.why}</span>`
+    : !v.ok && v.why !== 'nothing to run' ? html`<span style="color:var(--am)">Apify will be skipped: ${v.why}. The free collectors still run.</span>` : ''}
+  ${(v.skipped || []).map(x => html`<span class="muted">${platformOf(x.url)} ${handleOf(x.url)}: ${x.why}</span>`)}</div>`;
+// The scan's own sources as they report (posts.collect, the public collectors, Apify): one row each
+const SOURCE_DOT = { running: 'var(--am)', found: 'var(--gr)', 'nothing found': 'var(--dim)', failed: 'var(--rd)' };
+const TECHNICAL = /^[A-Z]\w*(Error|Exception)\b|Traceback|\[SSL|ssl\.c:/; // a raw exception: said plainly, kept on hover
+const sourceRows = rows => html`${rows.map(r => { const url = /^https?:/.test(r.seed || '') ? r.seed : null, host = url && new URL(url).hostname.replace(/^www\./, ''), raw = TECHNICAL.test(r.note || '');
+  return html`<div style="display:flex;gap:10px;align-items:baseline;font-size:13.5px;min-width:0">
+  <span class="dot" style="background:${SOURCE_DOT[r.status] || 'var(--dim)'};align-self:center"></span><b style="font-weight:500;white-space:nowrap">${r.source}</b>
+  <span class="muted" style="white-space:nowrap">${url ? handleOf(url) : r.seed}${host && !r.source.toLowerCase().includes(host) ? html` <span class="dim">on ${host}</span>` : ''}</span>
+  <span class="t2" style="white-space:nowrap">${r.status === 'running' ? 'reading…' : r.status === 'failed' ? 'couldn’t read' : `${r.found ?? 0} found`}</span>
+  ${r.note ? html`<span class="dim" style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.note}">${raw ? 'the site didn’t answer as expected (details on hover)' : r.note}</span>` : ''}</div>`; })}`;
+
+/* People around the subject (docs/analysis.md §8; legal.md A1–A10): only what the case already holds, by name and
+   citation. Nothing about them is searched; "Open as a new case…" starts the wizard with its own purpose. */
+const identityTabs = (slug, now) => html`<nav style="display:flex;gap:6px;align-self:center">${[['identity', 'Accounts'], ['people', 'People around the subject']].map(([k, label]) =>
+  html`<a class="step ${k === now ? 'now' : ''}" href="#/case/${slug}/${k}" style="padding:7px 14px">${label}</a>`)}</nav>`;
+const sureness = c => c >= 0.9 ? 'stated' : c >= 0.6 ? 'likely' : 'a hint';
+const SOURCE_WORD = { post: 'a post', bio: 'a profile bio', record: 'a public record', photo: 'your mark on a kept photo', name: 'the name' };
+function personCard(slug, x) {
+  const title = x.name || (x.minor ? `${x.labels[0]} (name withheld)` : `${x.labels[0]}, not named`); // "withheld" only for a possible minor
+  return html`<div class="panel" style="padding:16px 18px;display:flex;flex-direction:column;gap:8px;${x.hidden ? 'opacity:.55' : ''}">
+    <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><b style="font-size:16.5px">${title}</b>
+      ${x.types.map(t => html`<span class="tag">${t}</span>`)}<span class="muted" style="font-size:13px">${sureness(x.confidence)}</span>
+      ${x.minor ? html`<span class="tag warn" title="Minors are never named, searched or face-compared">possible minor</span>` : ''}</div>
+    <div style="display:flex;flex-direction:column;gap:4px">${x.cites.map(ct => html`<div style="font-size:14px" class="t2">
+      <span class="muted">${SOURCE_WORD[ct.kind] || ct.kind}:</span> ${ct.kind === 'record' && ct.type === 'same address' ? 'lists them at the subject’s address' : html`“${ct.quote}”`}
+      ${/^https?:\/\//.test(ct.url || '') ? html` <a href="${ct.url}" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:13px">the ${ct.kind === 'post' ? 'post' : ct.kind === 'record' ? 'record' : 'profile'} ↗</a>` : ''}</div>`)}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn ghost sm" data-act="person-hide" data-id="${x.id}" data-hidden="${x.hidden ? '' : '1'}">${x.hidden ? 'Show again' : 'Not relevant'}</button>
+      ${!x.minor && x.name ? html`<button class="btn ghost sm" data-act="person-case" data-name="${x.name}" title="A new case about this person, with its own purpose. Nothing else is carried over">Open as a new case…</button>` : ''}</div></div>`;
+}
+screens.people = async slug => {
+  const [c, r] = await Promise.all([loadCase(slug), api(`/api/cases/${encodeURIComponent(slug)}/people`)]);
+  const shown = r.people.filter(x => !x.hidden), hidden = r.people.filter(x => x.hidden);
+  mount(html`${topCase(c, 'identity')}<main class="screen" style="align-items:center;padding:6px 16px 32px;gap:16px">
+    ${identityTabs(slug, 'people')}
+    <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:8px"><div class="h2" style="text-align:center">People around the subject</div>
+      <div class="sub" style="text-align:center">${r.notice}</div></div>
+    <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
+      ${shown.length ? shown.map(x => personCard(slug, x)) : html`<div class="empty">Nobody else is named in the subject’s posts, bios or records yet${hidden.length ? ' (apart from those you marked not relevant)' : ''}.</div>`}
+      ${hidden.length ? html`<details><summary class="muted" style="cursor:pointer;padding:6px 0">Marked not relevant (${hidden.length})</summary><div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">${hidden.map(x => personCard(slug, x))}</div></details>` : ''}
+      <span class="dim" style="font-size:12.5px">The report quotes what was observed, with its source, and never states a relationship. Children are never named. Employment screening reports leave this section out.</span></div>
+  </main>`);
+};
+
 /* Find a person, 3a: analysing photos and videos. Starts by itself once the investigator confirms it's them */
 let queuedScan = null; // a case whose new files arrived while its scan was running
 async function startScan(slug) {
@@ -506,7 +629,7 @@ screens.scan = async slug => {
       <div class="sub" style="margin-top:6px">Hunt only stops you when it spots something you asked about. Everything is checked on this Mac.</div></div>
     <div style="display:flex;gap:28px;align-items:baseline;flex-wrap:wrap" id="scan-stats">${job ? scanStats({ checked: 0, total: 0, found: data.hits.length }) : html`<span><b style="font-size:28px;font-weight:600">${data.counts.read_automatically ?? 0}</b> <span class="muted">posts read automatically</span></span>
       <span><b style="font-size:22px">${data.counts.added_by_you ?? 0}</b> <span class="muted">added by you</span></span><span><b style="font-size:22px;color:var(--am)">${data.hits.length}</b> <span class="muted">found</span></span>`}</div>
-    ${job ? html`<div class="bar"><i id="scan-bar"></i></div>` : ''}
+    ${job ? html`<div class="bar"><i id="scan-bar"></i></div><div id="scan-sources" style="display:flex;flex-direction:column;gap:4px"></div>` : ''}
     <div class="split" style="--side:420px">
       <div class="panel" style="padding:18px;display:flex;flex-direction:column;min-height:0;overflow:auto">
         <div id="tiles">${tiles(slug, data.posts, !!job)}</div>
@@ -587,7 +710,7 @@ function hitCard(slug, h) {
   const flagged = h.status !== 'not relevant', src = evidenceUrl(slug, h.file), blur = h.blur || h.child_visible;
   const range = h.t0 == null ? '' : h.t1 != null && h.t1 !== h.t0 ? `${mmss(h.t0)}–${mmss(h.t1)}` : `at ${mmss(h.t0)}`;
   return html`<div class="card" style="padding:12px;display:flex;gap:12px;${h.status === 'not relevant' ? 'opacity:.45' : ''}" data-hit="${h.id}">
-    ${src ? html`<img class="thumb ${blur ? 'blur' : ''}" src="${src}" alt="" style="width:84px;height:84px;flex:none">` : html`<div class="thumb" style="width:84px;height:84px;flex:none"></div>`}
+    ${src ? html`<img class="thumb ${blur ? 'blur' : ''}" src="${src}" alt="" style="width:84px;height:84px;flex:none">` : html`<span class="tile-ic" style="font-size:22px" title="Found in the post’s words">“</span>`}
     <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
       <div class="muted" style="font-size:13px">${[lookLabel(h.category), h.source, h.posted_at ? 'posted ' + day(h.posted_at) : '', range].filter(Boolean).join(' · ')}</div>
       <div style="font-weight:500">${h.what}</div>
@@ -600,7 +723,9 @@ function hitCard(slug, h) {
 const mmss = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 function watchScan(slug, job) {
   stopLive();
+  const sources = new Map();
   live.es = follow(job, async ev => {
+    if (ev.type === 'source' && $('#scan-sources')) { sources.set(`${ev.source}:${ev.seed}`, ev); $('#scan-sources').innerHTML = sourceRows([...sources.values()]).s; }
     if (ev.type === 'scan') {
       $('#scan-stats').innerHTML = scanStats(ev).s; $('#scan-bar').style.transform = `scaleX(${ev.total ? ev.checked / ev.total : 0})`;
       const cur = $('.tile.on'), next = ev.media_id != null && $(`.tile[data-media="${ev.media_id}"]`);
@@ -756,16 +881,16 @@ function drawBring(ask) {
 let poller = null; // the one screen-level poll (sign-ins, pairing, captures); cleared on every render
 const poll = (fn, ms) => { clearInterval(poller); poller = setInterval(fn, ms); };
 const CAPTURE_KIND = { view: 'screenshot', manual: 'screenshot', frame: 'video frame', page: 'page', recording: 'recording' };
-const sectionRows = (slug, a) => html`<div style="display:flex;flex-direction:column;padding:4px 0">${a.sections.map(x => html`<div style="display:flex;align-items:center;gap:10px;font-size:14px;padding:3px 0">
+const sectionRows = (slug, a) => html`<div style="display:flex;flex-direction:column;padding:4px 0">${a.platform === 'LinkedIn' ? html`<div class="muted" style="font-size:13px;padding:2px 0 6px">Save each page by hand (File › Save Page As); Hunt Capture doesn’t record LinkedIn.</div>` : ''}${a.sections.map(x => html`<div style="display:flex;align-items:center;gap:10px;font-size:14px;padding:3px 0">
   <span style="width:18px;height:18px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;${x.seen ? 'background:var(--gr-bg);color:var(--gr)' : 'box-shadow:inset 0 0 0 1.5px var(--line)'}">${x.seen ? '✓' : ''}</span>
   <span style="flex:1">${x.label} ${x.seen ? html`<span class="muted" style="font-size:12.5px">· ${when(x.seen_at)}${x.evidence ? html` · <a href="${evidenceUrl(slug, x.evidence)}" target="_blank" rel="noopener" style="color:var(--ac)">saved</a>` : ''}</span>` : html`<span class="dim" style="font-size:12.5px">· not opened yet</span>`}</span>
   <button data-act="browser-open" data-url="${x.url}" data-case="${slug}" style="color:var(--ac);font-size:13.5px">Open</button></div>`)}</div>`;
 const captureRows = (slug, caps) => caps.length ? caps.slice(0, 30).map(x => html`<div class="row" style="padding:10px 12px;align-items:flex-start">
     ${x.file && !/\.(mhtml|webm|mp4)$/i.test(x.file) ? html`<img class="thumb" src="${evidenceUrl(slug, x.file)}" alt="" style="width:48px;height:48px;flex:none">` : html`<span class="tile-ic" style="width:48px;height:48px">${x.kind === 'recording' ? '▶' : '▤'}</span>`}
     <div style="flex:1;min-width:0;font-size:14px"><div>${x.platform || ''} · ${CAPTURE_KIND[x.kind] || x.kind}${x.kind === 'page' && x.posts != null ? html` · <span class="t2">${x.posts} posts read, ${x.added} new</span>` : ''}</div>
-      <div class="muted" style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x.where || x.url}</div><div class="dim" style="font-size:12px">${when(x.viewed_at || x.ts)}</div></div>
+      <div class="muted" style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x.where || x.url}</div><div class="dim" style="font-size:12px">${when(x.viewed_at || x.ts)}${x.viewed_as ? ` · ${x.viewed_as}` : ''}</div></div>
     ${x.file ? html`<a class="btn ghost sm" href="${evidenceUrl(slug, x.file)}" target="_blank" rel="noopener">View</a>` : ''}</div>`)
-  : html`<div class="empty" style="padding:16px">Nothing captured yet. Turn on capture in the Hunt Capture popup, then browse.</div>`;
+  : html`<div class="empty" style="padding:16px">Nothing captured yet. Start capturing, then browse in the Hunt Browser.</div>`;
 function facebookTile(slug, links, note) {
   return html`<div style="display:flex;flex-direction:column;gap:10px"><div style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:${siteColor('Facebook')}"></span><b>Facebook</b></div>
     <div class="t2" style="font-size:14.5px">Facebook shows almost nothing logged out. Browse it yourself, save what you find, and Hunt reads it.</div>
@@ -816,7 +941,7 @@ screens.worklist = async slug => {
       <div class="sub" style="margin-top:6px">Open each account in the Hunt Browser and scroll as you normally would. Hunt records and scans what loads; it never opens, scrolls or clicks anything itself.</div></div>
       <a class="btn ghost sm" href="#/case/${slug}/posts">Posts →</a></div>
     <div class="split" style="--side:440px;flex:1 0 auto">
-      <div style="display:flex;flex-direction:column;gap:14px"><div id="wl-cards" style="display:flex;flex-direction:column;gap:14px"><div class="panel muted" style="padding:18px">Loading the worklist…</div></div><div id="wl-fb"></div></div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div id="wl-capture" style="display:flex;flex-direction:column;gap:8px"></div><div id="wl-cards" style="display:flex;flex-direction:column;gap:14px"><div class="panel muted" style="padding:18px">Loading the worklist…</div></div><div id="wl-fb"></div></div>
       <div style="display:flex;flex-direction:column;gap:14px">
         <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;align-items:baseline"><b>Found so far</b><span class="muted" style="font-size:13.5px">newest first</span></div>
           <div id="wl-found" style="display:flex;flex-direction:column;gap:10px;max-height:640px;overflow:auto"></div></div>
@@ -828,10 +953,25 @@ screens.worklist = async slug => {
   await drawWorklist(slug);
   poll(() => route().name === 'worklist' ? drawWorklist(slug) : clearInterval(poller), 5000);
 };
+// Start / Stop capturing into this case (POST /api/browser/capture); the extension mirrors it at its next page load
+function captureSwitch(slug, bs) {
+  const cap = bs.capture || {}, here = cap.on && cap.case === slug, problem = (bs.problems || []).at(-1);
+  if (!bs.browser?.available) return html`<div class="muted" style="font-size:14px">Install the Hunt Browser to capture: <span class="mono">uv run playwright install chromium</span></div>`;
+  return html`<div class="panel" style="padding:14px 18px;display:flex;flex-direction:column;gap:6px">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      ${here ? html`<span class="dot" style="background:var(--rd);box-shadow:0 0 8px var(--rd)"></span><b>Recording into this case</b><span class="muted" style="font-size:13px">since ${when(cap.since)}</span>`
+        : cap.on ? html`<span class="dot" style="background:var(--am)"></span><span>Recording into <b>${cap.case}</b>, not this case</span>`
+        : html`<span class="dot"></span><span class="t2">Not capturing</span>`}
+      <button class="btn sm ${here ? 'ghost' : 'primary'}" style="margin-left:auto" data-act="capture-set" data-slug="${slug}" data-on="${here ? '' : '1'}">${here ? 'Stop capturing' : cap.on ? 'Capture into this case instead' : 'Start capturing'}</button></div>
+    ${bs.browser?.pinned === false ? html`<span class="muted" style="font-size:13px">Pin Hunt Capture to see its REC badge in the browser (puzzle icon → pin).</span>` : ''}
+    ${problem ? html`<span style="font-size:13px;color:var(--am)">${problem.message}</span>` : ''}</div>`;
+}
 async function drawWorklist(slug) {
   const base = `/api/cases/${encodeURIComponent(slug)}`;
   const [cl, d, caps, ch, wl] = await Promise.all([api(`${base}/checklist`).catch(() => ({ accounts: [] })), api(`${base}/posts`).catch(() => ({ hits: [], posts: [] })),
     api(`${base}/captures`).catch(() => ({ captures: [] })), api(`${base}/changes`).catch(() => ({ changes: [] })), api(`${base}/worklist`).catch(() => ({ worklist: [], uncompared_captures: 0 }))]);
+  const bs = await api('/api/browser/status').catch(() => null);
+  if ($('#wl-capture') && bs) $('#wl-capture').innerHTML = fmt([captureSwitch(slug, bs), ...stopsBlock(bs.stopped)]);
   const sig = JSON.stringify([cl, d.hits, d.posts.length, caps.captures.length, ch.changes.length, wl, previews]);
   if (!$('#wl-cards') || sig === wlSig) return; // redraw only when something changed: open sections and scroll stay put
   wlSig = sig;
@@ -892,7 +1032,13 @@ screens.connect = async () => {
     <div style="width:min(720px,100%);display:flex;flex-direction:column;gap:18px">
       <div><a href="#/" data-act="back" class="muted" style="font-size:15px">← Back</a><div class="h2" style="margin-top:10px">Connect your accounts</div>
         <div class="sub" style="margin-top:6px">Sign in once, in the Hunt Browser, to the platforms you’ll look at. Hunt never sees your passwords, and nothing is recorded while you sign in. Skip any you don’t use.</div></div>
+      ${Object.keys(st.stopped || {}).length ? html`<div style="display:flex;flex-direction:column;gap:8px">${stopsBlock(st.stopped)}</div>` : ''}
       <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px" id="connect-rows">${connectRows(st)}</div>
+      ${st.browser?.available ? html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><b>Your accounts <span class="muted" style="font-weight:400;font-size:14px">(optional)</span></b>
+        <span class="muted" style="font-size:13.5px">The handle you sign in with on each platform, so every capture reads “logged in as @handle” in the evidence.</span>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">${st.logins.map(l => html`<label class="field"><span class="label">${l.label}</span>
+          <input class="input acct-in" data-platform="${l.platform}" value="${(st.accounts || {})[l.platform] || ''}" placeholder="@handle" autocomplete="off" spellcheck="false"></label>`)}</div>
+        <div><button class="btn sm" data-act="accounts-save">Save handles</button></div></div>` : ''}
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${seenFlag('hunt-keys-seen') ? html`<a class="btn primary" href="#/">Done</a>` : html`<a class="btn primary" href="#/keys">Next: free keys (optional) →</a>`}
         ${st.browser?.profile ? html`<span class="life" style="margin-left:auto"><button class="btn ghost sm" data-act="signout-ask">Sign out of everything…</button></span>` : ''}</div>
       <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><b>Hunt Capture in another browser</b><div id="pairing" style="display:flex;flex-direction:column;gap:10px">${pairingPanel(pr, pairCode && pairCode.until > Date.now() ? pairCode : null)}</div></div>
@@ -939,7 +1085,7 @@ function seenBox(r, slug) {
   return html`<div style="padding:14px 16px;border-radius:var(--r-lg);background:var(--violet-bg);display:flex;flex-direction:column;gap:8px">
     <b style="font-size:15px">You may have looked into this person before</b>
     ${r.matches.map(m => html`<div style="display:flex;gap:10px;align-items:flex-start;${m.strong ? '' : 'opacity:.75'}"><div style="flex:1;min-width:0;font-size:14.5px">
-      <a href="#/case/${m.case}/search" style="color:var(--violet);font-weight:500">${m.label || m.case}</a> <span class="muted">(${(KIND_LABEL[m.kind] || m.kind || 'case').toLowerCase()}, opened ${longDay(m.created)})</span>
+      <a href="#/case/${m.case}/search" style="color:var(--violet);font-weight:500">${m.label || m.case}</a>${r.matches.filter(x => x.label === m.label).length > 1 ? html` <span class="dim mono" style="font-size:12px">${m.case}</span>` : ''} <span class="muted">(${(KIND_LABEL[m.kind] || m.kind || 'case').toLowerCase()}, opened ${longDay(m.created)})</span>
       <div class="t2" style="font-size:13.5px">${m.strong ? 'shares ' : ''}${m.on.map(o => o.kind === 'name' ? `same name only (${o.value}): could be someone else` : o.kind === 'file' ? ON_WORDS.file : `${ON_WORDS[o.kind] || o.kind} ${o.value}`).join('; ')}</div></div>
       ${slug ? html`<button class="btn ghost sm" data-act="note-open" data-about="case" data-prefill="Seen before in ${m.label || m.case}: " data-title="Case notes">Note</button>` : ''}</div>`)}
     <span class="muted" style="font-size:12.5px">Nothing is merged or blocked: you decide.${r.skipped_screenings ? ` ${r.skipped_screenings} employment screening${r.skipped_screenings > 1 ? 's' : ''} on this computer ${r.skipped_screenings > 1 ? 'weren’t' : 'wasn’t'} looked at.` : ''}</span></div>`;
@@ -953,12 +1099,91 @@ function wizSeen() { // the new-case form, as seeds are added (debounced)
   }, 450);
 }
 
+/* Claim vs evidence (docs/analysis.md §9): each restriction the claim states, and what after the injury bears on it.
+   Leads are leads: facts only, each linked to its evidence; she keeps them or sets them aside. */
+const postsTab = slug => { try { return sessionStorage.getItem(`hunt-posts-tab-${slug}`) || 'claim'; } catch { return 'claim'; } };
+let claimFilter = null; // the restriction card she clicked, or null for all
+const STRENGTH = c => c >= 0.7 ? ['strong', 'var(--gr)'] : c >= 0.5 ? ['moderate', 'var(--am)'] : ['weak', 'var(--mu)'];
+const CAT_COLOR = { lifting: '#EDBE62', walks: '#7FD4D9', sport: '#A3B5F2', activity: '#C4A8F2', travel: '#86D3A4', other_job: '#E89383', driving: '#C2C6CD', injury: '#8E939C' };
+const postIdOf = cites => { const e = (cites || []).find(x => /^E-\d+$/.test(x)); return e ? +e.slice(2) : null; }; // leads and the timeline cite posts as E-<post id>
+function leadParts(x, d, records) { // the post, flag, picture and link behind a lead
+  const pid = postIdOf(x.cites), post = d.posts.find(p => p.id === pid);
+  const hit = x.kind === 'scan' ? d.hits.find(h => h.post_id === pid && h.status !== 'not relevant' && x.shows.includes(h.what)) || d.hits.find(h => h.post_id === pid && h.status !== 'not relevant') : null;
+  const file = hit?.file || post?.media?.find(m => m.kind !== 'video')?.file || post?.media?.[0]?.file;
+  const rec = x.cites.find(c => c.startsWith('A-')), href = file ? null : post?.url || records[rec] || null;
+  return { post, hit, file, href, blur: hit?.blur || hit?.child_visible };
+}
+function leadCard(slug, x, d, records) {
+  const { hit, file, href, blur } = leadParts(x, d, records), [word, col] = STRENGTH(x.confidence), aside = x.status === 'not relevant';
+  const kept = ['kept', 'in report'].includes(hit?.status || x.status);
+  return html`<div class="card" style="padding:14px;display:flex;gap:14px;background:var(--panel-2);${aside ? 'opacity:.55' : ''}">
+    ${file ? html`<img class="thumb ${blur ? 'blur' : ''}" src="${evidenceUrl(slug, file)}" alt="" style="width:76px;height:76px;flex:none">`
+      : html`<span class="tile-ic" style="width:76px;height:76px;font-size:22px">${x.kind === 'record' ? '▤' : '“'}</span>`}
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px">
+      <div style="font-size:14px"><span class="muted">Claim:</span> ${x.claim}</div>
+      <div><span class="muted" style="font-size:14px">Evidence:</span> ${x.shows}</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px"><span class="t2">${longDay(x.date)}${x.days_after != null ? ` · ${x.days_after} days after the injury` : ''}</span>
+        <span style="color:${col}">${word}</span>${(hit?.status || x.status) === 'in report' ? html`<span class="tag" style="background:var(--gr-bg);color:var(--gr)">✓ In the report</span>` : ''}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:2px">
+        ${aside ? html`<button class="btn ghost sm" data-act="lead-set" data-id="${x.id}" data-status="">Put back</button>` : html`
+        <button class="btn sm ${kept ? 'good' : ''}" data-act="lead-set" data-id="${x.id}" data-hit="${hit?.id ?? ''}" data-status="kept">${kept ? '✓ Kept' : 'Keep'}</button>
+        <button class="btn ghost sm" data-act="lead-set" data-id="${x.id}" data-hit="${hit?.id ?? ''}" data-status="not relevant">Not relevant</button>`}
+        ${file ? html`<a class="btn ghost sm" href="${evidenceUrl(slug, file)}" target="_blank" rel="noopener">Open evidence</a>` : href && /^https?:\/\//.test(href) ? html`<a class="btn ghost sm" href="${href}" target="_blank" rel="noopener noreferrer">Open evidence ↗</a>` : ''}</div>
+    </div></div>`;
+}
+function claimView(slug, c, d, ld, tl, records) {
+  if (!ld.injury_date) return html`<div class="empty">${ld.note || 'Add the date of injury to set the evidence against the claim.'} <button data-act="details-edit-go" data-slug="${slug}" style="color:var(--ac)">Add it on the Report step →</button></div>`;
+  const live = ld.leads.filter(x => x.status !== 'not relevant'), aside = ld.leads.filter(x => x.status === 'not relevant');
+  const shown = claimFilter ? live.filter(x => x.restriction === claimFilter) : live;
+  return html`<div class="claim-grid">
+    <div class="claim-rs">${ld.restrictions.map(r => { const n = live.filter(x => x.restriction === r.key).length, on = claimFilter === r.key;
+      return html`<button class="panel" data-act="claim-filter" data-key="${r.key}" style="padding:14px 16px;text-align:left;display:flex;flex-direction:column;gap:4px;${on ? 'box-shadow:inset 0 0 0 1.5px var(--ac)' : ''}">
+        <span class="muted" style="font-size:12.5px">${r.stated ? 'The claim states' : 'The case asks about'}</span><b style="font-weight:500">${r.stated ? r.claim : r.claim.replace(/^The case asks about /, '')}</b>
+        <span style="font-size:13.5px;color:${n ? 'var(--am)' : 'var(--mu)'}">${n ? `${n} lead${n === 1 ? '' : 's'}` : 'Nothing found that contradicts this'}</span></button>`; })}
+      ${claimFilter ? html`<button class="muted" data-act="claim-filter" data-key="" style="font-size:13.5px;text-align:left">Show every restriction</button>` : ''}</div>
+    <div style="display:flex;flex-direction:column;gap:10px;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap"><b style="font-size:17px">Evidence after the injury${claimFilter ? html` <span class="muted" style="font-weight:400">against “${ld.restrictions.find(r => r.key === claimFilter)?.claim.replace(/^The case asks about /, '') || claimFilter}”</span>` : ''}</b>
+        <span class="muted" style="font-size:13px">Leads to check, most confident first. Only what you keep goes in the report.</span></div>
+      ${shown.length ? shown.map(x => leadCard(slug, x, d, records)) : html`<div class="empty">Nothing after ${longDay(ld.injury_date)} ${claimFilter ? 'bears on this' : 'bears on the claim'} yet.</div>`}
+      ${aside.length ? html`<details><summary class="muted" style="cursor:pointer;padding:4px 0">Set aside (${aside.length})</summary><div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${aside.map(x => leadCard(slug, x, d, records))}</div></details>` : ''}
+    </div></div>
+    ${timelineStrip(slug, tl, d, records)}`;
+}
+// The subject over time: posts as dots (coloured by what the scan saw), records as squares, stated events as flags
+function timelineStrip(slug, tl, d, records) {
+  const ev = tl.events.filter(e => e.date && !isNaN(asDate(e.date)));
+  if (ev.length < 2) return '';
+  const t = e => asDate(e.date).getTime(), inj = ev.find(e => e.kind === 'injury'), t1 = Math.max(...ev.map(t)), W = 1000, H = 64;
+  // around the injury: as much before it as after (two months at least), so an old record doesn't squash the months that matter
+  const t0 = Math.max(Math.min(...ev.map(t)), inj ? t(inj) - Math.max(t1 - t(inj), 60 * 864e5) : -Infinity), earlier = ev.filter(e => t(e) < t0).length;
+  const x = e => 20 + (t1 > t0 ? (Math.max(t(e), t0) - t0) / (t1 - t0) : .5) * (W - 40), link = e => { const pid = postIdOf(e.cites), post = d.posts.find(p => p.id === pid), f = post?.media?.[0]?.file;
+    return f ? evidenceUrl(slug, f) : post?.url || records[(e.cites || []).find(c => c.startsWith('A-'))] || null; };
+  const mark = e => { const X = x(e), col = CAT_COLOR[e.categories?.[0]] || '#5E636B', label = `${longDay(e.date)} · ${e.what}${e.categories?.length ? ` (${e.categories.join(', ')})` : ''}`;
+    const shape = e.kind === 'record' ? `<rect x="${X - 6}" y="${H / 2 - 6}" width="12" height="12" rx="2" fill="#C4A8F2"/>` : e.kind === 'stated' ? `<path d="M${X} ${H / 2 + 10} V${H / 2 - 14} l12 5 l-12 5" stroke="#EDBE62" stroke-width="2" fill="#EDBE6255"/>`
+      : `<circle cx="${X}" cy="${H / 2}" r="${e.categories?.length ? 7 : 5}" fill="${col}"/>`;
+    const href = link(e);
+    return href && /^(\/evidence\/|https?:)/.test(href) ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer"><title>${esc(label)}</title>${shape}</a>` : `<g><title>${esc(label)}</title>${shape}</g>`; };
+  return html`<div class="panel" style="padding:14px 18px;display:flex;flex-direction:column;gap:6px">
+    <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap" class="muted"><span style="font-size:14px">Timeline</span>
+      <span style="font-size:12.5px">● post (colour: what the scan saw) · ■ public record · ⚑ stated in a post · shaded: after the injury</span></div>
+    <svg viewBox="0 0 ${W} ${H + 18}" style="width:100%;height:auto;display:block" role="img" aria-label="Posts, records and stated events over time, with the injury date marked">
+      ${raw(inj ? `<rect x="${x(inj)}" y="0" width="${W - 20 - x(inj)}" height="${H}" fill="#EDBE6212"/><line x1="${x(inj)}" x2="${x(inj)}" y1="0" y2="${H}" stroke="#E89383" stroke-width="2" stroke-dasharray="4 4"/><text x="${x(inj) + (x(inj) > W - 160 ? -4 : 4)}" y="12" fill="#E89383" font-size="11" text-anchor="${x(inj) > W - 160 ? 'end' : 'start'}">injury ${esc(longDay(inj.date))}</text>` : '')}
+      ${raw(`<line x1="20" x2="${W - 20}" y1="${H / 2}" y2="${H / 2}" stroke="#2D3139"/>`)}
+      ${raw(ev.filter(e => e.kind !== 'injury').map(mark).join(''))}
+      ${raw(`<text x="20" y="${H + 14}" fill="#8E939C" font-size="11">${esc(earlier ? `${longDay(new Date(t0))} (${earlier} earlier, at the left edge)` : longDay(ev[0].date))}</text><text x="${W - 20}" y="${H + 14}" fill="#8E939C" font-size="11" text-anchor="end">${esc(longDay(ev.at(-1).date))}</text>`)}
+    </svg></div>`;
+}
+
 /* Find a person, 3b: posts */
 let pickedHit = null; // the item open on the right: kept across redraws, so a decision doesn't lose her place
 screens.posts = async slug => {
   const base = `/api/cases/${encodeURIComponent(slug)}`;
-  const [c, d, ch, w, al] = await Promise.all([loadCase(slug), api(`${base}/posts`).catch(() => ({ hits: [], posts: [], weekly: [], counts: {} })),
-    api(`${base}/changes`).catch(() => ({ checks: [], changes: [] })), api(`${base}/watch`).catch(() => ({})), api(`${base}/alerts`).catch(() => ({ alerts: [] }))]);
+  const [c, d, ch, w, al, ld, tl] = await Promise.all([loadCase(slug), api(`${base}/posts`).catch(() => ({ hits: [], posts: [], weekly: [], counts: {} })),
+    api(`${base}/changes`).catch(() => ({ checks: [], changes: [] })), api(`${base}/watch`).catch(() => ({})), api(`${base}/alerts`).catch(() => ({ alerts: [] })),
+    api(`${base}/leads`).catch(() => ({ restrictions: [], leads: [] })), api(`${base}/timeline`).catch(() => ({ events: [] }))]);
+  const claimable = ld.restrictions.length > 0 && (d.hits.length > 0 || ld.leads.length > 0), tab = claimable ? postsTab(slug) : 'flagged';
+  const records = ld.leads.some(x => x.kind === 'record') || tl.events.some(e => e.kind === 'record')
+    ? await api(`${base}/case.json`).then(j => Object.fromEntries(j.candidates.flatMap(x => x.finding_ids.map(id => [`A-${id}`, x.url])))).catch(() => ({})) : {};
   const hits = d.hits.filter(h => h.status !== 'not relevant'), sel = hits.find(h => h.id === pickedHit) || hits[0], look = [...(c.details.look_for || [])].map(k => lookLabel(k).toLowerCase());
   mount(html`${topCase(c, 'posts')}<main class="screen" style="padding:8px 24px 24px;gap:16px">
     <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap">
@@ -971,8 +1196,9 @@ screens.posts = async slug => {
     <div id="add-posts" class="hidden"><div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px">${dropZone(slug)}
       <div class="muted" style="font-size:14px">Instagram, Facebook, TikTok and Strava only show posts to logged-in users, and Hunt never logs in. Save the posts you need there (screenshots, photos, videos) and add them here; Hunt checks them straight away.</div></div></div>
     <div id="inbox" class="hidden"></div>
-    ${c.steps.identity === 'done' ? html`<div class="two-up" style="gap:16px;align-items:start">${recheckCard(slug, ch)}${watchCard(slug, w, al)}</div>` : ''}
-    ${weeklyChart(d.weekly || [], c.details.injury_date)}
+    ${claimable ? html`<nav style="display:flex;gap:6px">${[['claim', 'Claim vs evidence'], ['flagged', `All flagged posts (${hits.length})`]].map(([k, label]) =>
+      html`<button class="step ${k === tab ? 'now' : ''}" data-act="posts-tab" data-tab="${k}" data-slug="${slug}" style="padding:7px 14px">${label}</button>`)}</nav>` : ''}
+    ${tab === 'claim' ? claimView(slug, c, d, ld, tl, records) : html`${weeklyChart(d.weekly || [], c.details.injury_date)}
     <div class="split" style="--side:460px;flex:1 0 auto;min-height:460px">
       <div style="display:flex;flex-direction:column;gap:8px;overflow:auto">${hits.length ? hits.map(h => html`<button class="row" data-act="pick-hit" data-id="${h.id}" style="text-align:left;${sel && h.id === sel.id ? 'box-shadow:inset 0 0 0 1.5px var(--ac)' : ''}">
           <span class="dot" style="background:${siteColor(h.source)}"></span>
@@ -980,7 +1206,8 @@ screens.posts = async slug => {
           <div style="text-align:right;font-size:13.5px"><div style="color:${h.timing === 'after' ? 'var(--am)' : 'var(--mu)'}">${h.days_after != null && h.days_after >= 0 ? `+${h.days_after} days` : ''}</div><div class="muted">${h.verdict}${h.status === 'in report' ? ' · in report' : h.status === 'kept' ? ' · kept' : ''}</div></div></button>`)
         : html`<div class="empty">Nothing flagged yet. <a href="#/case/${slug}/scan" style="color:var(--ac)">See the scan →</a></div>`}</div>
       <div id="hit-detail">${sel ? hitDetail(slug, c, sel) : ''}</div>
-    </div>
+    </div>`}
+    ${c.steps.identity === 'done' ? html`<div class="two-up" style="gap:16px;align-items:start">${recheckCard(slug, ch)}${watchCard(slug, w, al)}</div>` : ''}
     <a class="panel row" href="#/case/${slug}/worklist" style="flex:none;padding:18px;gap:16px"><span class="tile-ic">▤</span>
       <div style="flex:1"><b>Worklist: Instagram, Facebook, TikTok and the rest</b><div class="muted" style="font-size:14px">Open each confirmed account in the Hunt Browser; Hunt records and scans what you scroll past.</div></div><span style="color:var(--ac)">Open →</span></a></main>`);
   window.__hits = hits; window.__case = c; window.__posts = d.posts;
@@ -1006,6 +1233,9 @@ function hitDetail(slug, c, h) {
       ${h.url ? html`<a class="btn ghost sm" href="${/^https?:\/\//.test(h.url) ? h.url : '#'}" target="_blank" rel="noopener noreferrer" title="Opens the live post in your own browser, not through Hunt’s proxy">Open the post</a>` : ''}
       <button class="btn ghost sm" data-act="note-open" data-about="hit" data-ref="${h.id}" data-title="Notes on this item">Note</button>
       <span class="btn ghost sm soon" aria-disabled="true" title="Coming soon">Locate this photo →</span></div>
+    ${h.media_id && src && ['kept', 'in report'].includes(h.status) ? html`<div class="life" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn ghost sm" data-act="mark-ask" data-media="${h.media_id}">Mark people in this photo</button>
+      <span class="dim" style="font-size:12.5px">Your own words; the same words in several photos are one person. No face search.</span></div>` : ''}
   </div>`;
 }
 function weeklyChart(weeks, injury) {
@@ -1052,7 +1282,8 @@ screens.report = async slug => {
   const link = url => /^https?:\/\//.test(url || '') ? html`<a href="${url}" target="_blank" rel="noopener noreferrer" title="Opens in your own browser">${url.replace(/^https?:\/\/(www\.)?/, '')}</a>` : url || '';
   const body = s => {
     const xs = r.sentences.filter(x => x.section === s.id), parts = [];
-    if (s.id === 'found') { const by = new Map(); xs.forEach(x => by.set(x.platform || '', [...(by.get(x.platform || '') || []), x]));
+    if (s.id === 'people' && xs.length) { parts.push(para(xs.slice(0, 1))); xs.slice(1).forEach(x => parts.push(para([x]))); } // one person each
+    else if (s.id === 'found') { const by = new Map(); xs.forEach(x => by.set(x.platform || '', [...(by.get(x.platform || '') || []), x]));
       by.forEach((list, platform) => parts.push(html`${platform ? html`<h4 style="margin:6px 0 4px;font-size:15px;color:var(--t2)">${platform}</h4>` : ''}${list.map(x => para([x]))}`)); } // one exhibit each
     else if (xs.length) parts.push(para(xs));
     if (s.id === 'presence' && r.presence.length) parts.push(html`<div style="overflow:auto"><table class="tbl"><tr><th>#</th><th>Platform</th><th>Username</th><th>URL</th><th>Public / private</th><th>Last activity</th><th>Relevant</th><th>Status</th><th>Exhibit</th></tr>
@@ -1100,7 +1331,7 @@ screens.report = async slug => {
         <label class="panel" style="padding:16px 18px;display:flex;gap:12px;align-items:center;cursor:pointer"><input type="checkbox" data-act="screening" ${screening ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--ac)">
           <span><b>Job screening mode</b><br><span class="muted" style="font-size:13.5px">Hides protected details (age, health, religion, family…)</span></span></label>
         <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px">
-          <a class="btn primary" href="${base}.pdf${q}">Export PDF</a><a class="btn" href="${base}.html${q}" target="_blank" rel="noopener">Web page</a><a class="btn ghost" href="${base}.json${q}">Data file</a>
+          <a class="btn primary" href="${base}.pdf${q}">Export PDF</a><a class="btn" href="${base}.html${q}&view=1" target="_blank" rel="noopener" title="Opens in a new tab; print it from there">Web page</a><a class="btn ghost" href="${base}.json${q}">Data file</a>
           <a class="btn ghost" href="/api/cases/${encodeURIComponent(slug)}/evidence.zip" download>Evidence bundle (.zip)</a>
           <div class="muted" style="font-size:13px">Every evidence file under a readable name, with a SHA-256 manifest anyone can check with <span class="mono">shasum -c</span>.</div></div>
         <div class="panel" style="padding:14px 18px;display:flex;flex-direction:column;gap:4px;font-size:14.5px">
@@ -1170,7 +1401,12 @@ const actions = {
     const w = wiz, label = w.seeds.find(s => seedKind(s) === 'name') || w.seeds[0];
     try {
       const { slug } = await api('/api/cases', { method: 'POST', body: { label, seeds: w.seeds, kind: w.kind, reference: w.reference || null, purpose: w.purpose,
-        injury_date: w.kind === 'insurance' && w.injury_date ? w.injury_date : null, limits: w.limits || null, look_for: [...w.look_for, ...w.custom], tool: 'person', ...Object.fromEntries(WIZ_HEADER.filter(k => w[k]).map(k => [k, w[k]])) } });
+        injury_date: w.kind === 'insurance' && w.injury_date ? w.injury_date : null, limits: w.limits || null, look_for: [...w.look_for, ...w.custom], tool: 'person',
+        ...Object.fromEntries(WIZ_HEADER.filter(k => w[k]).map(k => [k, w[k]])), ...(residenceOf(w) ? { subject_residence: residenceOf(w) } : {}) } });
+      if (w.faceOn && w.gate?.allowed) try { // before the search, which compares the profile photos it finds
+        const enc = encodeURIComponent(slug); await api(`/api/cases/${enc}/face`, { method: 'POST', body: { basis: w.faceBasis } });
+        if (w.faceFiles.length) { const form = new FormData(); w.faceFiles.forEach(f => form.append('files[]', f)); await api(`/api/cases/${enc}/reference`, { method: 'POST', form }); }
+      } catch (e) { toast(`Face comparison wasn’t turned on: ${e.message}`, true); }
       wiz = null; await api(`/api/cases/${encodeURIComponent(slug)}/search`, { method: 'POST', body: {} });
       location.hash = `#/case/${slug}/search`;
     } catch (e) { el.disabled = false; fail(e); }
@@ -1272,6 +1508,21 @@ const actions = {
     try { const r = await api(`/api/cases/${encodeURIComponent(el.dataset.slug)}/minimise`, { method: 'POST', body: { count: +el.dataset.count, bytes: +el.dataset.bytes } });
       el.closest('.life').innerHTML = html`<span class="muted" style="font-size:13.5px">Moved ${r.count} file${r.count === 1 ? '' : 's'} (${size(r.bytes)}) to the Trash. It’s in the case log.</span>`.s; }
     catch (e) { el.disabled = false; fail(e); } },
+  'posts-tab': el => { try { sessionStorage.setItem(`hunt-posts-tab-${el.dataset.slug}`, el.dataset.tab); } catch { /* fine */ } render(); },
+  'claim-filter': el => { claimFilter = el.dataset.key && claimFilter !== el.dataset.key ? el.dataset.key : null; render(); },
+  'lead-set': async el => { // a scan lead is its flag (the Posts list and the report agree); a caption's or record's is set here
+    const slug = route().slug, hit = el.dataset.hit, status = el.dataset.status || null; el.disabled = true;
+    try { if (hit) await api(`/api/cases/${encodeURIComponent(slug)}/hits/${encodeURIComponent(hit)}`, { method: 'POST', body: { status } });
+      else await api(`/api/cases/${encodeURIComponent(slug)}/leads/${encodeURIComponent(el.dataset.id)}`, { method: 'POST', body: { status } });
+      render(); } catch (e) { el.disabled = false; fail(e); } },
+  'details-edit-go': el => { location.hash = `#/case/${el.dataset.slug}/report`; setTimeout(() => actions['details-edit'](), 1200); },
+  'person-hide': async el => { try { await api(`/api/cases/${encodeURIComponent(route().slug)}/people/${encodeURIComponent(el.dataset.id)}/hide`, { method: 'POST', body: { hidden: !!el.dataset.hidden } }); render(); } catch (e) { fail(e); } },
+  'person-case': el => { wiz = newWizard(); wiz.seeds = [el.dataset.name]; location.hash = '#/new'; toast('A new case: say who asked and why it’s lawful to look into this person.'); },
+  'mark-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = html`<input class="input" id="mark-label" placeholder="Who is it? e.g. Dan, or woman in red" style="flex:1;min-width:200px;font-size:14px" maxlength="200">
+    <button class="btn sm" data-act="mark-do" data-media="${el.dataset.media}">Mark</button><button class="btn ghost sm" data-act="life-cancel">Cancel</button>`.s; $('#mark-label').focus(); },
+  'mark-do': async el => { const label = $('#mark-label').value.trim(); if (!label) return toast('Write who it is, in your own words.', true);
+    try { await api(`/api/cases/${encodeURIComponent(route().slug)}/people/photo`, { method: 'POST', body: { media_id: +el.dataset.media, label } });
+      el.closest('.life').innerHTML = html`<span class="muted" style="font-size:13.5px">Marked “${label}”. It’s in the case log and on People around the subject.</span>`.s; } catch (e) { fail(e); } },
   'wl-open': async el => { // her click, audited; a pacing warning (LinkedIn) asks first
     const { slug, account } = el.dataset, confirmed = !!el.dataset.confirmed;
     try { const r = await api(`/api/cases/${encodeURIComponent(slug)}/worklist/open`, { method: 'POST', body: { account, confirmed } });
@@ -1311,6 +1562,18 @@ const actions = {
       $('#key-rows').innerHTML = fmt(keys.map(keyRow)); toast(value ? 'Saved. Hunt uses it from now on.' : 'Removed.'); }
     catch (e) { el.disabled = false; fail(e); }
   },
+  'resume-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = html`<div style="display:flex;flex-direction:column;gap:8px"><span class="t2" style="font-size:14px">Only resume after you’ve spoken to Ethos, and never with another account.</span>
+    <div style="display:flex;gap:6px"><button class="btn sm" data-act="resume-do" data-platform="${el.dataset.platform}">Resume ${el.dataset.platform}</button><button class="btn ghost sm" data-act="life-cancel">Cancel</button></div></div>`.s; },
+  'resume-do': async el => { el.disabled = true;
+    try { await api('/api/browser/resume', { method: 'POST', body: { platform: el.dataset.platform } }); toast(`${el.dataset.platform}: Hunt Capture can record there again.`);
+      if (el.closest('#boot')) el.closest('.reason').innerHTML = html`<span class="muted" style="font-size:13.5px">Resumed.</span>`.s; else render(); }
+    catch (e) { el.disabled = false; fail(e); } },
+  'accounts-save': async el => { const handles = Object.fromEntries([...document.querySelectorAll('.acct-in')].map(i => [i.dataset.platform, i.value.trim()]).filter(([, v]) => v));
+    try { await api('/api/browser/accounts', { method: 'POST', body: handles }); toast('Saved. Captures will say which account you were logged in as.'); } catch (e) { fail(e); } },
+  'capture-set': async el => { el.disabled = true;
+    try { await api('/api/browser/capture', { method: 'POST', body: el.dataset.on ? { case: el.dataset.slug, on: true } : { on: false } });
+      toast(el.dataset.on ? 'Capturing into this case. Browse in the Hunt Browser.' : 'Capture is off.'); drawWorklist(el.dataset.slug); }
+    catch (e) { el.disabled = false; fail(e); } },
   'connect-skip': el => { const sk = skipped(), pf = el.dataset.platform; setSkipped(sk.includes(pf) ? sk.filter(x => x !== pf) : [...sk, pf]); render(); },
   'signout-ask': el => { el.closest('.life').innerHTML = html`<span class="muted" style="font-size:13.5px">This signs you out of every platform in the Hunt Browser. The profile goes to the Trash.</span>
     <button class="btn sm" style="background:var(--rd-bg);color:var(--rd)" data-act="signout-do">Sign out</button><button class="btn ghost sm" data-act="back">Cancel</button>`.s; },
@@ -1346,6 +1609,14 @@ document.addEventListener('click', e => {
 document.addEventListener('change', async e => {
   if (e.target.dataset.act === 'screening') { sessionStorage.setItem('hunt-screening', e.target.checked ? '1' : '0'); render(); }
   if (e.target.id === 'up-files') upload(e.target.dataset.slug, e.target.files);
+  if (e.target.id === 'wiz-country') { wiz.country = e.target.value; wiz.state = ''; wiz.faceOn = false; drawWizard(); wizGate(); }
+  if (e.target.id === 'wiz-state') { wiz.state = e.target.value; wiz.faceOn = false; drawWizard(); wizGate(); }
+  if (e.target.id === 'wiz-face-on') { wiz.faceOn = e.target.checked; drawWizard(); }
+  if (e.target.id === 'wiz-ref') { wiz.faceFiles = [...e.target.files]; drawWizard(); }
+  if (e.target.id === 'face-ref-add' && e.target.files.length) {
+    const form = new FormData(); [...e.target.files].forEach(f => form.append('files[]', f));
+    try { await api(`/api/cases/${encodeURIComponent(route().slug)}/reference`, { method: 'POST', form }); toast('Added. Search again to compare faces with it.'); render(); } catch (err) { fail(err); }
+  }
   if (e.target.id === 'fb-files' || e.target.id === 'fb-folder') uploadFacebook(e.target.dataset.slug, e.target.files);
   if (e.target.id === 'bring-folder') openBring(e.target.value.trim());
   if (e.target.id === 'watch-on' || e.target.id === 'watch-every') {

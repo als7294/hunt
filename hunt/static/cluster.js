@@ -162,10 +162,16 @@ class HuntCluster extends HTMLElement {
         n.k = k; n.pos.copy(n.dir).multiplyScalar(.15 + .85 * k).add(drift.multiplyScalar(k)); n.spr.position.copy(n.pos); n.bg.position.copy(n.pos);
         const arr = n.lg.attributes.position.array; arr[0] = person.position.x; arr[1] = person.position.y; arr[2] = person.position.z; arr[3] = n.pos.x; arr[4] = n.pos.y; arr[5] = n.pos.z; n.lg.attributes.position.needsUpdate = true;
         if (this._mpx && k > .9) { v.copy(n.pos).project(cam); if (Math.hypot((v.x + 1) / 2 * w - this._mpx[0], (1 - v.y) / 2 * h - this._mpx[1]) < 46) hov = n; } });
+      // label spots already used this frame (the subject's name, the headline and match badges first, as last drawn):
+      // an account label that would overlap one stays hidden until its node is hovered
+      const taken = [pLab, haloLab, ...badgeEls].map(e => e.firstChild?.getBoundingClientRect()).filter(r => r && r.width);
       shown.forEach((a, i) => { const n = nodes.get(a.url), d = !hov || hov === n ? 1 : .28, big = hov === n ? 1.18 : 1;
         n.spr.material.opacity = n.k * d; n.spr.scale.set(1.75 * big, 1.75 * big, 1); n.lm.opacity = .55 * n.k * d; n.bg.material.opacity = .32 * n.k * d * (.85 + .15 * Math.sin(sec * 1.6 + i));
         v.copy(n.pos).project(cam); const above = (1 - v.y) / 2 * h > h * .6; n.lab.firstChild.style.transform = above ? 'translate(-50%,-100%)' : 'translateX(-50%)';
-        place(n.lab, n.pos.clone().add(new T.Vector3(0, above ? 1 : -1.05, 0)), n.k * (!hov || hov === n ? 1 : .35)); });
+        place(n.lab, n.pos.clone().add(new T.Vector3(0, above ? 1 : -1.05, 0)), n.k * (!hov || hov === n ? 1 : .35));
+        const r = n.lab.firstChild.getBoundingClientRect(); // its real size: site names run from "X" to "Mastodon (m.gretaoto.ca)"
+        if (hov !== n && taken.some(t => r.left < t.right + 8 && r.right > t.left - 8 && r.top < t.bottom + 4 && r.bottom > t.top - 4)) n.lab.style.opacity = 0;
+        else if (n.k > .5) taken.push(r); });
       if (done) parts.forEach(p => { const live = [...nodes.values()].filter(n => n.k > .95);
         if (!p.a || p.u >= 1) { if (live.length && Math.random() < .06) { p.a = live[Math.floor(Math.random() * live.length)]; p.u = 0; } else { p.s.material.opacity = 0; return; } }
         p.u += .016; p.s.position.lerpVectors(p.a.pos, person.position, ease(p.u)); p.s.material.color.copy(p.a.bc).lerp(new T.Color(0xffffff), .3); p.s.material.opacity = Math.sin(p.u * Math.PI) * .8; });

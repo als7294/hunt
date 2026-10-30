@@ -18,9 +18,9 @@ Your cases, evidence and the AI that reads photos and videos stay on your Mac.
 
 | Step | What happens |
 |---|---|
-| **Find a person** | Checks hundreds of sites and public records at once, and logs every source asked, including the empty ones |
+| **Find a person** | Checks over a thousand sites and public records at once (including federal and some state and city court records), and logs every source asked, including the empty ones |
 | **Is it them?** | Scores each account against everything the case knows, explains every point, and sets namesakes aside. The investigator decides |
-| **Posts** | Reads public posts logged out (Bluesky, Mastodon, YouTube). Takes in what the investigator views in the **Hunt Browser** and the files they saved. Scans every photo and video on the Mac with a local vision model for the case's look-for list, dated before or after the injury |
+| **Posts** | Reads public posts logged out (Bluesky, Mastodon, YouTube, TikTok's public pages). Takes in what the investigator views in the **Hunt Browser** and the files they saved, and optionally public Instagram and Facebook posts through Apify on their own paid account. Scans every photo and video on the Mac with a local vision model for the case's look-for list, dated before or after the injury |
 | **Report** | Written from the case's records, with no language model. Every sentence is cited; ICD 203 confidence wording; a screening version for employment (FCRA); a hashed evidence bundle anyone can check with `shasum -c` |
 
 **Everyday helpers:**
@@ -41,14 +41,14 @@ Built in, not bolted on. The full list, with the reasoning behind each, is [Hunt
 - **The investigator's own real account only:** no fake accounts, sock puppets or pretexting.
 - **The subject and their associates are never contacted or notified:** no following, friending, liking or messaging, and no checks that could notify anyone. All 220 email-check modules were read and classified.
 - **No getting around a limit:** no CAPTCHA solving, and no proxies, IP rotation or spoofing to get past a block. Hunt stops at the first refusal, and on any sign that a platform has revoked access.
-- **No face search.**
-- **No automatic downloads** from Instagram, TikTok or Facebook.
+- **No face search.** A one-to-one face check against the investigator's own reference photo is built, opt-in and allowed only where the subject's home state or country permits it; its screen is coming.
+- **Nothing fetched from Instagram or Facebook by Hunt itself** (except an Apify run on the investigator's own account). TikTok videos are fetched only from public pages TikTok lets software read, and only when the uploader allows downloads.
 - **Machine verdicts stop at "likely",** and a handle alone can't pass "roughly even chance" (two-identifier rule).
 - **Employment screening mode** drops protected traits and sensitive records. Screenings are kept apart from other investigations.
 - **Retention:** 90 days from opening, unless on legal hold. Deleting moves files to the Trash; Hunt never deletes them.
 - **Flagged media where a child may be visible** are blurred in the app.
 
-If you furnish reports for employment, tenancy, credit or insurance decisions, you are likely a consumer reporting agency under the FCRA, whatever software you use. Hunt helps you comply; it does not exempt you. Hunt uses free and open sources only. It **complements** licensed data-broker tools (TLOxp, Accurint and the like); it doesn't replace them. Why each line is where it is: [legal.md](docs/research/legal.md).
+If you furnish reports for employment, tenancy, credit or insurance decisions, you are likely a consumer reporting agency under the FCRA, whatever software you use. Hunt helps you comply; it does not exempt you. Hunt runs free on public sources; the only paid option is an Apify connector on the investigator's own account. It **complements** licensed data-broker tools (TLOxp, Accurint and the like); it doesn't replace them. Why each line is where it is: [legal.md](docs/research/legal.md).
 
 ## Install
 
@@ -64,7 +64,7 @@ uv tool install --python 3.12 git+https://github.com/als7294/hunt && hunt setup
 
 `hunt setup` puts **Hunt** in Applications, then shows the size of each download (the browser, about 0.2 GB; the vision model, 3.3 GB) and asks before fetching it.
 
-Then install [Ollama](https://ollama.com/download), which runs the vision model, and open it once. Double-click **Hunt** to start. On first run, Hunt checks itself, asks you to sign in to the platforms you use in the Hunt Browser, and offers optional free keys (GitHub, Gravatar, OpenFEC, CourtListener, state open-data portals) that unlock more from some sources. Use `hunt doctor` to check everything, `hunt update` to update, and `hunt uninstall` to remove Hunt (it asks before moving your cases to the Trash). No `brew`? See [uv's installation page](https://docs.astral.sh/uv/getting-started/installation/).
+Then install [Ollama](https://ollama.com/download), which runs the vision model, and open it once. Double-click **Hunt** to start. To see a finished investigation first, run `hunt demo`: it adds a fictional case, marked DEMO everywhere. On first run, Hunt checks itself, asks you to sign in to the platforms you use in the Hunt Browser, and offers optional free keys (GitHub, Gravatar, OpenFEC, CourtListener, state open-data portals) that unlock more from some sources. Use `hunt doctor` to check everything, `hunt update` to update, and `hunt uninstall` to remove Hunt (it asks before moving your cases to the Trash). No `brew`? See [uv's installation page](https://docs.astral.sh/uv/getting-started/installation/).
 
 **From source:**
 
@@ -88,8 +88,8 @@ Every hit is scored against everything the case knows, Fellegi-Sunter style. Eac
 ## Status
 
 **0.1.0, the first release.** [CHANGELOG.md](CHANGELOG.md) lists what it does and what isn't built yet. Coming next:
-- **Guided mode:** how much of each profile you've covered, and what's left to open.
-- **"Read public preview"** on the worklist.
+- **Guided mode:** how much of each profile you've covered, and what's left to open. Built; held back until tried live.
+- **The reference-photo screen** for the face check.
 - **Locate a photo:** photo geolocation. It works and is benchmarked, but is on hold.
 
 See the [roadmap](docs/roadmap.md).

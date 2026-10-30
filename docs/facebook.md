@@ -44,7 +44,8 @@ Every `media` entry is a local file.
 
 ```
 {source: "Facebook", url, post_id, posted_at, posted_at_precision, posted_at_text, author, account_url,
- fb_id, text, truncated, place, activity, life_event, media: [local paths], reactions, comments, shares}
+ fb_id, text, truncated, place, activity, life_event, media: [local paths], reactions, comments, shares,
+ visible_comments}
 ```
 
 Anything not found is `None`.
@@ -54,7 +55,7 @@ keys on class names:
 
 | Field | Anchors, in order |
 |---|---|
-| Post boundaries | `aria-posinset` feed units, `role="article"`, `<article>`, mobile `data-ft` with `top_level_post_id`. Comments (nested articles, `aria-label="Comment by…"`/"Comentario de…"/"Commentaire de…") are excluded from everything |
+| Post boundaries | `aria-posinset` feed units, `role="article"`, `<article>`, mobile `data-ft` with `top_level_post_id`. Comments (nested articles, `aria-label="Comment by…"`/"Comentario de…"/"Commentaire de…") are excluded from everything, and read on their own as `visible_comments` ([capture.md](capture.md#comments)) |
 | Author, `account_url`, `fb_id` | First profile link in the post's heading (`h2`–`h6`, then `<header>`, then `<strong>`). Profile URLs are recognised in every shape: vanity, `profile.php?id=`, `/people/…/ID`, `/pages/…/ID`, `/groups/…/user/ID`. The ID also comes from `data-hovercard`, mobile `content_owner_id_new`, the JSON actor, or another post on the page by the same account |
 | `url`, `post_id` | First post-shaped link (`/posts/`, `permalink.php`, `story.php`, `/videos/`, `/reel/`, `/watch?v=`, `/share/p/`, then photo links). Tracking parameters (`__cft__`, `__tn__`, `refid`) are removed. IDs include `pfbid…` and numeric forms |
 | `posted_at` | `data-utime` (exact), mobile `publish_time` (exact), the JSON `creation_time` (exact), then the most precise date text on the post link, `<abbr>`, `title`/`aria-label` tooltips and short spans |
@@ -98,7 +99,8 @@ Timestamp rules:
 **Known gaps:**
 - A saved page holds only what was on screen. Scroll to load posts, and open "See more" or comments
   before saving.
-- Comments aren't extracted as posts (by choice; the parser already isolates them).
+- Comments aren't posts: each post's `visible_comments` lists the ones the page showed (name, profile link,
+  words, time, reply-to, reactions), stored in the `comments` table ([capture.md](capture.md#comments)).
 - Facebook plays video from `blob:` URLs, which no browser saves. Only posters come through.
 - Stories and Reels viewers aren't covered.
 - A shared post's original text can merge into the sharer's post.

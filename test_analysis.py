@@ -206,14 +206,17 @@ p2, *_ = match.score(rare, "https://example.com/xq7dorianv", {"fullname": "Doria
 assert p2 > 0.95, p2  # with a name as the second identifier, the face adds its capped weight
 
 # Records found by name: the name alone barely counts, so namesakes sink; a fact the case knows lifts the right one
-name, subj = Seed("name", "John Smith"), [Seed("name", "John Smith")]
-facts = {"subject_dob": "1981-04-12", "subject_employer": "Acme Freight"}
-score = lambda attrs: match.score(name, "", {"fullname": "John Smith", **attrs}, subj, facts=facts)
+name = Seed("name", "John Smith")
+subj = [name, Seed("dob", "1981-04-12"), Seed("employer", "Acme Freight")]  # seeds, as typed in the search bar
+score = lambda attrs: match.score(name, "", {"fullname": "John Smith", **attrs}, subj)
 assert score({})[1] == "very unlikely" and "barely counts" in score({})[2][0]
 assert score({"dob": "04/12/1981"})[1] == "almost certain" and score({"employer": "Acme Freight LLC"})[0] > 0.8
 assert score({"age": str(__import__("datetime").date.today().year - 1981)})[1] == "likely"
 assert score({"birth_year": "1962"})[1] == "almost no chance" and score({"dob": "1981-05-02"})[0] < 0.1
-assert match.score(name, "", {"fullname": "John Smith", "age": "52"}, subj, facts={"subject_age_range": "40-45"})[0] < 0.05
+assert match.score(name, "", {"fullname": "John Smith", "age": "52"}, [name, Seed("age", "43")])[0] < 0.05
+assert match.score(name, "", {"fullname": "John Smith", "age": "44"}, [name, Seed("age", "43")])[1] == "likely"
+assert match.score(name, "", {"fullname": "John Smith", "dob": "1981-04-12"}, [name], facts={"subject_dob": "1981-04-12"})[1] == \
+    "almost certain"  # the report's subject_dob counts too
 
 # Face check gate: by the subject's residence; unknown means blocked; every decision audited with its rule
 c = Case("face test", "self-check")
@@ -294,5 +297,99 @@ if models:
         assert r[2]["match"] == "yes" and r[3]["match"] != "yes", r[2:]
     else:
         print("NASA portraits not cached (scripts/eval_similar.py fetches them): skipped the face-match check")
+
+# Family and associates from what the case holds (fictional people). Names and citations only; a possible
+# minor by relationship only; nothing from an account that isn't the subject's; never the subject themself.
+subject = [Seed("name", "Dorian Vell"), Seed("address", "12 Alder Lane, Tucson, AZ")]
+cands = [
+    {"site": "Facebook", "url": "https://facebook.com/dorian.vell", "probability": 0.9, "decision": None,
+     "attrs": {"bio": "Married to Ines Vell. Proud dad of 2."}},
+    {"site": "Instagram", "url": "https://instagram.com/notdorian", "probability": 0.1, "decision": None, "attrs": {"bio": "my brother Zed"}},
+    {"site": "Court", "url": "https://court.example/1", "probability": 0.8, "decision": None,
+     "attrs": {"fullname": "Dorian Vell", "caption": "Vell v. Example Builders LLC"}},
+    {"site": "Housing", "url": "https://housing.example/2", "probability": 0.1, "decision": None,
+     "attrs": {"fullname": "Marta Ruiz", "address": "12 Alder Lane, Tucson, AZ"}},
+]
+fb = "https://facebook.com/dorian.vell"
+posts_ = [
+    {"id": 1, "account_url": fb, "url": "https://facebook.com/p/1", "origin": "fetched", "extra": None,
+     "text": "Lake day with my brother Dan and my little sister! Back with mom for dinner."},
+    {"id": 2, "account_url": fb, "url": "https://facebook.com/p/2", "origin": "fetched", "extra": {"with": "Rafa Ortiz and 2 others"},
+     "text": "Feliz cumpleaños a mi hijo Tyler, 9 años ya. Con mi esposa Ines en la playa."},
+    {"id": 3, "account_url": "https://instagram.com/notdorian", "url": "https://instagram.com/p/3", "origin": "fetched",
+     "extra": None, "text": "my cousin Lena is here"},
+    {"id": 4, "account_url": fb, "url": "https://facebook.com/p/4", "origin": "fetched", "extra": None,
+     "text": "Gym with Rafa Ortiz and Kim Vell. Dinner with my coworker Sam Lee and Dorian Vell"},
+]
+r = graph.associates(posts_, cands, subject, [{"id": 1, "media_id": 7, "label": "Dan", "post_id": 1}])
+by = {(p["name"] or p["labels"][0]): p for p in r["people"]}
+assert by["Dan"]["types"] == ["sibling", "in photo with"] and by["Dan"]["cites"][0]["ref"] == "E-1"
+assert set(by["Ines Vell"]["types"]) == {"partner"} and {c["kind"] for c in by["Ines Vell"]["cites"]} == {"bio", "post"}  # es + en, one person
+assert by["mother"]["types"] == ["parent"] and by["mother"]["cites"][0]["quote"] == "Back with mom for dinner."
+assert by["sister"]["name"] is None and by["Sam Lee"]["types"] == ["co-worker"] and by["Rafa Ortiz"]["types"] == ["tagged with"]
+assert by["Example Builders LLC"]["types"] == ["co-party"] and by["Marta Ruiz"]["types"] == ["same address"]
+assert "possible relative" in by["Kim Vell"]["types"] and by["Kim Vell"]["confidence"] == 0.6  # surname: a hint, never more
+son = by["son"]
+assert son["minor"] and son["name"] is None and "[name withheld]" in son["cites"][0]["quote"]
+assert by["children"]["minor"] and by["children"]["cites"][0]["kind"] == "bio"
+dump = json.dumps(r)
+assert "Tyler" not in dump and "Zed" not in dump and "Lena" not in dump and "Dorian Vell" not in [p["name"] for p in r["people"]]
+assert r["notice"].startswith("Associates are named in the subject's own") and all(p["cites"] for p in r["people"])
+c = Case("people test", "self-check")
+graph.label_photo(c, 7, "Dan")
+assert [x["label"] for x in graph.photo_labels(c)] == ["Dan"] and c.rows("select action from audit")[-1]["action"] == "person marked in photo"
+
+# Leads: the claim against the evidence (a fictional case). Only evidence after the injury, never what the
+# investigator set aside or a hit showing someone else; facts only, no fraud wording.
+from hunt import leads  # noqa: E402
+
+details = {"injury_date": "2026-03-01", "limits": "No lifting over 5 kg; no long walks; can't drive far; not working",
+           "look_for": ["sport"]}
+posts_ = [
+    {"id": 1, "posted_at": "2026-02-10T10:00:00", "text": "Leg day at the gym!", "media": [{}], "extra": None},
+    {"id": 2, "posted_at": "2026-04-02T12:00:00", "text": "Moving day. Helped my brother move the couch.", "media": [{}], "extra": None},
+    {"id": 3, "posted_at": "2026-05-03T09:00:00", "text": "First day at the new job! My coworker Sam Lee is great.", "media": [],
+     "extra": {"life_event": "started a new job at Harbor Freight Movers"}},
+    {"id": 4, "posted_at": "2026-05-20T09:00:00", "text": "Road trip to Flagstaff", "media": [{}], "extra": None},
+    {"id": 5, "posted_at": "2026-05-25T09:00:00", "text": "Long hike with friends", "media": [{}], "extra": None},
+    {"id": 6, "posted_at": "2026-06-10T09:00:00", "text": "Lunch with my coworker Ana Ruiz", "media": [], "extra": None},
+]
+hit = lambda i, post, cat, when, status="new", who="unknown", p=0.8: {
+    "id": i, "post_id": post, "media_id": i, "category": cat, "what": cat, "t0": None, "t1": None, "verdict": "likely", "p": p,
+    "timing": "after" if when >= "2026-03-01" else "before", "days_after": 0, "status": status, "who": who, "posted_at": when}
+hits_ = [hit(10, 2, "lifting", "2026-04-02", status="kept", who="him"), hit(11, 1, "sport", "2026-02-10"),
+         hit(12, 4, "driving", "2026-05-20", status="not relevant"), hit(13, 5, "walks", "2026-05-25", who="other")]
+recs = [{"site": "Texas TDLR licence", "url": "https://x/1", "found_by": ["licences"], "probability": 0.8, "decision": None,
+         "finding_ids": [7], "attrs": {"licence": "Electrician", "issued": "2026-04-15", "expires": "2028-04-15"}},
+        {"site": "FMCSA", "url": "https://x/2", "found_by": ["fmcsa"], "probability": 0.9, "decision": None, "finding_ids": [8],
+         "attrs": {"operation": "Interstate", "registered": "2019-01-01", "last_update": "2026-06-01"}},
+        {"site": "Old licence", "url": "https://x/3", "found_by": ["licences"], "probability": 0.1, "decision": None,
+         "finding_ids": [9], "attrs": {"licence": "Plumber", "issued": "2026-05-01"}}]  # a namesake's: not the person
+people_ = graph.associates([{**p, "account_url": None, "origin": "added", "url": None} for p in posts_], [], [Seed("name", "Dorian Vell")])["people"]
+r = leads.leads(details, posts_, hits_, recs, people_)
+assert [(x["key"], x["stated"]) for x in r["restrictions"]] == \
+    [("lifting", True), ("walking", True), ("driving", True), ("working", True), ("sport", False)], r["restrictions"]
+by = {}
+for x in r["leads"]:
+    by.setdefault(x["restriction"], []).append(x)
+assert {x["kind"] for x in by["lifting"]} == {"scan", "post"} and by["lifting"][0]["confidence"] == 0.8  # kept, confirmed him
+assert "“Moving day.” … “Helped my brother move the couch.”" in next(x["shows"] for x in by["lifting"] if x["kind"] == "post")
+assert {tuple(x["cites"]) for x in by["working"]} == {("A-7",), ("E-3",), ("A-8",), ("E-6",)}, by["working"]
+assert next(x for x in by["working"] if x["cites"] == ["E-6"])["shows"].startswith("A post on 2026-06-10 (101 days after the injury) "
+                                                                                   "names a co-worker (Ana Ruiz)")
+assert {tuple(x["cites"]) for x in by["driving"]} == {("E-4",), ("A-8",)}  # the driving hit was set aside: not a lead
+assert [x["kind"] for x in by["walking"]] == ["post"] and "sport" not in by  # her own caption counts; the hit shows
+assert [x["leads"] for x in r["restrictions"]] == [2, 1, 2, 4, 0]               # someone else; the gym post was before
+assert all(x["days_after"] > 0 and x["date"] >= "2026-03-01" for x in r["leads"])
+assert [x["confidence"] for x in r["leads"]] == sorted((x["confidence"] for x in r["leads"]), reverse=True)
+words = " ".join(x["shows"] + x["claim"] for x in r["leads"]).lower()
+assert not __import__("re").search(r"fraud|\blie|\blied|fake|false claim|malinger|dishonest|exaggerat", words), words
+assert leads.leads({"limits": "no lifting"}, posts_, hits_, recs)["leads"] == []  # no injury date: no leads, a note
+tl = leads.timeline(details, posts_, hits_, recs)
+assert [e["kind"] for e in tl][:3] == ["record", "post", "injury"] and tl[2]["date"] == "2026-03-01"
+assert [e["after_injury"] for e in tl[:2]] == [False, False] and all(e["after_injury"] for e in tl[3:])
+assert not any(e["kind"] == "stated" and "gym" in e["what"] for e in tl)  # life events only, not every caption
+assert any(e["what"] == "Stated in a post: “started a new job at Harbor Freight Movers”" for e in tl)
+assert next(e for e in tl if e["cites"] == ["E-2"])["categories"] == ["lifting"]
 
 print("ok")

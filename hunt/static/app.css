@@ -84,7 +84,7 @@ a { color: inherit; text-decoration: none; }
 .seed.email { background: var(--teal-bg); } .seed.email b { color: var(--teal); }
 .seed.phone { background: var(--violet-bg); } .seed.phone b { color: var(--violet); }
 .seed.username, .seed.url { background: var(--am-bg); } .seed.username b, .seed.url b { color: var(--am); }
-.seed.address, .seed.location { background: var(--raise); } .seed.address b, .seed.location b { color: var(--t2); }
+.seed.address, .seed.location, .seed.dob, .seed.age, .seed.employer { background: var(--raise); } .seed.address b, .seed.location b, .seed.dob b, .seed.age b, .seed.employer b { color: var(--t2); }
 .seed .x { color: var(--mu); margin-left: 2px; }
 
 /* Choice chips */
@@ -127,12 +127,15 @@ a { color: inherit; text-decoration: none; }
 /* Media tiles: blurred unless flagged; children always blurred */
 .thumb { border-radius: 9px; background: repeating-linear-gradient(135deg, var(--panel-2) 0 8px, var(--panel-3) 8px 16px); object-fit: cover; overflow: hidden; }
 img.thumb.blur, .blur { filter: blur(10px) saturate(.6); }
+.thumb.gone { display: flex; align-items: center; justify-content: center; text-align: center; padding: 6px; font-size: 12px; color: var(--mu); }
 
 /* Layout grids: the design is drawn at 1440 px; these keep it usable down to a laptop half-screen */
 .wiz-grid { position: relative; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 520px; gap: 56px; padding: 24px 72px 40px; }
 .two-up { display: grid; grid-template-columns: 1fr 1fr; }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) var(--side, 420px); gap: 18px; flex: 1; min-height: 0; }
 .report-grid { display: grid; grid-template-columns: 240px minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+.claim-grid { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 18px; align-items: start; }
+.claim-rs { display: flex; flex-direction: column; gap: 8px; }
 @media (max-width: 1180px) {
   .wiz-grid { grid-template-columns: 1fr; gap: 28px; padding: 16px 28px 32px; }
   .wiz-grid > div:last-child { padding-top: 0 !important; }
@@ -142,7 +145,8 @@ img.thumb.blur, .blur { filter: blur(10px) saturate(.6); }
   .case-name { max-width: 110px; } .pill-extra { display: none; } .top .chip-btn { padding: 9px 10px; } /* the case pill stays on screen at 1024 px; the closed bar and the menu say it */
 }
 @media (max-width: 900px) {
-  .two-up, .split, .report-grid { grid-template-columns: 1fr; }
+  .two-up, .split, .report-grid, .claim-grid { grid-template-columns: 1fr; }
+  .claim-rs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); } /* the restrictions side by side above the leads */
   .h1 { font-size: 34px; } .wiz-grid .h1 { font-size: 38px !important; }
   .step { padding: 6px 8px 6px 6px; font-size: 13px; } .step-link { width: 14px; } .sep { display: none; }
 }

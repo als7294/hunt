@@ -4,6 +4,7 @@ Offline: search and the posts/scan modules are stubbed; all subjects are fiction
 """
 
 import asyncio
+import io
 import json
 import os
 import shutil
@@ -13,6 +14,8 @@ import tempfile
 import time
 import types
 import warnings
+
+from PIL import Image
 
 os.environ["HUNT_HOME"] = tempfile.mkdtemp()  # before hunt.case reads it
 
@@ -170,6 +173,10 @@ r = c.post("/api/cases/vance-claim/decisions", content=json.dumps({"decision": "
 assert r["accounts"] == ["https://a.test/kestrel_vane88"], r  # the person no longer includes SiteB
 p = c.get("/api/cases/vance-claim/person").json()
 assert p["decision"] == "him" and [a["decision"] for a in p["accounts"]] == ["him"], p
+for path, keys in (("people", {"notice", "people"}), ("timeline", {"injury_date", "events"}),
+                   ("leads", {"injury_date", "restrictions", "leads"})):
+    r = c.get(f"/api/cases/vance-claim/{path}")
+    assert r.status_code == 200 and keys <= set(r.json()), (path, r.text)
 
 # --- Posts, media and scan, against stand-ins for hunt.posts / hunt.scan -------------------------
 from hunt import app as hunt_app
@@ -272,6 +279,38 @@ assert (h["firm"], h["client"], h["file_number"], h["timezone"]) == ("Example In
                                                                     "America/Chicago"), h
 assert c.post("/api/settings", content=json.dumps({"logo": None}), headers=JSON).json()["logo"] is False
 
+# --- Face comparison: gated by residence, opt-in with a legal basis, reference photos as evidence --------------
+assert c.get("/api/face/gate?residence=US-IL").json()["allowed"] is False
+assert c.get("/api/face/gate?residence=US-AZ").json() == {"allowed": True, "rule": "no biometric-law block for US-AZ"}
+api = "/api/cases/vance-claim"
+assert c.get(api).json()["face"] == {"on": False, "basis": None, "references": []}
+png = io.BytesIO(); Image.new("RGB", (40, 40), "gray").save(png, "PNG")
+ref = [("files[]", ("me.png", png.getvalue(), "image/png"))]
+assert c.post(f"{api}/reference", files=ref, headers={"origin": BASE}).status_code == 409  # off: no reference taken
+r = c.post(f"{api}/face", content=json.dumps({"basis": "claimant consent form, file 1"}), headers=JSON)
+assert r.status_code == 403 and "residence is unknown" in r.json()["error"], r.text  # no residence on file: blocked
+c.post(f"{api}/details", content=json.dumps({"subject_residence": "US-AZ"}), headers=JSON)
+assert c.post(f"{api}/face", content=json.dumps({"basis": ""}), headers=JSON).status_code == 400  # a basis is required
+assert c.post(f"{api}/face", content=json.dumps({"basis": "claimant consent form, file 1"}), headers=JSON).json()["on"]
+assert c.post(f"{api}/reference", files=[("files[]", ("x.svg", b"<svg/>", "image/svg+xml"))], headers={"origin": BASE}).status_code == 415
+refs = c.post(f"{api}/reference", files=ref, headers={"origin": BASE}).json()["references"]
+assert len(refs) == 1 and c.get(refs[0]).status_code == 200 and c.get(f"{api}/person").json()["reference"] == refs
+sha = refs[0].rsplit("/", 1)[1].split(".")[0]
+assert c.request("DELETE", f"{api}/reference/{sha}", content="{}", headers=JSON).json()["references"] == []
+assert c.request("DELETE", f"{api}/face", content="{}", headers=JSON).json()["on"] is False
+
+# --- Leads: a caption's or record's lead is kept or set aside here, audited --------------------------------
+assert c.post("/api/cases/vance-claim/leads/abc123", content=json.dumps({"status": "kept"}), headers=JSON).json() == {"id": "abc123", "status": "kept"}
+assert c.post("/api/cases/vance-claim/leads/abc123", content=json.dumps({"status": "maybe"}), headers=JSON).status_code == 400
+assert c.post("/api/cases/vance-claim/leads/abc123", content=json.dumps({"status": None}), headers=JSON).json()["status"] is None
+assert "restrictions" in c.get("/api/cases/vance-claim/leads").json()
+
+# --- People around the subject: "Not relevant" hides one, audited, and can be undone ------------------------
+r = c.post("/api/cases/vance-claim/people/abc123/hide", content="{}", headers=JSON)
+assert r.status_code == 200 and r.json()["hidden"] == ["abc123"], r.text
+assert c.post("/api/cases/vance-claim/people/abc123/hide", content=json.dumps({"hidden": False}), headers=JSON).json()["hidden"] == []
+assert "notice" in c.get("/api/cases/vance-claim/people").json()
+
 # --- Free keys: saved into the environment, listed without their values, cleared -----------------
 os.environ.pop("HUNT_GRAVATAR_KEY", None)
 r = c.post("/api/keys", content=json.dumps({"HUNT_GRAVATAR_KEY": "gk-example"}), headers=JSON)
@@ -289,6 +328,9 @@ assert r.status_code == 200 and r.json()["status"] == "failed" and "Hunt Browser
 rep = c.get("/api/cases/vance-claim/report").json()
 assert rep["checks"]["every_sentence_cited"] and rep["checks"]["tampered"] == [], rep["checks"]
 assert rep["evidence"][0]["id"] == "E-7" and any("running a race" in s["text"] for s in rep["sentences"])
+r = c.get("/api/cases/vance-claim/report.html?view=1")  # "Web page": inline, sandboxed
+assert r.headers["content-disposition"].startswith("inline") and "sandbox" in r.headers["content-security-policy"], r.headers
+assert "script-src" not in r.headers["content-security-policy"] and "default-src 'none'" in r.headers["content-security-policy"]
 r = c.get("/api/cases/vance-claim/report.html")
 assert r.headers["content-disposition"].startswith("attachment") and "&lt;" not in r.text.split("<h1>")[0], r.headers
 r = c.get("/api/cases/vance-claim/report.json?screening=1").json()

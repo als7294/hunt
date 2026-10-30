@@ -8,6 +8,7 @@ hunt seen [SEED...] [--case NAME] [--screening]
 hunt doctor | hunt setup [--launcher] | hunt update | hunt uninstall
 hunt minimise --case NAME
 hunt learning [--on | --off | --reset]
+hunt demo [--reset]
 hunt app
 
 search fans each seed out to every source that handles its kind, scores every
@@ -23,7 +24,8 @@ the other cases on this computer. doctor checks what Hunt needs and says how to 
 setup puts Hunt in Applications and downloads what's missing, showing each size and asking first;
 update and uninstall do what they say (uninstall moves things to the Trash). minimise, once a case's
 retention period is over, moves the raw media nobody kept or cited to the Trash. learning shows what Hunt has learned from your decisions (on this machine
-only), turns it on or off, or forgets it. app opens the Hunt app in
+only), turns it on or off, or forgets it. demo builds a finished, fictional case to look through (marked DEMO
+everywhere, read-only). app opens the Hunt app in
 your browser, served only to this machine.
 """
 
@@ -37,7 +39,7 @@ from datetime import date
 from importlib.metadata import version
 from pathlib import Path
 
-from . import bundle, inbox, minimise, pack, photo, recheck, search, seen, setup, watch
+from . import bundle, demo, inbox, minimise, pack, photo, recheck, search, seen, setup, watch
 from .case import HOME, Case, all_cases
 from .search import build  # noqa: F401  (re-exported: tests and older callers import it from here)
 from .seed import detect, now
@@ -123,6 +125,8 @@ def main():
     lg.add_argument("--on", action="store_true", help="learn from decisions again")
     lg.add_argument("--off", action="store_true", help="stop learning and go back to the default weights")
     lg.add_argument("--reset", action="store_true", help="forget every decision learned from")
+    dm = sub.add_parser("demo", parents=[proxy], help="build a finished, fictional demo case to look through")
+    dm.add_argument("--reset", action="store_true", help="move the demo case to the Trash and build it again")
     sub.add_parser("app", parents=[proxy], help="open the Hunt app in your browser (this machine only)")
     args = ap.parse_args()
 
@@ -133,9 +137,9 @@ def main():
         return serve()
     if args.cmd == "watch":
         return watch_cmd(args)
-    if args.cmd in ("pack", "unpack", "seen", "doctor", "setup", "update", "uninstall", "minimise"):
+    if args.cmd in ("pack", "unpack", "seen", "doctor", "setup", "update", "uninstall", "minimise", "demo"):
         return {"pack": pack_cmd, "unpack": unpack_cmd, "seen": seen_cmd, "doctor": doctor_cmd, "setup": setup_cmd,
-                "update": update_cmd, "uninstall": uninstall_cmd, "minimise": minimise_cmd}[args.cmd](args)
+                "update": update_cmd, "uninstall": uninstall_cmd, "minimise": minimise_cmd, "demo": demo_cmd}[args.cmd](args)
     if args.cmd == "learning":
         from . import learning
         if args.on or args.off:
@@ -373,3 +377,10 @@ def minimise_cmd(args):
             "them. The case and everything kept stay. [y/N] "):
         done = minimise.purge(case, p["count"], p["bytes"])
         print(f"Moved to the Trash as \"{done['trashed_as']}\". Empty the Trash to finish removing them.")
+
+
+def demo_cmd(args):
+    case = demo.build(reset=args.reset)
+    exports = sorted(p.name for p in (case.dir / "exports").iterdir())
+    print(f"The demo case is ready: \"{demo.LABEL}\" in Hunt's case list (fictional, read-only).\n"
+          f"  Its report and evidence bundle: {case.dir / 'exports'} ({', '.join(exports)})")

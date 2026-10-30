@@ -15,6 +15,8 @@ Tables, created here on first use:
   media(id, post_id, kind 'image'|'video'|'screenshot', file 'evidence/<sha256>.<ext>', sha256, duration, source_url)
   post_extra(post_id, extra JSON): what an imported Facebook post says beyond those columns (add_posts)
   post_seen(post_id, last): when each fetched post was last seen where it was posted (recheck.py finds the gone ones)
+  comments(id, post_id, author, handle, account_url, text, posted_at, posted_at_precision, posted_at_text, reply_to,
+           likes, url, evidence, seen_at): the comments a post showed when it was captured or saved (add_posts)
 """
 
 import hashlib
@@ -54,6 +56,16 @@ create table if not exists post_seen (post_id integer primary key, last text);
 # What an imported post says beyond the posts columns (date precision, place, activity, life event, IDs,
 # counts), kept apart so the posts table's shape, and every insert into it, stays as it is.
 EXTRA = "create table if not exists post_extra (post_id integer primary key, extra text);"
+# The comments she could see on a post (the first few, or more she expanded herself). Kept apart from the post so
+# a later capture showing more of them adds only the new ones; one row per commenter and words, per post.
+COMMENTS = """
+create table if not exists comments (id integer primary key, post_id int, author text, handle text, account_url text,
+    text text, posted_at text, posted_at_precision text, posted_at_text text, reply_to text, likes int, url text,
+    evidence text, seen_at text);
+create unique index if not exists comments_once on comments (post_id, coalesce(handle, author, ''), text);
+"""
+COMMENT_KEYS = ("author", "handle", "account_url", "text", "posted_at", "posted_at_precision", "posted_at_text",
+                "reply_to", "likes", "url")
 
 
 async def collect(case, accounts: list[dict], since: str | None, emit) -> int:
@@ -128,14 +140,15 @@ def add_posts(case, items: list[dict], kind: str = "image", evidence: str | None
     """Posts with their words (hunt.facebook's importers, Hunt Capture): one post per item, `origin`
     'added' (the investigator's saved files) or 'captured' (recorded by the extension as she browsed).
     Local media is stored as add_files does. Its kind is `kind` ("image", or "screenshot" when the picture
-    is the screenshot), or the item's own `media_kind` ("grid" for a grid thumbnail). Everything else the
-    item says goes to post_extra, with `evidence`, the stored page it came from.
+    is the screenshot), or the item's own `media_kind` ("grid" for a grid thumbnail). The item's
+    `visible_comments` go to the comments table, also for a post already in the case (a later capture may show
+    more of them). Everything else the item says goes to post_extra, with `evidence`, the stored page it came from.
     Already in the case, so skipped: the same source and link; without a link, the same date and words; with
     neither, the same pictures. One exception: a post known only from a grid (extra.from "grid") is upgraded
     in place when its full post arrives (from "full"), and its id goes to `upgraded`. Returns new post ids."""
     if origin not in ("added", "captured"):
         raise ValueError("origin must be 'added' or 'captured'")
-    case.db.executescript(SCHEMA + EXTRA)
+    case.db.executescript(SCHEMA + EXTRA + COMMENTS)
     ids = []
     for it in items:
         source, url, text = it.get("source") or ADDED, it.get("url"), it.get("text") or ""
@@ -146,15 +159,18 @@ def add_posts(case, items: list[dict], kind: str = "image", evidence: str | None
                             url, source, f"{source} (via %")
             if dup and _upgrade(case, dup[0], it, paths, evidence, source, origin):
                 upgraded is not None and upgraded.append(dup[0]["id"])
+                _comments(case, dup[0]["id"], it, evidence)
                 continue
         elif text:
-            dup = case.rows("select 1 from posts where source = ? and url is null and text = ? and "
+            dup = case.rows("select id from posts where source = ? and url is null and text = ? and "
                             "coalesce(posted_at, '') = ?", source, text, it.get("posted_at") or "")
         else:  # a bare picture: the same picture again adds nothing
             shas = [store(case, p)[1] for p in paths]
             dup = not shas or all(case.rows("select 1 from media where sha256 = ?", sha) for sha in shas)
         if dup:
             case.audit("post already added", {"source": source, "url": url, "posted_at": it.get("posted_at")})
+            if isinstance(dup, list):
+                _comments(case, dup[0]["id"], it, evidence)
             continue
         post = case.db.execute("insert into posts (source, account_url, url, posted_at, text, origin, fetched_at) "
                                "values (?, ?, ?, ?, ?, ?, ?)",
@@ -163,14 +179,27 @@ def add_posts(case, items: list[dict], kind: str = "image", evidence: str | None
         case.db.execute("insert into post_extra values (?, ?)", (post, json.dumps(_extra(it, evidence), ensure_ascii=False)))
         case.audit("post imported", {"source": source, "url": url, "posted_at": it.get("posted_at"), "origin": origin,
                                      "precision": it.get("posted_at_precision"), "media": stored, "from": evidence})
+        _comments(case, post, it, evidence)
         ids.append(post)
     return ids
 
 
 def _extra(it: dict, evidence: str | None) -> dict:
     return {k: v for k, v in it.items() if k not in ("source", "url", "account_url", "posted_at", "text", "media",
-                                                     "media_kind") and not (v is None or v is False or v == "")} \
-        | ({"evidence": evidence} if evidence else {})
+                                                     "media_kind", "visible_comments")
+            and not (v is None or v is False or v == "")} | ({"evidence": evidence} if evidence else {})
+
+
+def _comments(case, post: int, it: dict, evidence: str | None) -> int:
+    """The item's visible comments onto post `post`; ones already there are kept as first seen."""
+    added = sum(case.db.execute(
+        f"insert or ignore into comments ({', '.join(COMMENT_KEYS)}, post_id, evidence, seen_at) "
+        f"values ({', '.join('?' * (len(COMMENT_KEYS) + 3))})",
+        (*(c.get(k) for k in COMMENT_KEYS), post, evidence, it.get("captured_at") or it.get("viewed_at") or now())).rowcount
+        for c in it.get("visible_comments") or [] if c.get("text"))
+    if added:
+        case.audit("comments recorded", {"post": post, "url": it.get("url"), "added": added, "evidence": evidence})
+    return added
 
 
 def _media(case, post: int, paths: list[Path], kind: str) -> list[str]:
@@ -220,15 +249,19 @@ def store(case, path, ext: str | None = None) -> tuple[str, str]:
 
 
 def list_posts(case) -> list[dict]:
-    """Every post with its media, newest first (undated last)."""
-    case.db.executescript(SCHEMA + EXTRA)
-    media = {}
+    """Every post with its media and visible comments (in the order the page showed them), newest first (undated
+    last)."""
+    case.db.executescript(SCHEMA + EXTRA + COMMENTS)
+    media, comments = {}, {}
     for m in case.rows("select id, post_id, kind, file, duration from media order by id"):
         media.setdefault(m.pop("post_id"), []).append(m)
+    for c in case.rows(f"select id, post_id, {', '.join(COMMENT_KEYS)}, evidence, seen_at from comments order by id"):
+        comments.setdefault(c.pop("post_id"), []).append(c)
     extra = {r["post_id"]: json.loads(r["extra"]) for r in case.rows("select post_id, extra from post_extra")}
     posts = case.rows("select id, source, account_url, url, posted_at, text, origin from posts "
                       "order by posted_at is null, posted_at desc, id desc")
-    return [p | {"media": media.get(p["id"], []), "extra": extra.get(p["id"])} for p in posts]
+    return [p | {"media": media.get(p["id"], []), "extra": extra.get(p["id"]), "visible_comments": comments.get(p["id"], [])}
+            for p in posts]
 
 
 def duration(path) -> float | None:
