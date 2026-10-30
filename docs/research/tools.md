@@ -174,7 +174,7 @@ ArcGIS Hub portals would need a second engine (`FeatureServer/0/query`); none of
 - `key_url` (where to get the free key) and `key_free` (what it unlocks): the same facts as the Free keys table below
 - `ready`: reachable, or nothing to reach, and no required key missing
 
-Each probe is a HEAD through `HUNT_PROXY` (a GET when HEAD isn't served), with an 8-second timeout, to a URL that spends no quota: GitHub's `/rate_limit`, FEC's docs page, each Socrata table's metadata. A row never contains a key's value. Live on 2026-10-29: 18 of 19 ready; CourtListener wasn't, because it has no token.
+Each probe is a HEAD through `HUNT_PROXY` (a GET when HEAD isn't served), with an 8-second timeout, to a URL that spends no quota: GitHub's `/rate_limit`, FEC's docs page, each Socrata table's metadata. A row never contains a key's value. Live on 2026-10-29: 18 of 19 ready; CourtListener wasn't, because it had no token. Maintenance pass later the same day, with keys set for CourtListener, Socrata and GitHub: 21 of 21 ready (see the maintenance log).
 
 ## Court records
 
@@ -249,6 +249,16 @@ The three steps in [Adding a state](#adding-a-state) apply; two conventions on t
 - A table whose name column is a **case caption** ("A v. B", "A Plaintiff v. B Defendant") sets `caption` in its record mapping and an entry in `courts.SIDES` (the left and right roles). `courts.search` then keeps only the side that names the person as `fullname` and sets `roles` from the caption's own role word or the side.
 - A portal that bars scripts goes in `courts.PORTALS[state]` as `(label, url)`, only after one GET (or a `robots.txt` disallow, which is a by-hand link but can't be checked) confirmed it is live. `{name}`, `{first}` and `{last}` in a URL or label are filled from the name seed. States without an entry are "not yet"; `states_in` reads state names and codes from location and address seeds.
 
+## Maintenance log
+
+- **2026-10-29**, with keys loaded from `~/Hunt/keys.env` (CourtListener, Socrata, GitHub):
+  - `health()`: 21 of 21 sources ready, including other sessions' `courts` and `facebook`.
+  - Logged-out live checks (`test_sources.py --live`: public organisations, `example.com`, a made-up name): all pass.
+  - Parsed fields on real public-org hits (GitHub `nasa`, Bluesky `bsky.app`, Mastodon's own account, Wayback for `github.com/nasa`) are unchanged.
+  - Keyed paths with a made-up name: GitHub search with a token; CourtListener RECAP and case-law captions; `licences`, `businesses` and `fmcsa` with a Socrata token. All answered.
+  - The one Socrata token worked on all 11 portals: data.texas.gov, data.colorado.gov, data.delaware.gov, illinois-edp.data.socrata.com, data.wa.gov, data.oregon.gov, data.cityofnewyork.us, data.ny.gov, data.ct.gov, data.pa.gov, data.transportation.gov.
+  - No endpoint or response shape had changed, so no code changes.
+
 ## Free keys
 
 Every key is optional except CourtListener's, and all are off until the investigator sets the env var. Each is free. `health()` carries the same facts per source (`key_status`, `key_url`, `key_free`), so the setup screen can show them live.
@@ -259,7 +269,7 @@ Every key is optional except CourtListener's, and all are off until the investig
 | Gravatar (`gravatar`) | More lookups, and every verified account instead of 4 | [Developer dashboard](https://gravatar.com/developers/) → Create New Application | `HUNT_GRAVATAR_KEY` | 1,000 lookups/hr (logged out: 100) |
 | OpenFEC (`fec`) | Its own quota instead of the shared `DEMO_KEY` | [api.data.gov sign-up](https://api.data.gov/signup/), approved instantly | `HUNT_FEC_KEY` | 1,000 requests/hr (DEMO_KEY: about 10) |
 | CourtListener (`courtlistener`) | The source runs at all; without a token it is skipped | Free account, then [your token](https://www.courtlistener.com/profile/api-token/) | `HUNT_COURTLISTENER_TOKEN` | 5/min, 50/hr, 125/day (API docs, 2026-10-29); the profile page shows your actual usage |
-| State portals (`licences`, `businesses`, `fmcsa`) | A token's own quota instead of a shared per-IP pool | Free account on any Data & Insights portal, then Developer Settings → Create New App Token (e.g. [data.texas.gov](https://data.texas.gov/profile/edit/developer_settings)) | `HUNT_SOCRATA_TOKEN` | About 1,000 requests/hr per token. Socrata documents tokens as working across its portals; if one portal rejects it, the note says so |
+| State portals (`licences`, `businesses`, `fmcsa`) | A token's own quota instead of a shared per-IP pool | Free account on any Data & Insights portal, then Developer Settings → Create New App Token (e.g. [data.texas.gov](https://data.texas.gov/profile/edit/developer_settings)) | `HUNT_SOCRATA_TOKEN` | About 1,000 requests/hr per token. One token was accepted by all 11 portals Hunt searches (checked 2026-10-29); if one ever rejects it, the note says so |
 | SEC EDGAR (`edgar`) | Nothing to unlock; SEC asks callers to say who they are | No sign-up: set it to your firm and a contact email | `HUNT_SEC_UA` | 10 requests/s either way |
 
 Not listed:
