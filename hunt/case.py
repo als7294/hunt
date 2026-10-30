@@ -23,7 +23,10 @@ DETAILS = ("label", "kind", "reference", "injury_date", "limits", "look_for", "t
            "client", "adjuster", "file_number", "assignment_date", "subject_dob", "recommendations",
            # where the subject lives, ISO 3166 ("US-AZ", "GB"): gates the face check (face.gate) and
            # turns on Washington MHMDA mode; mhmda_basis records the fraud basis (RCW 19.373.100(3))
-           "subject_residence", "mhmda_basis")
+           "subject_residence", "mhmda_basis",
+           # a subject in the UK, Canada or the EEA (F4): the lawful basis (GDPR Art. 6(1)(f), DPA 2018 Sch. 2 para 2,
+           # PIPEDA s.7(1)(b)) and why they weren't told (Art. 14(5)(b)); no work runs until both are written down
+           "abroad_basis", "no_notice")
 # ISO 3166-1 alpha-2 (and XK, Kosovo), and the US states, DC and territories: the only residences a case accepts.
 # One list, for the API and face.gate's allow-list. UK and EL are the EU's own spellings of GB and GR.
 COUNTRIES = frozenset("""AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT
@@ -36,6 +39,10 @@ VI VN VU WF WS XK YE YT ZA ZM ZW""".split())
 US_STATES = frozenset("""AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC
 ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC AS GU MP PR UM VI""".split())
 ALIASES = {"UK": "GB", "EL": "GR"}
+# Where F4 asks for a written basis: the EEA (with the EU's outermost regions and Åland, which have their own codes),
+# the UK with its Crown Dependencies, and Canada
+ABROAD = frozenset("""AT BE BG HR CY CZ DK EE FI FR DE GR HU IE IT LV LT LU MT NL PL PT RO SK SI ES SE IS LI NO
+GP MQ GF RE YT MF AX GB JE GG IM CA""".split())
 
 
 def residence(code: str) -> str | None:
@@ -43,6 +50,8 @@ def residence(code: str) -> str | None:
     code = (code or "").strip().upper()
     country, _, sub = code.partition("-")
     country = ALIASES.get(country, country)
+    if code == "UNKNOWN":
+        return "unknown"  # said outright, so it's a choice on record, not a blank
     if country not in COUNTRIES or (sub and (country != "US" or sub not in US_STATES)):
         return None
     return f"{country}-{sub}" if sub else country
@@ -115,6 +124,17 @@ class Case:
         case = cls(slug, purpose)
         case.set_details(label=label, **details)
         return case
+
+    def blocked(self) -> str | None:
+        """Why no new work (search, scan, preview, capture) may run on this case now, or None: closed, or a subject
+        abroad without a recorded basis (F4). Retention past 90 days is a reminder, not a block (decision D6)."""
+        if self.meta("closed"):
+            return "this case is closed; reopen it first"
+        country = (self.meta("subject_residence") or "").split("-")[0]
+        if country in ABROAD and not ((self.meta("abroad_basis") or "").strip() and (self.meta("no_notice") or "").strip()):
+            return (f"the subject lives in {country}: write down the lawful basis and why they weren't told (Edit the case "
+                    "details) before any search or capture")
+        return None
 
     @property
     def purpose(self) -> str:

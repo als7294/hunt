@@ -108,7 +108,9 @@ function caseMenu(c) {
         ${item('life-ask', 'pack', 'Move to another computer…')}
         ${st.legal_hold ? '' : c.demo ? item('demo-delete', '', 'Delete the demo', 'bad') : item('life-ask', 'delete', 'Move to the Trash…', 'bad')}</div></div></details>`;
 }
-const closedBar = c => c.demo ? demoBar(c) : c.status?.closed ? html`<div style="margin:0 20px 8px;padding:10px 12px 10px 16px;border-radius:var(--r);background:var(--raise);display:flex;gap:12px;align-items:center;font-size:14.5px;flex:none">
+const closedBar = c => c.demo ? demoBar(c) : !c.status?.closed && c.blocked ? html`<div style="margin:0 20px 8px;padding:10px 12px 10px 16px;border-radius:var(--r);background:var(--am-bg);display:flex;gap:12px;align-items:center;font-size:14.5px;flex:none;flex-wrap:wrap">
+  <span class="dot" style="background:var(--am)"></span><span class="t2" style="flex:1;min-width:240px">Nothing new can run: ${c.blocked}.</span>
+  <button class="btn ghost sm" data-act="details-edit-go" data-slug="${c.slug}">Edit the case details</button></div>` : c.status?.closed ? html`<div style="margin:0 20px 8px;padding:10px 12px 10px 16px;border-radius:var(--r);background:var(--raise);display:flex;gap:12px;align-items:center;font-size:14.5px;flex:none">
   <span class="dot"></span><span class="t2">Closed on ${longDay(c.status.closed)}. Searches, scans, checks and watching are off; the report and evidence stay as they are.</span>
   <button class="btn ghost sm" style="margin-left:auto" data-act="life-do" data-mode="reopen" data-slug="${c.slug}">Reopen</button></div>` : '';
 // The demo says so on every step (docs/qol.md L); rebuilding it is the reset
@@ -1296,7 +1298,8 @@ function isoWeek(d) { const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(),
 const TODO = { summary: 'search', method: 'search', identity: 'identity', found: 'posts' }; // the step that writes each section
 const TODO_LABEL = { search: 'Run the search', identity: 'Decide whether it’s them', posts: 'Review the flagged posts left' };
 const MISSING = { client: 'Add the client', reference: 'Add the claim or reference number', assignment_date: 'Add the assignment date',
-  investigator: 'Add your name in report settings', licence: 'Add your licence number in report settings' };
+  investigator: 'Add your name in report settings', licence: 'Add your licence number in report settings',
+  abroad_basis: 'Write down the lawful basis (the subject lives abroad)', no_notice: 'Write down why the subject wasn’t told' };
 const HEADER_ROWS = [['client', 'Client'], ['adjuster', 'Adjuster'], ['reference', 'Claim or reference no.'], ['file_number', 'Our file no.'], ['subject', 'Subject'],
   ['subject_dob', 'Date of birth'], ['injury_date', 'Date of injury or loss'], ['assignment_date', 'Assigned'], ['report_date', 'Report date']];
 const DETAIL_FIELDS = [['client', 'Client', 'Carrier, TPA or law firm'], ['adjuster', 'Adjuster', ''], ['reference', 'Claim or reference no.', ''], ['file_number', 'Our file no.', 'Your own file number'],
@@ -1401,9 +1404,13 @@ function detailsForm(c) {
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">${DETAIL_FIELDS.map(([k, label, hint]) => html`<label class="field"><span class="label">${label}</span>
       <input class="input" name="${k}" ${hint === 'date' ? raw('type="date"') : ''} value="${d[k] || ''}" placeholder="${hint === 'date' ? '' : hint}"></label>`)}</div>
     <label class="field" style="max-width:420px"><span class="label">Where the subject lives <span class="dim">· decides whether face comparison may run, and Washington’s health-data rules</span></span>
-      <select class="input" name="subject_residence"><option value="">Not known</option>
+      <select class="input" name="subject_residence"><option value="unknown">Not known</option>
         ${US_STATES.map(([k, n]) => html`<option value="US-${k}" ${d.subject_residence === `US-${k}` ? 'selected' : ''}>${n}, United States</option>`)}
         ${countryList().map(([k, n]) => html`<option value="${k}" ${d.subject_residence === k ? 'selected' : ''}>${n}</option>`)}</select></label>
+    ${c.abroad ? html`<label class="field"><span class="label">Lawful basis <span class="dim">· the subject lives in the UK, Canada or the EEA: e.g. legitimate interests in investigating a claim (GDPR Art. 6(1)(f))</span></span>
+      <textarea class="input" name="abroad_basis" rows="2" style="resize:vertical">${d.abroad_basis || ''}</textarea></label>
+      <label class="field"><span class="label">Why the subject wasn’t told <span class="dim">· e.g. telling them would seriously impair the investigation (Art. 14(5)(b))</span></span>
+      <textarea class="input" name="no_notice" rows="2" style="resize:vertical">${d.no_notice || ''}</textarea></label>` : ''}
     <label class="field"><span class="label">Recommendations <span class="dim">· your own words, printed under “Conclusion and recommendations”</span></span>
       <textarea class="input" name="recommendations" rows="3" style="resize:vertical">${d.recommendations || ''}</textarea></label>
     <div style="display:flex;gap:8px"><button class="btn primary sm" data-act="details-save">Save</button><button class="btn ghost sm" data-act="details-cancel">Cancel</button>
@@ -1449,7 +1456,7 @@ const actions = {
     try {
       const { slug } = await api('/api/cases', { method: 'POST', body: { label, seeds: w.seeds, kind: w.kind, reference: w.reference || null, purpose: w.purpose,
         injury_date: w.kind === 'insurance' && w.injury_date ? w.injury_date : null, limits: w.limits || null, look_for: [...w.look_for, ...w.custom], tool: 'person',
-        ...Object.fromEntries(WIZ_HEADER.filter(k => w[k]).map(k => [k, w[k]])), ...(residenceOf(w) ? { subject_residence: residenceOf(w) } : {}) } });
+        ...Object.fromEntries(WIZ_HEADER.filter(k => w[k]).map(k => [k, w[k]])), subject_residence: residenceOf(w) || 'unknown' } });
       if (w.faceOn && w.gate?.allowed) try { // before the search, which compares the profile photos it finds
         const enc = encodeURIComponent(slug); await api(`/api/cases/${enc}/face`, { method: 'POST', body: { basis: w.faceBasis } });
         if (w.faceFiles.length) { const form = new FormData(); w.faceFiles.forEach(f => form.append('files[]', f)); await api(`/api/cases/${enc}/reference`, { method: 'POST', form }); }

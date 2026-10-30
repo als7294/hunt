@@ -80,7 +80,7 @@ assert c.get("/api/cases", headers={"sec-fetch-site": "same-origin"}).status_cod
 
 new = {"label": "Vance claim", "seeds": ["kestrel_vane88", "Robert Vance"], "kind": "insurance",
        "purpose": "Insurer XYZ claim 123, legitimate interest", "injury_date": "2026-03-01", "look_for": ["sport"],
-       "tool": "person"}
+       "tool": "person", "subject_residence": "US-AZ"}
 body = json.dumps(new)
 assert c.post("/api/cases", content=body, headers={"content-type": "application/json"}).status_code == 403  # no Origin
 assert c.post("/api/cases", content=body, headers={**JSON, "origin": "http://evil.test"}).status_code == 403
@@ -89,6 +89,15 @@ assert c.post("/api/cases", content=body, headers={**JSON, "origin": f"http://lo
 assert c.post("/api/cases", content=body, headers={"origin": BASE, "content-type": "text/plain"}).status_code == 415
 assert c.post("/api/cases", content=json.dumps({**new, "purpose": " "}), headers=JSON).status_code == 400
 assert c.post("/api/cases", content=json.dumps({k: v for k, v in new.items() if k != "kind"}), headers=JSON).status_code == 400  # K1
+assert c.post("/api/cases", content=json.dumps({k: v for k, v in new.items() if k != "subject_residence"}), headers=JSON).status_code == 400  # F4
+# A subject in the EEA, the UK or Canada: nothing runs until the basis and the reason for no notice are written down (F4)
+de = c.post("/api/cases", content=json.dumps({**new, "label": "Abroad check", "subject_residence": "DE"}), headers=JSON).json()["slug"]
+assert c.post(f"/api/cases/{de}/search", content="{}", headers=JSON).status_code == 409
+assert c.get(f"/api/cases/{de}").json()["abroad"] is True and "lives in DE" in c.get(f"/api/cases/{de}").json()["blocked"]
+c.post(f"/api/cases/{de}/details", content=json.dumps({"abroad_basis": "Legitimate interests in investigating a claim",
+                                                         "no_notice": "Notice would seriously impair the investigation"}), headers=JSON)
+assert c.get(f"/api/cases/{de}").json()["blocked"] is None
+assert c.post("/api/cases", content=json.dumps({**new, "label": "Where unknown", "subject_residence": "unknown"}), headers=JSON).status_code == 201
 r = c.post("/api/cases", content=body, headers=JSON)
 assert r.status_code == 201 and r.json() == {"slug": "vance-claim"}, r.text
 assert c.post("/api/cases", content=body, headers=JSON).json() == {"slug": "vance-claim-2"}  # never merged
@@ -288,6 +297,8 @@ assert c.get(api).json()["face"] == {"on": False, "basis": None, "references": [
 png = io.BytesIO(); Image.new("RGB", (40, 40), "gray").save(png, "PNG")
 ref = [("files[]", ("me.png", png.getvalue(), "image/png"))]
 assert c.post(f"{api}/reference", files=ref, headers={"origin": BASE}).status_code == 409  # off: no reference taken
+c.post(f"{api}/details", content=json.dumps({"subject_residence": "unknown"}), headers=JSON)
+assert Case.open("vance-claim").meta("subject_residence") is None  # "unknown" is stored as no residence
 r = c.post(f"{api}/face", content=json.dumps({"basis": "claimant consent form, file 1"}), headers=JSON)
 assert r.status_code == 403 and "residence is unknown" in r.json()["error"], r.text  # no residence on file: blocked
 c.post(f"{api}/details", content=json.dumps({"subject_residence": "US-AZ"}), headers=JSON)

@@ -158,6 +158,8 @@ def main():
         raise SystemExit(str(e).replace("a purpose is required", "--purpose is required"))
     if new:
         case.set_details(label=args.case, kind=args.kind)
+    if args.cmd in ("search", "photo", "inbox") and (why := case.blocked()):  # as in the app (AP10)
+        raise SystemExit(f"{case.name}: {why}")
     if args.cmd == "inbox":
         return file_inbox(case, args)
     if args.cmd == "export":

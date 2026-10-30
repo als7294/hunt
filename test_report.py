@@ -330,6 +330,16 @@ assert [x["text"] for x in compose(screening=True)["sentences"] if x["section"] 
 one = compose(hs=[h for h in hits if h["status"] in ("kept", "in report")][:1])  # singular: "was", "Exhibit"
 assert "1 item relating to the listed activities was kept for this report (Exhibit " in text(one), text(one)
 
+# A subject abroad: the basis and the reason for no notice are printed, and missing until written down (F4)
+case.set_details(subject_residence="GB")
+rep = compose()
+assert {"abroad_basis", "no_notice"} <= set(rep["checks"]["missing"]) and "Lawful basis on record: none recorded." in text(rep)
+case.set_details(abroad_basis="Legitimate interests in investigating a claim", no_notice="Notice would impair the investigation")
+rep = compose()
+assert "abroad_basis" not in rep["checks"]["missing"] and "The subject lives in GB. Lawful basis on record: Legitimate " \
+    "interests in investigating a claim. Why they weren't told of this investigation: Notice would impair the investigation." in text(rep)
+case.set_details(subject_residence="", abroad_basis="", no_notice="")
+
 # Shown to a restricted audience: out of the report until counsel approves that item, then in it, saying so (K3)
 posts[0]["extra"] = {"audience": "Friends"}
 rep = compose()

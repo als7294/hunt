@@ -44,7 +44,7 @@ from . import graph, keys, leads, report, search, sources, vendor, vlm
 from . import bundle, demo, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
-from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, KINDS, RETENTION_DAYS, Case, all_cases, residence  # watch.py reads RETENTION_DAYS here
+from .case import ABROAD, DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, KINDS, RETENTION_DAYS, Case, all_cases, residence  # watch.py reads RETENTION_DAYS here
 from .match import ICD203, norm_url
 from .seed import detect, now
 
@@ -196,8 +196,8 @@ def _job(req: Request) -> Job:
 def _new_job(req: Request, slug: str, kind: str, work) -> JSONResponse:
     if _active(req, slug):
         raise HTTPException(409, "this case already has a job running")
-    if Case.open(slug).meta("closed"):
-        raise HTTPException(409, "this case is closed; reopen it first")
+    if why := Case.open(slug).blocked():  # closed, or abroad without a basis (AP10)
+        raise HTTPException(409, why)
     job = Job(slug, kind)
     req.app.state.jobs[job.id] = job
     job.start(work)
@@ -461,15 +461,18 @@ async def create_case(req: Request):
         raise HTTPException(400, "tool must be 'person'")
     details = {**_details(b), "kind": b["kind"], "tool": "person"}
     details = {k: v for k, v in details.items() if v not in ("", None)}
+    if not b.get("subject_residence"):  # F4: where they live decides what may run; "unknown" is an answer, on record
+        raise HTTPException(400, "subject_residence is required: where the subject lives, or unknown")
     seeds = [s for raw in _str_list(b.get("seeds"), "seeds") for s in detect(raw)]
     c = Case.create(label, purpose, **details)
     c.add_seeds(seeds)
-    c.audit("case details", {"label": label, **details, "seeds": [asdict(s) for s in seeds]})
+    c.audit("case details", {"label": label, **details, "subject_residence": details.get("subject_residence", "unknown"),
+                             "seeds": [asdict(s) for s in seeds]})
     return JSONResponse({"slug": c.name}, 201)
 
 
 EDITABLE = ("reference", "injury_date", "limits", "look_for", "client", "adjuster", "file_number", "assignment_date",
-            "subject_dob", "recommendations", "subject_residence", "mhmda_basis")
+            "subject_dob", "recommendations", "subject_residence", "mhmda_basis", "abroad_basis", "no_notice")
 
 
 def _details(b: dict) -> dict:
@@ -487,8 +490,9 @@ def _details(b: dict) -> dict:
             raise HTTPException(400, f"{k} must be text of at most 4,000 characters")
         elif k == "subject_residence":
             if not (code := residence(v)):
-                raise HTTPException(400, "subject_residence must be a country's ISO 3166 code, or US- and a state: like GB or US-AZ")
-            out[k] = code
+                raise HTTPException(400, "subject_residence must be a country's ISO 3166 code, US- and a state, or "
+                                         "unknown: like GB or US-AZ")
+            out[k] = "" if code == "unknown" else code  # "unknown" is audited as said, and stored as no residence
         elif k in DATES:
             try:
                 date.fromisoformat(v)
@@ -528,6 +532,7 @@ async def get_case(req: Request):
                   "report": "done" if _audited(c, "report exported") else "todo"},
         "status": c.status(),
         "demo": bool(c.meta("demo")),
+        "abroad": (c.meta("subject_residence") or "").split("-")[0] in ABROAD, "blocked": c.blocked(),
         "active_job": {"id": job.id, "kind": job.kind} if job else None,
         "counts": {"accounts": await _accounts(c), "flagged": len(_flagged(hits)),
                    "evidence": sum(1 for f in (c.dir / "evidence").iterdir() if EVIDENCE_NAME.match(f.name))},
@@ -1043,8 +1048,8 @@ async def public_preview(req: Request):
     fn = getattr(_module("public"), "preview", None)
     if not fn:
         raise HTTPException(501, "the public preview reader isn't installed yet")
-    if c.meta("closed"):
-        raise HTTPException(409, "this case is closed; reopen it first")
+    if why := c.blocked():
+        raise HTTPException(409, why)
     try:
         return JSONResponse(await _call(fn, c, url))
     except ValueError as e:
@@ -1438,8 +1443,8 @@ async def get_worklist(req: Request):
 
 async def post_worklist_open(req: Request):
     c = _case(req)
-    if c.meta("closed"):  # the demo case too: closed, so no click of it ever opens a page
-        raise HTTPException(409, "this case is closed; reopen it first")
+    if why := c.blocked():  # the demo case too: closed, so no click of it ever opens a page
+        raise HTTPException(409, why)
     b = await _body(req)
     if not isinstance(b.get("account"), str) or not isinstance(b.get("confirmed", False), bool):
         raise HTTPException(400, "account must be the account's URL, and confirmed true or false")
@@ -1800,6 +1805,8 @@ async def _capture_upload(req: Request, field: str, work):
             c = Case.open(str(form.get("case") or ""))
         except LookupError:
             raise HTTPException(404, "no such case")
+        if why := c.blocked():
+            raise HTTPException(409, why)
         site = extension.platform(form.get("url"))
         if not site:
             raise HTTPException(400, "url must be a page on Facebook, Instagram, TikTok, X or YouTube")
@@ -1878,6 +1885,8 @@ async def capture_guided(req: Request):  # one press of Next in guided mode
         raise HTTPException(404, "no such case")
     if b.get("action") not in ("scroll", "open") or not extension.platform(str(b.get("url") or "")):
         raise HTTPException(400, "action must be scroll or open, on a supported page")
+    if why := c.blocked():
+        raise HTTPException(409, why)
     if extension.platform(b["url"]) in extension.CAPTURE_OFF or extension.platform(b["url"]) in browser.stops():
         raise HTTPException(403, "guided mode doesn't run where capture is off or stopped")
     return JSONResponse({"audit": extension.guided(c, b["action"], b["url"], b.get("to"))})

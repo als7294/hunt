@@ -211,6 +211,10 @@ def view(url, data=shot, case_slug=slug, **extra):
     return c.post("/api/capture/view", data={"case": case_slug, "url": url, "viewed_at": "2026-10-28T15:00:00Z",
                                              "title": "Dorian Vell | Facebook", **extra},
                   files={"screenshot": ("screenshot.jpg", data, "image/jpeg")}, headers=UP)
+shut = Case.create("closed capture", purpose="self-check with made-up accounts", kind="insurance")
+shut.close("done")
+r = view("https://www.facebook.com/dorian.vell", case_slug=shut.name)
+assert r.status_code == 409 and "closed" in r.json()["error"], r.text  # a capture is new work: refused on a closed case (AP10)
 
 
 r = view("https://www.facebook.com/dorian.vell/photos")

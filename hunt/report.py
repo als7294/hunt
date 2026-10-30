@@ -365,6 +365,9 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
                          + ".", log.get("search", opened)[:1] + scope)
     if d["subject_dob"]:
         doc.say("scope", f"Date of birth supplied: {d['subject_dob']}.", scope)
+    if (country := (d["subject_residence"] or "").split("-")[0]) in casemod.ABROAD:  # F4: printed, so it can be checked
+        doc.say("scope", f"The subject lives in {country}. Lawful basis on record: {_end(d['abroad_basis'] or 'none recorded')} "
+                         f"Why they weren't told of this investigation: {_end(d['no_notice'] or 'none recorded')}", scope)
     if d["look_for"]:
         doc.say("scope", "Asked to look for: " + ", ".join(labels.get(k, k) for k in d["look_for"]) + ".", scope)
     if d["limits"]:
@@ -712,7 +715,8 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
               "subject_dob": None if screening else d["subject_dob"],
               "injury_date": None if screening else d["injury_date"], "assignment_date": d["assignment_date"],
               "report_date": _when(now(), tz, False), "timezone": tz, "confidentiality": prefs["confidentiality"]}
-    missing = [k for k in ("client", "reference", "assignment_date", "investigator", "licence") if not header[k]]
+    missing = [k for k in ("client", "reference", "assignment_date", "investigator", "licence") if not header[k]] + \
+        [k for k in ("abroad_basis", "no_notice") if (d["subject_residence"] or "").split("-")[0] in casemod.ABROAD and not d[k]]
     cited = {c for s in doc.sentences for c in s["cites"] if c.startswith("M-")}
     return {
         "screening": screening,
