@@ -149,6 +149,7 @@ async def scanned(*a, **kw):
     hits.append({"id": 7, "post_id": 1})
 
 
+real_scan = scan.run, scan.hits
 scan.run, scan.hits = scanned, lambda c: list(hits)
 case.db.execute("update watch set next = '2026-01-01T00:00:00+00:00'")
 lines = c.portal.call(watch.tick, lambda one: server._watch_job(c.app.app, one))
@@ -252,6 +253,7 @@ assert not r["ready"] and "retention period ends" in r["why"]
 assert c.post(f"/api/cases/{case.name}/minimise", json={"count": 0, "bytes": 0}, headers=JSON).status_code == 409
 assert c.post(f"/api/cases/{case.name}/minimise", json={"count": "all"}, headers=JSON).status_code == 400
 
+scan.run, scan.hits = real_scan  # the demo below runs the real scan's hits
 # The demo case: built on request, then read-only (its worklist never opens a page)
 assert c.get("/api/demo").json()["exists"] is False
 r = c.post("/api/demo", json={}, headers=JSON)
