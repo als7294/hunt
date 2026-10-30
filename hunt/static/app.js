@@ -277,7 +277,8 @@ function drawWizard() {
           <span class="t2">What’s it for?</span>
           <div style="display:flex;gap:10px;flex-wrap:wrap">${KIND_CHOICES.map(([k, label, ic, col, bg]) => html`<button type="button" class="choice ${w.kind === k ? 'on' : ''}" data-act="wiz-kind" data-kind="${k}"><span class="ic" style="background:${bg};color:${col}">${ic}</span>${label}</button>`)}</div>
           <div class="field"><span class="label">Who asked, and why it’s lawful <span style="color:var(--am)">· required</span></span>
-            <input class="input" name="purpose" value="${w.purpose}" placeholder="e.g. Northgate Mutual, claim WC-88412: disputed injury claim, permissible purpose on file"></div>
+            <input class="input" name="purpose" value="${w.purpose}" placeholder="e.g. Northgate Mutual, claim WC-88412: disputed injury claim, permissible purpose on file">
+            <span class="dim" style="font-size:12.5px">${NO_PRETEXT}</span></div>
           <div class="field"><span class="label">Claim or reference number</span><input class="input" name="reference" value="${w.reference}" placeholder="e.g. WC-88412"></div>
           <details id="wiz-header" ${w.headerOpen || WIZ_HEADER.some(k => w[k]) ? 'open' : ''} style="border-radius:14px;background:rgba(255,255,255,.02);padding:4px 12px">
             <summary class="muted" style="cursor:pointer;padding:8px 4px">For the report header <span class="dim">· optional, and can be filled in later</span></summary>
@@ -1034,11 +1035,14 @@ async function uploadFacebook(slug, files) {
 
 /* Connect your accounts (first boot, and from Home): sign in once in the Hunt Browser; each platform can be skipped */
 const setSkipped = list => { try { localStorage.setItem('hunt-skipped', JSON.stringify(list)); } catch { /* private window */ } };
+// legal.md C3 and C5: her own real account, and no pretext, said where she signs in and where she opens a case
+const OWN_ACCOUNT = 'Sign in only with your own real account (your work account, if your firm’s policy says so), never a made-up, shared or borrowed one. If a platform blocks it, stop and tell your firm; don’t sign in with another.';
+const NO_PRETEXT = 'Never use a false name or a false reason with anyone, online or off (no pretexting).';
 function connectRows(st) {
   if (!st.browser?.available) return html`<div class="reason warn"><span class="ic">!</span><span>Install the Hunt Browser first: <span class="mono">uv run playwright install chromium</span>, then come back here.</span></div>`;
   const sk = skipped();
   return html`${st.logins.map(l => { const state = st[l.platform] || 'unknown', isSkipped = sk.includes(l.platform) && state !== 'signed_in';
-    return html`<div class="row" style="${isSkipped ? 'opacity:.55' : ''}"><span class="dot" style="background:${siteColor(l.label)}"></span><b style="flex:1">${l.label}</b>
+    return html`<div class="row" style="${isSkipped ? 'opacity:.55' : ''};flex-wrap:wrap"><span class="dot" style="background:${siteColor(l.label)}"></span><b style="flex:1">${l.label}${l.platform === 'linkedin' ? html`<br><span class="muted" style="font-weight:400;font-size:13px">LinkedIn can show members who viewed them: set profile viewing to private mode in LinkedIn’s settings, or browse logged out.</span>` : ''}</b>
       <span style="font-size:14px;color:${state === 'signed_in' ? 'var(--gr)' : 'var(--mu)'}">${isSkipped ? 'Skipped' : state === 'signed_in' ? '✓ Signed in' : SIGNIN[state]}</span>
       ${state === 'signed_in' ? '' : html`<button class="btn sm" data-act="browser-open" data-url="${l.url}">Sign in</button>`}
       ${state === 'signed_in' ? '' : html`<button class="btn ghost sm" data-act="connect-skip" data-platform="${l.platform}">${isSkipped ? 'Undo' : 'Skip'}</button>`}</div>`; })}
@@ -1059,8 +1063,11 @@ screens.connect = async () => {
   mount(html`${topHome()}<main class="screen" style="align-items:center;padding:16px 24px 40px">
     <div style="width:min(720px,100%);display:flex;flex-direction:column;gap:18px">
       <div><a href="#/" data-act="back" class="muted" style="font-size:15px">← Back</a><div class="h2" style="margin-top:10px">Connect your accounts</div>
-        <div class="sub" style="margin-top:6px">Sign in once, in the Hunt Browser, to the platforms you’ll look at. Hunt never sees your passwords, and nothing is recorded while you sign in. Skip any you don’t use.</div></div>
+        <div class="sub" style="margin-top:6px">Sign in once, in the Hunt Browser, to the platforms you’ll look at. Hunt never sees your passwords, and nothing is recorded while you sign in. Skip any you don’t use.</div>
+        <div class="reason" style="margin-top:10px"><span class="ic">!</span><span>${OWN_ACCOUNT} ${NO_PRETEXT}</span></div></div>
       ${Object.keys(st.stopped || {}).length ? html`<div style="display:flex;flex-direction:column;gap:8px">${stopsBlock(st.stopped)}</div>` : ''}
+      ${st.problems?.length ? html`<div class="panel" style="padding:14px 18px;display:flex;flex-direction:column;gap:6px"><b>What the Hunt Browser reported</b>
+        ${st.problems.slice(-5).reverse().map(p => html`<span class="t2" style="font-size:13.5px">${when(p.ts)} · ${p.message}</span>`)}</div>` : ''}
       <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px" id="connect-rows">${connectRows(st)}</div>
       ${st.browser?.available ? html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><b>Your accounts <span class="muted" style="font-weight:400;font-size:14px">(optional)</span></b>
         <span class="muted" style="font-size:13.5px">The handle you sign in with on each platform, so every capture reads “logged in as @handle” in the evidence.</span>
@@ -1634,7 +1641,7 @@ const actions = {
       $('#key-rows').innerHTML = fmt(keys.map(keyRow)); toast(value ? 'Saved. Hunt uses it from now on.' : 'Removed.'); }
     catch (e) { el.disabled = false; fail(e); }
   },
-  'resume-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = html`<div style="display:flex;flex-direction:column;gap:8px"><span class="t2" style="font-size:14px">Only resume after you’ve spoken to Ethos, and never with another account.</span>
+  'resume-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = html`<div style="display:flex;flex-direction:column;gap:8px"><span class="t2" style="font-size:14px">Only resume after you’ve spoken to your firm, and never with another account.</span>
     <div style="display:flex;gap:6px"><button class="btn sm" data-act="resume-do" data-platform="${el.dataset.platform}">Resume ${el.dataset.platform}</button><button class="btn ghost sm" data-act="life-cancel">Cancel</button></div></div>`.s; },
   'resume-do': async el => { el.disabled = true;
     try { await api('/api/browser/resume', { method: 'POST', body: { platform: el.dataset.platform } }); toast(`${el.dataset.platform}: Hunt Capture can record there again.`);

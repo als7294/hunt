@@ -372,6 +372,8 @@ assert c.get("/api/face/gate?residence=XX").json()["allowed"] is False
 js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "hunt", "static", "app.js")).read()
 from hunt.case import COUNTRIES  # noqa: E402
 assert set(js.split("const ISO_COUNTRIES = '")[1].split("'")[0].split()) == COUNTRIES
+# The account and no-pretext rules, where she signs in and where she opens a case (C3, C5; a policy rule: text only)
+assert "never a made-up, shared or borrowed one" in js and "(no pretexting)" in js and js.count("${NO_PRETEXT}") == 2
 # Counsel's approval of a restricted-audience item: named, audited, for a hit that exists
 url = "/api/cases/vance-claim/hits/7/counsel"
 assert c.post(url, content=json.dumps({"by": " "}), headers=JSON).status_code == 400
