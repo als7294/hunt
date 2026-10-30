@@ -57,6 +57,9 @@ def wait_done(c: TestClient, job: str):
 c = client()
 r = c.get("/api/cases")
 assert r.status_code == 403 and "not signed in" in r.json()["error"], r.text  # no cookie
+r = c.get("/")  # a page load in a tab from an earlier start: a readable page, not a JSON error
+assert r.status_code == 403 and "Open Hunt again" in r.text and r.headers["content-type"].startswith("text/html"), r.text
+assert "<script" not in r.text and "content-security-policy" in r.headers
 assert c.get("/login?t=wrong").status_code == 403
 r = c.get(f"/login?t={TOKEN}")
 assert r.status_code == 303 and r.headers["location"] == "/"

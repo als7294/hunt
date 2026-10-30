@@ -125,7 +125,7 @@ reference number; `injury_date` is the date of injury or loss.
 | GET | `/api/keys` | `{keys: [{key, label, sources: [source], required, url, free, set, where: "saved"\|"environment"\|null}]}`, one row per env var (the state portals share `HUNT_SOCRATA_TOKEN`). Never a value |
 | POST | `/api/keys` | `{<env var>: value}`; `""` removes one → as GET. 400 for a key Hunt doesn't use, a value over 500 characters, or a key set in the shell that started Hunt (the shell wins; change it there) |
 
-`hunt/keys.py` keeps them in `HUNT_HOME/keys.json` (mode 0600) and puts them into the server's environment, where the
+`hunt/keys.py` keeps them in `HUNT_HOME/keys.env` (mode 0600; the file `hunt/cli.py:load_keys` reads at start) and puts them into the server's environment, where the
 sources read them. Which keys exist comes from the source modules' `KEY`, `KEY_REQUIRED`, `KEY_URL` and `KEY_FREE`; a
 key read elsewhere in Hunt (not by a source) is added to `keys.EXTRA = {env var: {label, url, free}}`. Every key is
 optional except CourtListener's, and Hunt works fully without any.
@@ -160,8 +160,9 @@ runs (political affiliation); NPI registry records and runs (health); and court 
 suit is about health or politics. It says so in its disclaimers.
 
 Citation ids: `E-<hit id>` (a kept item), `A-<finding id>` (an account), `M-<run rowid>` (a source run), `M-a<audit rowid>`
-(a case-log entry: purpose, decisions, captures, the scan). The exports print them as "Ex. n" (an exhibit), "Acct. n" (a
-row of the presence table), "Rec. n" (a row of the public records table) or "Log n" (Appendix B).
+(a case-log entry: purpose, decisions, captures, the scan), `N-<note id>` (the investigator's note on a reported item,
+printed under it; in the bundle's `notes.csv`). The exports print them as "Ex. n" (an exhibit), "Acct. n" (a row of the
+presence table), "Rec. n" (a row of the public records table), "Log n" (Appendix B) or "Note n".
 
 ## Python interface between the server and the scan modules
 `hunt/posts.py` and `hunt/scan.py` own their tables (`posts`, `media`, `post_extra`, `hits`) and create them on first use. `emit(event: dict)` is a plain, non-blocking callable.

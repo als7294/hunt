@@ -34,7 +34,7 @@ from starlette.background import BackgroundTask
 from starlette.datastructures import MutableHeaders, UploadFile
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from starlette.responses import HTMLResponse, FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -60,6 +60,13 @@ VERDICTS = [label for _, label in ICD203]
 
 # --- security -------------------------------------------------------------------------------
 
+# What a tab from an earlier start of Hunt shows: each start has its own sign-in link (no script, no outside links)
+SIGNED_OUT = ("<!doctype html><meta charset=utf-8><title>Hunt</title><body style=\"font:16px/1.5 system-ui;background:#131418;"
+              "color:#F1F2F4;max-width:34em;margin:15vh auto;padding:0 24px\"><h1 style=\"font-size:24px\">Open Hunt again</h1>"
+              "<p>This tab is from an earlier start of Hunt, and each start has its own sign-in. Open Hunt from the Dock or "
+              "Applications, or use the link <code>hunt app</code> printed in Terminal.</p>")
+
+
 class Guard:
     """docs/api.md "Security rules", on every request before any route runs."""
 
@@ -82,6 +89,8 @@ class Guard:
 
         if problem := self.problem(Request(scope)):
             status, message = problem
+            if scope["method"] == "GET" and not scope["path"].startswith("/api/") and message.startswith("not signed in"):
+                return await HTMLResponse(SIGNED_OUT, status)(scope, receive, secured)  # a page load in a stale tab
             return await JSONResponse({"error": message}, status)(scope, receive, secured)
         await self.app(scope, receive, secured)
 
@@ -331,7 +340,7 @@ async def startup(req: Request):
     slugs = all_cases()
     root = HOME / "cases"
     root.mkdir(parents=True, exist_ok=True)
-    check("cases", "Case folder", os.access(root, os.W_OK), f"{len(slugs)} cases in {root}")
+    check("cases", "Case folder", os.access(root, os.W_OK), f"{len(slugs)} case{'s' * (len(slugs) != 1)} in {root}")
     checked, tampered = 0, []
     for s in slugs:
         v = await asyncio.to_thread(Case.open(s).verify, True)  # unchanged files aren't re-read
@@ -362,7 +371,7 @@ async def startup(req: Request):
     try:
         rows = await health
         ready = [r for r in rows if r["ready"]]
-        keys = [r for r in rows if r["key"]]
+        keys = {r["key"]: r for r in rows if r["key"]}.values()  # one per key: the state portals share HUNT_SOCRATA_TOKEN
         missing = [r["source"] for r in rows if r["key_required"] and not r["key_set"]]
         check("sources", "Search sources", len(ready) == len(rows),
               f"{len(ready)} of {len(rows)} ready; {sum(r['key_set'] for r in keys)} of {len(keys)} keys set"

@@ -652,3 +652,41 @@ In screening mode, run notes and changed bios through the same protected-traits 
 20. **The per-account attribution section** (*Vayner*: numeric ID, matching details), listed in automation-legal.md's bundle additions, isn't built. It reads like report content: the "Is it them?" reasons per account, plus each platform's numeric ID where a capture recorded it. The report owner can decide where it lives; the bundle can carry it as `attribution.csv` once those IDs are recorded.
 21. **Media removed at retention.** The posts and scan views should show "removed at retention (data minimisation)" for media whose SHA-256 appears in a `media minimised` audit entry, rather than a broken image.
 
+
+## Known gaps (from the walkthrough of docs/user-guide.md, 2026-10-29)
+
+The walkthrough followed the guide in the real app, from a clean `HUNT_HOME`, on NASA's public accounts, at 1024 and
+1400 px. What it found and fixed is in the hunt-server commits from that day. What's left:
+
+**Not fixed**
+- **The search cluster crowds at 15 accounts.** On `nasa`, account labels overlap around the centre at 1400 px
+  (`hunt/static/cluster.js` places them). It's readable on "Is it them?", which lists the same accounts.
+- **Mirror accounts score "likely".** Eight Mastodon instances showing a copy of `@NASA` scored 62% each, mostly on
+  the shared profile photo and links back to the real profiles. She ruled them out by hand (Is it them? now keeps
+  them listed, with Undo). A federated copy should probably not count the photo it copies as a second identifier
+  (`hunt/match.py`).
+- **Text-only flags show an empty striped thumbnail** on the scan and worklist cards. Cosmetic.
+- **"Web page" on the Report screen downloads the HTML** rather than opening it (the export sends
+  `Content-Disposition: attachment`).
+- **Media removed at retention** still shows as a broken image (point 21 above).
+- **Case-level notes aren't in the report**; only notes on an item that's in the report are (cited "Note n"). A
+  choice of which case notes to print would be a new screen.
+
+**Not verified live, on purpose**
+- **Sign in / Open in Hunt Browser** (launches Chrome for Testing on the Mac) and **worklist opens**. Both routes
+  were exercised only up to the click.
+- **Read public preview**: `hunt/public.py` isn't on main yet. The button says "Not available yet" (501).
+- **Downloads on the start screen**: nothing was missing on this Mac, so the Download button and its progress
+  weren't seen. The doctor rows were (low disk space; Hunt not in Applications).
+- **"Keep watching when Hunt is closed"** installs a LaunchAgent. Only Watch on and off were tried.
+- **Replace on unpack** sends the case here to the Trash. Pack and "add as a second case" were tried.
+- **Remove unused media**: no case in the walkthrough was past its 90 days. The plan and the 409s are covered by
+  test_qol.
+- **Dropping files onto Posts**: the browser pane can't drag from Finder. The two test files went in through
+  From Downloads pointed at their folder, with the originals kept.
+- **The worklist's grid counter and "open these" list** wait for the capture extension's `progress` and `todo`
+  fields. They fall back to the checklist and the case's flags.
+
+**Noticed while testing, not a Hunt bug**
+- Restarting `hunt app` makes a new sign-in link, so an open tab stops working. It now says "Open Hunt again"
+  (page loads) or shows a banner (calls from an open page), instead of a JSON error or silent failures.

@@ -27,7 +27,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from . import bundle, case as casemod, search
+from . import bundle, case as casemod, notes as notesmod, search
 from .case import EVIDENCE_NAME, Case
 from .match import ICD203, norm_url
 from .seed import now
@@ -309,7 +309,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
 
     # Synopsis
     doc.say("summary", f"{prefs['firm'] or 'The investigator'} was asked by {d['client'] or 'the client'} to review the "
-                       f"public online presence of the subject, {subject}"
+                       "public online presence of the subject" + (f", {subject}" if names else "")
                        + (f", in connection with {'claim' if d['kind'] == 'insurance' else 'reference'} {d['reference']}"
                           if d["reference"] else "") + ".", scope)
     if confirmed:
@@ -424,7 +424,8 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
                     [acc(c)] + own(c))
     if ruled_out:
         doc.say("identity", f"The investigator ruled out {_many(len(ruled_out), 'other account')}: "
-                            f"{', '.join(c['site'] for c in ruled_out)}.", [acc(c) for c in ruled_out] + log.get("decision", []))
+                            f"{', '.join(c['site'] for c in ruled_out)}.",  # cited to her decisions: the accounts are in no table
+                [x for c in ruled_out for x in decided.get(norm_url(c["url"]), [])] or log.get("decision", []))
     namesakes = [c for c in cands if not search.in_person(c) and c["probability"] < 0.2 and c not in ruled_out
                  and not _record(c)
                  and any(t == "name" and r.startswith("+") and not r.startswith("+0.0")
@@ -456,7 +457,11 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         doc.say("records", f"{_many(len(others), 'other record')} under the same name {'was' if len(others) == 1 else 'were'} "
                            f"judged unlikely to concern {who}.", [acc(c) for c in others])
 
-    # Findings, by platform: only what the investigator kept
+    # Findings, by platform: only what the investigator kept, each with her notes on it (cited N-<id>)
+    on_item = {}
+    for n in notesmod.list_notes(case):
+        if not n["replaced_by"]:  # a corrected note shows as its correction
+            on_item.setdefault((n["about"], n["ref"]), []).append(n)
     for h in kept:
         cid = f"E-{h['id']}"
         timing = "" if screening or h.get("timing") not in ("before", "after") else (
@@ -468,6 +473,11 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
                          f"Machine reading: {reading}; reviewed and "
                          f"{'placed in the report' if h['status'] == 'in report' else 'kept'} by the investigator.", [cid])
         doc.sentences[-1]["platform"] = h.get("source") or "Other"
+        for n in on_item.pop(("hit", str(h["id"])), []) + on_item.pop(("post", str(h.get("post_id"))), []):
+            before = len(doc.sentences)
+            doc.say("found", f"Investigator's note {n['cite']}, {_when(n['ts'], tz, False)}: “{n['text']}”", [n["cite"]])
+            if len(doc.sentences) > before:  # screening drops a note in protected words
+                doc.sentences[-1]["platform"] = h.get("source") or "Other"
     if not kept:
         doc.say("found", "No posts or media were kept for this report.", log.get("scan finished", log.get("scan", opened)))
 
@@ -565,7 +575,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     header = {"title": TITLES.get(d["kind"], "Online Investigation Report"), "firm": prefs["firm"],
               "investigator": prefs["investigator"], "licence": prefs["licence"], "contact": prefs["contact"],
               "logo": prefs["logo"], "client": d["client"], "adjuster": d["adjuster"], "reference": d["reference"],
-              "file_number": d["file_number"] or case.name, "subject": subject,
+              "file_number": d["file_number"] or case.name, "subject": names[0] if names else d["label"] or subject,
               "subject_dob": None if screening else d["subject_dob"],
               "injury_date": None if screening else d["injury_date"], "assignment_date": d["assignment_date"],
               "report_date": _when(now(), tz, False), "timezone": tz, "confidentiality": prefs["confidentiality"]}
@@ -743,6 +753,8 @@ def _cite_label(cid: str, rep: dict) -> str:
         return f"Rec. {row}"
     if row := next((i + 1 for i, entry in enumerate(rep["log"]) if entry["id"] == cid), None):
         return f"Log {row}"
+    if cid.startswith("N-"):  # the investigator's note, in the evidence bundle's notes.csv
+        return f"Note {cid[2:]}"
     return cid
 
 

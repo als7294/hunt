@@ -18,8 +18,15 @@ async function api(path, { method = 'GET', body, form } = {}) {
   else if (body !== undefined) { opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
   const r = await fetch(path, opts);
   const data = (r.headers.get('content-type') || '').includes('json') ? await r.json() : await r.text();
+  if (r.status === 403 && /not signed in/.test(data?.error || '')) signedOut();
   if (!r.ok) throw Object.assign(new Error(data?.error || `${r.status} ${r.statusText}`), { status: r.status });
   return data;
+}
+function signedOut() { // usually Hunt restarted: each start has its own sign-in link
+  if (document.getElementById('signed-out')) return;
+  const d = document.createElement('div'); d.id = 'signed-out'; d.className = 'toast err'; d.style.bottom = 'auto'; d.style.top = '16px';
+  d.textContent = 'This tab lost its sign-in to Hunt, usually because Hunt restarted. Open Hunt again from the Dock, or from the link “hunt app” printed.';
+  document.body.appendChild(d);
 }
 function follow(job, onEvent) {
   const es = new EventSource(`/api/jobs/${encodeURIComponent(job)}/events`);
@@ -90,12 +97,13 @@ const lifeLine = st => [st.closed ? `Closed ${longDay(st.closed)}` : 'Open', st.
   : st.retention_due ? 'past its 90 days: hold it or delete it' : st.retention_ends ? `kept until ${longDay(st.retention_ends)}` : ''].filter(Boolean).join(' · ');
 function caseMenu(c) {
   const st = c.status || {}, slug = c.slug, item = (act, mode, label, cls = '') => html`<button class="menu-item ${cls}" data-act="${act}" data-mode="${mode}" data-slug="${slug}">${label}</button>`;
-  return html`<details class="menu"><summary class="chip-btn" title="Case menu"><span class="dot ${st.closed ? '' : 'ok'}"></span><span>${c.details?.label || slug}</span>${st.closed ? html`<span class="muted">· closed</span>` : ''}${st.legal_hold ? html`<span class="tag hold">Hold</span>` : ''}<span class="muted">▾</span></summary>
+  return html`<details class="menu"><summary class="chip-btn" title="Case menu"><span class="dot ${st.closed ? '' : 'ok'}"></span><span class="case-name">${c.details?.label || slug}</span>${st.closed ? html`<span class="muted pill-extra">· closed</span>` : ''}${st.legal_hold ? html`<span class="tag hold pill-extra">Hold</span>` : ''}<span class="muted">▾</span></summary>
     <div class="menu-pop panel"><div class="muted" style="font-size:13.5px;padding:4px 10px 8px">${lifeLine(st)}</div>
       <a class="menu-item" href="#/">All cases</a>
       <div class="life" style="display:flex;flex-direction:column;gap:2px">
         ${st.closed ? item('life-do', 'reopen', 'Reopen the case') : item('life-ask', 'close', 'Close the case…')}
         ${st.legal_hold ? item('life-do', 'unhold', 'Lift the legal hold') : item('life-ask', 'hold', 'Put on legal hold…')}
+        ${st.retention_due ? item('mini-ask', '', 'Remove unused media…') : ''}
         ${item('life-ask', 'pack', 'Move to another computer…')}
         ${st.legal_hold ? '' : item('life-ask', 'delete', 'Move to the Trash…', 'bad')}</div></div></details>`;
 }
@@ -113,8 +121,8 @@ screens.startup = async () => {
     ${glows(['-140px', '40px', 720, 'rgba(163,181,242,.22)'], ['calc(100% - 360px)', '-220px', 520, 'rgba(127,212,217,.10)'])}
     <div style="position:relative;flex:1;min-width:0"><fetch-hound mode="sit" pins="true" angle="-40" color="#CDD6F6" accent="#EDBE62" style="position:absolute;inset:0;display:block"></fetch-hound></div>
     <div style="position:relative;width:440px;padding:56px 52px 40px 0;display:flex;flex-direction:column;gap:26px">
-      <div class="brand" style="font-size:30px;gap:12px"><span class="logo lg"></span>Hunt<span id="boot-version" class="dim" style="font-size:14px;font-weight:400;align-self:flex-end;margin-bottom:5px"></span></div>
-      <div><div class="h2">Getting things ready</div><div class="muted" style="font-size:15.5px;margin-top:8px">Hang tight — this takes a few seconds.</div></div>
+      <div class="brand" style="font-size:30px;gap:12px"><span class="logo lg"></span>Hunt</div>
+      <div><div class="h2">Getting things ready</div><div class="muted" style="font-size:15.5px;margin-top:8px">Hang tight — this takes a few seconds. <span id="boot-version" class="dim"></span></div></div>
       <div id="boot" style="display:flex;flex-direction:column;gap:12px"></div>
       <div style="margin-top:auto;display:flex;flex-direction:column;gap:10px">
         <div class="bar"><i id="boot-bar"></i></div>
@@ -122,9 +130,10 @@ screens.startup = async () => {
       </div>
     </div></div>`);
   if (!customElements.get('fetch-hound')) { const s = document.createElement('script'); s.src = 'hound.js'; document.head.appendChild(s); }
-  let checks, keys = [];
-  try { const [r, k] = await Promise.all([api('/api/startup'), api('/api/keys').catch(() => ({ keys: [] }))]); status = { proxy: r.proxy, checked: true }; checks = r.checks; keys = k.keys;
-    $('#boot-version').textContent = r.version ? `v${r.version}` : ''; } // the release, from pyproject.toml (docs/qol.md J)
+  let checks, keys = [], setup = null;
+  try { const [r, k, su] = await Promise.all([api('/api/startup'), api('/api/keys').catch(() => ({ keys: [] })), api('/api/setup').catch(() => null)]);
+    status = { proxy: r.proxy, checked: true }; checks = r.checks; keys = k.keys; setup = su; $('#boot-version').textContent = `Hunt ${r.version}`;
+    checks.splice(checks.findIndex(c => c.id === 'retention'), 0, ...setupRows(su)); }
   catch (e) { checks = [{ id: 'server', label: 'Starting Hunt', ok: false, detail: e.message }]; }
   const box = $('#boot');
   for (let i = 0; i < checks.length; i++) {
@@ -136,20 +145,29 @@ screens.startup = async () => {
   const firstBoot = (() => { try { return !localStorage.getItem('hunt-connect-seen'); } catch { return false; } })();
   const next = () => { if (['', '#/', '#/startup'].includes(location.hash)) { const to = firstBoot ? '#/connect' : '#/'; if (location.hash === to) render(); else location.hash = to; } };
   // Cases past retention wait for a decision; otherwise carry on by itself
-  if (checks.some(c => c.id === 'retention' && c.items?.length)) box.insertAdjacentHTML('beforeend', html`<a class="btn primary sm" href="#/" style="align-self:flex-start;margin-top:6px">Continue →</a>`.s);
+  if (checks.some(c => (c.id === 'retention' || c.id === 'downloads') && c.items?.length)) box.insertAdjacentHTML('beforeend', html`<a class="btn primary sm" href="#/" style="align-self:flex-start;margin-top:6px">Continue →</a>`.s);
   else setTimeout(next, checks.every(c => c.ok) ? 500 : 2500);
 };
 
 const SIGNIN = { signed_in: 'signed in', signed_out: 'not signed in', unknown: 'not checked yet' };
+// `hunt doctor`'s findings the other rows don't already cover, and the downloads still missing (GET /api/setup)
+const COVERED = ['ollama', 'model', 'chromium', 'python', 'uv', 'hunt'];
+const setupRows = su => !su ? [] : [...su.doctor.filter(d => !d.ok && !COVERED.includes(d.id)).map(d => ({ id: `doctor-${d.id}`, label: d.label, ok: false, detail: [d.detail, d.fix && `To fix: ${d.fix}`].filter(Boolean).join(' · ') })),
+  ...(su.items.length ? [{ id: 'downloads', label: 'Downloads', ok: false, detail: 'Hunt needs these; nothing downloads until you say so', items: su.items }] : [])];
 const skipped = () => { try { return JSON.parse(localStorage.getItem('hunt-skipped') || '[]'); } catch { return []; } }; // platforms skipped on Connect your accounts
 function bootRow(c, keys = []) {
   const extra = c.id === 'sources' ? html`${(c.items || []).filter(x => x.reachable === false).map(x => html`<span class="muted" style="font-size:13px">${x.source}: can’t be reached (${x.detail})</span>`)}
       ${keys.length ? html`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${keys.map(k => html`<a class="acct" href="#/keys" style="font-size:13px;${k.set ? '' : k.required ? 'color:var(--am)' : 'color:var(--mu)'}">${k.set ? html`${k.label} <span style="color:var(--gr)">✓</span>` : `${k.label} · ${k.required ? 'key needed' : k.url ? 'free key available' : 'not set'}`}</a>`)}</div>` : ''}`
     : c.id === 'browser' && c.items ? html`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${c.items.map(x => html`<span class="acct" style="font-size:13px" title="${x.label}: ${SIGNIN[x.state]}">${x.label}${x.state === 'signed_in' ? html` <span style="color:var(--gr)">✓</span>` : skipped().includes(x.platform) ? html` <span class="dim">skipped</span>` : html` <button data-act="browser-open" data-url="${x.url}" style="color:var(--ac)">Sign in</button>`}</span>`)}</div>
       ${c.checked_at ? html`<span class="dim" style="font-size:12.5px">checked ${ago(c.checked_at).toLowerCase()}</span>` : ''}`
+    : c.id === 'downloads' ? html`<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">${c.items.map(x => html`<div class="card" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;gap:8px"><b style="font-weight:500">${x.label}</b><span class="muted" style="font-size:13px">${x.size ? size(x.size) : ''}</span></div>
+        ${x.detail ? html`<span class="muted" style="font-size:13px">${x.detail}</span>` : ''}
+        <div id="dl-${x.id}">${x.installable ? html`<button class="btn sm" data-act="setup-get" data-id="${x.id}" data-size="${x.size}">Download ${size(x.size)}</button>` : ''}</div></div>`)}</div>`
     : c.id === 'retention' && c.items?.length ? html`<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${c.items.map(x => html`<div class="card" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><a href="#/case/${x.slug}/report" style="font-weight:500">${x.label || x.slug}</a><span class="muted" style="font-size:13px">opened ${longDay(x.created)}</span></div>
-        <div class="life" id="life-${x.slug}" style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" data-act="life-ask" data-mode="hold" data-slug="${x.slug}">Keep: legal hold</button><button class="btn ghost sm" data-act="life-ask" data-mode="delete" data-slug="${x.slug}">Move to Trash</button></div></div>`)}</div>` : '';
+        <div class="life" id="life-${x.slug}" style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" data-act="life-ask" data-mode="hold" data-slug="${x.slug}">Keep: legal hold</button><button class="btn ghost sm" data-act="life-ask" data-mode="delete" data-slug="${x.slug}">Move to Trash</button>
+          <button class="btn ghost sm" data-act="mini-ask" data-slug="${x.slug}">Remove unused media</button></div></div>`)}</div>` : '';
   return html`<div style="display:flex;align-items:flex-start;gap:13px">
     <span style="width:24px;height:24px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:${c.ok ? 'var(--gr-bg)' : 'var(--am-bg)'};color:${c.ok ? 'var(--gr)' : 'var(--am)'}">${c.ok ? '✓' : '!'}</span>
     <div style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1"><span style="font-size:16px">${c.label}</span><span style="font-size:13.5px;color:${c.ok ? 'var(--gr)' : 'var(--am)'}">${c.detail || ''}</span>${extra}</div></div>`;
@@ -316,7 +334,9 @@ function refreshStart() {
   if (b) b.disabled = step < 3;
   $('#wiz-steps').innerHTML = fmt(wizPills(step)); $('#wiz-hint').textContent = wizHint(step);
 }
+const keepOpen = new Set(); // sections she opened stay open when the screen redraws after a decision
 document.addEventListener('toggle', e => {
+  if (['acct-details', 'rej-details'].includes(e.target.id)) keepOpen[e.target.open ? 'add' : 'delete'](e.target.id);
   if (e.target.id === 'wiz-header' && wiz) wiz.headerOpen = e.target.open;
   if (e.target.id === 'alerts' && e.target.open) api(`/api/cases/${encodeURIComponent(e.target.dataset.slug)}/alerts/seen`, { method: 'POST', body: {} }).catch(() => {});
 }, true);
@@ -395,7 +415,7 @@ screens.identity = async slug => {
         <div class="ring" style="--p:${Math.round(low * 100)}"><div><span style="font-weight:600;font-size:30px">${n}</span><span class="verdict">each ${capped(weakest) || 'likely'}<br>or better</span></div></div>
       </div>
       <div style="display:flex;flex-direction:column;gap:8px">${p.summary.map(s => html`<div class="reason"><span class="ic">✓</span><span>${s.text}</span></div>`)}</div>
-      <details style="border-radius:14px;background:rgba(255,255,255,.02);padding:4px 12px"><summary class="muted" style="cursor:pointer;padding:8px 4px">Each account, with its own reasons</summary>
+      <details id="acct-details" ${keepOpen.has('acct-details') ? 'open' : ''} style="border-radius:14px;background:rgba(255,255,255,.02);padding:4px 12px"><summary class="muted" style="cursor:pointer;padding:8px 4px">Each account, with its own reasons</summary>
         <div style="display:flex;flex-direction:column;gap:6px;padding:6px 0 10px">${accts.map(a => html`<div style="display:flex;gap:12px;align-items:flex-start;padding:10px;border-radius:12px;background:var(--panel)">
           <span class="dot" style="margin-top:7px;background:${siteColor(a.site)}"></span>
           <div style="flex:1;min-width:0"><div><b>${a.site}</b> <span class="muted">${a.handle || handleOf(a.url)}</span> · <span style="color:${VERDICT_COLOR[a.verdict] || 'var(--t2)'}">${pct(a.probability)} ${capped(a.verdict)}</span>${a.decision ? html` · <span class="muted">you said: ${a.decision === 'him' ? 'them' : a.decision === 'not him' ? 'not them' : 'unsure'}</span>` : ''}</div>
@@ -416,13 +436,21 @@ screens.identity = async slug => {
         <div style="flex:1;min-width:0"><div style="font-weight:500">${ns.label}</div><div class="muted" style="font-size:14px">${[ns.site, ...(ns.why || [])].filter(Boolean).join(' · ')}</div></div>
         <button class="btn ghost sm" data-act="decide" data-url="${ns.url}" data-decision="not him">${ns.decision === 'not him' ? '✓ Not them' : 'Not them'}</button></div>`)}
     </div>` : ''}
+    <div id="rejected" style="width:min(880px,100%)"></div>
     <div id="person-browse" style="width:min(880px,100%)"></div>
     <div id="seen-here" style="width:min(880px,100%)"></div>
   </main>`);
   if (p.decision === 'him' || accts.some(a => a.decision === 'him')) api(`/api/cases/${encodeURIComponent(slug)}/checklist`).then(cl => {
     if ($('#person-browse') && cl.accounts.length) $('#person-browse').innerHTML = html`<a class="panel row" href="#/case/${slug}/worklist" style="padding:18px;gap:16px"><span class="tile-ic">▤</span>
       <div style="flex:1"><b>Next: the worklist</b><div class="muted" style="font-size:14px">${cl.accounts.map(a => a.platform).join(', ')}: open each in the Hunt Browser and scroll; Hunt records and scans what loads.</div></div><span style="color:var(--ac)">Open →</span></a>`.s; }).catch(() => {});
-  api(`/api/cases/${encodeURIComponent(slug)}/seen-before`).then(r => { if ($('#seen-here')) $('#seen-here').innerHTML = seenBox(r, slug).s; }).catch(() => {});
+  api(`/api/cases/${encodeURIComponent(slug)}/case.json`).then(cj => { // what she ruled out stays visible, and can be taken back
+    const out = cj.candidates.filter(x => x.decision === 'not him' && !p.namesakes.some(n => n.url === x.url));
+    if (out.length && $('#rejected')) $('#rejected').innerHTML = html`<details id="rej-details" ${keepOpen.has('rej-details') ? 'open' : ''} class="panel" style="padding:4px 16px"><summary class="muted" style="cursor:pointer;padding:12px 0">You said not them (${out.length})</summary>
+      <div style="display:flex;flex-direction:column;gap:6px;padding-bottom:12px">${out.map(x => html`<div class="row" style="padding:10px 12px;background:var(--panel-2)"><span class="dot" style="background:${siteColor(x.site)}"></span>
+        <div style="flex:1;min-width:0"><b style="font-weight:500">${x.site}</b> <span class="muted">${handleOf(x.url)}</span></div>
+        <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="unsure" title="Takes back “not them”: logged as unsure">Undo</button></div>`)}</div></details>`.s;
+  }).catch(() => {});
+  api(`/api/cases/${encodeURIComponent(slug)}/seen-before`).then(r => { if ($('#seen-here')) $("#seen-here").innerHTML = fmt(seenBox(r, slug)); }).catch(() => {});
 };
 
 /* Public records on Is it them? (docs/research/tools.md, "Records in the app"): grouped by what they show */
@@ -496,7 +524,8 @@ screens.scan = async slug => {
 // ponytail: the newest 60 files only; page them if cases routinely have more
 function tiles(slug, posts, running) {
   const media = posts.flatMap(p => p.media).slice(0, 60);
-  if (!media.length) return !running ? html`<div class="empty">None of the accounts you confirmed post anywhere Hunt can read without logging in.
+  if (!media.length) return !running ? html`<div class="empty">${posts.length ? `Hunt read ${posts.length} public post${posts.length === 1 ? '' : 's'} from the accounts you confirmed; none has a photo or video to check.`
+      : 'None of the accounts you confirmed post anywhere Hunt can read without logging in.'}
     Instagram, Facebook, TikTok and Strava need a login, so save the posts you need there and add them on the <a href="#/case/${slug}/posts" style="color:var(--ac)">Posts</a> page.</div>`
     : html`<div class="empty">Reading public posts from the accounts you confirmed…</div>`;
   return html`<div class="tiles">${media.map(m => { const src = evidenceUrl(slug, m.file);
@@ -540,7 +569,7 @@ function drawInbox(results) {
     ${files.length ? files.map(f => { const r = done[f.id]; return html`<div class="row" style="align-items:flex-start;gap:12px;${f.in_case && !r ? 'opacity:.55' : ''}">
       ${results ? '' : html`<input type="checkbox" class="inbox-pick" data-id="${f.id}" checked aria-label="File ${f.name}" style="margin-top:3px;width:16px;height:16px;accent-color:var(--ac)">`}
       <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
-        <div><span style="font-weight:500;overflow-wrap:anywhere">${f.name}</span> <span class="muted" style="font-size:13px">${(f.size / 1e6).toFixed(1)} MB · saved ${new Date(f.saved).toLocaleString()}</span></div>
+        <div><span style="font-weight:500;overflow-wrap:anywhere">${f.name}</span> <span class="muted" style="font-size:13px">${size(f.size)} · saved ${when(f.saved)}</span></div>
         <div style="font-size:14px">${r ? html`${r.result === 'added' ? html`Added as <span class="mono">${r.exhibit}</span>` : r.result}${r.trashed === true ? ' · original in the Trash' : r.trashed ? ` · ${r.trashed}` : ''}`
           : f.in_case ? 'Already in this case' : html`→ <span class="mono">${f.exhibit}</span>`}</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap" id="chips-${f.id}">${chips(r || f)}</div>
@@ -615,7 +644,8 @@ function recheckCard(slug, ch) {
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><b>Check again</b><div class="muted" style="font-size:13.5px;margin-top:2px">Look at the subject’s confirmed accounts again: new posts, deleted posts, profile changes.</div></div>
       <button class="btn sm" data-act="recheck" data-slug="${slug}">Check again</button></div>
     <div id="recheck-state" class="t2" style="font-size:14px">${last ? html`Last checked ${when(last.ts)}: ${last.new_posts} new post${last.new_posts === 1 ? '' : 's'}, ${last.changes} change${last.changes === 1 ? '' : 's'}` : html`<span class="muted">Not checked again yet</span>`}
-      ${rescan === slug ? html` · <button data-act="scan-new" data-slug="${slug}" style="color:var(--ac)">Scan new posts →</button>` : ''}</div>
+      ${rescan === slug ? html` · <button data-act="scan-new" data-slug="${slug}" style="color:var(--ac)">Scan new posts →</button>` : ''}
+      ${last?.worklist ? html`<div style="margin-top:4px"><a href="#/case/${slug}/worklist" style="color:var(--ac)">${last.worklist} account${last.worklist === 1 ? '' : 's'} on Instagram, Facebook, TikTok, X or LinkedIn ${last.worklist === 1 ? 'is' : 'are'} yours to open: the worklist →</a></div>` : ''}</div>
     <div id="recheck-bar" class="bar hidden"><i></i></div>
     <div id="changes" style="display:flex;flex-direction:column;gap:6px">${ch.changes.slice(0, 4).map(x => changeLine(slug, x))}
       ${ch.changes.length > 4 ? html`<details><summary class="muted" style="cursor:pointer;font-size:13.5px">${ch.changes.length - 4} earlier changes</summary><div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">${ch.changes.slice(4).map(x => changeLine(slug, x))}</div></details>` : ''}
@@ -763,12 +793,14 @@ const todoOf = (a, mine) => a.todo || mine.hits.filter(h => h.status === 'new' &
 const fromGrid = (h, post) => !!(h.from_grid || post?.extra?.from === 'grid' || post?.extra?.grid);
 const previews = {}; // account → what Read public preview said, kept across refreshes
 let wlSig = '';
-function worklistCard(slug, a, mine, changes) {
-  const todo = todoOf(a, mine), seen = a.sections.filter(x => x.seen).length;
+function worklistCard(slug, a, mine, changes, w) { // w: the account's row in GET /worklist (login-walled platforms)
+  const todo = todoOf(a, mine), seen = a.sections.filter(x => x.seen).length, last = w?.last_opened || mine.last;
   return html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="dot" style="background:${siteColor(a.platform)}"></span><b style="font-size:17px">${a.platform}</b><span class="muted">${handleOf(a.account)}</span>
-      <span class="muted" style="font-size:13px;margin-left:auto">${mine.last ? `last opened ${when(mine.last)}` : 'not opened yet'}</span></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary sm" data-act="browser-open" data-url="${a.account}" data-case="${slug}">Open in Hunt Browser</button>
+      <span class="muted" style="font-size:13px;margin-left:auto">${last ? `last opened ${when(last)}` : 'not opened yet'}</span></div>
+    ${w?.warning ? html`<div class="reason warn" style="font-size:14px"><span class="ic">!</span><span>${w.warning}</span></div>` : ''}
+    <div class="life" style="display:flex;gap:8px;flex-wrap:wrap">${w ? html`<button class="btn primary sm" data-act="wl-open" data-account="${a.account}" data-slug="${slug}">Open in Hunt Browser</button>`
+      : html`<button class="btn primary sm" data-act="browser-open" data-url="${a.account}" data-case="${slug}">Open in Hunt Browser</button>`}
       ${PREVIEWABLE.includes(a.platform) ? html`<button class="btn ghost sm" data-act="preview" data-url="${a.account}" data-slug="${slug}" title="What the account shows logged out, read once">Read public preview</button>` : ''}</div>
     ${previews[a.account] ? html`<div class="t2" style="font-size:14px">${previews[a.account]}</div>` : ''}
     <div class="t2" style="font-size:14px">${progressLine(a, mine)}</div>
@@ -798,17 +830,20 @@ screens.worklist = async slug => {
 };
 async function drawWorklist(slug) {
   const base = `/api/cases/${encodeURIComponent(slug)}`;
-  const [cl, d, caps, ch] = await Promise.all([api(`${base}/checklist`).catch(() => ({ accounts: [] })), api(`${base}/posts`).catch(() => ({ hits: [], posts: [] })),
-    api(`${base}/captures`).catch(() => ({ captures: [] })), api(`${base}/changes`).catch(() => ({ changes: [] }))]);
-  const sig = JSON.stringify([cl, d.hits, d.posts.length, caps.captures.length, ch.changes.length, previews]);
+  const [cl, d, caps, ch, wl] = await Promise.all([api(`${base}/checklist`).catch(() => ({ accounts: [] })), api(`${base}/posts`).catch(() => ({ hits: [], posts: [] })),
+    api(`${base}/captures`).catch(() => ({ captures: [] })), api(`${base}/changes`).catch(() => ({ changes: [] })), api(`${base}/worklist`).catch(() => ({ worklist: [], uncompared_captures: 0 }))]);
+  const sig = JSON.stringify([cl, d.hits, d.posts.length, caps.captures.length, ch.changes.length, wl, previews]);
   if (!$('#wl-cards') || sig === wlSig) return; // redraw only when something changed: open sections and scroll stay put
   wlSig = sig;
   const open = new Set([...document.querySelectorAll('#wl-cards details[open]')].map(x => x.dataset.account)), postOf = new Map(d.posts.map(p => [p.id, p]));
   $('#wl-cards').innerHTML = fmt(cl.accounts.length ? cl.accounts.map(a => {
     const key = pathKey(a.account), posts = d.posts.filter(p => pathKey(p.account_url || '') === key), ids = new Set(posts.map(p => p.id));
     const last = [...caps.captures.filter(x => pathKey(x.url || '').startsWith(key)).map(x => x.viewed_at || x.ts), ...a.sections.map(x => x.seen_at)].filter(Boolean).sort().at(-1);
-    return worklistCard(slug, a, { posts: posts.length, hits: d.hits.filter(h => ids.has(h.post_id)), last }, ch.changes.filter(x => pathKey(x.account || '') === key));
+    return worklistCard(slug, a, { posts: posts.length, hits: d.hits.filter(h => ids.has(h.post_id)), last }, ch.changes.filter(x => pathKey(x.account || '') === key),
+      wl.worklist.find(w => pathKey(w.account) === key));
   }) : html`<div class="empty">Confirm the subject’s accounts on <a href="#/case/${slug}/identity" style="color:var(--ac)">Is it them?</a> to build the worklist.</div>`);
+  if (wl.uncompared_captures) $('#wl-cards').insertAdjacentHTML('afterbegin', html`<div class="reason" style="justify-content:space-between"><span>${wl.uncompared_captures} capture${wl.uncompared_captures === 1 ? '' : 's'} not yet compared with the last visit</span>
+    <button class="btn sm" data-act="wl-compare" data-slug="${slug}">Compare now</button></div>`.s);
   document.querySelectorAll('#wl-cards details').forEach(x => { if (open.has(x.dataset.account)) x.open = true; });
   $('#wl-found').innerHTML = fmt(d.hits.length ? [...d.hits].sort((x, y) => y.id - x.id).slice(0, 40).map(h => html`<div style="display:flex;flex-direction:column;gap:4px">
       ${fromGrid(h, postOf.get(h.post_id)) && h.status === 'new' ? html`<div style="display:flex;gap:8px;align-items:center;font-size:13px"><span class="tag warn">from a grid thumbnail; open the post to confirm</span>${/^https?:\/\//.test(h.url || '') ? html`<button data-act="browser-open" data-url="${h.url}" data-case="${slug}" style="color:var(--ac)">Open</button>` : ''}</div>` : ''}
@@ -914,16 +949,17 @@ function wizSeen() { // the new-case form, as seeds are added (debounced)
   clearTimeout(seenTimer); seenTimer = setTimeout(async () => {
     const box = $('#wiz-seen'); if (!box) return;
     if (!wiz.seeds.length) { box.innerHTML = ''; return; }
-    try { box.innerHTML = seenBox(await api('/api/seen-before', { method: 'POST', body: { seeds: wiz.seeds, kind: wiz.kind } })).s; } catch (e) { box.innerHTML = ''; }
+    try { box.innerHTML = fmt(seenBox(await api("/api/seen-before", { method: "POST", body: { seeds: wiz.seeds, kind: wiz.kind } }))); } catch (e) { box.innerHTML = ''; }
   }, 450);
 }
 
 /* Find a person, 3b: posts */
+let pickedHit = null; // the item open on the right: kept across redraws, so a decision doesn't lose her place
 screens.posts = async slug => {
   const base = `/api/cases/${encodeURIComponent(slug)}`;
   const [c, d, ch, w, al] = await Promise.all([loadCase(slug), api(`${base}/posts`).catch(() => ({ hits: [], posts: [], weekly: [], counts: {} })),
     api(`${base}/changes`).catch(() => ({ checks: [], changes: [] })), api(`${base}/watch`).catch(() => ({})), api(`${base}/alerts`).catch(() => ({ alerts: [] }))]);
-  const hits = d.hits.filter(h => h.status !== 'not relevant'), sel = hits[0], look = [...(c.details.look_for || [])].map(k => lookLabel(k).toLowerCase());
+  const hits = d.hits.filter(h => h.status !== 'not relevant'), sel = hits.find(h => h.id === pickedHit) || hits[0], look = [...(c.details.look_for || [])].map(k => lookLabel(k).toLowerCase());
   mount(html`${topCase(c, 'posts')}<main class="screen" style="padding:8px 24px 24px;gap:16px">
     <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap">
       <div style="flex:1;min-width:300px"><div class="h2">What’s relevant in their posts</div><div class="sub" style="margin-top:6px">${look.length ? 'Looking for: ' + look.join(', ') : ''}</div></div>
@@ -964,6 +1000,7 @@ function hitDetail(slug, c, h) {
       <div class="card" style="padding:12px;background:var(--am-bg)"><div class="label" style="color:var(--am)">The post shows</div><div>${h.who === 'him' ? '' : 'A person: '}${h.what}</div></div></div>` : ''}
     <div class="muted" style="font-size:13px">Machine verdict: ${h.verdict}. Hunt doesn’t measure weights or recognise faces; you decide whether this is the subject.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn sm ${h.status === 'kept' ? 'good' : ''}" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="kept">${h.status === 'kept' ? '✓ Kept' : 'Keep'}</button>
       <button class="btn primary sm" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="in report">${h.status === 'in report' ? '✓ In the report' : 'Add to report'}</button>
       <button class="btn ghost sm" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="not relevant">Not relevant</button>
       ${h.url ? html`<a class="btn ghost sm" href="${/^https?:\/\//.test(h.url) ? h.url : '#'}" target="_blank" rel="noopener noreferrer" title="Opens the live post in your own browser, not through Hunt’s proxy">Open the post</a>` : ''}
@@ -1002,6 +1039,7 @@ function citeLabel(id, r) {
   const p = r.presence.find(x => x.id === id); if (p) return [`Acct. ${p.row}`, `p-${id}`];
   const rec = (r.records || []).find(x => x.id === id); if (rec) return [`Rec. ${rec.row}`, `r-${id}`];
   const i = r.log.findIndex(x => x.id === id); if (i >= 0) return [`Log ${i + 1}`, `l-${id}`];
+  if (id.startsWith('N-')) return [`Note ${id.slice(2)}`, '']; // her note, printed with the item; in the bundle's notes.csv
   return [id, ''];
 }
 screens.report = async slug => {
@@ -1164,9 +1202,10 @@ const actions = {
     try { await api(`/api/jobs/${encodeURIComponent(job)}/${paused ? 'resume' : 'pause'}`, { method: 'POST', body: {} }); el.dataset.paused = paused ? '0' : '1'; el.textContent = paused ? 'Pause' : 'Resume'; } catch (e) { fail(e); }
   },
   hit: async el => {
+    if (el.closest('#hit-detail')) pickedHit = +el.dataset.id; // stay on it after the redraw
     try { await api(`/api/cases/${encodeURIComponent(el.dataset.slug)}/hits/${encodeURIComponent(el.dataset.id)}`, { method: 'POST', body: { status: el.dataset.status } }); render(); } catch (e) { fail(e); }
   },
-  'pick-hit': el => { const h = window.__hits.find(x => String(x.id) === el.dataset.id); $('#hit-detail').innerHTML = hitDetail(route().slug, window.__case, h).s;
+  'pick-hit': el => { const h = window.__hits.find(x => String(x.id) === el.dataset.id); pickedHit = h.id; $('#hit-detail').innerHTML = hitDetail(route().slug, window.__case, h).s;
     document.querySelectorAll('[data-act="pick-hit"]').forEach(b => b.style.boxShadow = b === el ? 'inset 0 0 0 1.5px var(--ac)' : ''); refreshNoteCounts(route().slug); },
   cite: el => { const t = el.dataset.target && document.getElementById(el.dataset.target); t?.scrollIntoView({ behavior: 'smooth', block: 'center' }); t?.animate([{ background: 'var(--ac-bg)' }, { background: 'transparent' }], 1200); },
   jump: (el, e) => { e.preventDefault(); document.getElementById(el.dataset.id)?.scrollIntoView({ behavior: 'smooth' }); },
@@ -1221,12 +1260,48 @@ const actions = {
       $('#bring-out').innerHTML = html`Unpacked as <a href="#/case/${r.slug}/search" style="color:var(--ac)">${r.slug}</a>: ${r.files} files, each matching the manifest${r.replaced ? '; the case that was here is in the Trash' : ''}. Watching is off on this computer. Turn it on here if this is where the case will be watched.`.s;
     } catch (e) { el.disabled = false; $('#bring-out').textContent = ''; fail(e); }
   },
+  'mini-ask': async el => { // after retention: the photos and videos nobody kept, reported or noted go to the Trash; the case stays
+    const box = el.closest('.life'), slug = el.dataset.slug; box.dataset.was = box.innerHTML;
+    try { const m = await api(`/api/cases/${encodeURIComponent(slug)}/minimise`);
+      box.innerHTML = (m.ready && m.count ? html`<div style="display:flex;flex-direction:column;gap:8px;width:100%"><span class="t2" style="font-size:14px">${m.count} photo${m.count === 1 ? '' : 's'} and video${m.count === 1 ? '' : 's'} (${size(m.bytes)}) that nobody kept, reported or noted go to the Trash. The case, its report and everything kept stay. Empty the Trash to finish removing them.</span>
+        <div style="display:flex;gap:6px"><button class="btn sm" data-act="mini-do" data-slug="${slug}" data-count="${m.count}" data-bytes="${m.bytes}">Move ${m.count} to the Trash</button><button class="btn ghost sm" data-act="life-cancel">Cancel</button></div></div>`
+        : html`<span class="muted" style="font-size:13.5px">${m.why || 'Nothing unused to remove.'}</span> <button class="btn ghost sm" data-act="life-cancel">OK</button>`).s;
+    } catch (e) { fail(e); }
+  },
+  'mini-do': async el => { el.disabled = true;
+    try { const r = await api(`/api/cases/${encodeURIComponent(el.dataset.slug)}/minimise`, { method: 'POST', body: { count: +el.dataset.count, bytes: +el.dataset.bytes } });
+      el.closest('.life').innerHTML = html`<span class="muted" style="font-size:13.5px">Moved ${r.count} file${r.count === 1 ? '' : 's'} (${size(r.bytes)}) to the Trash. It’s in the case log.</span>`.s; }
+    catch (e) { el.disabled = false; fail(e); } },
+  'wl-open': async el => { // her click, audited; a pacing warning (LinkedIn) asks first
+    const { slug, account } = el.dataset, confirmed = !!el.dataset.confirmed;
+    try { const r = await api(`/api/cases/${encodeURIComponent(slug)}/worklist/open`, { method: 'POST', body: { account, confirmed } });
+      toast(r.started ? 'Opening the Hunt Browser…' : 'Opened in the Hunt Browser. Turn on Hunt Capture there to record.'); wlSig = ''; drawWorklist(slug); }
+    catch (e) {
+      if (e.status === 409 && !confirmed && !/browser|install|playwright/i.test(e.message)) el.closest('.life').innerHTML = html`<span class="t2" style="font-size:14px">${e.message}</span>
+        <button class="btn sm" data-act="wl-open" data-account="${account}" data-slug="${slug}" data-confirmed="1">Open anyway</button>`.s;
+      else fail(e);
+    }
+  },
+  'wl-compare': async el => { el.disabled = true;
+    try { const r = await api(`/api/cases/${encodeURIComponent(el.dataset.slug)}/captures/compare`, { method: 'POST', body: {} }); toast(`${r.changes.length} change${r.changes.length === 1 ? '' : 's'} found`); wlSig = ''; drawWorklist(el.dataset.slug); }
+    catch (e) { el.disabled = false; fail(e); } },
   preview: async el => {
     const url = el.dataset.url, slug = el.dataset.slug; el.disabled = true; el.textContent = 'Reading…';
     try { const r = await api(`/api/cases/${encodeURIComponent(slug)}/preview`, { method: 'POST', body: { url } });
       previews[url] = r.note || 'Read.'; if (r.added) await startScan(slug); }
     catch (e) { previews[url] = e.status === 501 ? 'Not available yet: the public preview reader is still being built.' : e.message; }
     drawWorklist(slug);
+  },
+  'setup-get': async el => {
+    const id = el.dataset.id, box = $(`#dl-${id}`); el.disabled = true;
+    try { const { job } = await api(`/api/setup/${encodeURIComponent(id)}`, { method: 'POST', body: { size: +el.dataset.size } });
+      box.innerHTML = html`<div class="bar"><i></i></div><span class="muted" style="font-size:13px">Starting…</span>`.s;
+      const es = follow(job, ev => {
+        if (ev.type === 'progress') { box.querySelector('i').style.transform = `scaleX(${ev.total ? ev.done / ev.total : 0})`; box.querySelector('span').textContent = ev.total ? `${size(ev.done)} of ${size(ev.total)}` : ev.message || ''; }
+        if (ev.type === 'error') { es.close(); box.innerHTML = html`<span style="color:var(--rd);font-size:13px">${ev.message}</span>`.s; }
+        if (ev.type === 'done') { es.close(); box.innerHTML = html`<span style="color:var(--gr);font-size:13px">Done.</span>`.s; }
+      });
+    } catch (e) { el.disabled = false; fail(e); }
   },
   'key-save': async el => {
     const key = el.dataset.key, input = document.querySelector(`.key-in[data-key="${key}"]`), value = el.dataset.clear ? '' : input.value.trim();

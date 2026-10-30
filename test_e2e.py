@@ -143,9 +143,11 @@ sys.modules["hunt.browser"] = types.SimpleNamespace(status=lambda: {  # as hunt.
                {"platform": "x", "label": "X", "url": "https://x.com/login"}]})
 
 
-async def health():
+async def health():  # the fakes, plus the three state portals sharing one key: the startup line counts it once
+    shared = [{"source": n, "kinds": ["name"], "key": "HUNT_SOCRATA_TOKEN", "key_set": True, "key_required": False,
+               "reachable": True, "detail": "ok", "checks": [], "ready": True} for n in ("licences", "businesses", "fmcsa")]
     return [{"source": s.NAME, "kinds": sorted(s.KINDS), "key": None, "key_set": False, "key_required": False,
-             "reachable": True, "detail": "ok", "checks": [], "ready": True} for s in search.SOURCES]
+             "reachable": True, "detail": "ok", "checks": [], "ready": True} for s in search.SOURCES] + shared
 
 
 server.sources.health = health
@@ -177,7 +179,8 @@ rows = {x["id"]: x for x in c.get("/api/startup").json()["checks"]}
 assert {"cases", "evidence", "ai", "network", "proxy", "sources", "browser", "retention"} <= set(rows), rows
 assert rows["browser"]["detail"] == "signed in: Facebook; not signed in: X" and rows["browser"]["label"] == "Hunt Browser 131.0"
 assert [x["state"] for x in rows["browser"]["items"]] == ["signed_in", "signed_out"], rows["browser"]
-assert rows["sources"]["ok"] and len(rows["sources"]["items"]) == 3 and rows["ai"]["ok"], rows["sources"]
+assert rows["sources"]["ok"] and len(rows["sources"]["items"]) == 6 and rows["ai"]["ok"], rows["sources"]
+assert rows["sources"]["detail"] == "6 of 6 ready; 1 of 1 keys set" and rows["cases"]["detail"].startswith("0 cases"), rows
 assert c.post("/api/settings", content=json.dumps({"firm": "Example Investigations", "investigator": "Jo Example",
                                                     "licence": "PI-000000", "timezone": "America/New_York"}),
               headers=JSON).status_code == 200
