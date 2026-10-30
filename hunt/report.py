@@ -27,7 +27,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from . import bundle, case as casemod, graph, notes as notesmod, search
+from . import bundle, case as casemod, graph, leads as leadsmod, notes as notesmod, search
 from .case import EVIDENCE_NAME, Case
 from .match import ICD203, norm_url
 from .seed import now
@@ -38,7 +38,7 @@ MARKED = {"him": "The investigator confirmed the {site} account as the subject's
 SECTIONS = [("summary", "Synopsis"), ("scope", "Assignment and scope"), ("method", "Search methodology"),
             ("presence", "Online presence"), ("identity", "Identity confirmation"), ("people", "People around the subject"),
             ("records", "Public records"),
-            ("found", "Findings"),
+            ("found", "Findings"), ("claim", "Claim and evidence"),
             ("conclusion", "Conclusion and recommendations"), ("couldnt_see", "Limitations: what we couldn't see"),
             ("disclaimers", "Disclaimers")]
 TITLES = {"insurance": "Social Media and Online Activity Investigation", "background": "Online Presence Background Report",
@@ -530,6 +530,49 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     if not kept:
         doc.say("found", "No posts or media were kept for this report.", log.get("scan finished", log.get("scan", opened)))
 
+    # Claim and evidence (docs/analysis.md §9): each restriction the claim states against what the investigator kept
+    # from after the injury, worded as the lead's own facts. Absence is said too, so it's on the record.
+    if screening:
+        doc.say("claim", "This screening version leaves out the claim and the evidence set against it.", opened, boilerplate=True)
+    else:
+        safe = [{"who": "unknown", "post_id": None, "p": None, **h,  # leads reads these keys; machine readings stop at "likely"
+                 "verdict": cap(h["verdict"]) if h.get("verdict") in VERDICTS else h.get("verdict")} for h in hits]
+        found = leadsmod.leads(d, posts, safe, cands, graph.associates(posts, cands, case.seeds(), graph.photo_labels(case))["people"])
+        said, accounts_by = json.loads(case.meta("lead_status") or "{}"), {norm_url(c["url"]): c for c in people + records}
+
+        def cited(x):  # leads cite posts as E-<post id>; the report's E- ids are kept items
+            out = []
+            for ci in x["cites"]:
+                if ci.startswith("A-"):
+                    out.append(ci)
+                elif ci.startswith("E-") and ci[2:].isdigit():
+                    pid = int(ci[2:])
+                    if h := next((h for h in safe if h["post_id"] == pid and h["status"] in KEPT), None):
+                        out.append(f"E-{h['id']}")
+                    elif (post := by_post.get(pid)) and (a := accounts_by.get(norm_url(post.get("account_url") or ""))):
+                        out.append(acc(a))
+            return out
+        chosen = [x for x in found["leads"] if (x["status"] in KEPT if x["kind"] == "scan" else said.get(x["id"]) == "kept")]
+        method = log.get("scan finished", log.get("scan", log.get("search finished", opened)))[:1]
+        rs = found["restrictions"]
+        lower = lambda t: t[:1].lower() + t[1:]
+        if not found.get("injury_date") or not rs:
+            doc.say("claim", "No date of injury is on file, so nothing was set against the claim." if not found.get("injury_date")
+                    else "No restriction is on file to set the evidence against.", scope)
+        else:
+            if stated := [lower(r["claim"].rstrip(".")) for r in rs if r["stated"]]:
+                doc.say("claim", f"The claim states: {'; '.join(stated)}.", scope)
+            if asked := [r["claim"].removeprefix("The case asks about ").rstrip(".") for r in rs if not r["stated"]]:
+                doc.say("claim", f"The case {'also ' if stated else ''}asks about: {'; '.join(asked)}.", scope)
+            for r in rs:
+                label = r["key"].capitalize()
+                mine = [(x, c_) for x in chosen if x["restriction"] == r["key"] and (c_ := cited(x))]
+                for x, c_ in mine:
+                    doc.say("claim", f"{label}: {lower(x['shows'].rstrip('.'))}.", c_)
+                if not mine:
+                    doc.say("claim", f"{label}: nothing found after the injury that bears on this." if not r["leads"] else
+                            f"{label}: {_many(r['leads'], 'lead')} after the injury, none kept for this report.", method)
+
     # Conclusion and recommendations
     if kept:
         dated = [h for h in kept if h.get("posted_at")]
@@ -619,7 +662,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     review_done = scanned and not any(h.get("status") == "new" for h in hits)
     decisions = bool(case.decisions())
     done = {"summary": bool(runs), "scope": True, "method": bool(runs), "presence": bool(people), "identity": decisions,
-            "records": True, "people": True,
+            "records": True, "people": True, "claim": True,
             "found": review_done, "conclusion": decisions, "couldnt_see": True, "disclaimers": True}
     header = {"title": TITLES.get(d["kind"], "Online Investigation Report"), "firm": prefs["firm"],
               "investigator": prefs["investigator"], "licence": prefs["licence"], "contact": prefs["contact"],

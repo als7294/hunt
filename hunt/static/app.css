@@ -134,6 +134,8 @@ img.thumb.blur, .blur { filter: blur(10px) saturate(.6); }
 .two-up { display: grid; grid-template-columns: 1fr 1fr; }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) var(--side, 420px); gap: 18px; flex: 1; min-height: 0; }
 .report-grid { display: grid; grid-template-columns: 240px minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+.claim-grid { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 18px; align-items: start; }
+.claim-rs { display: flex; flex-direction: column; gap: 8px; }
 @media (max-width: 1180px) {
   .wiz-grid { grid-template-columns: 1fr; gap: 28px; padding: 16px 28px 32px; }
   .wiz-grid > div:last-child { padding-top: 0 !important; }
@@ -143,7 +145,8 @@ img.thumb.blur, .blur { filter: blur(10px) saturate(.6); }
   .case-name { max-width: 110px; } .pill-extra { display: none; } .top .chip-btn { padding: 9px 10px; } /* the case pill stays on screen at 1024 px; the closed bar and the menu say it */
 }
 @media (max-width: 900px) {
-  .two-up, .split, .report-grid { grid-template-columns: 1fr; }
+  .two-up, .split, .report-grid, .claim-grid { grid-template-columns: 1fr; }
+  .claim-rs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); } /* the restrictions side by side above the leads */
   .h1 { font-size: 34px; } .wiz-grid .h1 { font-size: 38px !important; }
   .step { padding: 6px 8px 6px 6px; font-size: 13px; } .step-link { width: 14px; } .sep { display: none; }
 }
