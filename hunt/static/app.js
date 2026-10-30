@@ -245,7 +245,7 @@ const KIND_CHOICES = [['insurance', 'Insurance claim', '⛨', 'var(--am)', 'rgba
 let wiz;
 const WIZ_HEADER = ['client', 'adjuster', 'file_number', 'assignment_date', 'subject_dob']; // optional, for the report header
 const newWizard = () => ({ seeds: [], kind: 'insurance', look_for: LOOK_FOR.filter(l => l[2]).map(l => l[0]), custom: [], purpose: '', reference: '', injury_date: '', limits: '',
-  ...Object.fromEntries(WIZ_HEADER.map(k => [k, ''])) });
+  ...Object.fromEntries(WIZ_HEADER.map(k => [k, ''])), country: '', state: '', faceOn: false, faceBasis: '', faceFiles: [], gate: null });
 screens.new = () => { wiz ??= newWizard(); drawWizard(); };
 function drawWizard() {
   const w = wiz, step = wizStep();
@@ -271,6 +271,7 @@ function drawWizard() {
             <summary class="muted" style="cursor:pointer;padding:8px 4px">For the report header <span class="dim">· optional, and can be filled in later</span></summary>
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;padding:6px 0 12px">
               ${DETAIL_FIELDS.filter(([k]) => WIZ_HEADER.includes(k)).map(([k, label, hint]) => html`<label class="field"><span class="label">${label}</span><input class="input" name="${k}" ${hint === 'date' ? raw('type="date"') : ''} value="${w[k]}" placeholder="${hint === 'date' ? '' : hint}"></label>`)}</div></details>
+          ${faceStep(w)}
           ${w.kind === 'insurance' ? html`<div style="padding:18px;border-radius:18px;background:linear-gradient(160deg,rgba(51,41,26,.7),rgba(27,29,35,.9) 70%);box-shadow:inset 0 0 0 1px rgba(237,190,98,.3);display:flex;flex-direction:column;gap:14px">
             <div style="display:grid;grid-template-columns:200px 1fr;gap:10px">
               <div class="field"><span class="label">Injury date</span><input class="input" type="date" name="injury_date" value="${w.injury_date}"></div>
@@ -304,18 +305,53 @@ function drawWizard() {
   input.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addSeeds(input.value); } else if (e.key === 'Backspace' && !input.value && w.seeds.length) { w.seeds.pop(); refreshSeeds(); } });
   input.addEventListener('paste', e => { const t = e.clipboardData.getData('text'); if (/[\n,;]/.test(t)) { e.preventDefault(); addSeeds(t); } });
   input.addEventListener('blur', () => input.value.trim() && addSeeds(input.value));
-  $('#wiz').addEventListener('input', e => { if (e.target.name) { w[e.target.name] = e.target.value; if (e.target.name === 'purpose') refreshStart(); } });
+  $('#wiz').addEventListener('input', e => { if (e.target.name) { w[e.target.name] = e.target.value; if (['purpose', 'faceBasis'].includes(e.target.name)) refreshStart(); } });
   if (w.seeds.length) input.placeholder = 'Add another…';
   $('#wiz').addEventListener('submit', e => e.preventDefault());
   if (document.activeElement === document.body) input.focus();
   wizSeen();
 }
+/* Face comparison with a reference photo (docs/analysis.md §5): optional, off by default, allowed only where the
+   subject lives permits it. The rule that decides is shown as the server words it. */
+const US_STATES = 'AL Alabama|AK Alaska|AZ Arizona|AR Arkansas|CA California|CO Colorado|CT Connecticut|DE Delaware|DC District of Columbia|FL Florida|GA Georgia|HI Hawaii|ID Idaho|IL Illinois|IN Indiana|IA Iowa|KS Kansas|KY Kentucky|LA Louisiana|ME Maine|MD Maryland|MA Massachusetts|MI Michigan|MN Minnesota|MS Mississippi|MO Missouri|MT Montana|NE Nebraska|NV Nevada|NH New Hampshire|NJ New Jersey|NM New Mexico|NY New York|NC North Carolina|ND North Dakota|OH Ohio|OK Oklahoma|OR Oregon|PA Pennsylvania|RI Rhode Island|SC South Carolina|SD South Dakota|TN Tennessee|TX Texas|UT Utah|VT Vermont|VA Virginia|WA Washington|WV West Virginia|WI Wisconsin|WY Wyoming'.split('|').map(x => [x.slice(0, 2), x.slice(3)]);
+let countries = null; // [[ISO code, name]], from the browser's own region names
+const countryList = () => countries ??= (() => { const dn = new Intl.DisplayNames(['en'], { type: 'region' }), out = [];
+  for (let a = 65; a < 91; a++) for (let b = 65; b < 91; b++) { const code = String.fromCharCode(a, b); let name; try { name = dn.of(code); } catch { continue; }
+    if (name && name !== code && !/unknown/i.test(name) && !['EU', 'EZ', 'UN', 'QO', 'XA', 'XB', 'ZZ'].includes(code)) out.push([code, name]); }
+  return out.sort((x, y) => x[1].localeCompare(y[1])); })();
+const residenceOf = w => w.country === 'US' ? (w.state ? `US-${w.state}` : 'US') : w.country;
+function faceStep(w) {
+  const r = residenceOf(w), g = w.gate;
+  return html`<details id="wiz-face" ${w.faceOpen || w.country ? 'open' : ''} style="border-radius:14px;background:rgba(255,255,255,.02);padding:4px 12px">
+    <summary class="muted" style="cursor:pointer;padding:8px 4px">Where they live, and comparing faces <span class="dim">· optional, off by default</span></summary>
+    <div style="display:flex;flex-direction:column;gap:10px;padding:6px 0 12px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">
+        <label class="field"><span class="label">Country they live in</span><select class="input" id="wiz-country"><option value="">Not known</option><option value="US" ${w.country === 'US' ? 'selected' : ''}>United States</option>
+          ${countryList().filter(([c]) => c !== 'US').map(([c, n]) => html`<option value="${c}" ${w.country === c ? 'selected' : ''}>${n}</option>`)}</select></label>
+        ${w.country === 'US' ? html`<label class="field"><span class="label">State</span><select class="input" id="wiz-state"><option value="">Not known</option>${US_STATES.map(([c, n]) => html`<option value="${c}" ${w.state === c ? 'selected' : ''}>${n}</option>`)}</select></label>` : ''}</div>
+      ${!r ? html`<span class="muted" style="font-size:13.5px">Face comparison needs to know where the subject lives: several states and countries forbid it without written consent.</span>`
+        : !g ? html`<span class="muted" style="font-size:13.5px">Checking the rules for ${r}…</span>`
+        : !g.allowed ? html`<div class="reason warn" style="font-size:14px"><span class="ic">!</span><span>Face comparison isn’t available for this subject: ${g.rule}.</span></div>`
+        : html`<div class="reason" style="font-size:14px"><span class="ic">✓</span><span>Allowed where they live (${g.rule}). It stays off unless you turn it on.</span></div>
+          <label style="display:flex;gap:10px;align-items:center;cursor:pointer"><input type="checkbox" id="wiz-face-on" ${w.faceOn ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--ac)"><b>Compare faces with a reference photo</b></label>
+          ${w.faceOn ? html`<label class="field"><span class="label">Your legal basis <span style="color:var(--am)">· required</span></span><input class="input" name="faceBasis" value="${w.faceBasis}" placeholder="e.g. claimant signed the consent form, file 4521"></label>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="btn sm" for="wiz-ref" style="cursor:pointer">Choose reference photos</label>
+              <span class="muted" style="font-size:13.5px">${w.faceFiles.length ? w.faceFiles.map(f => f.name).join(', ') : 'A clear, recent, front-facing photo of the subject'}</span></div>
+            <input type="file" id="wiz-ref" accept="image/jpeg,image/png,.heic" multiple hidden>
+            <span class="dim" style="font-size:12.5px">Hunt compares faces on this Mac, one photo at a time, and keeps the reference photo as case evidence, never a face template. A match is a lead to check, never proof on its own.</span>` : ''}`}
+    </div></details>`;
+}
+async function wizGate() { // the rule for where they live, as the server words it
+  const r = residenceOf(wiz); wiz.gate = null; if (!r) return;
+  try { const g = await api(`/api/face/gate?residence=${encodeURIComponent(r)}`); if (residenceOf(wiz) === r) { wiz.gate = g; if (!g.allowed) wiz.faceOn = false; drawWizard(); } } catch (e) { fail(e); }
+}
 const lookFor = w => html`<div style="display:flex;flex-direction:column;gap:8px"><span style="font-size:15px;font-weight:500">What should Hunt look for in their posts?</span>
   <div style="display:flex;flex-wrap:wrap;gap:7px">${LOOK_FOR.map(([k, label]) => html`<button type="button" class="tick ${w.look_for.includes(k) ? 'on' : ''}" data-act="wiz-look" data-key="${k}">${w.look_for.includes(k) ? '✓ ' : ''}${label}</button>`)}
   ${w.custom.map(c => html`<button type="button" class="tick on" data-act="wiz-custom-remove" data-value="${c}">✓ ${c} ×</button>`)}
   <input class="tick add" id="custom-in" placeholder="+ Add your own" style="width:150px;outline:0" aria-label="Add your own thing to look for"></div></div>`;
-const wizStep = () => !wiz.seeds.length ? 1 : !wiz.purpose.trim() ? 2 : 3;
-const wizHint = step => step === 1 ? 'Add at least one thing you know about them.' : step === 2 ? 'Say who asked and why it’s lawful.' : '';
+const wizStep = () => !wiz.seeds.length ? 1 : !wiz.purpose.trim() ? 2 : wiz.faceOn && (!wiz.faceBasis.trim() || !wiz.faceFiles.length) ? 2.5 : 3;
+const wizHint = step => step === 1 ? 'Add at least one thing you know about them.' : step === 2 ? 'Say who asked and why it’s lawful.'
+  : step === 2.5 ? 'Comparing faces needs your legal basis and a reference photo, or turn it off.' : '';
 const wizPills = step => [[1, 'Who', 'var(--ac)'], [2, 'Why', 'var(--violet)'], [3, 'Tool', 'var(--teal)']].map(([n, label, col]) =>
   html`<span class="step ${step === n ? 'now' : step > n ? 'done' : ''}" style="padding:7px 14px 7px 7px"><span class="n" style="${step >= n ? `background:${col};color:var(--ink);box-shadow:none` : ''}">${n}</span>${label}</span>`);
 // Seeds and the start state refresh in place: re-rendering the form would steal focus from the field being typed in.
@@ -349,6 +385,7 @@ const keepOpen = new Set(); // sections she opened stay open when the screen red
 document.addEventListener('toggle', e => {
   if (['acct-details', 'rej-details'].includes(e.target.id)) keepOpen[e.target.open ? 'add' : 'delete'](e.target.id);
   if (e.target.id === 'wiz-header' && wiz) wiz.headerOpen = e.target.open;
+  if (e.target.id === 'wiz-face' && wiz) wiz.faceOpen = e.target.open;
   if (e.target.id === 'alerts' && e.target.open) api(`/api/cases/${encodeURIComponent(e.target.dataset.slug)}/alerts/seen`, { method: 'POST', body: {} }).catch(() => {});
 }, true);
 document.addEventListener('keydown', e => { if (e.target.id === 'note-text' && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveNote(); } });
@@ -439,7 +476,9 @@ screens.identity = async slug => {
         <button class="btn ghost" data-act="decide-all" data-decision="not him">No</button>
         ${p.decision ? html`<span class="muted" style="align-self:center;margin-left:8px">You said: ${p.decision === 'him' ? 'yes' : p.decision === 'not him' ? 'no' : 'not sure'}</span>` : ''}
       </div>
+      <div id="vendor-line"></div>
     </div>` : ''}
+    ${faceRows(p)}
     ${recordsPanel(p)}
     ${p.namesakes.length ? html`<div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:600;font-size:19px">Others with the same name</span><span class="muted" style="font-size:14.5px">We’ll mention these in the report</span></div>
@@ -454,6 +493,7 @@ screens.identity = async slug => {
   if (p.decision === 'him' || accts.some(a => a.decision === 'him')) api(`/api/cases/${encodeURIComponent(slug)}/checklist`).then(cl => {
     if ($('#person-browse') && cl.accounts.length) $('#person-browse').innerHTML = html`<a class="panel row" href="#/case/${slug}/worklist" style="padding:18px;gap:16px"><span class="tile-ic">▤</span>
       <div style="flex:1"><b>Next: the worklist</b><div class="muted" style="font-size:14px">${cl.accounts.map(a => a.platform).join(', ')}: open each in the Hunt Browser and scroll; Hunt records and scans what loads.</div></div><span style="color:var(--ac)">Open →</span></a>`.s; }).catch(() => {});
+  if (n) api(`/api/cases/${encodeURIComponent(slug)}/vendor?who=person`).then(v => { if ($('#vendor-line')) $('#vendor-line').innerHTML = fmt(vendorLine(v)); }).catch(() => {});
   api(`/api/cases/${encodeURIComponent(slug)}/case.json`).then(cj => { // what she ruled out stays visible, and can be taken back
     const out = cj.candidates.filter(x => x.decision === 'not him' && !p.namesakes.some(n => n.url === x.url));
     if (out.length && $('#rejected')) $('#rejected').innerHTML = html`<details id="rej-details" ${keepOpen.has('rej-details') ? 'open' : ''} class="panel" style="padding:4px 16px"><summary class="muted" style="cursor:pointer;padding:12px 0">You said not them (${out.length})</summary>
@@ -500,6 +540,33 @@ function recordsPanel(p) {
         ${cov.map(r => html`<div class="dim" style="font-size:12.5px">${RECORD_NAME[r.source] || r.source}: ${r.note || r.status}</div>`)}</div>` : ''; })}</div>`;
 }
 
+// Face comparison results beside the photos they came from: a lead, one reason among the others, never the verdict
+const FACE_CHIP = { yes: ['Same face', 'var(--gr)', 'var(--gr-bg)'], no: ['Different face', 'var(--rd)', 'var(--rd-bg)'], unclear: ['Couldn’t compare', 'var(--am)', 'var(--am-bg)'] };
+function faceRows(p) {
+  const rows = p.accounts.filter(a => a.face), ref = p.reference?.[0];
+  if (!rows.length) return '';
+  return html`<div class="panel" style="width:min(880px,100%);padding:18px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap"><b>Face comparison with your reference photo</b>
+      <span class="muted" style="font-size:13.5px">Face comparison is one reason among the others; it can’t confirm an account on its own.</span></div>
+    ${rows.map(a => { const [label, col, bg] = FACE_CHIP[a.face.match] || FACE_CHIP.unclear;
+      return html`<div class="row" style="background:var(--panel-2);gap:16px;flex-wrap:wrap">
+        <div style="display:flex;gap:8px;align-items:center">${[[ref, 'Your reference photo'], [a.avatar, `${a.site}’s profile photo`]].map(([src, alt]) => src ? html`<img class="thumb" src="${src}" alt="${alt}" title="${alt}" style="width:64px;height:64px;flex:none">` : html`<span class="thumb" style="width:64px;height:64px"></span>`)}</div>
+        <div style="flex:1;min-width:200px"><b style="font-weight:500">${a.site}</b> <span class="muted">${a.handle || handleOf(a.url)}</span>
+          <div class="muted" style="font-size:13px">${a.face.why}</div></div>
+        <span class="tag" style="background:${bg};color:${col}">${label}${a.face.match === 'unclear' ? '' : ` · ${(+a.face.score).toFixed(2)}`}</span></div>`; })}</div>`;
+}
+
+// Apify (her own key, docs/research/vendors.md): what reading the Instagram and Facebook accounts would cost, before she confirms
+const vendorLine = v => !v?.key_set ? '' : html`<div style="display:flex;flex-direction:column;gap:3px;font-size:13.5px">
+  ${v.run?.length ? html`<span class="t2">Apify, after the free collectors: ${v.why}</span>`
+    : !v.ok && v.why !== 'nothing to run' ? html`<span style="color:var(--am)">Apify will be skipped: ${v.why}. The free collectors still run.</span>` : ''}
+  ${(v.skipped || []).map(x => html`<span class="muted">${platformOf(x.url)} ${handleOf(x.url)}: ${x.why}</span>`)}</div>`;
+// The scan's own sources as they report (posts.collect, the public collectors, Apify): one row each
+const SOURCE_DOT = { running: 'var(--am)', found: 'var(--gr)', 'nothing found': 'var(--dim)', failed: 'var(--rd)' };
+const sourceRows = rows => html`${rows.map(r => html`<div style="display:flex;gap:10px;align-items:baseline;font-size:13.5px">
+  <span class="dot" style="background:${SOURCE_DOT[r.status] || 'var(--dim)'};align-self:center"></span><b style="font-weight:500">${r.source}</b><span class="muted">${/^https?:/.test(r.seed || '') ? handleOf(r.seed) : r.seed}</span>
+  <span class="t2">${r.status === 'running' ? 'reading…' : r.status === 'failed' ? 'failed' : `${r.found ?? 0} found`}</span>${r.note ? html`<span class="dim" style="font-size:12.5px">${r.note}</span>` : ''}</div>`)}`;
+
 /* Find a person, 3a: analysing photos and videos. Starts by itself once the investigator confirms it's them */
 let queuedScan = null; // a case whose new files arrived while its scan was running
 async function startScan(slug) {
@@ -517,7 +584,7 @@ screens.scan = async slug => {
       <div class="sub" style="margin-top:6px">Hunt only stops you when it spots something you asked about. Everything is checked on this Mac.</div></div>
     <div style="display:flex;gap:28px;align-items:baseline;flex-wrap:wrap" id="scan-stats">${job ? scanStats({ checked: 0, total: 0, found: data.hits.length }) : html`<span><b style="font-size:28px;font-weight:600">${data.counts.read_automatically ?? 0}</b> <span class="muted">posts read automatically</span></span>
       <span><b style="font-size:22px">${data.counts.added_by_you ?? 0}</b> <span class="muted">added by you</span></span><span><b style="font-size:22px;color:var(--am)">${data.hits.length}</b> <span class="muted">found</span></span>`}</div>
-    ${job ? html`<div class="bar"><i id="scan-bar"></i></div>` : ''}
+    ${job ? html`<div class="bar"><i id="scan-bar"></i></div><div id="scan-sources" style="display:flex;flex-direction:column;gap:4px"></div>` : ''}
     <div class="split" style="--side:420px">
       <div class="panel" style="padding:18px;display:flex;flex-direction:column;min-height:0;overflow:auto">
         <div id="tiles">${tiles(slug, data.posts, !!job)}</div>
@@ -611,7 +678,9 @@ function hitCard(slug, h) {
 const mmss = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 function watchScan(slug, job) {
   stopLive();
+  const sources = new Map();
   live.es = follow(job, async ev => {
+    if (ev.type === 'source' && $('#scan-sources')) { sources.set(`${ev.source}:${ev.seed}`, ev); $('#scan-sources').innerHTML = sourceRows([...sources.values()]).s; }
     if (ev.type === 'scan') {
       $('#scan-stats').innerHTML = scanStats(ev).s; $('#scan-bar').style.transform = `scaleX(${ev.total ? ev.checked / ev.total : 0})`;
       const cur = $('.tile.on'), next = ev.media_id != null && $(`.tile[data-media="${ev.media_id}"]`);
@@ -774,7 +843,7 @@ const sectionRows = (slug, a) => html`<div style="display:flex;flex-direction:co
 const captureRows = (slug, caps) => caps.length ? caps.slice(0, 30).map(x => html`<div class="row" style="padding:10px 12px;align-items:flex-start">
     ${x.file && !/\.(mhtml|webm|mp4)$/i.test(x.file) ? html`<img class="thumb" src="${evidenceUrl(slug, x.file)}" alt="" style="width:48px;height:48px;flex:none">` : html`<span class="tile-ic" style="width:48px;height:48px">${x.kind === 'recording' ? '▶' : '▤'}</span>`}
     <div style="flex:1;min-width:0;font-size:14px"><div>${x.platform || ''} · ${CAPTURE_KIND[x.kind] || x.kind}${x.kind === 'page' && x.posts != null ? html` · <span class="t2">${x.posts} posts read, ${x.added} new</span>` : ''}</div>
-      <div class="muted" style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x.where || x.url}</div><div class="dim" style="font-size:12px">${when(x.viewed_at || x.ts)}</div></div>
+      <div class="muted" style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x.where || x.url}</div><div class="dim" style="font-size:12px">${when(x.viewed_at || x.ts)}${x.viewed_as ? ` · ${x.viewed_as}` : ''}</div></div>
     ${x.file ? html`<a class="btn ghost sm" href="${evidenceUrl(slug, x.file)}" target="_blank" rel="noopener">View</a>` : ''}</div>`)
   : html`<div class="empty" style="padding:16px">Nothing captured yet. Start capturing, then browse in the Hunt Browser.</div>`;
 function facebookTile(slug, links, note) {
@@ -1202,7 +1271,12 @@ const actions = {
     const w = wiz, label = w.seeds.find(s => seedKind(s) === 'name') || w.seeds[0];
     try {
       const { slug } = await api('/api/cases', { method: 'POST', body: { label, seeds: w.seeds, kind: w.kind, reference: w.reference || null, purpose: w.purpose,
-        injury_date: w.kind === 'insurance' && w.injury_date ? w.injury_date : null, limits: w.limits || null, look_for: [...w.look_for, ...w.custom], tool: 'person', ...Object.fromEntries(WIZ_HEADER.filter(k => w[k]).map(k => [k, w[k]])) } });
+        injury_date: w.kind === 'insurance' && w.injury_date ? w.injury_date : null, limits: w.limits || null, look_for: [...w.look_for, ...w.custom], tool: 'person',
+        ...Object.fromEntries(WIZ_HEADER.filter(k => w[k]).map(k => [k, w[k]])), ...(residenceOf(w) ? { subject_residence: residenceOf(w) } : {}) } });
+      if (w.faceOn && w.gate?.allowed) try { // before the search, which compares the profile photos it finds
+        const enc = encodeURIComponent(slug); await api(`/api/cases/${enc}/face`, { method: 'POST', body: { basis: w.faceBasis } });
+        if (w.faceFiles.length) { const form = new FormData(); w.faceFiles.forEach(f => form.append('files[]', f)); await api(`/api/cases/${enc}/reference`, { method: 'POST', form }); }
+      } catch (e) { toast(`Face comparison wasn’t turned on: ${e.message}`, true); }
       wiz = null; await api(`/api/cases/${encodeURIComponent(slug)}/search`, { method: 'POST', body: {} });
       location.hash = `#/case/${slug}/search`;
     } catch (e) { el.disabled = false; fail(e); }
@@ -1390,6 +1464,10 @@ document.addEventListener('click', e => {
 document.addEventListener('change', async e => {
   if (e.target.dataset.act === 'screening') { sessionStorage.setItem('hunt-screening', e.target.checked ? '1' : '0'); render(); }
   if (e.target.id === 'up-files') upload(e.target.dataset.slug, e.target.files);
+  if (e.target.id === 'wiz-country') { wiz.country = e.target.value; wiz.state = ''; wiz.faceOn = false; drawWizard(); wizGate(); }
+  if (e.target.id === 'wiz-state') { wiz.state = e.target.value; wiz.faceOn = false; drawWizard(); wizGate(); }
+  if (e.target.id === 'wiz-face-on') { wiz.faceOn = e.target.checked; drawWizard(); }
+  if (e.target.id === 'wiz-ref') { wiz.faceFiles = [...e.target.files]; drawWizard(); }
   if (e.target.id === 'fb-files' || e.target.id === 'fb-folder') uploadFacebook(e.target.dataset.slug, e.target.files);
   if (e.target.id === 'bring-folder') openBring(e.target.value.trim());
   if (e.target.id === 'watch-on' || e.target.id === 'watch-every') {
