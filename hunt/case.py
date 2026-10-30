@@ -21,8 +21,6 @@ HOME = Path(os.environ.get("HUNT_HOME", Path.home() / "Hunt"))
 DETAILS = ("label", "kind", "reference", "injury_date", "limits", "look_for", "tool",
            # the report's header block and conclusion (docs/research/report-format.md)
            "client", "adjuster", "file_number", "assignment_date", "subject_dob", "recommendations",
-           # known facts the matcher scores records against (match.score `facts`; docs/analysis.md)
-           "subject_age_range", "subject_employer",
            # where the subject lives, ISO 3166 ("US-AZ", "GB"): gates the face check (face.gate) and
            # turns on Washington MHMDA mode; mhmda_basis records the fraud basis (RCW 19.373.100(3))
            "subject_residence", "mhmda_basis")

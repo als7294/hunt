@@ -22,10 +22,10 @@ from hunt.seed import Finding, Seed
 case = Case.create("Vance claim", "Insurer XYZ claim 123: disputed injury, permissible purpose on file", kind="insurance",
                    reference="CLM-123", injury_date="2026-03-01", look_for=["sport", "injury"], tool="person",
                    client="Fictional Mutual", adjuster="A. Adjuster", assignment_date="2026-03-20",
-                   subject_dob="1990-05-05", limits="No lifting over 5 kg; no running", subject_employer="Example Health")
+                   subject_dob="1990-05-05", limits="No lifting over 5 kg; no running")
 case.audit("case details", {"client": "Fictional Mutual"})
 handle = Seed("username", "kestrel_vane88")
-case.add_seeds([handle, Seed("name", "Robert Vance"), Seed("phone", "+15205550143")])
+case.add_seeds([handle, Seed("name", "Robert Vance"), Seed("phone", "+15205550143"), Seed("employer", "Example Health")])
 case.add_run("maigret", handle, "found", 2, 600, "")
 case.add_run("-", Seed("phone", "+15205550143"), "skipped", 0, 0, "no source searches this kind yet")
 case.add_run("whatsmyname", handle, "failed", 0, 0, "ReadTimeout")

@@ -39,7 +39,7 @@ from starlette.responses import HTMLResponse, FileResponse, JSONResponse, Redire
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import keys, report, search, sources, vendor, vlm
+from . import graph, keys, report, search, sources, vendor, vlm
 from . import bundle, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
@@ -468,7 +468,7 @@ async def create_case(req: Request):
 
 
 EDITABLE = ("reference", "injury_date", "limits", "look_for", "client", "adjuster", "file_number", "assignment_date",
-            "subject_dob", "recommendations", "subject_age_range", "subject_employer", "subject_residence", "mhmda_basis")
+            "subject_dob", "recommendations", "subject_residence", "mhmda_basis")
 RESIDENCE = re.compile(r"[A-Z]{2}(-[A-Z0-9]{1,3})?")  # ISO 3166: "US-AZ", "GB"
 
 
@@ -728,6 +728,24 @@ def _handle(x: dict) -> str:
 def _avatar(c: Case, x: dict) -> str | None:
     e = next((e for e in x["evidence"] if e["kind"] == "profile photo"), None)
     return f"/evidence/{c.name}/{Path(e['file']).name}" if e else None
+
+
+async def get_people(req: Request):
+    """Family and associates from what the case already holds (graph.associates): names and citations only."""
+    c = _case(req)
+    snap = await search.snapshot(c)
+    return JSONResponse(graph.associates(await _posts(c), snap["candidates"], c.seeds(), graph.photo_labels(c)))
+
+
+async def mark_photo_person(req: Request):
+    """{media_id, label}: the investigator marks who is in a kept photo; the same label in several photos is one person."""
+    c, b = _case(req), await _body(req)
+    has_media = c.rows("select 1 from sqlite_master where type = 'table' and name = 'media'")
+    if not isinstance(b.get("media_id"), int) or not has_media or not c.rows("select 1 from media where id = ?", b["media_id"]):
+        raise HTTPException(400, "media_id must be one of this case's media")
+    if not isinstance(b.get("label"), str) or not b["label"].strip() or len(b["label"]) > 200:
+        raise HTTPException(400, "label must be text of at most 200 characters")
+    return JSONResponse({"id": graph.label_photo(c, b["media_id"], b["label"])})
 
 
 async def post_decision(req: Request):
@@ -1761,6 +1779,8 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/jobs/{id}/events", job_events),
         Route("/api/jobs/{id}/{action:str}", job_control, methods=["POST"]),
         Route("/api/cases/{slug}/person", get_person),
+        Route("/api/cases/{slug}/people", get_people),
+        Route("/api/cases/{slug}/people/photo", mark_photo_person, methods=["POST"]),
         Route("/api/cases/{slug}/decisions", post_decision, methods=["POST"]),
         Route("/api/cases/{slug}/media", add_media, methods=["POST"]),
         Route("/api/cases/{slug}/posts", get_posts),

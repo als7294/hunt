@@ -38,7 +38,7 @@ Errors are `{"error": "message"}` with a 4xx or 5xx status.
 | POST | `/api/cases/{slug}/reopen` | `{}` → status. Audited (`case reopened`). Watching doesn't restart by itself |
 | POST | `/api/cases/{slug}/hold` | `{on: bool, reason?}` → status. A legal hold keeps the case past its retention period, keeps watching it, and blocks deleting. Audited (`legal hold`); the report's disclaimers mention it |
 | POST | `/api/cases/{slug}/delete` | `{confirm: <slug>, reason?}` → `{deleted, to: "Trash"}`. Moves the whole case folder to the Trash (Finder's Put Back restores it). 409 under a legal hold or while a job runs. Audited in the case (`case deleted`, which goes to the Trash with it) and in `~/Hunt/deleted-cases.log` |
-| POST | `/api/cases/{slug}/details` | Any of `{reference, injury_date, limits, look_for, client, adjuster, file_number, assignment_date, subject_dob, recommendations, subject_age_range, subject_employer, subject_residence, mhmda_basis}`; `""` clears a field → `{details}`. Audited. Dates are `YYYY-MM-DD` |
+| POST | `/api/cases/{slug}/details` | Any of `{reference, injury_date, limits, look_for, client, adjuster, file_number, assignment_date, subject_dob, recommendations, subject_residence, mhmda_basis}`; `""` clears a field → `{details}`. Audited. Dates are `YYYY-MM-DD` |
 | POST | `/api/cases/{slug}/seeds` | `{seeds: [str]}` → `{seeds}` |
 | GET | `/api/cases/{slug}/case.json` | The full `search.build()` dict (candidates, methodology, audit…) |
 
@@ -67,6 +67,8 @@ Event `data` is JSON with a `type`:
 | Method | Path | Body / response |
 |---|---|---|
 | GET | `/api/cases/{slug}/person` | `{accounts: [{url, site, handle, verdict, probability, reasons: [str], decision, avatar: url\|null, face: {match: "yes"\|"no"\|"unclear", score, why}\|null}], reference: [evidence url], summary: [{tag, text, count}], weakest_verdict, namesakes: [{url, site, label, why: [str], decision}], records: [{url, site, source, summary, attrs, verdict, probability, reasons, name_only, decision, fetched}], coverage: [{source, status, found, note}], decision: "him"\|"not him"\|"unsure"\|null}`. **The person** = candidates at "likely" or better, minus `not him`, plus `him`. Public records in the person (`fec`, `edgar`, `npi`, `courtlistener`, `licences`, `businesses`, `fmcsa`) are in `records`, not `accounts`; `name_only` is true when only the name agrees. `coverage` is every records run, with its note on what was searched. **Namesakes** = name matches below 0.2 |
+| GET | `/api/cases/{slug}/people` | Family and associates from what the case already holds (`graph.associates`, [analysis.md](analysis.md#8-family-and-associates)): `{notice, people: [{id, name\|null, labels: [str], types: [str], minor, confidence, cites: [{kind: "post"\|"bio"\|"record"\|"photo"\|"name", ref, url, quote, type, label, confidence}]}]}`. `types` ⊂ sibling, parent, child, grandparent, grandchild, partner, relative, friend, co-worker, tagged with, in photo with, co-party, same address, possible relative. `minor` → `name` is null and quotes are redacted. Nothing is searched |
+| POST | `/api/cases/{slug}/people/photo` | `{media_id, label}`: the investigator marks who is in a kept photo; the same label in several photos is one person. Audited → `{id}`. 400 unless `media_id` is this case's |
 | POST | `/api/cases/{slug}/decisions` | `{url?, decision: "him"\|"not him"\|"unsure", note?}`. Without `url`, the decision applies to every account in the person. Append-only; the latest wins; audited |
 
 ## Posts and media scan
@@ -319,14 +321,9 @@ See [qol.md](qol.md) for the screens that use these.
   - One local macOS notification sums up the run's alerts.
   - A failed run is tried again an hour later.
 
-### Known facts about the subject (wizard: "What you know", app-screens session)
-The matcher scores records against these (`match.score` `facts`; [analysis.md](analysis.md#7-records-against-what-the-case-knows)).
-`POST /api/cases` and `POST /api/cases/{slug}/details` accept them:
-- `subject_dob`: `YYYY-MM-DD`, as before
-- `subject_age_range`: `"40-45"`, for when the date of birth isn't known
-- `subject_employer`: free text
+### Known facts about the subject
+The matcher scores records against seeds of kind `dob`, `age`, `employer`, `location` and `address`, plus the `subject_dob`
+detail ([analysis.md](analysis.md#7-records-against-what-the-case-knows)). Two case details are new; `POST /api/cases` and
+`POST /api/cases/{slug}/details` accept them:
 - `subject_residence`: ISO 3166, e.g. `"US-AZ"`, `"GB"`, `"CA-ON"`; anything else gets a 400. It gates the face check, and `US-WA` turns on MHMDA mode
 - `mhmda_basis`: Washington subjects only; the RCW 19.373.100(3) fraud basis, as text
-
-City/state and prior addresses stay seeds of kind `location` and `address`. The wizard should offer them as fields that
-become those seeds.

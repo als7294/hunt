@@ -193,11 +193,10 @@ assert c.post("/api/settings", content=json.dumps({"firm": "Example Investigatio
               headers=JSON).status_code == 200
 
 r = c.post("/api/cases", content=json.dumps({
-    "label": "Vance claim", "seeds": ["kestrel_vane88", "Robert Vance"], "kind": "insurance", "tool": "person",
+    "label": "Vance claim", "seeds": ["kestrel_vane88", "Robert Vance", "employer:Example Health"], "kind": "insurance", "tool": "person",
     "purpose": "Fictional Mutual claim FM-1 (fictional): disputed knee injury; permissible purpose on file",
     "reference": "FM-1", "injury_date": "2026-03-01", "look_for": ["sport"], "client": "Fictional Mutual",
-    "assignment_date": "2026-03-20", "subject_dob": "1990-05-05", "limits": "No running",
-    "subject_employer": "Example Health"}), headers=JSON)
+    "assignment_date": "2026-03-20", "subject_dob": "1990-05-05", "limits": "No running"}), headers=JSON)
 assert r.status_code == 201, r.text
 slug = r.json()["slug"]
 api = f"/api/cases/{slug}"
