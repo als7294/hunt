@@ -1642,7 +1642,7 @@ async def capture_hello(req: Request):
     label = next((c["label"] for c in cases if c["slug"] == state["case"]), None)
     return JSONResponse({"version": version("hunt-osint"), **extension.status(), "cases": cases, "active_case": active,
                          "capture": state | {"label": label}, "off_sites": sorted(extension.CAPTURE_OFF),
-                         "stopped": browser.stops()})
+                         "stopped": browser.stops(), "guided": browser.guided()["on"]})
 
 
 def _capture_state(b: dict) -> dict:
@@ -1741,7 +1741,7 @@ async def _capture_upload(req: Request, field: str, work):
             raise HTTPException(400, "url must be a page on Facebook, Instagram, TikTok, X or YouTube")
         if site in extension.CAPTURE_OFF:
             raise HTTPException(403, f"Hunt Capture is off on {site} (its terms name browser plugins); save pages by hand")
-        if stop := browser.stops().get(site):
+        if stop := browser.stopped(form.get("url")):
             raise HTTPException(403, stop["message"])
         f = form.get(field)
         if not isinstance(f, UploadFile):
@@ -1769,19 +1769,20 @@ async def _capture_upload(req: Request, field: str, work):
 
 
 def _record(form, when: str) -> dict:
-    """The capture record's fields from what the extension sent with an upload (docs/capture.md)."""
-    return extension.record(form["url"], form.get(when) or None, str(form.get("capture_version") or "")[:40] or None,
+    """The capture record's fields from what the extension sent with an upload (docs/capture.md); times in UTC."""
+    return extension.record(form["url"], extension.utc(form.get(when)), str(form.get("capture_version") or "")[:40] or None,
                             form.get("session") if form.get("session") in ("signed_in", "signed_out") else None)
 
 
 async def capture_view(req: Request):
     return await _capture_upload(req, "screenshot", lambda c, form, path, tmp: extension.add_view(
-        c, form["url"], path, form.get("viewed_at") or None, form.get("title") or "",
+        c, form["url"], path, extension.utc(form.get("viewed_at")), form.get("title") or "",
         form.get("kind") if form.get("kind") in ("view", "manual", "frame") else "view", _record(form, "viewed_at")))
 
 
 def _page_work(c, form, path, tmp):
-    done = extension.add_page(c, form["url"], path, form.get("viewed_at") or None, tmp / "media", _record(form, "viewed_at"))
+    done = extension.add_page(c, form["url"], path, extension.utc(form.get("viewed_at")), tmp / "media",
+                              _record(form, "viewed_at"))
     diff = getattr(recheck, "diff_captures", None)  # docs/qol.md: Check again's comparison, once it's merged
     return done | {"changes": diff(c) if diff else []}
 
@@ -1792,7 +1793,7 @@ async def capture_page(req: Request):
 
 async def capture_recording(req: Request):
     return await _capture_upload(req, "video", lambda c, form, path, tmp: extension.add_recording(
-        c, form["url"], path, form.get("started_at") or None, _record(form, "started_at")))
+        c, form["url"], path, extension.utc(form.get("started_at")), _record(form, "started_at")))
 
 
 async def capture_revoked(req: Request):  # the extension saw a checkpoint/challenge/suspension address
@@ -1806,17 +1807,41 @@ async def capture_revoked(req: Request):  # the extension saw a checkpoint/chall
     return JSONResponse(browser.stop(site, reason, b.get("url"), case))
 
 
-async def capture_guided(req: Request):  # one press of Next in guided mode
+async def capture_guided(req: Request):  # one press of Next: Hunt decides the step and audits it before it happens
     b = await _body(req)
     try:
         c = Case.open(str(b.get("case") or ""))
     except LookupError:
         raise HTTPException(404, "no such case")
-    if b.get("action") not in ("scroll", "open") or not extension.platform(str(b.get("url") or "")):
-        raise HTTPException(400, "action must be scroll or open, on a supported page")
-    if extension.platform(b["url"]) in extension.CAPTURE_OFF or extension.platform(b["url"]) in browser.stops():
-        raise HTTPException(403, "guided mode doesn't run where capture is off or stopped")
-    return JSONResponse({"audit": extension.guided(c, b["action"], b["url"], b.get("to"))})
+    url = str(b.get("url") or "")
+    if not extension.platform(url):
+        raise HTTPException(400, "url must be a page on a supported site")
+    if b.get("missed"):  # the step's capture never came back: the lock was released by its timer
+        return JSONResponse({"audit": await asyncio.to_thread(extension.guided_missed, c, url)})
+    visited = [str(v) for v in b.get("visited") or [] if isinstance(v, str)][:500]
+    try:
+        return JSONResponse(await asyncio.to_thread(extension.guided, c, url, bool(b.get("at_bottom")), visited))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+
+
+async def browser_guided(req: Request):  # guided mode's switch, from Hunt only, with who confirmed it
+    if req.method == "GET":
+        return JSONResponse(browser.guided())
+    b = await _body(req)
+    state = browser.capture()
+    try:
+        return JSONResponse(browser.set_guided(bool(b.get("on")), b.get("note"), Case.open(state["case"]) if state["case"] else None))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+async def capture_override(req: Request):  # she confirmed one of her own contact clicks the extension asked about
+    b = await _body(req)
+    if not extension.platform(str(b.get("url") or "")):
+        raise HTTPException(400, "url must be a page on a supported site")
+    browser.her_click(str(b.get("what") or ""), str(b["url"]))
+    return JSONResponse({"ok": True})
 
 
 async def browser_resume(req: Request):  # she resumes a stopped platform, deliberately, from Hunt
@@ -1829,7 +1854,10 @@ async def browser_resume(req: Request):  # she resumes a stopped platform, delib
 async def browser_accounts(req: Request):
     if req.method == "GET":
         return JSONResponse(browser.accounts())
-    return JSONResponse(browser.set_accounts(await _body(req)))
+    try:
+        return JSONResponse(browser.set_accounts(await _body(req)))
+    except ValueError as e:  # a stopped platform's account can't change
+        raise HTTPException(409, str(e))
 
 
 CAPTURE_ROUTES = [
@@ -1855,6 +1883,8 @@ CAPTURE_ROUTES = [
     Route("/api/browser/accounts", browser_accounts, methods=["GET", "POST"]),
     Route("/api/capture/revoked", capture_revoked, methods=["POST"]),
     Route("/api/capture/guided", capture_guided, methods=["POST"]),
+    Route("/api/capture/override", capture_override, methods=["POST"]),
+    Route("/api/browser/guided", browser_guided, methods=["GET", "POST"]),
 ]
 
 

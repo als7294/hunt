@@ -45,7 +45,7 @@ Why this is lawful, and what risk remains, is in [legal.md](research/legal.md#hu
 - **Evidence integrity:** every file re-hashes to its name.
 
 **Built, checked by tests only** (each needs a person's input, which QA couldn't give):
-- guided mode (Alt+Shift+N, or the popup's Next)
+- guided mode (Alt+Shift+N, or the popup's Next), now off unless turned on in Hunt
 - the popup's controls (case picker, on/off, mode, per-tab pause)
 - screenshots (after her click, or the "every view" opt-in), and video frames
 - Record video
@@ -170,8 +170,10 @@ sign-in cookie exists, with `chrome.cookies.get`:
 | Facebook | `c_user` |
 | Instagram | `sessionid` |
 | TikTok | `sessionid` |
-| LinkedIn | `li_at` |
 | X | `auth_token` |
+
+LinkedIn isn't checked: Hunt's code stays off LinkedIn altogether (decision D13 (b)), so the extension
+doesn't even ask Chrome for access to it, and Hunt shows LinkedIn's sign-in as `unknown`.
 
 - **No value is ever read out, kept or sent.** Only `signed_in` / `signed_out` travels, through
   `POST /api/capture/signins` under the key Guard.
@@ -287,8 +289,9 @@ accepts only `activeTab` or `<all_urls>`; host permissions aren't enough.
     out, or set LinkedIn's profile viewing to private first.
 - LinkedIn sections stay on the checklist as links. She saves those pages by hand; the LinkedIn parser
   is ready for that.
-- The extension still checks LinkedIn's sign-in cookie, for the status screen. That touches nothing
-  on LinkedIn.
+- The extension has no access to LinkedIn at all: no content script, no host permission, no cookie
+  check (decision D13 (b)). The popup still knows the tab is LinkedIn, from Chrome's `activeTab` grant
+  when she opens it.
 
 **Two modes**, chosen in the popup:
 - **Every page view I settle on** (the default).
@@ -377,13 +380,28 @@ Every capture, and every captured post, carries these fields. They're in the aud
 | `post_id`, and `user_id` / `fb_id` | the platform's post id and account id, when the page shows them |
 | `viewed_as` | "logged in as {handle}" (the handle she gave Hunt, `POST /api/browser/accounts`), "logged in (account not named in Hunt)", "logged out", or "not known". From the presence of the platform's sign-in cookie at capture time, never its value |
 | `audience` | what the platform showed: "Public", "Friends", "Friends of friends", "Custom", "Only me", "Group: {name}" (Facebook); "Followers" for a private or protected account (Instagram, TikTok, X); "Connections" (LinkedIn, hand-saved) |
-| `audience_flag` | `true` when the audience isn't shown as Public, unknown included. Such items stay out of the report unless counsel approves |
-| `captured_at`, `time_source` | UTC capture time, from "the browser's clock" |
+| `audience_flag` | `true` when the audience isn't shown as Public, unknown included. Such items stay out of the report unless counsel approves. Screenshots and recordings take their page's audience from its archive (one taken before, or the next one, which fills it in); until then they're flagged |
+| `not_subject` | on a screenshot or recording of a page that isn't the subject's (an associate's, a feed): the scan and the report leave it out (see "Associates' pages") |
+| `captured_at`, `time_source` | UTC capture time, from "the browser's clock", stored as `…Z`; a time without a zone is dropped (`null`), not guessed |
 | `received_at` | Hunt's own clock, on arrival |
 | `capture_version` | the extension's version (stamped per build) |
 | `hunt_version` | Hunt's version |
 | `capture_sha256` | SHA-256 of the archive as received, before anything is parsed or transcoded. The archive is stored under that hash (`evidence`), and each picture under its own |
 | `posted_at`, `posted_at_precision`, `posted_at_text` | the post's own time, and how it was known |
+
+## Associates' pages
+
+She may open an associate's page to find the subject (legal.md A3). Hunt keeps that page's archive
+whole as the capture record, but stores as posts only what is about the subject (decision D12 (a)):
+- **The subject's pages** are his confirmed accounts and the accounts given as URL seeds. Everything
+  read from them is stored, as before.
+- **On any other page** (an associate's profile, a feed, a search), a post is stored only if it's his
+  (its account is one of his), or its words, "with", tags or image description name him: a name or
+  username seed, or the handle in one of his accounts.
+- The rest stay in the archive only. `POST /api/capture/page` returns `not_subject` (how many), also in
+  the `capture page` audit.
+- Screenshots and recordings of such pages carry `not_subject: true` (they have no words to filter).
+- Comments go with their post: a stored post keeps the comments under it, associates' included.
 
 ## Comments
 
@@ -440,37 +458,58 @@ with comments, capture it, and compare `visible_comments` with the screen.
 
 ## Guided mode
 
+**Off unless turned on in Hunt** (decision D3 (a); legal.md "Guided mode"). It's a firm-level switch:
+`POST /api/browser/guided {on, note}` from Hunt's own screens (cookie Guard, never the extension), and
+`note` is required to turn it on: who confirmed it for the firm, and when ("Counsel (J. Ortiz)
+confirmed guided mode, 2026-10-30"). Kept in `HUNT_HOME/browser/guided.json`; audited `guided mode on`
+or `off` in this computer's log (`HUNT_HOME/browser/audit.jsonl`) and in the case being captured.
+`hello` returns `guided: true|false`, and the popup's Next stays disabled while it's off.
+
 One press of **Next** does one step. Next is Alt+Shift+N, or the popup's button; it's never on the
 page.
 
-**On the subject's profile, with grid below the screen:** one scroll by about a screen
-(`guidedScroll` in `content.js`).
-- The scroll loads the next rows, as her own scroll would.
-- The step's archive is taken once the view settles.
-
-**Once the grid is all seen, or on a post page:** one navigation to the next item on the account's
-"open these" list (`guidedOpen` in `background.js`). Items already opened this session are skipped.
+**Hunt decides the step, and audits it before it happens.** The extension sends the tab's address,
+whether it's at the bottom of the page, and the items already opened (`POST /api/capture/guided {case,
+url, at_bottom, visited}`). Hunt answers `{action: "scroll" | "open" | "none", to, why, progress}` and
+audits `guided step` `{action, to, url, extension}` first. The extension does only that, or nothing if
+Hunt refused (403) or couldn't be reached.
+- **On a confirmed account's own grid, with more below:** one scroll by about a screen (`guidedScroll`
+  in `content.js`). Only the profile root and its Posts, Reels, Media, Videos and Photos tabs; never a
+  follower, following or friends list.
+- **Once the grid is all seen, or on an item from the list:** one navigation to the next item on the
+  account's "open these" list (`guidedOpen` in `background.js`), skipping items already opened this
+  session. `guidedOpen` also refuses any address on another site, or a Story.
+- **The match is Hunt's,** on its canonical addresses (`extension.where`), so `profile.php?id=555` is
+  never taken for the subject's `profile.php?id=…012`.
 
 **One press, one step:**
-- The next press is locked until this step's capture is recorded (the archive's upload answered), or
-  for at most 20 s.
+- A second press while one is being handled is refused, not queued (a `stepping` flag, set before
+  anything is awaited).
+- The next press is locked until this step's capture is recorded: an archive begun after the step,
+  never one already under way. If none comes back within 20 s, the lock is released, the popup says
+  so, and Hunt audits `guided step not recorded` (decision G4 (a)).
 - No auto-repeat, no hold-to-scroll, and no timer that acts on the page. The 20 s timer only releases
   the lock.
-- `test_capture.py` fails if either function gains a loop or a timer, or a second scroll or
-  navigation, or if any scroll or navigation appears outside those two functions.
+- `test_capture.py` fails if either step function gains a loop or a timer, or a second scroll or
+  navigation; if any scroll or navigation appears outside them; if `guidedNext` moves anything before
+  Hunt's answer, or is called from anywhere but the hotkey and the popup; or if `guidedOpen` stops
+  checking the site. Under `node` it also runs the worker with a fake Chrome: two presses at once give
+  one scroll; manual mode, a 403 from Hunt, another site or a Story give no move.
 
 **It refuses when:**
-- capture is off
+- guided mode is off in Hunt
+- capture is off, or the popup's mode is "Only when I press Capture this" (nothing would record the
+  step)
 - the tab isn't a confirmed account (or an item on its list)
-- the page is still loading
+- the page is still loading, or the last step isn't recorded yet
 - the tab is paused
 - the platform is off (LinkedIn, Strava, Snapchat) or stopped
 
 **Nothing on the page.** Guided mode adds no overlay, blur or element. The popup shows the counter,
 and Hunt's worklist shows it live (`GET /api/cases/{slug}/checklist`).
 
-**Audit.** Each press is audited as `guided step` `{action: "scroll"|"open", url, to, extension}`,
-through `POST /api/capture/guided`.
+**Audit.** Each step is audited as `guided step` before it happens, and a step whose capture never
+came back as `guided step not recorded` (`POST /api/capture/guided {case, url, missed: true}`).
 
 **Window size.** `/api/browser/open` takes `window: {width, height}` (300–5000 px), applied when the
 browser starts, to sit beside Hunt's window. A smaller window means more presses.
@@ -489,27 +528,56 @@ and the refined brief prefers nothing there.
   "your account has been disabled/suspended/locked", "we limit how often you can", "confirm you're
   human", the slider puzzle.
 
+**Hunt's own automatic reads stop a platform too** (decision D8 (a)). Hunt's headless screenshots
+(`capture.screenshots`, used by Search and Check again) check each page they reach (`capture.wall`):
+- **A 429** ends that host's screenshots for the run, and nothing more (legal.md C7).
+- **A CAPTCHA, a block (403, "unusual traffic", "access denied"), a login wall or a checkpoint** also
+  sets a hard stop on that platform, worded for automatic reads: "{Platform} showed {reason} to Hunt's
+  own automatic reads. Hunt has stopped reading and recording {Platform} until you resume it…"
+- They never go to a host whose robots.txt denies unnamed agents (`sources._api.denied`: Facebook,
+  Instagram, Threads, LinkedIn, X, Reddit), or to a stopped platform. They say they're Hunt
+  (`Hunt/0.1 (+https://github.com/als7294/hunt) HeadlessChrome`), not a person's Chrome.
+
 **On a match, that platform stops:**
 - Hunt refuses its uploads (403), and the extension stops recording and guiding there (badge
-  **STOP**).
-- The case is audited `capture hard stop`.
+  **STOP**). Every other reader asks the same one check, `browser.stopped(url)`.
+- Every stop is written to this computer's log (`HUNT_HOME/browser/audit.jsonl`), and audited
+  `capture hard stop` in the case being captured and in every open case with a confirmed account on
+  that platform, even with capture off.
 - The message: "{Platform} showed {reason}. Hunt Capture has stopped recording {Platform}. Don't use
   this account for casework, and tell Ethos. Don't switch to another account, browser profile or
   proxy."
 - Stops are kept in `HUNT_HOME/browser/stops.json`, so they survive restarts. They're listed as
   `stopped` in `GET /api/browser/status` and in `hello`.
 - Only `POST /api/browser/resume {platform}` lifts one, deliberately, from Hunt. It's audited
-  `capture resumed`.
+  `capture resumed`, in the log too.
+- **Signing in again** to a stopped platform (its sign-in cookie appearing after it was gone) adds a
+  problem, "You signed in to {Platform} again after a hard stop. Use no other account, and tell
+  Ethos.", audited `sign-in after hard stop`.
+- **Her handle there can't change** while it's stopped: `POST /api/browser/accounts` answers 409.
 
 **Never a fallback.** Hunt never tries another account, profile or proxy.
 
 ## The Story warning, and the per-tab pause
 
-**The Story warning.** When she's signed in to Instagram or Facebook and clicks a Story (a link to
-`/stories/`, or a control labelled "story"), the page asks first: "Story viewers can see your account.
-Open this Story anyway?"
+**The Story warning.** On Instagram or Facebook, a click or middle-click on a Story (a link to
+`/stories/`, or a control labelled "story") asks first, unless she's known to be signed out: "Story
+viewers can see your account. Instagram and Facebook then move on to other people's Stories by
+themselves; they can see you too. Open this Story anyway?"
+- It fails closed: if the sign-in check failed or hasn't answered, it asks.
 - Cancel stops that click. OK lets the same click go through; nothing is re-sent.
-- Story rings drawn without a link or label may slip past. The warning is a guard, not a guarantee.
+- When the tab then reaches another person's Story by itself, the popup and Hunt's status say "Now
+  viewing {user}'s Story; they can see you."
+- Open pages learn at once when she signs in (the sign-in cookie changing updates them).
+- Story rings drawn without a link or label, "Open link in new tab", and a typed `/stories/` address
+  may slip past. The warning is a guard, not a guarantee.
+
+**The contact warning.** Likewise before her own follow, add-friend, connect, like, react, comment,
+message, subscribe or join click (matched by the control's label): "“Follow” acts from your account,
+and the person may be told. Hunt's rules say no contact with the subject or the people around them. Do
+it anyway?" Cancel stops the click. An OK is sent to Hunt (`POST /api/capture/override {what, url}`)
+and audited `contact click allowed`. Under `node`, `test_capture.py` runs both warnings against a fake
+page.
 
 **The per-tab pause.** "Pause this tab" in the popup stops recording (and guiding) in that tab only.
 Its badge shows **II**.
@@ -682,8 +750,10 @@ Full shapes are in [api.md](api.md#hunt-capture).
 - `GET /api/cases/{slug}/checklist`
 - `GET /api/cases/{slug}/captures`
 
+- `GET`/`POST /api/browser/guided` (guided mode's switch; `note` required to turn it on)
+
 **For the extension (key Guard):** POST
-`/api/capture/pair | hello | checklist | view | page | recording | signins | state | problem | revoked | guided`.
+`/api/capture/pair | hello | checklist | view | page | recording | signins | state | problem | revoked | guided | override`.
 
 ## Hunt app screens (for the main session to build)
 
@@ -710,6 +780,11 @@ Full shapes are in [api.md](api.md#hunt-capture).
 - Show each stop's `message` prominently, with its time and address.
 - Offer **Resume {platform}** → `POST /api/browser/resume`, behind a confirmation: "Only resume after
   you've spoken to Ethos, and never with another account."
+
+**Guided mode** (settings; compliance audit AP6): a switch, off by default, with a required "Who
+confirmed this, and when?" field → `POST /api/browser/guided {on, note}`. Show the current `note` and
+time from `GET /api/browser/status`'s `guided`, and say: "Firms whose counsel prefers the lower-risk
+path leave this off: she scrolls and clicks herself."
 
 **Your accounts** (onboarding): an optional handle per platform → `POST /api/browser/accounts`, so
 captures read "logged in as {handle}".

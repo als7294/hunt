@@ -2,12 +2,22 @@
 
 import os
 import time
+from urllib.parse import urlparse
 
 import httpx
 
 from ..seed import detect
 
 UA = "Hunt/0.1 (+https://github.com/als7294/hunt)"  # as geo.py: says what is asking, never for whom
+# Hosts whose robots.txt denies unnamed agents (legal.md C6): nothing automatic of Hunt's requests them, by any scheme
+ROBOTS_DENY = ("facebook.com", "fb.com", "instagram.com", "threads.net", "threads.com", "linkedin.com", "x.com", "twitter.com",
+               "reddit.com")
+
+
+def denied(url: str) -> bool:
+    """Is this URL on a host Hunt's automatic requests must leave alone (a ROBOTS_DENY host or a subdomain)?"""
+    host = (urlparse(url if "//" in str(url) else f"//{url}").hostname or "").lower().rstrip(".")
+    return any(host == d or host.endswith("." + d) for d in ROBOTS_DENY)
 
 
 class Limited(Exception):
