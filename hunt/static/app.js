@@ -1077,9 +1077,9 @@ screens.connect = async () => {
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${seenFlag('hunt-keys-seen') ? html`<a class="btn primary" href="#/">Done</a>` : html`<a class="btn primary" href="#/keys">Next: free keys (optional) →</a>`}
         ${st.browser?.profile ? html`<span class="life" style="margin-left:auto"><button class="btn ghost sm" data-act="signout-ask">Sign out of everything…</button></span>` : ''}</div>
       <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;gap:12px"><b>Guided mode</b><span class="${gd.on ? '' : 'muted'}" style="font-size:14px">${gd.on ? 'On' : 'Off'}</span></div>
-        <span class="muted" style="font-size:13.5px">One key press in the Hunt Browser scrolls the subject’s own profile or opens their next post, so you capture without clicking through. It runs only on accounts you confirmed. Some firms’ counsel prefer it off: turn it on only once your counsel has confirmed it for your firm.</span>
-        <div class="life" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${gd.on ? html`<span class="t2" style="font-size:13.5px;flex:1;min-width:200px">Counsel’s note: ${gd.note}</span><button class="btn ghost sm" data-act="guided-set" data-on="">Turn off</button>`
-          : html`<input class="input" id="guided-note" placeholder="Who confirmed it for your firm, and when" aria-label="Counsel’s note" style="flex:1;min-width:220px;font-size:14px"><button class="btn sm" data-act="guided-set" data-on="1">Turn on</button>`}</div></div>
+        <span class="muted" style="font-size:13.5px">One key press in the Hunt Browser scrolls the subject’s own profile or opens their next post, so you capture without clicking through. It runs only on accounts you confirmed, and every press is logged. Some firms’ counsel prefer it off, so check with yours before using it on casework.</span>
+        <div class="life" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${gd.on ? html`<span class="t2" style="font-size:13.5px;flex:1;min-width:200px">${gd.note ? html`Your note: ${gd.note}` : 'You acknowledged the trade-off when you turned it on.'}</span><button class="btn ghost sm" data-act="guided-set" data-on="">Turn off</button>`
+          : html`<label style="display:flex;gap:8px;align-items:center;font-size:14px;flex-basis:100%"><input type="checkbox" id="guided-ack" style="width:16px;height:16px;accent-color:var(--ac)"> I understand each press is my own input, it only steps through accounts I confirmed, and it’s logged.</label><input class="input" id="guided-note" placeholder="Note (optional), e.g. who you checked with" aria-label="Note" style="flex:1;min-width:220px;font-size:14px"><button class="btn sm" data-act="guided-set" data-on="1">Turn on</button>`}</div></div>
       <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><b>Hunt Capture in another browser</b><div id="pairing" style="display:flex;flex-direction:column;gap:10px">${pairingPanel(pr, pairCode && pairCode.until > Date.now() ? pairCode : null)}</div></div>
     </div></main>`);
   poll(async () => {
@@ -1676,10 +1676,10 @@ const actions = {
   'life-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = (el.dataset.mode === 'pack' ? packForm(el.dataset.slug) : lifeForm(el.dataset.slug, el.dataset.mode)).s; box.querySelector('input').focus(); },
   'life-cancel': el => { const box = el.closest('.life'); box.innerHTML = box.dataset.was || ''; },
   'guided-set': async el => {
-    const on = !!el.dataset.on, note = on ? $('#guided-note').value.trim() : null;
-    if (on && !note) return toast('Write who confirmed it for your firm, and when.', true);
+    const on = !!el.dataset.on, note = on ? $('#guided-note').value.trim() || null : null, acknowledged = on && $('#guided-ack').checked;
+    if (on && !acknowledged) return toast('Tick the box first: it records that you understand what guided mode does.', true);
     el.disabled = true;
-    try { await api('/api/browser/guided', { method: 'POST', body: { on, note } }); toast(on ? 'Guided mode is on. The change is logged.' : 'Guided mode is off.'); render(); }
+    try { await api('/api/browser/guided', { method: 'POST', body: { on, acknowledged, note } }); toast(on ? 'Guided mode is on. The change is logged.' : 'Guided mode is off.'); render(); }
     catch (e) { el.disabled = false; fail(e); }
   },
   'counsel-ok': async el => {

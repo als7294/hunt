@@ -1735,7 +1735,7 @@ async def capture_hello(req: Request):
     label = next((c["label"] for c in cases if c["slug"] == state["case"]), None)
     return JSONResponse({"version": version("hunt-osint"), **extension.status(), "cases": cases, "active_case": active,
                          "capture": state | {"label": label}, "off_sites": sorted(extension.CAPTURE_OFF),
-                         "stopped": browser.stops(), "guided": _guided()["on"]})
+                         "stopped": browser.stops(), "guided": browser.guided()["on"]})
 
 
 def _capture_state(b: dict) -> dict:
@@ -1859,7 +1859,7 @@ async def _capture_upload(req: Request, field: str, work):
             raise HTTPException(400, "url must be a page on Facebook, Instagram, TikTok, X or YouTube")
         if site in extension.CAPTURE_OFF:
             raise HTTPException(403, f"Hunt Capture is off on {site} (its terms name browser plugins); save pages by hand")
-        if stop := browser.stops().get(site):
+        if stop := browser.stopped(form.get("url")):
             raise HTTPException(403, stop["message"])
         f = form.get(field)
         if not isinstance(f, UploadFile):
@@ -1887,19 +1887,20 @@ async def _capture_upload(req: Request, field: str, work):
 
 
 def _record(form, when: str) -> dict:
-    """The capture record's fields from what the extension sent with an upload (docs/capture.md)."""
-    return extension.record(form["url"], form.get(when) or None, str(form.get("capture_version") or "")[:40] or None,
+    """The capture record's fields from what the extension sent with an upload (docs/capture.md); times in UTC."""
+    return extension.record(form["url"], extension.utc(form.get(when)), str(form.get("capture_version") or "")[:40] or None,
                             form.get("session") if form.get("session") in ("signed_in", "signed_out") else None)
 
 
 async def capture_view(req: Request):
     return await _capture_upload(req, "screenshot", lambda c, form, path, tmp: extension.add_view(
-        c, form["url"], path, form.get("viewed_at") or None, form.get("title") or "",
+        c, form["url"], path, extension.utc(form.get("viewed_at")), form.get("title") or "",
         form.get("kind") if form.get("kind") in ("view", "manual", "frame") else "view", _record(form, "viewed_at")))
 
 
 def _page_work(c, form, path, tmp):
-    done = extension.add_page(c, form["url"], path, form.get("viewed_at") or None, tmp / "media", _record(form, "viewed_at"))
+    done = extension.add_page(c, form["url"], path, extension.utc(form.get("viewed_at")), tmp / "media",
+                              _record(form, "viewed_at"))
     diff = getattr(recheck, "diff_captures", None)  # docs/qol.md: Check again's comparison, once it's merged
     return done | {"changes": diff(c) if diff else []}
 
@@ -1910,7 +1911,7 @@ async def capture_page(req: Request):
 
 async def capture_recording(req: Request):
     return await _capture_upload(req, "video", lambda c, form, path, tmp: extension.add_recording(
-        c, form["url"], path, form.get("started_at") or None, _record(form, "started_at")))
+        c, form["url"], path, extension.utc(form.get("started_at")), _record(form, "started_at")))
 
 
 async def capture_revoked(req: Request):  # the extension saw a checkpoint/challenge/suspension address
@@ -1924,74 +1925,42 @@ async def capture_revoked(req: Request):  # the extension saw a checkpoint/chall
     return JSONResponse(browser.stop(site, reason, b.get("url"), case))
 
 
-GUIDED = HOME / "guided.json"  # {on, note, ts}: guided mode, off until she turns it on in Hunt with counsel's note (D3)
-GUIDED_TABS = {"", "posts", "reels", "reels_tab", "media", "videos", "shorts", "photos"}  # the subject's own posts
-
-
-def _guided() -> dict:
-    try:
-        return json.loads(GUIDED.read_text())
-    except (OSError, ValueError):
-        return {"on": False, "note": None, "ts": None}
-
-
-async def guided_mode(req: Request):
-    """GET, or POST {on, note}: guided mode on or off, from Hunt only (the extension can't reach /api/browser).
-    On needs counsel's note: who confirmed the trade-off for this firm, and when (legal.md, guided mode). Every
-    change goes to ~/Hunt/guided.log, and into the case being captured, if any."""
-    if req.method == "GET":
-        return JSONResponse(_guided())
+async def capture_guided(req: Request):  # one press of Next: Hunt decides the step and audits it before it happens
     b = await _body(req)
-    on, note = b.get("on") is True, b.get("note")
-    if on and not (isinstance(note, str) and note.strip() and len(note) <= 2000):
-        raise HTTPException(400, "turning guided mode on needs counsel's note: who confirmed it for this firm, and when")
-    state = {"on": on, "note": note.strip() if on else None, "ts": now()}
-    GUIDED.write_text(json.dumps(state))
-    with open(HOME / "guided.log", "a") as f:
-        f.write(json.dumps(state) + "\n")
-    if slug := browser.capture()["case"]:
-        Case.open(slug).audit(f"guided mode {'on' if on else 'off'}", {"note": state["note"]})
-    return JSONResponse(state)
-
-
-async def _guided_refusal(c: Case, action: str, url: str, to: str | None) -> str | None:
-    """Why this guided step may not run, or None: only on an account confirmed as the subject's, scrolling its
-    profile and its own posts tabs (never followers, following or friends), opening its own posts (G2, AP6)."""
-    mine = {extension.where(a) for a in extension.confirmed(c)}
-    acct = extension.account_of(url)
-    key = extension.where(acct) if acct else None
-    if key not in mine:
-        return "guided mode steps only through accounts confirmed as the subject's"
-    here = extension.where(url)
-    tab = (urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get("sk", [""])[0] if "profile.php" in here
-           else here[len(key):].strip("/").split("/")[0])
-    if action == "scroll" and tab not in GUIDED_TABS:
-        return "guided mode scrolls only the profile and its posts, reels, photos and videos, never lists of people"
-    if action == "open":
-        theirs = {extension.where(p["url"]) for p in await _posts(c) if p.get("url") and p.get("account_url")
-                  and extension.account_of(p["account_url"]) and extension.where(extension.account_of(p["account_url"])) == key}
-        if extension.where(to or "") not in theirs and not (extension.account_of(to) and extension.where(extension.account_of(to)) == key):
-            return "guided mode opens only the subject's own posts"
-    return None
-
-
-async def capture_guided(req: Request):  # one press of Next in guided mode
-    b = await _body(req)
-    if not _guided()["on"]:
-        raise HTTPException(403, "guided mode is off: turn it on in Hunt, with counsel's note")
     try:
         c = Case.open(str(b.get("case") or ""))
     except LookupError:
         raise HTTPException(404, "no such case")
-    if b.get("action") not in ("scroll", "open") or not extension.platform(str(b.get("url") or "")):
-        raise HTTPException(400, "action must be scroll or open, on a supported page")
-    if why := c.blocked():
-        raise HTTPException(409, why)
-    if extension.platform(b["url"]) in extension.CAPTURE_OFF or extension.platform(b["url"]) in browser.stops():
-        raise HTTPException(403, "guided mode doesn't run where capture is off or stopped")
-    if why := await _guided_refusal(c, b["action"], b["url"], b.get("to")):
-        raise HTTPException(403, why)
-    return JSONResponse({"audit": extension.guided(c, b["action"], b["url"], b.get("to"))})
+    url = str(b.get("url") or "")
+    if not extension.platform(url):
+        raise HTTPException(400, "url must be a page on a supported site")
+    if b.get("missed"):  # the step's capture never came back: the lock was released by its timer
+        return JSONResponse({"audit": await asyncio.to_thread(extension.guided_missed, c, url)})
+    visited = [str(v) for v in b.get("visited") or [] if isinstance(v, str)][:500]
+    try:
+        return JSONResponse(await asyncio.to_thread(extension.guided, c, url, bool(b.get("at_bottom")), visited))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+
+
+async def browser_guided(req: Request):  # guided mode's switch, from Hunt only, with her acknowledgement
+    if req.method == "GET":
+        return JSONResponse(browser.guided())
+    b = await _body(req)
+    state = browser.capture()
+    try:
+        return JSONResponse(browser.set_guided(bool(b.get("on")), b.get("acknowledged") is True, b.get("note"),
+                                               Case.open(state["case"]) if state["case"] else None))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+async def capture_override(req: Request):  # she confirmed one of her own contact clicks the extension asked about
+    b = await _body(req)
+    if not extension.platform(str(b.get("url") or "")):
+        raise HTTPException(400, "url must be a page on a supported site")
+    browser.her_click(str(b.get("what") or ""), str(b["url"]))
+    return JSONResponse({"ok": True})
 
 
 async def browser_resume(req: Request):  # she resumes a stopped platform, deliberately, from Hunt
@@ -2004,7 +1973,10 @@ async def browser_resume(req: Request):  # she resumes a stopped platform, delib
 async def browser_accounts(req: Request):
     if req.method == "GET":
         return JSONResponse(browser.accounts())
-    return JSONResponse(browser.set_accounts(await _body(req)))
+    try:
+        return JSONResponse(browser.set_accounts(await _body(req)))
+    except ValueError as e:  # a stopped platform's account can't change
+        raise HTTPException(409, str(e))
 
 
 CAPTURE_ROUTES = [
@@ -2027,10 +1999,11 @@ CAPTURE_ROUTES = [
     Route("/api/browser/open", browser_open, methods=["POST"]),
     Route("/api/browser/sign-out", browser_sign_out, methods=["POST"]),
     Route("/api/browser/resume", browser_resume, methods=["POST"]),
-    Route("/api/browser/guided", guided_mode, methods=["GET", "POST"]),
     Route("/api/browser/accounts", browser_accounts, methods=["GET", "POST"]),
     Route("/api/capture/revoked", capture_revoked, methods=["POST"]),
     Route("/api/capture/guided", capture_guided, methods=["POST"]),
+    Route("/api/capture/override", capture_override, methods=["POST"]),
+    Route("/api/browser/guided", browser_guided, methods=["GET", "POST"]),
 ]
 
 

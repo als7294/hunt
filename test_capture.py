@@ -23,6 +23,7 @@ from hunt import browser, inbox  # noqa: E402
 from hunt import extension as ext  # noqa: E402
 from hunt import posts  # noqa: E402
 from hunt.case import Case  # noqa: E402
+from hunt.seed import Seed  # noqa: E402
 
 HERE = Path(__file__).parent
 FIX = HERE / "fixtures" / "capture"
@@ -198,6 +199,7 @@ assert bare.post("/api/capture/hello", content="{}", headers=KEYED).status_code 
 
 # --- What the extension sends lands as captured evidence and posts --------------------------------
 case = Case.create("capture test", purpose="self-check with made-up accounts")
+case.add_seeds([Seed("url", "https://www.facebook.com/dorian.vell"), Seed("url", "https://x.com/dvell")])  # his, so kept
 slug = case.dir.name
 hello = c.post("/api/capture/hello", content="{}", headers=KEYED).json()
 assert {"slug": slug, "label": "capture test"} in hello["cases"] and hello["paired"]
@@ -290,6 +292,7 @@ assert all(l["url"].startswith("https://") for l in st["logins"]) and set(st["br
 assert st["capture"] == {"case": None, "on": False, "since": None}  # off whenever Hunt starts
 launched = []
 browser.chromium = lambda: Path("/Applications/Fake Browser.app/Contents/MacOS/Fake Browser")
+REAL_POPEN = browser.subprocess.Popen  # the node checks at the end need it back
 browser.subprocess.Popen = lambda args, **kw: launched.append((args, kw)) or type("P", (), {"poll": lambda self: None})()
 OPEN = {**WEB}
 r = c.post("/api/browser/open", content=json.dumps({"url": "https://www.facebook.com/login/", "case": slug}), headers=OPEN)
@@ -298,6 +301,7 @@ args, kw = launched[0]
 assert args[1:] == [f"--user-data-dir={browser.PROFILE}", f"--load-extension={browser.EXTENSION_DIR}", "--no-first-run",
                     "--no-default-browser-check", "https://www.facebook.com/login/"] and kw["start_new_session"]
 assert not any(re.search(r"remote-debugging|automation|headless|disable-blink|user-agent", a) for a in args)  # observe-only
+BANNED_FLAGS = r"remote-debugging|automation|headless|disable-blink|user-agent|proxy-server|disable-web-security"
 pairing = json.loads((browser.EXTENSION_DIR / "pairing.json").read_text())
 assert pairing["port"] == PORT and ext.holds(f"chrome-extension://{browser.extension_id()}", pairing["key"])
 assert oct((browser.EXTENSION_DIR / "pairing.json").stat().st_mode)[-3:] == "600"
@@ -405,11 +409,18 @@ assert (audit["viewed_as"], audit["capture_version"], audit["grid"], audit["prof
     ("logged in as laura.ethos.inv", "0.1.0.4242", 3, 212)
 # items whose audience isn't shown as Public are flagged (kept out of the report unless counsel approves)
 flags = Case.create("audience flags", purpose="self-check with made-up posts")
+flags.add_seeds([Seed("url", "https://www.facebook.com/dorian.vell"), Seed("url", "https://www.instagram.com/dorian.vell/")])
 ext.add_page(flags, "https://m.facebook.com/dorian.vell", HERE / "fixtures" / "facebook" / "mobile_fr.mhtml", None,
              Path(tempfile.mkdtemp()), ext.record("https://m.facebook.com/dorian.vell", None, "0.1.0.1", "signed_out"))
 shown = {p["text"][:7]: (p["extra"].get("audience"), p["extra"].get("audience_flag")) for p in posts.list_posts(flags)}
-assert shown == {"Séance ": ("Public", None), "Randonn": (None, True), "Premier": (None, True)}, shown
+assert shown == {"Séance ": ("Public", None), "Randonn": (None, None), "Premier": (None, None)}, shown  # D10: unknown isn't flagged
 assert all(p["extra"]["viewed_as"] == "logged out" for p in posts.list_posts(flags))
+private = mhtml("https://www.instagram.com/dorian.vell/", '<html><body><h2>This account is private</h2><a href="/p/DPriv00001/">'
+                '<img alt="Photo by Dorian Vell on October 1, 2026" src="https://cdn.test/p.jpg" width="300" height="300"></a></body></html>',
+                ["https://cdn.test/p.jpg"])
+(priv := Path(tempfile.mkdtemp()) / "page.mhtml").write_bytes(private)
+ext.add_page(flags, "https://www.instagram.com/dorian.vell/", priv, None, Path(tempfile.mkdtemp()))
+assert next(p["extra"] for p in posts.list_posts(flags) if p["url"].endswith("/DPriv00001/"))["audience_flag"] is True  # Followers
 # 2. Coverage and the "open these" list: the scan flags the reel's grid thumbnail; the reel is also an unplayed video
 case.db.executescript(scan.SCHEMA)
 reel = grid["https://www.instagram.com/reel/DQrReelHike2/"]
@@ -448,6 +459,7 @@ assert vendor["extra"]["vendor_source"] == "Instagram (via Apify)" and vendor["e
 # 3c. The comments she could see stay with their post: a grid post she opened later, an X post already captured from
 # the profile, and a capture of the same page again, which adds nothing twice
 talk = Case.create("comments", purpose="self-check with made-up posts")
+talk.add_seeds([Seed("url", "https://www.instagram.com/dorian.vell/"), Seed("url", "https://x.com/dvell")])
 at = "2026-10-28T15:00:00Z"
 add = lambda url, name: ext.add_page(talk, url, FIX / name, at, Path(tempfile.mkdtemp()), ext.record(url, at, "0.1.0.1", "signed_in"))
 add("https://www.instagram.com/dorian.vell/", "instagram_profile.mhtml")
@@ -505,27 +517,38 @@ c.post("/api/browser/resume", content=json.dumps({"platform": "Facebook"}), head
 assert page_up("https://www.reddit.com/user/dorian_vell/", mhtml("https://www.reddit.com/user/dorian_vell/", "<p>hi</p>")).status_code == 200
 for off in ("https://www.strava.com/athletes/1", "https://www.snapchat.com/add/x", "https://www.linkedin.com/in/x/"):
     assert page_up(off, mhtml(off, "<p>x</p>")).status_code == 403, off
-# 6. Guided steps are audited; never where capture is off or stopped
+# 6. Guided mode: off until turned on from Hunt with who confirmed it; then Hunt decides each step and audits it
+# before the extension does it (compliance audit CA2/AP6, decision D3)
 g = lambda body: c.post("/api/capture/guided", content=json.dumps({"case": slug} | body), headers=HB)
-# Off until she turns it on in Hunt with counsel's note (D3); the extension learns it from hello, and can't set it
-assert g({"action": "scroll", "url": "https://www.instagram.com/dorian.vell/"}).status_code == 403
+IG = "https://www.instagram.com/dorian.vell/"
+REEL = "https://www.instagram.com/reel/DQrReelHike2/"
 assert c.post("/api/capture/hello", content="{}", headers=HB).json()["guided"] is False
-assert c.post("/api/browser/guided", content=json.dumps({"on": True}), headers=WEB).status_code == 400  # no note
-assert c.post("/api/browser/guided", content=json.dumps({"on": True, "note": "x"}), headers=HB).status_code in (401, 403)
-on = c.post("/api/browser/guided", content=json.dumps({"on": True, "note": "Counsel A. Example confirmed, 2026-10-30"}), headers=WEB)
-assert on.json()["on"] and c.post("/api/capture/hello", content="{}", headers=HB).json()["guided"] is True
-# Only the subject's confirmed accounts: their profile and own posts tabs, never lists of people (G2)
-assert g({"action": "scroll", "url": "https://www.instagram.com/someone.else/"}).status_code == 403
-assert g({"action": "scroll", "url": "https://www.instagram.com/dorian.vell/followers/"}).status_code == 403
-assert g({"action": "open", "url": "https://www.instagram.com/dorian.vell/", "to": "https://www.instagram.com/p/NotTheirs1/"}).status_code == 403
-assert g({"action": "scroll", "url": "https://www.instagram.com/dorian.vell/"}).status_code == 200
-assert g({"action": "open", "url": "https://www.instagram.com/dorian.vell/", "to": "https://www.instagram.com/reel/DQrReelHike2/"}).status_code == 200
-assert g({"action": "scroll-forever", "url": "https://www.instagram.com/dorian.vell/"}).status_code == 400
-assert g({"action": "scroll", "url": "https://www.linkedin.com/in/x/"}).status_code == 403
-steps = [json.loads(r["detail"]) for r in case.rows("select detail from audit where action = 'guided step' order by rowid")]
-assert [(x["action"], x.get("to")) for x in steps] == [("scroll", None), ("open", "https://www.instagram.com/reel/DQrReelHike2/")]
-assert c.post("/api/browser/guided", content=json.dumps({"on": False}), headers=WEB).json()["on"] is False
-assert g({"action": "scroll", "url": "https://www.instagram.com/dorian.vell/"}).status_code == 403  # off again
+assert g({"url": IG}).status_code == 403 and "turned on in Hunt" in g({"url": IG}).json()["error"]
+guide = lambda body: c.post("/api/browser/guided", content=json.dumps(body), headers=WEB)
+assert guide({"on": True}).status_code == 400 and guide({"on": True, "acknowledged": "yes"}).status_code == 400  # her acknowledgement
+assert bare.post("/api/browser/guided", content=json.dumps({"on": True, "acknowledged": True}), headers=HB).status_code == 403  # Hunt only
+assert guide({"on": True, "acknowledged": True, "note": "Read the trade-off; counsel to confirm before casework"}).json()["on"] is True
+assert c.post("/api/capture/hello", content="{}", headers=HB).json()["guided"] is True
+assert c.get("/api/browser/status").json()["guided"]["acknowledged"] is True
+assert [json.loads(x)["action"] for x in (browser.ROOT / "audit.jsonl").read_text().splitlines()][-1] == "guided mode on"
+r = g({"url": IG, "at_bottom": False})
+assert r.status_code == 200 and (r.json()["action"], r.json()["to"]) == ("scroll", None) and r.json()["progress"]["grid_total"] == 212
+assert g({"url": IG, "at_bottom": True}).json() | {"progress": None} == {"action": "open", "to": REEL, "why": None, "progress": None}
+assert g({"url": IG + "followers/", "at_bottom": False}).json()["action"] == "open"  # never scrolls a follower list
+assert g({"url": IG, "at_bottom": True, "visited": [REEL]}).json()["action"] == "none"
+assert g({"url": "https://www.instagram.com/someone.else/"}).status_code == 403  # not a confirmed account
+case.decide("https://www.facebook.com/profile.php?id=100087654321012", "him")
+assert g({"url": "https://www.facebook.com/profile.php?id=555"}).status_code == 403  # another numeric profile (G2)
+assert g({"url": "https://www.facebook.com/profile.php?id=100087654321012"}).json()["action"] == "scroll"
+assert g({"url": "https://www.linkedin.com/in/x/"}).status_code == 403
+assert g({"url": IG, "missed": True}).status_code == 200  # the 20 s release, audited (decision G4)
+steps = [(r["action"], json.loads(r["detail"])) for r in case.rows("select action, detail from audit where action like 'guided%' order by rowid")]
+assert [(a, d.get("action"), d.get("to")) for a, d in steps] == [
+    ("guided mode on", None, None), ("guided step", "scroll", None), ("guided step", "open", REEL), ("guided step", "open", REEL),
+    ("guided step", "scroll", None), ("guided step not recorded", None, None)]
+browser.stop("Instagram", "a test stop")
+assert g({"url": IG}).status_code == 403  # nor where capture is stopped
+browser.resume("Instagram")
 # 7. The window size, for a Hunt Browser beside Hunt's window
 browser.chromium = lambda: Path("/Applications/Fake Browser.app/Contents/MacOS/Fake Browser")
 launched.clear()
@@ -547,6 +570,134 @@ assert r.status_code == 409 and "You opened this LinkedIn profile on" in r.json(
 assert c.post("/api/browser/open", content=json.dumps({"url": "https://www.linkedin.com/login"}), headers=OPEN).status_code == 200  # signing in
 browser.STATUS.unlink()
 
+# --- The compliance audit's capture fixes (docs/research/compliance-audit.md §3.2) ------------------------
+pairing = json.loads((browser.EXTENSION_DIR / "pairing.json").read_text())  # reopening the browser above issued a new key
+HB, HBU = HB | {"x-hunt-key": pairing["key"]}, HBU | {"x-hunt-key": pairing["key"]}
+# CA1: one stop check, by platform, whatever the scheme; DS2: the one deny list
+browser.stop("TikTok", "a test stop")
+assert browser.stopped("http://www.tiktok.com/@x")["reason"] == "a test stop" and browser.stopped("https://x.com/a") is None
+browser.resume("TikTok")
+from hunt.sources import _api  # noqa: E402
+assert _api.denied("http://m.facebook.com/x") and _api.denied("www.reddit.com/r/x") and not _api.denied("https://notfacebook.com/")
+# CA3 (decision D12 a): on a page that isn't the subject's, the archive is kept whole, and only posts naming him are stored
+pal = Case.create("associates", purpose="self-check with made-up posts")
+pal.add_seeds([Seed("url", "https://www.instagram.com/dorian.vell/"), Seed("name", "Dorian Vell")])
+at = "2026-10-28T15:00:00Z"
+pal_page = mhtml("https://www.instagram.com/mara.quill/", '<html><body><p>This account is public</p>'
+                 '<article><header><a href="/mara.quill/">mara.quill</a></header><h1>Boat day with @dorian.vell</h1>'
+                 '<a href="/p/DMaraBoat01/"><time datetime="2026-10-20T10:00:00.000Z">Oct 20</time></a></article>'
+                 '<article><header><a href="/mara.quill/">mara.quill</a></header><h1>Sunset at the marina</h1>'
+                 '<a href="/p/DMaraSun002/"><time datetime="2026-10-21T19:00:00.000Z">Oct 21</time></a></article></body></html>')
+(tmp := Path(tempfile.mkdtemp()) / "page.mhtml").write_bytes(pal_page)
+r = ext.add_page(pal, "https://www.instagram.com/mara.quill/", tmp, at, Path(tempfile.mkdtemp()))
+assert (r["posts"], r["added"], r["not_subject"]) == (1, 1, 1), r
+assert [p["url"] for p in posts.list_posts(pal)] == ["https://www.instagram.com/p/DMaraBoat01/"]
+assert (pal.dir / r["file"]).read_bytes() == pal_page  # the archive itself: whole, as received
+(img := Path(tempfile.mkdtemp()) / "shot.jpg").write_bytes(shot)
+ext.add_view(pal, "https://www.instagram.com/mara.quill/", img, at)
+ext.add_view(pal, "https://www.instagram.com/dorian.vell/", img.with_name("2.jpg").write_bytes(shot + b"2") and img.with_name("2.jpg"), at)
+views = {p["extra"]["viewed_url"]: p["extra"] for p in posts.list_posts(pal) if p["extra"].get("capture") == "view"}
+assert views["https://www.instagram.com/mara.quill/"]["not_subject"] is True and "not_subject" not in views["https://www.instagram.com/dorian.vell/"]
+# CA5: a screenshot's audience is its page's: from the archive already there, or from the next one (filled in)
+assert views["https://www.instagram.com/mara.quill/"]["audience"] == "Public"  # the archive above showed it
+assert "audience" not in views["https://www.instagram.com/dorian.vell/"]  # no archive of that page yet: unknown, not flagged (D10)
+(tmp2 := Path(tempfile.mkdtemp()) / "page.mhtml").write_bytes((FIX / "instagram_profile.mhtml").read_bytes())
+ext.add_page(pal, "https://www.instagram.com/dorian.vell/", tmp2, at, Path(tempfile.mkdtemp()))
+later = next(p["extra"] for p in posts.list_posts(pal) if p["extra"].get("viewed_url") == "https://www.instagram.com/dorian.vell/")
+assert (later["audience"], later.get("audience_flag")) == ("Public", None)  # as a post captured Public
+# CA11: capture times are stored in UTC, or not at all
+r = c.post("/api/capture/page", data={"case": slug, "url": "https://x.com/dvell", "viewed_at": "2026-10-28T17:00:00+02:00"},
+           files={"archive": ("page.mhtml", mhtml("https://x.com/dvell", "<p>x</p>"), "multipart/related")}, headers=HBU)
+assert r.status_code == 200, r.text
+done = json.loads(case.rows("select detail from audit where action = 'capture page' order by rowid desc limit 1")[0]["detail"])
+assert (done["viewed_at"], done["captured_at"]) == ("2026-10-28T15:00:00Z", "2026-10-28T15:00:00Z")
+assert ext.record("https://x.com/a", ext.utc("2026-10-28T17:00:00+02:00"), None, None)["captured_at"] == "2026-10-28T15:00:00Z"
+assert ext.utc("yesterday") is None and ext.utc("2026-10-28T15:00:00") is None  # no zone, no guess
+# CA9: signing in again after a hard stop is noticed, and her handle there can't change
+assert signin({p: "signed_out" for p in browser.PLATFORMS}, HB).status_code == 200
+browser.stop("Instagram", "a test stop")
+signin({p: "signed_in" if p == "instagram" else "signed_out" for p in browser.PLATFORMS}, HB)
+assert c.get("/api/browser/status").json()["problems"][-1]["message"].startswith("You signed in to Instagram again after a hard stop")
+assert c.post("/api/browser/accounts", content=json.dumps({"instagram": "someone.else"}), headers=WEB).status_code == 409
+assert c.post("/api/browser/accounts", content=json.dumps({"instagram": "laura.ethos.inv", "x": "laura_x"}), headers=WEB).status_code == 200
+browser.resume("Instagram")
+# CA10: every hard stop is written to this computer's log, and audited in each open case with an account there
+cap({"case": slug, "on": False})
+assert c.post("/api/capture/revoked", content=json.dumps({"url": "https://x.com/account/access"}), headers=HB).status_code == 200
+assert json.loads((browser.ROOT / "audit.jsonl").read_text().splitlines()[-1])["platform"] == "X"
+assert case.rows("select 1 from audit where action = 'capture hard stop' and detail like '%account/access%'")  # x.com/dvell is his
+assert not pal.rows("select 1 from audit where action = 'capture hard stop' and detail like '%account/access%'")  # no X account
+browser.resume("X")
+# CA4 (decision D8 a): Hunt's own headless screenshots skip denied hosts and stopped platforms; a 429 ends that host's
+# shots for the run, and a CAPTCHA, block or login wall also sets a hard stop worded for automatic reads
+from hunt import capture  # noqa: E402
+assert capture.wall(429, "https://www.tiktok.com/@a", "")[0] == "limit"
+assert capture.wall(200, "https://www.tiktok.com/login?redirect=x", "")[0] == "stop"
+assert capture.wall(200, "https://www.youtube.com/@a", "Our systems have detected unusual traffic from your network")[0] == "stop"
+assert capture.wall(200, "https://github.com/dvell", "Dorian Vell · GitHub") is None
+world = {"visits": [], "ua": None, "pages": {"https://gitlab.com/a": (429, "https://gitlab.com/a", ""),
+                                            "https://www.tiktok.com/@dvell": (200, "https://www.tiktok.com/@dvell", "unusual traffic")}}
+
+
+class FakePage:
+    async def goto(self, url, **kw):
+        world["visits"].append(url)
+        status, self.url, self.text = world["pages"].get(url, (200, url, "a profile"))
+        return type("R", (), {"status": status})()
+
+    async def inner_text(self, selector):
+        return self.text
+
+    async def screenshot(self, **kw):
+        return b"png"
+
+    async def content(self):
+        return "<html></html>"
+
+    async def close(self):
+        pass
+
+
+class FakeChrome:
+    async def new_context(self, **kw):
+        world["ua"] = kw.get("user_agent")
+        return type("Ctx", (), {"new_page": lambda self: __import__("asyncio").sleep(0, FakePage())})()
+
+    async def close(self):
+        pass
+
+
+class FakePlaywright:
+    chromium = type("C", (), {"launch": lambda self, **kw: __import__("asyncio").sleep(0, FakeChrome())})()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        pass
+
+
+capture.async_playwright = FakePlaywright
+browser.stop("YouTube", "a test stop")
+urls = ["https://www.facebook.com/dorian.vell", "https://github.com/dvell", "https://gitlab.com/a", "https://gitlab.com/b",
+        "https://www.tiktok.com/@dvell", "https://www.tiktok.com/@other", "http://www.youtube.com/@dvell"]
+got = __import__("asyncio").run(capture.screenshots(urls, concurrency=1))
+assert world["visits"] == ["https://github.com/dvell", "https://gitlab.com/a", "https://www.tiktok.com/@dvell"], world["visits"]
+assert got["https://github.com/dvell"] == (b"png", "<html></html>") and world["ua"].startswith("Hunt/")
+assert "robots.txt" in str(got["https://www.facebook.com/dorian.vell"]) and "a test stop" in str(got["http://www.youtube.com/@dvell"])
+assert "429" in str(got["https://gitlab.com/b"]) and set(browser.stops()) == {"YouTube", "TikTok"}  # a 429 ends the run only
+assert "Hunt's own automatic reads" in browser.stops()["TikTok"]["message"] and "@other" not in str(world["visits"])
+world["visits"].clear()
+assert isinstance(__import__("asyncio").run(capture.screenshots(["https://www.tiktok.com/@x"]))["https://www.tiktok.com/@x"], PermissionError)
+assert world["visits"] == []  # refused before any browser started
+browser.resume("YouTube")
+browser.resume("TikTok")
+# D13 b: Hunt's code stays off LinkedIn, so it doesn't ask for LinkedIn at all; its sign-in shows as unknown
+manifest = json.loads((HERE / "extension" / "manifest.json").read_text())
+assert not any("linkedin" in h for h in manifest["host_permissions"]) and "li_at" not in (HERE / "extension" / "background.js").read_text()
+
+assert all(not re.search(BANNED_FLAGS, a) for args, _ in launched for a in args)  # every launch, not just the first
+
 # --- Unpairing closes the capture routes ----------------------------------------------------------
 assert c.post("/api/pairing/forget", content="{}", headers=WEB).json() == {"paired": False}
 assert c.post("/api/capture/hello", content="{}", headers=HB).status_code == 403
@@ -564,22 +715,37 @@ def body(js, fn):  # a top-level function's text, from its declaration to the cl
     return re.search(rf"\n(?:async )?function {fn}\(.*?\n}}\n", js, re.S)[0]
 
 
+whole = dict(code)  # before the guided steps are cut out below
+nxt = body(whole["background.js"], "guidedNext")
+assert not re.search(r"\b(?:for|while)\b|setInterval|setTimeout|requestAnimationFrame", nxt)  # one press, one step
+assert whole["background.js"].count('"guided-scroll"') == 1 and '"guided-scroll"' in nxt  # sent from guidedNext only, once
+assert nxt.index('await api("guided"') < nxt.index('"guided-scroll"') and nxt.index('await api("guided"') < nxt.index("guidedOpen(")
+assert len(re.findall(r"(?<!function )guidedNext\(", whole["background.js"])) == 2  # only from the hotkey and the popup's Next
+assert re.search(r'command === "guided-next"\) guidedNext\(\)', whole["background.js"])
+assert re.search(r'case "next":\s*return guidedNext\(\);', whole["background.js"])
+assert not re.search(r"guided(?:Scroll|Open)\b(?!\()", re.sub(r"//[^\n]*", "", whole["background.js"] + whole["content.js"]))  # never a value
+assert "SITE.test(" in body(whole["background.js"], "guidedOpen") and "stories" in body(whole["background.js"], "guidedOpen")
 for name, fn in GUIDED.items():
     step = body(code[name], fn)
     moves = re.findall(r"scrollBy\(|tabs\.update\(", step)
     assert len(moves) == 1, (name, fn, moves)  # exactly one scroll or one navigation per press
     assert not re.search(r"\b(?:for|while)\b|setInterval|setTimeout|requestAnimationFrame|\.repeat", step), (fn, step)
     code[name] = code[name].replace(step, "\n")
+DOM = r"appendChild|insertAdjacent|\.innerHTML\s*=|attachShadow|createElement\("  # the popup builds its own page
 for name, js in code.items():
-    for banned in (r"\.click\(", r"scroll(?:To|By|IntoView)\(", r"tabs\.(?:update|create|remove|reload|goBack|goForward)\(",
-                   r"\blocation(?:\.href)?\s*=[^=]", r"location\.(?:assign|replace|reload)\(", r"\.submit\(",
-                   r"dispatchEvent\(", r"executeScript", r"history\.(?:push|replace)State", r"XMLHttpRequest",
-                   r"WebSocket", r"sendBeacon", r"\beval\(", r"new (?:Keyboard|Mouse|Wheel|Pointer|Touch)Event",
-                   r"appendChild|insertAdjacent|\.innerHTML\s*=|attachShadow"):
-        if name != "popup.js" or banned != r"appendChild|insertAdjacent|\.innerHTML\s*=|attachShadow":
+    for banned in (r"\.click\b", r"scroll(?:To|By|IntoView)\(", r"\bscroll\(", r"scrollTop\s*[+\-]?=", r"scrollIntoViewIfNeeded",
+                   r"tabs\.(?:update|create|remove|reload|goBack|goForward|duplicate)\(", r"windows\.create",
+                   r"\blocation(?:\.href)?\s*=[^=]", r"location\.\w+\s*=[^=]", r"location\.(?:assign|replace|reload)\(",
+                   r"\.submit\(", r"requestSubmit", r"dispatchEvent\(", r"executeScript", r"history\.(?:push|replace)State",
+                   r"XMLHttpRequest", r"WebSocket", r"EventSource", r"sendBeacon", r"\beval\(", r"\bimport\(", r"new Image\b",
+                   r"new (?:Keyboard|Mouse|Wheel|Pointer|Touch)Event", r"\.focus\(", r"\.play\(", r"\.load\(", r"currentTime\s*=",
+                   r"window\.open\(|\bopen\(", DOM):
+        if name != "popup.js" or banned != DOM:
             assert not re.search(banned, js), (name, banned)
     for target in re.findall(r"fetch\(\s*`?([^,)]+)", js):  # Hunt on this computer, or the extension's own pairing.json
         assert target.startswith(("http://127.0.0.1:", 'chrome.runtime.getURL("pairing.json"')), (name, target)
+assert not re.search(r"\b(?:append|prepend|before|after|replaceWith|insertBefore|replaceChildren)\(|outerHTML\s*=|document\.write",
+                     code["content.js"])  # the content script adds nothing to a page
 assert "fetch(" not in code["content.js"] and "chrome.storage" not in code["content.js"]
 assert re.findall(r"guided(?:Scroll|Open)\(", code["content.js"] + code["background.js"]) == ["guidedScroll(", "guidedOpen("]
 assert "Story viewers can see your account" in code["content.js"]  # the Story warning, before a Story opens
@@ -588,13 +754,103 @@ manifest = json.loads((HERE / "extension" / "manifest.json").read_text())
 site = re.search(r"const SITE = (.*)", code["background.js"])[1]
 assert not re.search(r"linkedin|strava|snapchat", site) and "reddit" in site  # the per-site switch
 assert not any(re.search(r"linkedin|strava|snapchat", m) for c in manifest["content_scripts"] for m in c["matches"])
-assert manifest["content_security_policy"]["extension_pages"].endswith("connect-src 'self' http://127.0.0.1:*")
+assert manifest["content_security_policy"]["extension_pages"] == \
+    "default-src 'self'; script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:*"
+assert "web_accessible_resources" not in manifest  # nothing a page could load to detect Hunt Capture
 assert manifest["manifest_version"] == 3 and "<all_urls>" not in json.dumps({k: v for k, v in manifest.items()
                                                                             if k != "optional_host_permissions"})
 assert manifest["optional_host_permissions"] == ["<all_urls>"]  # only through Chrome's prompt, on her click
-assert not {"history", "webRequest", "debugger", "scripting", "downloads", "management"} & set(manifest["permissions"])
-# cookies: only whether a sign-in cookie exists; no cookie's value is ever read, kept or sent
-assert not re.search(r"\.value\b|getAll", code["background.js"]) and "cookies" not in code["popup.js"] + code["content.js"]
-assert set(re.findall(r"chrome\.cookies\.\w+", code["background.js"])) == {"chrome.cookies.get", "chrome.cookies.onChanged"}
+assert not {"history", "webRequest", "debugger", "scripting", "downloads", "management", "alarms", "nativeMessaging", "proxy",
+            "userScripts", "declarativeNetRequest"} & set(manifest["permissions"])
+# cookies: only whether a sign-in cookie exists. The one read is used as a yes/no, and no cookie field but its name is touched
+bg = whole["background.js"]
+assert bg.count("chrome.cookies.get(") == 1 and re.search(r"\(await chrome\.cookies\.get\([^)]*\)\)\s*\?", bg)
+assert not re.search(r"cookie\.(?!name\b)\w+|\bvalue\b|getAll", re.sub(r"//[^\n]*", "", bg))  # in code; comments may say "value"
+assert "cookies" not in code["popup.js"] + code["content.js"]
+assert set(re.findall(r"chrome\.cookies\.\w+", bg)) == {"chrome.cookies.get", "chrome.cookies.onChanged"}
+
+# --- The extension's behaviour, run under node with a fake chrome API (skipped where node isn't installed) ------------
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+
+GUIDED_JS = r"""
+const vm = require("vm"), fs = require("fs");
+const env = process.env, listeners = {}, calls = { scroll: 0, update: 0, api: [] };
+const on = (name) => ({ addListener: (f) => (listeners[name] = listeners[name] || []).push(f) });
+const store = { port: 1, key: "k", case: "c", on: true, mode: env.MODE || "auto", stopped: {} };
+const tab = { id: 7, url: env.URL || "https://www.instagram.com/dorian.vell/", status: "complete", active: true, windowId: 1 };
+const chrome = {
+  storage: { local: { get: async (d) => ({ ...d, ...store }), set: async (v) => { Object.assign(store, v); }, setAccessLevel: async () => {} },
+             session: { get: async (d) => ({ ...d }), set: async () => {} } },
+  runtime: { id: "me", getURL: (p) => p, getManifest: () => ({ version: "0.1.0" }), sendMessage: async () => {},
+             onStartup: on("startup"), onInstalled: on("installed"), onMessage: on("message") },
+  cookies: { get: async () => null, onChanged: on("cookies") },
+  tabs: { query: async () => [tab], get: async () => tab, update: async () => { calls.update++; },
+          sendMessage: async (id, msg) => { if (msg.type === "guided-where") return { loaded: true, atBottom: false };
+                                            if (msg.type === "guided-scroll") calls.scroll++; return {}; },
+          onUpdated: on("updated"), onActivated: on("activated"), onRemoved: on("removed") },
+  action: { setBadgeBackgroundColor: async () => {}, setBadgeText: async () => {}, setTitle: async () => {},
+            getUserSettings: async () => ({ isOnToolbar: true }) },
+  commands: { onCommand: on("command") },
+};
+const fetch = async (url, opts) => {
+  if (url === "pairing.json") throw new Error("not the Hunt Browser");
+  const path = String(url).split("/api/capture/")[1];
+  calls.api.push(path);
+  const status = path === "guided" ? Number(env.STATUS || 200) : 200;
+  const reply = path === "guided" && status === 200 ? { action: env.ACTION || "scroll", to: env.TO || null, progress: {} } : { error: "no" };
+  return { status, ok: status === 200, json: async () => reply };
+};
+vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), vm.createContext({ chrome, fetch, console: { warn() {} }, setTimeout,
+  clearTimeout, URL, Blob, FormData, atob }));
+setTimeout(() => {
+  listeners.command.forEach((f) => f("guided-next", tab));
+  listeners.command.forEach((f) => f("guided-next", tab));  // a second press at once: refused, not queued
+  setTimeout(() => { console.log(JSON.stringify({ ...calls, guided: calls.api.filter((p) => p === "guided").length })); process.exit(0); }, 300);
+}, 50);
+"""
+CONTENT_JS = r"""
+const vm = require("vm"), fs = require("fs");
+const env = process.env, handlers = {}, asked = [], sent = [];
+const chrome = { runtime: { onMessage: { addListener() {} }, sendMessage: (m) => { sent.push(m.type);
+  return m.type === "on?" ? (env.FAIL ? Promise.reject(new Error("no")) : Promise.resolve({ on: true, signedIn: JSON.parse(env.STATE || "{}") }))
+    : Promise.resolve(); } } };
+const document = { addEventListener: (t, f) => (handlers[t] = handlers[t] || []).push(f), querySelectorAll: () => [], visibilityState: "visible" };
+vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), vm.createContext({ chrome, document, location: { hostname: "www.instagram.com" },
+  confirm: (text) => { asked.push(text); return env.ANSWER === "ok"; }, setInterval() {}, setTimeout, clearTimeout, innerHeight: 800 }));
+const el = (attrs) => ({ ...attrs, getAttribute: (n) => attrs[n] ?? null, querySelector: () => null,
+  closest(sel) { return (sel.includes("/stories/") && (attrs.href || "").includes("/stories/")) || (sel.startsWith("button") && attrs.tag) ? this : null; } });
+const fire = (type, target) => { const e = { type, target, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; },
+  stopImmediatePropagation() {} }; (handlers[type] || []).forEach((f) => f(e)); return e.defaultPrevented; };
+setTimeout(() => {
+  const story = fire(env.EVENT || "click", el({ href: "https://www.instagram.com/stories/dana_vell/123/" }));
+  const follow = fire("click", el({ tag: "button", "aria-label": "Follow" }));
+  const other = fire("click", el({ tag: "button", "aria-label": "More options" }));
+  console.log(JSON.stringify({ asked: asked.length, story, follow, other, sent }));
+}, 30);
+"""
+subprocess.Popen = REAL_POPEN
+if node := shutil.which("node"):
+    def run(js, script, **env):
+        out = subprocess.run([node, "-e", js, str(HERE / "extension" / script)], capture_output=True, text=True, timeout=30,
+                             env=os.environ | env)
+        assert out.returncode == 0, out.stderr
+        return json.loads(out.stdout.strip().splitlines()[-1])
+    # CA2: two presses at once give one step; manual mode, a refusal from Hunt, another site or a Story give none
+    assert {k: run(GUIDED_JS, "background.js")[k] for k in ("scroll", "update", "guided")} == {"scroll": 1, "update": 0, "guided": 1}
+    assert run(GUIDED_JS, "background.js", MODE="manual") | {"api": []} == {"scroll": 0, "update": 0, "api": [], "guided": 0}
+    assert {k: run(GUIDED_JS, "background.js", STATUS="403")[k] for k in ("scroll", "update")} == {"scroll": 0, "update": 0}
+    for to, moved in (("https://www.instagram.com/reel/DQrReelHike2/", 1), ("https://www.tiktok.com/@x/video/1", 0),
+                      ("https://www.instagram.com/stories/dana_vell/1/", 0)):
+        assert run(GUIDED_JS, "background.js", ACTION="open", TO=to)["update"] == moved, to
+    # CA6, CA7: the Story and contact warnings ask unless she's known to be signed out, middle-clicks included
+    assert run(CONTENT_JS, "content.js") == {"asked": 2, "story": True, "follow": True, "other": False, "sent": ["on?"]}
+    assert run(CONTENT_JS, "content.js", STATE='{"instagram": "signed_out"}')["asked"] == 0
+    assert run(CONTENT_JS, "content.js", FAIL="1")["asked"] == 2  # the state check failed: warn anyway
+    assert run(CONTENT_JS, "content.js", EVENT="auxclick")["story"] is True
+    assert run(CONTENT_JS, "content.js", ANSWER="ok") == {"asked": 2, "story": False, "follow": False, "other": False,
+                                                          "sent": ["on?", "story-ok", "contact-ok"]}
+else:
+    print("node isn't installed: the extension's behaviour checks were skipped")
 
 print("ok")
