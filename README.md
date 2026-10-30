@@ -44,9 +44,11 @@ Built in, not bolted on. The full list, with the reasoning behind each, is [Hunt
 - **No face search.** A one-to-one face check against the investigator's own reference photo is built, opt-in and allowed only where the subject's home state or country permits it; its screen is coming.
 - **Nothing fetched from Instagram or Facebook by Hunt itself** (except an Apify run on the investigator's own account). TikTok videos are fetched only from public pages TikTok lets software read, and only when the uploader allows downloads.
 - **Machine verdicts stop at "likely",** and a handle alone can't pass "roughly even chance" (two-identifier rule).
-- **Employment screening mode** drops protected traits and sensitive records. Screenings are kept apart from other investigations.
-- **Retention:** 90 days from opening, unless on legal hold. Deleting moves files to the Trash; Hunt never deletes them.
-- **Flagged media where a child may be visible** are blurred in the app.
+- **Employment screening mode** drops protected traits, sensitive records and relationships, and background cases always get it. Screenings are kept apart from other investigations.
+- **Associates are a name and a citation:** never searched, never contacted, never labelled ("mother", "brother"); Hunt quotes what was observed. A child is never named.
+- **Retention is a reminder:** at 90 days from opening Hunt asks you to delete, hold or trim the case. Deleting moves files to the Trash; Hunt never deletes them.
+- **Flagged media where a child may be visible** are blurred in the app and the report. The evidence bundle keeps originals for chain of custody.
+- **Guided mode** (one key press, one step on the subject's profile) is off until you turn it on and acknowledge the trade-off.
 
 If you furnish reports for employment, tenancy, credit or insurance decisions, you are likely a consumer reporting agency under the FCRA, whatever software you use. Hunt helps you comply; it does not exempt you. Hunt runs free on public sources; the only paid option is an Apify connector on the investigator's own account. It **complements** licensed data-broker tools (TLOxp, Accurint and the like); it doesn't replace them. Why each line is where it is: [legal.md](docs/research/legal.md).
 

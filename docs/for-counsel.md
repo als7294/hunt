@@ -38,15 +38,21 @@ Hunt then hashes and stores each file, extracts the posts, and scans the media w
 
 ## 5. Privacy
 
-- **Public content.** Anything a platform doesn't show as Public is flagged and left out of the report unless counsel approves (being built).
-- **No face search.** An optional face check compares her own reference photo with candidate profile photos, one to one, and stores no face template. It is blocked unless the subject's home state or country is known and allowed. Blocked: Illinois, Texas, Washington, Colorado, the EU, the UK, Canada, and California pending your view.
+- **Public content.** Anything a platform shows with an audience other than Public is flagged and left out of the report unless counsel approves (being built).
+- **No face search.** An optional face check compares her own reference photo with candidate profile photos, one to one, and stores no face template. It is blocked unless the subject's home state or country is known and allowed. Blocked: Illinois, Texas, Washington, Colorado, California, the EU, the UK and Canada.
 - **Associates** (family, friends, commenters, co-parties in records): Hunt keeps only their name and the items they appear in. It never searches, contacts or profiles them, and never names a child. Reports state what was observed, with citations, never a relationship as fact; employment screenings leave associates out (being built).
 - **Washington subjects:** findings are worded as observed activity, not physical condition, with the My Health My Data fraud basis recorded.
-- **Retention:** 90 days from opening unless she sets a legal hold. Deleting a case moves it to the Trash.
+- **Retention:** a reminder at 90 days from opening, unless she sets a legal hold. Deleting a case moves it to the Trash, and the deletion log keeps no name or purpose (being built).
 
 ## 6. FCRA
 
-Each case is marked as a claim or as a background check. Claims reports carry a "not a consumer report" statement, and background reports carry an FCRA notice. The screening version of a report drops protected traits and the sources that reveal them.
+Each case has one of four kinds:
+- **Insurance claim:** not a consumer report, unless reused for underwriting, renewal or employment.
+- **Background:** employment or eligibility, so a consumer report.
+- **Due diligence:** not a consumer report when about a business transaction, but one if used for employment or eligibility.
+- **Journalism:** not a consumer report.
+
+Claims reports carry a "not a consumer report" statement, and background reports carry an FCRA notice. Background cases always get the screening version (being built), which drops protected traits, relationships and the sources that reveal them.
 
 ## 7. Evidence
 
@@ -76,7 +82,7 @@ Only two things leave her computer. Search terms reach the sites being searched,
 3. Is a claims report ever reused for underwriting, renewal or employment, which would make it a consumer report "in part"?
 4. Is Ethos a CCPA "business", an insurance-support organization in states with the NAIC Model 670 privacy act, or a service provider under its insurer contracts?
 5. Should every claimant be treated as represented? What is the policy on LinkedIn viewing mode and on viewing Stories while signed in, especially in New York matters?
-6. Face check: block California, or rely on the CCPA's legal-claims exemption (§1798.145(a)(1)(E))? Does Texas's new fraud exclusion (TRAIGA, effective 2026-01-01) change the Texas block?
+6. Face check: Hunt blocks California. Should Ethos instead rely on the CCPA's legal-claims exemption (§1798.145(a)(1)(E))? Does Texas's new fraud exclusion (TRAIGA, effective 2026-01-01) change the Texas block? Is the classification of the four case kinds in §6 right?
 7. Washington: how should Ethos document the My Health My Data fraud exemption for findings about physical capacity?
 8. robots.txt: is a single lookup she starts, sent under Hunt's own name, acceptable on a site whose robots.txt denies bots? Or should Hunt honour robots.txt strictly?
 9. Does YouTube's 30-day storage rule for API data reach metadata kept in a case file?

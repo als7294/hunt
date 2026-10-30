@@ -519,55 +519,54 @@ an employer that the case knows, because a name alone no longer makes them the s
 names. It runs on what's stored and searches nothing. `GET /api/cases/{slug}/people` serves it; see
 [api.md](api.md).
 
+_Rewritten 2026-10-30 for decision D7 in [legal.md](research/legal.md#decisions-provisional-2026-10-30): observed wording everywhere. The rules are C13 and A1–A10 in [legal.md](research/legal.md#associates-and-family). Where the code still differs, the gaps are listed under "Not yet enforced" there._
+
+**Observed, not labelled.** Hunt never turns a mention into a relationship such as "mother", "brother" or "possible relative": not in the report, the map or anywhere else in the app. An entry says how the person appears, and quotes the words. The relationship words below are only how Hunt *finds* a mention.
+
 **Where associates come from:**
 
-| from | example | type | confidence |
+| from | example | how the entry reads | confidence |
 |---|---|---|---|
-| the subject's own posts (the person's accounts, or posts the investigator added) | "my brother Dan", "mi esposa Ines", "with mom", "con mi mamá" | sibling, parent, child, grandparent, grandchild, partner, relative, friend, co-worker | 0.9 named, 0.8 unnamed, 0.7 "with mom" |
-| post tags | `extra.with`, `extra.tagged`, "— with Rafa Ortiz", "is with…" | tagged with | 0.8 |
-| a plain caption | "Gym with Rafa Ortiz and Kim Vell" (two-word names only; could be a place) | tagged with | 0.6 |
-| the person's bios | "Married to Ines Vell", "Proud dad of 2", "esposa de…" | partner, child | 0.9 / 0.8 |
-| the person's public records | "Vell v. Example Builders LLC", `parties` | co-party | 0.9 |
-| any record of someone else at the subject's `address` seed | "Marta Ruiz, 12 Alder Lane" | same address | 0.6 |
-| the investigator's marks on kept photos (`label_photo`; the same label = one person; no face search) | "Dan" in two photos | in photo with | 1.0 |
-| a shared surname with the subject, added to someone already found | "Kim Vell" | possible relative | 0.3 (a hint) |
+| the subject's own posts (the person's accounts, or posts the investigator added) | "my brother Dan", "mi esposa Ines", "with mom", "con mi mamá" | named in the subject's post: "my brother Dan" | 0.9 named, 0.8 unnamed, 0.7 "with mom" |
+| post tags | `extra.with`, `extra.tagged`, "— with Rafa Ortiz", "is with…" | tagged with the subject in a post | 0.8 |
+| a plain caption | "Gym with Rafa Ortiz and Kim Vell" (two-word names only; could be a place) | named in a caption | 0.6 |
+| the person's bios | "Married to Ines Vell", "Proud dad of 2", "esposa de…" | named in the subject's bio: "Married to Ines Vell" | 0.9 / 0.8 |
+| the person's public records | "Vell v. Example Builders LLC", `parties` | a co-party in a record | 0.9 |
+| any record of someone else at the subject's `address` seed | "Marta Ruiz, 12 Alder Lane" | named in a record at the subject's address. The entry cites the record and stores no address (A2) | 0.6 |
+| the investigator's marks on kept photos (`label_photo`; the same label = one person; no face search) | "Dan" in two photos | marked by the investigator in a kept photo | 1.0 |
+| a shared surname with the subject, added to someone already found | "Kim Vell" | "shares the surname", and only where it supports identity (A6, A7) | 0.3 (a hint) |
 
-There are 125 relationship words, in English and Spanish. A first name merges into the one full name that fits ("Ines" →
-"Ines Vell"). Unnamed relatives merge by role (one "mother"). The subject is never listed as their own associate, and
-posts from accounts that aren't the subject's are ignored.
+Confidence is how sure Hunt is that the words name a person, not how sure it is of a relationship.
 
-**Minimisation** (`legal.md` C4 and C13):
-- **Name and citation only:** an associate is a name, the relationship, and the exact sentence that implied it, with its
-  post, bio, record or photo reference.
-- **No collection on associates:** Hunt never searches or collects on them. The screen offers "Open as a new case…",
-  which starts the wizard with its own purpose field. Nothing is prefilled except the name.
-- **Possible minors:** a child, grandchild, niece or nephew, or anyone given an age under 18 ("9 años"), is `minor:
-  true`. The name is dropped everywhere, the quote reads "mi hijo [name withheld]", and the person is shown by
-  relationship only.
+There are 125 relationship words, in English and Spanish, used to find mentions. A first name merges into the one full name that fits ("Ines" → "Ines Vell"). Unnamed people merge by the words used (one "mom"). The subject is never listed as their own associate, and posts from accounts that aren't the subject's are ignored.
+
+**Minimisation** (`legal.md` C4, C13, A1–A10):
+- **Name and citation only:** an associate is a name, how they appear, and the exact sentence, with its post, bio, record or photo reference. No address, phone, email, date of birth, employer, photo or profile details of theirs (A2), and none of their own health details (A9).
+- **No collection on associates:** Hunt never searches or collects on them (A1). The screen offers "Open as a new case…", which starts the wizard with its own purpose field. Nothing is prefilled except the name.
+- **Possible minors:** a child, grandchild, niece or nephew, or anyone given an age under 18 ("9 años"), is `minor: true`. The name is withheld everywhere, in every entry, quote, photo label, the report, the UI and the bundle (A5). The quote reads "mi hijo [name withheld]", and the person is shown only as "a child".
+- **They stay in the case:** associates are never "Have we seen this person before?" identifiers, never in the learning store, and are deleted with the case (A10).
 
 **The screen** ("People around the subject", a tab beside "Is it them?"):
 - **Header:** the `notice`.
 - **Card list,** most confident first:
-  - each card shows the name, or the relationship for a minor ("son (name withheld)"), plus the relationship chips,
-    with confidence as words (0.9+ stated, 0.6–0.8 likely, below 0.6 hint)
+  - each card shows the name, or "a child (name withheld)" for a minor, then the observed phrase ("named in the subject's post: 'my brother Dan'", "tagged with the subject") and the confidence as words (0.9+ stated, 0.6–0.8 likely, below 0.6 hint)
   - and the citations: each quote with a link to its exhibit (post `E-…`, record, bio URL, kept photo)
-  - no profile links or photos of associates
+  - no relationship chips, profile links or photos of associates
 - **Actions per card:**
   - "Not relevant" hides it, audited.
   - "Open as a new case…" isn't offered for minors.
-- **"Mark people in this photo"** sits on kept photos in the posts screen: a free-text label, posted to
-  `POST /api/cases/{slug}/people/photo`.
+- **"Mark people in this photo"** sits on kept photos in the posts screen: a free-text label, posted to `POST /api/cases/{slug}/people/photo`. A label that names a minor is withheld like any other mention.
 
-**Report sentences** (for `report.py`, a "People around the subject" section, each sentence cited):
+**Report sentences** (for `report.py`, a "People around the subject" section, each sentence cited and stating only what was observed, A6):
 > The subject's own posts, bios and public records name 6 people around them; none of them was searched. [method]
-> Brother: Dan, in a post of 2026-06-01 ("Lake day with my brother Dan…") and marked by the investigator in a kept
-> photo. [E-1]
-> Partner: Ines Vell, in the Facebook bio ("Married to Ines Vell") and a post. [A-3] [E-2]
-> A child (name withheld), in a post of 2026-05-12. [E-2]
-> Co-party: Example Builders LLC, in Vell v. Example Builders LLC. [Rec. 2]
+> "Dan" is named in a post of 2026-06-01 ("Lake day with my brother Dan…") and was marked by the investigator in a kept photo. [E-1]
+> "Ines Vell" is named in the Facebook bio ("Married to Ines Vell") and in a post. [A-3] [E-2]
+> A child (name withheld) is mentioned in a post of 2026-05-12. [E-2]
+> Example Builders LLC is a co-party in Vell v. Example Builders LLC. [Rec. 2]
 
-In screening mode, leave the section out: family status is a protected characteristic, as the screening rules say.
-In MHMDA mode, keep relationships as stated and never infer health from them.
+Any conclusion about who someone is to the subject is the investigator's own note (`N-`), in her words.
+
+In screening mode, leave the section out, and drop relationship sentences everywhere else in the report: family status is a protected characteristic (A8). In MHMDA mode, keep the quotes as they are and never infer health from them.
 
 ## 9. The claim against the evidence: leads and timeline
 
