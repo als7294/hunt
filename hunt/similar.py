@@ -14,6 +14,7 @@ Apple's GPU, and is unloaded after each call so it never sits beside another mod
 """
 
 import gc
+from contextlib import contextmanager
 from itertools import combinations
 from pathlib import Path
 
@@ -57,27 +58,50 @@ def matches(images: dict) -> dict[frozenset, float]:
 
 def embed(images: list) -> np.ndarray:
     """Unit-length CLIP image embeddings, one row per image (a PIL image or a path)."""
+    with _clip() as (torch, model, proc, device, dtype):
+        return _images(torch, model, proc, device, dtype, images)
+
+
+def labels(images: list, prompts: list[str]) -> np.ndarray:
+    """Zero-shot CLIP: one row per image of probabilities over `prompts` (CLIP's logit scale 100)."""
+    with _clip() as (torch, model, proc, device, dtype):
+        v = _images(torch, model, proc, device, dtype, images)
+        with torch.no_grad():
+            out = model.get_text_features(**proc(text=prompts, return_tensors="pt", padding=True).to(device))
+            t = (out if torch.is_tensor(out) else out.pooler_output).float()
+        t = (t / t.norm(dim=-1, keepdim=True)).cpu().numpy()
+    z = 100 * v @ t.T
+    z = np.exp(z - z.max(axis=1, keepdims=True))
+    return z / z.sum(axis=1, keepdims=True)
+
+
+@contextmanager
+def _clip():
+    """CLIP ViT-L/14 from the local cache, fp16 on Apple's GPU, unloaded on the way out."""
     import torch
     from transformers import CLIPModel, CLIPProcessor
 
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     dtype = torch.float16 if device == "mps" else torch.float32
     model = CLIPModel.from_pretrained(MODEL, local_files_only=True, dtype=dtype).to(device).eval()
-    proc = CLIPProcessor.from_pretrained(MODEL, local_files_only=True)
     try:
-        rows = []
-        for i in range(0, len(images), BATCH):
-            with torch.no_grad():
-                px = proc(images=[_rgb(im) for im in images[i:i + BATCH]], return_tensors="pt")["pixel_values"]
-                out = model.get_image_features(pixel_values=px.to(device, dtype))
-                v = (out if torch.is_tensor(out) else out.pooler_output).float()  # transformers 5: output object
-            rows.append((v / v.norm(dim=-1, keepdim=True)).cpu().numpy())
-        return np.concatenate(rows) if rows else np.zeros((0, 768), np.float32)
+        yield torch, model, CLIPProcessor.from_pretrained(MODEL, local_files_only=True), device, dtype
     finally:
         del model
         gc.collect()
         if device == "mps":
             torch.mps.empty_cache()
+
+
+def _images(torch, model, proc, device, dtype, images) -> np.ndarray:
+    rows = []
+    for i in range(0, len(images), BATCH):
+        with torch.no_grad():
+            px = proc(images=[_rgb(im) for im in images[i:i + BATCH]], return_tensors="pt")["pixel_values"]
+            out = model.get_image_features(pixel_values=px.to(device, dtype))
+            v = (out if torch.is_tensor(out) else out.pooler_output).float()  # transformers 5: output object
+        rows.append((v / v.norm(dim=-1, keepdim=True)).cpu().numpy())
+    return np.concatenate(rows) if rows else np.zeros((0, 768), np.float32)
 
 
 def cosine(a, b) -> float:

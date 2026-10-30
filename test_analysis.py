@@ -1,13 +1,23 @@
-"""Self-check for the identity analysis: handle guesses, pivots, the account graph and namesake
-separation. Run: uv run python test_analysis.py
+"""Self-check for the identity analysis: handle guesses, pivots, the account graph, namesake
+separation, profile-photo matching, the face check's guardrails and learning from decisions.
+Run: uv run python test_analysis.py (add --extra face for the face models)
 
-Offline, synthetic data only. The CLIP check runs only if the weights are in the local cache.
+Offline, synthetic data only. The CLIP and face-model checks run only if the weights are cached;
+the face check's fixtures are generated cartoons and, if cached, public-domain NASA portraits.
 """
 
 import hashlib
+import json
+import os
 import random
+import tempfile
+from pathlib import Path
 
-from hunt import graph, pivot, similar
+os.environ["HUNT_HOME"] = tempfile.mkdtemp()  # before hunt.case reads it: the learning store goes here
+
+from hunt import face, graph, learning, match, pivot, similar  # noqa: E402
+from hunt.case import Case  # noqa: E402
+from hunt.seed import Seed  # noqa: E402
 
 # Handle guesses: the usual patterns first, nicknames and middle initials included, capped
 g = pivot.username_guesses("Dorian Vell")
@@ -143,5 +153,120 @@ if isinstance(try_to_load_from_cache(similar.MODEL, "config.json"), str):
     assert set(m) == {frozenset(("a", "crop")), frozenset(("a", "padded")), frozenset(("crop", "padded"))}, m
 else:
     print("CLIP weights not cached: skipped the CLIP check")
+
+# Learning: nothing until MIN_EACH decisions each way; then the evidence types that told "him"
+# from "not him" weigh more, and the ones that didn't weigh less. No names or URLs are stored.
+c = Case("learning test", "self-check")
+rnd = random.Random(5)
+assert learning.match_scales() == {} and learning.versions()["match"]["version"] == "default"
+
+
+def decide(n, him, start=0):
+    """Username: the same either way (uninformative). Name: right 80% of the time, but hand-set as if
+    ~99% (overstated). Place: a small hand-set weight, yet only ever seen on him (understated)."""
+    for k in range(start, start + n):
+        name = 6.5 if (rnd.random() < 0.8) == him else -6.6
+        place = [("+1.0 place", "place")] if him and rnd.random() < 0.7 else []
+        reasons = [(f"{rnd.choice([3.2, 5.8]):+.1f} username", "username"), (f"{name:+.1f} name", "name"),
+                   ("+13.3 the investigator confirmed it", "confirmed")] + place
+        cand = {"url": f"https://example.com/u{k}-{him}", "reasons": [r for r, _ in reasons], "tags": [t for _, t in reasons]}
+        learning.record(c, cand, "him" if him else "not him", face={"score": 0.7 if him else 0.1, "model": face.MODEL,
+                        "quality": {"face_px": 120, "sharpness": 500, "yaw": 3}}, face_shown=k % 2 == 0)
+
+
+decide(10, True)
+decide(10, False)
+assert learning.match_scales() == {}, "too few decisions to learn from"
+decide(30, True, 10)
+decide(30, False, 10)
+scales = learning.match_scales()
+assert set(scales) == {"username", "name", "place"}, scales  # never "confirmed"
+assert scales["name"] < 1 and scales["username"] < 1 < scales["place"], scales
+v = learning.versions()
+assert v["match"]["decisions"] == 80 and v["match"]["version"].startswith("m-") and v["face"]["learned_buckets"] == ["good"], v
+stored = json.dumps([r for r in learning._rows("select * from decisions")])
+assert "example.com" not in stored and "learning test" not in stored  # salted hashes only
+learning.set_enabled(False)
+assert learning.match_scales() == {} and learning.versions()["face"]["version"] == "default"
+learning.record(c, {"url": "https://example.com/x", "reasons": [], "tags": []}, "him")
+assert learning._counts()["him"] == 40  # off: nothing recorded
+learning.set_enabled(True)
+learning.reset()
+assert learning._counts() == {"him": 0, "not him": 0, "unsure": 0, "face": 0}
+assert [a for _, a, _ in learning._rows("select * from audit")] == ["learning off", "learning on", "learning reset"]
+
+# The face reason is capped and never the second identifier: handle + face stays at even chance
+assert learning.face_bits(0.99, {"face_px": 120, "sharpness": 500, "yaw": 0}) <= learning.FACE_FOR
+assert learning.face_bits(-0.2, {"face_px": 30}) >= -learning.FACE_AGAINST
+rare, subject = Seed("username", "xq7dorianv"), [Seed("username", "xq7dorianv"), Seed("name", "Dorian Vell")]
+face_yes = [(9.0, "face", "profile photo shows the same face as your reference photo · 0.71")]
+p, verdict, reasons, tags = match.score(rare, "https://example.com/xq7dorianv", {}, subject, extra=face_yes)
+assert verdict == "roughly even chance" and "a face alone isn't a second identifier" in reasons[0], (verdict, reasons)
+p2, *_ = match.score(rare, "https://example.com/xq7dorianv", {"fullname": "Dorian Vell"}, subject, extra=face_yes)
+assert p2 > 0.95, p2  # with a name as the second identifier, the face adds its capped weight
+
+# Face check guardrails: off by default, needs a legal basis and a reference photo; audited
+c = Case("face test", "self-check")
+assert face.basis(c) is None
+try:
+    face.verify(c, "x.jpg")
+    raise AssertionError("ran without a legal basis")
+except PermissionError:
+    pass
+for bad in ("", "  "):
+    try:
+        face.enable(c, bad)
+        raise AssertionError("enabled without a basis")
+    except ValueError:
+        pass
+face.enable(c, "insurance claim 123: claimant's consent form on file")
+try:
+    face.verify(c, "x.jpg")
+    raise AssertionError("ran without a reference photo")
+except ValueError:
+    pass
+ref_file = Path(tempfile.mkdtemp()) / "reference.jpg"
+picture(9).save(ref_file)
+sha = face.add_reference(c, ref_file)
+assert [p.name for p in face.references(c)] == [f"{sha}.jpg"] and face.references(c)[0].read_bytes() == ref_file.read_bytes()
+face.remove_reference(c, sha)
+assert face.references(c) == []
+assert face.reason({"match": "unclear", "why": "no face found", "score": None, "quality": {}}) == \
+    (0.0, "face", "couldn't compare faces: no face found")
+face.disable(c)
+assert face.basis(c) is None
+assert [r["action"] for r in c.rows("select action from audit")][-4:] == \
+    ["face comparison on", "reference photo added", "reference photo removed", "face comparison off"]
+
+# With the models: a generated cartoon and a blank picture never get a score; if the public-domain
+# NASA portraits are cached, a crop of one matches it and a different astronaut doesn't.
+try:
+    face._path(face.EMBEDDER), face._cv2()
+    models = True
+except face.FaceUnavailable:
+    models = False
+    print("face models or OpenCV missing: skipped the face-model checks")
+if models:
+    from PIL import ImageDraw
+
+    cartoon = Image.new("RGB", (256, 256), (40, 120, 200))
+    d = ImageDraw.Draw(cartoon)
+    d.ellipse((48, 40, 208, 220), fill=(255, 220, 177), outline=(0, 0, 0), width=4)
+    for ex in (100, 156):
+        d.ellipse((ex - 14, 110, ex + 14, 132), fill="white", outline=(0, 0, 0), width=3)
+    d.arc((95, 160, 161, 200), 10, 170, fill=(150, 0, 0), width=5)
+    cache = Path.home() / "Hunt/cache/similar-eval"
+    titles = {f["title"]: k for k, f in enumerate(json.loads((cache / "portraits.json").read_text()))} if (cache / "portraits.json").exists() else {}
+    pick = lambda t: cache / "portraits" / f"{titles[t]:03d}.jpg"
+    menon, birch = "File:Anil Menon portrait.jpg", "File:Christina Birch portrait.jpg"
+    have = menon in titles and birch in titles and pick(menon).exists() and pick(birch).exists()
+    ref = Image.open(pick(menon)).convert("RGB") if have else cartoon
+    r = face.compare([ref], [cartoon, Image.new("RGB", (300, 300), "white")]
+                     + ([ref.crop((20, 20, ref.width - 20, ref.height - 40)), Image.open(pick(birch))] if have else []))
+    assert all(x["score"] is None and x["match"] == "unclear" for x in r[:2]), r[:2]
+    if have:
+        assert r[2]["match"] == "yes" and r[3]["match"] != "yes", r[2:]
+    else:
+        print("NASA portraits not cached (scripts/eval_similar.py fetches them): skipped the face-match check")
 
 print("ok")

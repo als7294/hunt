@@ -88,11 +88,11 @@ Accuracy figures are Im2GPS3k at 1 km / 25 km / 200 km / 750 km / 2500 km (stree
 - **Same photo / avatar across platforms:**
   - `imagehash` pHash/dHash (BSD) or Meta's PDQ for near-duplicates
   - CLIP/SigLIP embeddings in `sqlite-vec` for crops and edits
-- **Face matching:** **excluded from MVP.**
+- **Face matching:** excluded from the MVP; since 2026-10-29, opt-in **1:1 verification** against a reference photo only (`hunt/face.py`).
   - InsightFace's `buffalo_l`/`antelopev2` weights are non-commercial ([licensing](https://www.insightface.ai/services/models-commercial-licensing)).
   - DeepFace model licences vary.
-  - Permissive options if ever needed: YuNet (MIT) + AuraFace (Apache-2.0).
-  - Legal context in `legal.md`.
+  - Used: YuNet (MIT) + AuraFace v1 (Apache-2.0, own weights), both run by OpenCV.
+  - Guardrails and legal context in `legal.md`; measurements in `../analysis.md`.
 
 ## Hunt MVP pipeline (M3)
 

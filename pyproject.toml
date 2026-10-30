@@ -23,6 +23,11 @@ dependencies = [
 [project.scripts]
 hunt = "hunt.cli:main"
 
+[project.optional-dependencies]
+face = [
+    "opencv-python-headless>=5.0.0.93",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

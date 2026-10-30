@@ -3,6 +3,7 @@ hunt photo IMAGE... --case NAME [--purpose TEXT]
 hunt inbox --case NAME [--folder DIR] [--days N] [--import all|ID[=URL]...] [--keep]
 hunt export --case NAME [--out DIR]
 hunt watch [--case NAME (--every 1|3|7 | --off)] [--background on|off]
+hunt learning [--on | --off | --reset]
 hunt app
 
 search fans each seed out to every source that handles its kind, scores every
@@ -12,7 +13,8 @@ Both write <case>/case.json (also printed to stdout). inbox lists the photos and
 lately (~/Downloads by default) with clean names, and with --import files them into the case and
 moves the originals to the Trash. export zips every evidence file under a readable name with a
 SHA-256 manifest, for handing over. watch checks the watched cases that are due (what the background
-agent runs), or turns watching on and off. app opens the Hunt app in
+agent runs), or turns watching on and off. learning shows what Hunt has learned from your decisions
+(on this machine only), turns it on or off, or forgets it. app opens the Hunt app in
 your browser, served only to this machine.
 """
 
@@ -66,16 +68,27 @@ def main():
     w.add_argument("--off", action="store_true", help="stop watching --case")
     w.add_argument("--background", choices=("on", "off"),
                    help="keep watching when Hunt is closed: installs (or removes) a per-user LaunchAgent")
+    lg = sub.add_parser("learning", help="what Hunt has learned from your decisions; turn it on or off, or forget it")
+    lg.add_argument("--on", action="store_true", help="learn from decisions again")
+    lg.add_argument("--off", action="store_true", help="stop learning and go back to the default weights")
+    lg.add_argument("--reset", action="store_true", help="forget every decision learned from")
     sub.add_parser("app", parents=[proxy], help="open the Hunt app in your browser (this machine only)")
     args = ap.parse_args()
 
-    if args.proxy:
+    if getattr(args, "proxy", None):
         os.environ["HUNT_PROXY"] = args.proxy
     if args.cmd == "app":
         from .app import serve
         return serve()
     if args.cmd == "watch":
         return watch_cmd(args)
+    if args.cmd == "learning":
+        from . import learning
+        if args.on or args.off:
+            learning.set_enabled(args.on)
+        if args.reset:
+            learning.reset()
+        return print(json.dumps(learning.status(), indent=2))
     try:
         case = Case(args.case, args.purpose)
     except ValueError as e:

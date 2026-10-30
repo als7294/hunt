@@ -40,7 +40,39 @@ _Research date: 2026-10-29. This is engineering research, not legal advice. **[S
 
 - **Illinois BIPA:** $1k negligent / $5k reckless per violation. Since SB 2979 (Aug 2024), damages are counted per person [S] ([DWT](https://dwt.com/blogs/privacy--security-law-blog/2024/08/illinois-bipa-biometrics-law-amended-for-damages)).
 - **EU AI Act Art. 5(1)(e):** bans *untargeted* scraping to build face databases (in force 2025-02-02). GDPR Art. 9 treats biometrics as special-category data [S] ([FPF](https://fpf.org/blog/red-lines-under-the-eu-ai-act-understanding-the-ban-of-the-untargeted-scraping-of-facial-images-and-facial-recognition-databases/)).
-- **[I] Decision:** no face recognition in the MVP. If it's ever added: off by default, 1:1 comparison of investigator-supplied images only, no persistent face index, purpose recorded per use, permissive-licence models only.
+- **[I] Decision (MVP):** no face recognition. If it's ever added: off by default, 1:1 comparison of investigator-supplied images only, no persistent face index, purpose recorded per use, permissive-licence models only.
+- **[I] Decision (2026-10-29): 1:1 face verification against a reference photo, built inside those limits** (`hunt/face.py`, details in [analysis.md](../analysis.md)):
+  - **Off by default.** Each case turns it on with a legal basis the investigator types in; it's stored and audited, and turning it off is audited too.
+  - **1:1 only.** The case's own reference photos are compared with that case's candidate images: profile photos, kept post media, and hits from reverse image search or a face-search plug-in, which only ever get *verified* here. No face index, no searching by face, nothing compared across cases.
+  - **No templates kept.** Embeddings live in memory for one call. The case stores only the result (match, score, quality numbers, which image), the reference photo itself (as evidence), and the audit trail. All of it is deleted with the case.
+  - **Hard cases go to the investigator.** No face, several faces, a small, blurred or turned face, a drawing or animal, or a probable child (judged by CLIP, and never compared) come back "unclear" with the reason.
+  - **Never a verdict alone.** The match is one capped reason in the matcher and can't be the second identifier.
+  - **Models:**
+    - YuNet: MIT.
+    - AuraFace v1: Apache-2.0. Its `glintr100.onnx` hash differs from InsightFace's.
+    - Not used: the other files in AuraFace's repository (`genderage.onnx`, `scrfd_10g_bnkps.onnx`). They're byte-identical to InsightFace's non-commercial pack.
+  - **Still on the investigator, not the software:** Illinois BIPA (and Texas CUBI, Washington RCW 19.375) require notice and written consent, or another statutory basis, *before* a face geometry scan of an in-state person. The legal-basis field records it; Hunt can't check it. Not legal advice; confirm with counsel per jurisdiction.
+
+### The learning store (`hunt/learning.py`)
+
+Hunt learns from the investigator's him / not-him decisions across cases, in `~/Hunt/learning.db`, which never leaves the machine. Each decided account leaves one row:
+- the decision
+- the matcher's evidence pattern: bits per evidence type, e.g. `{"username": 3.1, "name": 6.5}`
+- if the face check ran: its similarity score, face size in px, sharpness, yaw estimate, detector confidence, faces found, the model name, and whether the result was on screen before the decision
+
+The key is a salted hash of case and profile URL. The store holds no names, URLs, images, face crops or embeddings.
+
+**[I] Why those rows are not biometric identifiers or biometric data:**
+- **BIPA** covers a "scan of … face geometry" (a biometric identifier) and information "based on" one that is "used to identify an individual". A row doesn't fit either:
+  - A similarity score is one number about a *pair* of images. It describes neither face, can't be reversed into geometry, and can't be compared with a third face: it identifies nothing.
+  - Face size, sharpness, yaw and detector confidence describe the *photo's quality*, not the person.
+  - The rows are never used to identify anyone. They only tune how much a score counts.
+- **GDPR Art. 4(14)** biometric data must "allow or confirm the unique identification" of a person. These numbers can't. The rows are still *personal* data while the case that made them exists:
+  - The salted hash can be recomputed from the case's URLs, so a row is pseudonymous, not anonymous.
+  - Once the case is deleted (90-day retention unless on legal hold), nothing links a row to anyone.
+  - `hunt learning --reset` forgets everything, and `--off` stops recording.
+- **The case's own `face_checks` table is different.** It ties a score to an account URL, so it *is* information derived from a face scan about an identifiable person. It's handled as case evidence: kept, exported and deleted with the case, never copied to the learning store with its URL.
+- **Feedback loop:** a decision made while the face result was on screen may simply follow it. Those decisions count half in both fits, and the flag is stored so they can be re-weighted later.
 
 ## Hosted public site vs self-hosted tool
 

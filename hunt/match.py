@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from nicknames import NickNamer
 from rapidfuzz import fuzz
 
-from . import geo
+from . import geo, learning
 
 # ponytail: m/u values are hand-set, not learned. Swap to Splink (EM-trained weights)
 # once analysts' confirm/reject decisions give us labelled data.
@@ -104,7 +104,8 @@ def score(seed, url: str, attrs: dict, subject: list,
     `places` maps place strings (subject's and profile's) → geocoded Place, from geo.locate.
     `extra` is (bits, tag, reason) evidence found across candidates, e.g. a shared profile photo.
     `confirmed` holds norm_url()s the investigator marked as the subject: known profiles from then on.
-    Each reason has a tag (username, name, place, email, link, photo, confirmed), in the same order.
+    Each reason has a tag (username, name, place, email, link, photo, face, confirmed), in the same order.
+    Weights are scaled by what learning.py has learned from the investigator's decisions, if anything.
     """
     of = lambda *kinds: [s.value for s in subject if s.kind in kinds]
     names, known_places, emails, handles = of("name"), of("address", "location"), of("email"), of("username")
@@ -167,15 +168,22 @@ def score(seed, url: str, attrs: dict, subject: list,
         add("link", bits(0.5, 0.05), f"links to {shared}, which carries the subject's username")
 
     reasons += extra or []
+    scales = learning.match_scales()  # {} until enough decisions: every weight as hand-set
+    reasons = [(max(-learning.FACE_AGAINST, min(learning.FACE_FOR, w)) if tag == "face" else w * scales.get(tag, 1.0),
+                tag, why) for w, tag, why in reasons]
 
     # Tradecraft: one identifier is never enough. If nothing but the handle agrees strongly,
     # the evidence for can't lift the profile above "roughly even chance" (the handle's
-    # weight absorbs the cut); evidence against still counts in full.
+    # weight absorbs the cut); evidence against still counts in full. A face match never counts
+    # as the second identifier: it is one capped reason, never a verdict.
     prior = math.log2(PRIOR / (1 - PRIOR))
     over = prior + sum(w for w, *_ in reasons if w > 0)
-    if seed.kind == "username" and over > 0 and not any(w >= CORROBORATES for w, *_ in reasons[1:]):
+    if seed.kind == "username" and over > 0 and not any(w >= CORROBORATES for w, t, _ in reasons[1:] if t != "face"):
         w, tag, why = reasons[0]
         reasons[0] = (max(w - over, 0.0), tag, why + "; capped, no second identifier agrees")
+        if (left := over - w) > 0:  # what the handle couldn't absorb comes off a face match
+            reasons = [(fw - min(fw, left), t, fwhy + "; capped, a face alone isn't a second identifier")
+                       if t == "face" and fw > 0 else (fw, t, fwhy) for fw, t, fwhy in reasons]
     logit = prior + sum(w for w, *_ in reasons)
     p = 1 / (1 + 2 ** -logit)
     ranked = sorted(reasons, key=lambda r: -abs(r[0]))
