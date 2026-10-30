@@ -519,9 +519,29 @@ def _one(el, ctx) -> dict | None:
         elif n.tag == "video":
             media += [_local(s, ctx) for s in (n.get("src"), *(c.get("src") for c in n.iter("source")), n.get("poster"))]
     p["media"] = list(dict.fromkeys(m for m in media if m))
+    p["audience"] = _audience(nodes, p["url"])
     labels = "\n".join(n.get("aria-label") for n in nodes if n.get("aria-label"))
     p |= _counts("\n".join(others) + "\n" + labels)
     return p if p["text"] or p["url"] or p["media"] or p["life_event"] else None
+
+
+AUDIENCES = {"public": "Public", "publico": "Public", "friends of friends": "Friends of friends",
+             "amigos de amigos": "Friends of friends", "amis d'amis": "Friends of friends", "friends": "Friends",
+             "amigos": "Friends", "amis": "Friends", "custom": "Custom", "personalizado": "Custom",
+             "personnalise": "Custom", "only me": "Only me", "solo yo": "Only me", "moi uniquement": "Only me"}
+AUDIENCE = re.compile(r"(?:(?:shared with|compartido con|partage avec)\s*:?\s*)?(" + "|".join(
+    sorted(map(re.escape, AUDIENCES), key=len, reverse=True)) + r")\.?")
+
+
+def _audience(nodes, url) -> str | None:
+    """The audience Facebook shows on a post (its globe or people icon's label), or "Group: <name>" in a group."""
+    if m := re.search(r"/groups/([^/?#]+)", url or ""):
+        return f"Group: {m[1]}"
+    for n in nodes:
+        label = _fold(n.get("aria-label") or n.get("title") or "").strip()
+        if label and (m := AUDIENCE.fullmatch(label)):
+            return AUDIENCES[m[1]]
+    return None
 
 
 def _author(header, ctx):
@@ -673,8 +693,9 @@ def parse_screenshot(path, lines: list[str] | None = None, taken: datetime | Non
         above = [line for line in lines[:i] if not UI.fullmatch(_fold(line))][-2:]
         header = " ".join(above) if len(above) == 2 and CONNECT.search(_fold(above[0])) else (above[-1] if above else "")
         start = i + 1
-    else:  # no date read: the first name-like line is the author
-        j = next((j for j, line in enumerate(lines) if re.fullmatch(r"[^\W\d_]+(?:[ .'-]+[^\W\d_]+)+", line)), None)
+    else:  # no date read (OCR can miss the faint date line): the first header-like or name-like line
+        j = next((j for j, line in enumerate(lines) if not UI.fullmatch(_fold(line)) and (CONNECT.search(_fold(line))
+                  or re.fullmatch(r"[^\W\d_]+(?:[ .'-]+[^\W\d_]+)+\.?", line))), None)
         header, start = (lines[j], j + 1) if j is not None else ("", 0)
     header = re.sub(r"\s*(?:[·•]\s*)?(?:follow|seguir|suivre)$", "", header, flags=re.I)
     if m := CONNECT.search(_fold(header)):
@@ -890,14 +911,15 @@ PLACES = {  # folded check-in place names
 
 
 def categories(post: dict) -> list[tuple[str, str]]:
-    """[(scan category key, why)] that a post's own Facebook tags point to: its feeling/activity tag,
-    life event and check-in. The scan's keyword pass already reads the post text, so text isn't used."""
+    """[(scan category key, why)] that a post's own tags point to: its feeling/activity tag, life event and check-in,
+    and Instagram's automatic image description ("May be an image of 1 person, lifting weights and gym"). The scan's
+    keyword pass already reads the post text, so text isn't used."""
     out = {}
     for field, label, table in (("activity", "feeling/activity", WORDS), ("life_event", "life event", WORDS),
-                                ("place", "check-in", PLACES)):
+                                ("place", "check-in", PLACES), ("alt", "image description", WORDS)):
         if value := post.get(field):
             folded = _fold(value)
             for key, rx in table.items():
                 if key not in out and rx.search(folded):
-                    out[key] = f'Facebook {label}: "{value}"'
+                    out[key] = f'{post.get("source") or "Facebook"} {label}: "{value}"'
     return list(out.items())

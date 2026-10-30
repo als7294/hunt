@@ -1,6 +1,7 @@
-"""Hunt Capture's server half (docs/capture.md). The investigator browses Facebook, Instagram, TikTok, X,
-LinkedIn and YouTube herself, logged in as herself; the browser extension in extension/ records what she
-views into the open case, and this module turns that into evidence and posts.
+"""Hunt Capture's server half (docs/capture.md). The investigator browses Facebook, Instagram, TikTok, X and
+YouTube herself, logged in as herself; the browser extension in extension/ records what she views into the open
+case, and this module turns that into evidence and posts. LinkedIn is never recorded (CAPTURE_OFF); its parser
+reads pages she saves by hand.
 
   new_code / pair / status / forget   pairing: a one-time code shown in Hunt → a capture key the extension keeps
   problem(req)                        the check every /api/capture/* request passes (never the web app's cookie)
@@ -33,8 +34,25 @@ from .match import norm_url
 from .seed import now
 
 SITES = {"facebook.com": "Facebook", "instagram.com": "Instagram", "tiktok.com": "TikTok", "x.com": "X",
-         "twitter.com": "X", "linkedin.com": "LinkedIn", "youtube.com": "YouTube"}
+         "twitter.com": "X", "linkedin.com": "LinkedIn", "youtube.com": "YouTube", "reddit.com": "Reddit",
+         "strava.com": "Strava", "snapchat.com": "Snapchat"}
 KEY_FILE = HOME / "capture-key.json"
+# The per-site switch (docs/research/automation-legal.md §4): never recorded where the terms name extensions or
+# "semi-automated" tools, and LinkedIn also scans for extension ids. There she uses Save Page As and the importers;
+# LinkedIn's checklist sections stay, as links.
+CAPTURE_OFF = {"LinkedIn", "Strava", "Snapchat"}
+# The revocation watcher (passive): the paths and words a platform shows an account it has checked, challenged,
+# blocked or disabled. Any of them is a hard stop for that platform (browser.stop), never a reason to try another
+# account, profile or proxy.
+REVOKED_URL = {"Facebook": r"/checkpoint(?:/|$)", "Instagram": r"/challenge(?:/|$)|/accounts/(?:suspended|disabled)",
+               "X": r"/account/(?:access|suspended|locked)", "TikTok": r"/captcha", "Reddit": r"/account-suspended",
+               "YouTube": r"$^"}
+REVOKED_TEXT = re.compile(
+    r"we suspect automated behaviou?r|suspected automated (?:activity|behaviou?r)|your account (?:has been|was|is) "
+    r"(?:disabled|suspended|locked|restricted)|we limit how often you can|confirm (?:that )?you'?re (?:a )?human|"
+    r"verify (?:that )?you(?:'re| are) (?:a )?human|drag the slider to fit the puzzle|"
+    r"sospechamos que hay un comportamiento automatizado|tu cuenta (?:ha sido|fue) (?:inhabilitada|suspendida)|"
+    r"nous soupconnons un comportement automatise|votre compte a ete (?:desactive|suspendu)")
 EXTENSION_ORIGIN = re.compile(r"chrome-extension://[a-p]{32}")  # a Chromium extension's id is 32 letters a–p
 CODE_TTL, CODE_TRIES = 300, 5
 _code: dict = {}  # the one open pairing code; in memory, so a restart closes it
@@ -125,7 +143,8 @@ RESERVED = {"Instagram": {"p", "reel", "reels", "explore", "accounts", "direct",
 
 
 def platform(url: str | None) -> str | None:
-    """'Facebook', 'Instagram', 'TikTok', 'X', 'LinkedIn' or 'YouTube' for an https page there, else None."""
+    """'Facebook', 'Instagram', 'TikTok', 'X', 'LinkedIn', 'YouTube', 'Reddit', 'Strava' or 'Snapchat' for an https
+    page there, else None."""
     u = urlparse(url or "")
     host = (u.hostname or "").lower()
     if u.scheme != "https":
@@ -152,6 +171,10 @@ def account_of(url: str | None) -> str | None:
         return None if first.lower() in RESERVED["X"] else f"https://x.com/{first.lower()}"
     if site == "LinkedIn":
         return f"https://www.linkedin.com/{first}/{parts[1].lower()}/" if first in ("in", "company") and len(parts) > 1 else None
+    if site == "Reddit":
+        return f"https://www.reddit.com/user/{parts[1].lower()}/" if first in ("user", "u") and len(parts) > 1 else None
+    if site in CAPTURE_OFF:
+        return None
     if first.startswith("@"):
         return f"https://www.youtube.com/{first}"
     return f"https://www.youtube.com/{first}/{parts[1]}" if first in ("channel", "c") and len(parts) > 1 else None
@@ -183,6 +206,7 @@ TABS = {  # platform → [(key, label, path under the profile)]; "" is the profi
                  ("images", "Images", "recent-activity/images"), ("videos", "Videos", "recent-activity/videos"),
                  ("experience", "Experience", "details/experience")],
     "YouTube": [("videos", "Videos", "videos"), ("shorts", "Shorts", "shorts"), ("posts", "Posts", "posts")],
+    "Reddit": [("overview", "Overview", ""), ("submitted", "Posts", "submitted"), ("comments", "Comments", "comments")],
 }
 FB_SK = {"photos": "photos", "photos_of": "photos_of", "videos": "videos", "reels": "reels_tab", "map": "map",
          "about": "about", "friends": "friends"}
@@ -191,7 +215,7 @@ FB_SK = {"photos": "photos", "photos_of": "photos_of", "videos": "videos", "reel
 def tab_url(site: str, account: str, path: str) -> str:
     if site == "Facebook" and "profile.php" in account:
         return account + (f"&sk={FB_SK[path]}" if path else "")
-    slash = "/" if site in ("Instagram", "LinkedIn") else ""
+    slash = "/" if site in ("Instagram", "LinkedIn", "Reddit") else ""
     return account.rstrip("/") + (f"/{path}" if path else "") + slash
 
 
@@ -211,12 +235,21 @@ def confirmed(case) -> list[str]:
 
 
 def checklist(case) -> list[dict]:
-    """[{account, platform, sections: [{key, label, url, seen, seen_at, evidence}]}]: a section is seen once
-    a screenshot or page archive of it was captured (audit 'capture view' / 'capture page')."""
-    seen = {}
-    for r in case.rows("select ts, detail from audit where action in ('capture view', 'capture page') order by ts, rowid"):
+    """[{account, platform, sections: [{key, label, url, seen, seen_at, evidence}], progress, todo}]. A section is
+    seen once a screenshot or page archive of it was captured (audit 'capture view' / 'capture page'). progress and
+    todo are the account's coverage (coverage())."""
+    seen, totals, played = {}, {}, set()
+    for r in case.rows("select ts, action, detail from audit where action in ('capture view', 'capture page', "
+                       "'capture recording') order by ts, rowid"):
         d = json.loads(r["detail"])
-        seen.setdefault(d["where"], {"ts": r["ts"], "evidence": d.get("file")})
+        if r["action"] != "capture recording":
+            seen.setdefault(d["where"], {"ts": r["ts"], "evidence": d.get("file")})
+        if d.get("profile_posts"):
+            totals[d["where"]] = d["profile_posts"]  # the latest header count wins
+        if r["action"] == "capture recording" or d.get("kind") == "frame":
+            played.add(d["where"])
+    everything = posts.list_posts(case)
+    flagged = _flagged(case)
     out = []
     for acct in confirmed(case):
         site = platform(acct)
@@ -226,7 +259,39 @@ def checklist(case) -> list[dict]:
             s = seen.get(where(url))
             sections.append({"key": key, "label": label, "url": url, "seen": bool(s), "seen_at": s and s["ts"],
                              "evidence": s and s["evidence"]})
-        out.append({"account": acct, "platform": site, "sections": sections})
+        mine = [p for p in everything if p["account_url"] and where(p["account_url"]) == where(acct) and p["url"]]
+        out.append({"account": acct, "platform": site, "sections": sections}
+                   | coverage(mine, flagged, played, totals.get(where(acct))))
+    return out
+
+
+def coverage(mine: list[dict], flagged: dict, played: set, total: int | None) -> dict:
+    """One account's coverage, which loads nothing: {progress: {grid_seen, grid_total, flagged, opened, videos,
+    played}, todo: [{url, kind, file, why}]}, shown as "grid 212/212 · flagged 9 · opened 6 of 9 · videos 14,
+    played 6". todo is the "open these" list: posts the scan flagged that were seen only as grid thumbnails, then
+    videos not yet played (a video's frames need the player, so only playing it captures them)."""
+    def full(p):
+        return (p.get("extra") or {}).get("from") != "grid"
+
+    hits = [p for p in mine if p["id"] in flagged]
+    videos = [p for p in mine if (p.get("extra") or {}).get("video")]
+    unplayed = [p for p in videos if where(p["url"]) not in played and not any(m["kind"] == "video" for m in p["media"])]
+    todo = [{"url": p["url"], "kind": "video" if (p.get("extra") or {}).get("video") else "post",
+             "file": p["media"][0]["file"] if p["media"] else None, "why": flagged[p["id"]]} for p in hits if not full(p)]
+    todo += [{"url": p["url"], "kind": "video", "file": p["media"][0]["file"] if p["media"] else None,
+              "why": "a video: play it to capture its frames"} for p in unplayed if p["url"] not in {t["url"] for t in todo}]
+    return {"progress": {"grid_seen": len(mine), "grid_total": total, "flagged": len(hits),
+                         "opened": sum(full(p) for p in hits), "videos": len(videos), "played": len(videos) - len(unplayed)},
+            "todo": todo}
+
+
+def _flagged(case) -> dict[int, str]:
+    """post id → why the scan flagged it (its first hit not marked "not relevant"), once a scan has run."""
+    if not case.rows("select 1 from sqlite_master where type = 'table' and name = 'hits'"):
+        return {}
+    out = {}
+    for h in case.rows("select post_id, category, what from hits where status != 'not relevant' order by id"):
+        out.setdefault(h["post_id"], f"{h['category']}: {h['what']}")
     return out
 
 
@@ -237,7 +302,9 @@ def couldnt_see(case) -> list[str]:
     for a in checklist(case):
         missing = [s["label"].lower() for s in a["sections"] if not s["seen"]]
         who = f"{a['platform']} {a['account'].rstrip('/').rsplit('/', 1)[-1]}"
-        if missing and len(missing) == len(a["sections"]):
+        if a["platform"] in CAPTURE_OFF:
+            out.append(f"{who}: not recorded (Hunt Capture is off on {a['platform']}; pages saved by hand aren't tracked here)")
+        elif missing and len(missing) == len(a["sections"]):
             out.append(f"{who}: not opened while Hunt Capture was recording")
         elif missing:
             listed = missing[0] if len(missing) == 1 else ", ".join(missing[:-1]) + " and " + missing[-1]
@@ -245,42 +312,102 @@ def couldnt_see(case) -> list[str]:
     return out
 
 
+# --- the capture record and the revocation watcher ----------------------------------------------
+
+def record(url: str, viewed_at: str | None, capture_version: str | None, session: str | None) -> dict:
+    """How a capture was made, for the audit log, each post's extra and the evidence bundle (docs/capture.md,
+    "Capture record"): who it was viewed as, when and by which clock, and which versions recorded it."""
+    from . import browser  # here: browser imports this module
+    site = platform(url) or ""
+    handle = browser.accounts().get(site.lower())
+    viewed_as = {"signed_in": f"logged in as {handle}" if handle else "logged in (account not named in Hunt)",
+                 "signed_out": "logged out"}.get(session or "", "not known")
+    return {"viewed_as": viewed_as, "hunt_version": _hunt_version(), "capture_version": capture_version or None,
+            "captured_at": viewed_at, "time_source": "the browser's clock", "received_at": now()}
+
+
+def revoked(site: str | None, url: str | None = None, text: str | None = None) -> str | None:
+    """What a platform showed that means it checked, challenged, blocked or disabled her account, or None."""
+    if url and site in REVOKED_URL and (m := re.search(REVOKED_URL[site], urlparse(url).path)):
+        return f"a {m[0].strip('/').split('/')[-1]} page ({urlparse(url).path})"
+    if text and (m := REVOKED_TEXT.search(fb._fold(text))):
+        return f'"{m[0]}"'
+    return None
+
+
+def _hunt_version() -> str | None:
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        return version("hunt-osint")
+    except PackageNotFoundError:
+        return None
+
+
 # --- what the extension sends -------------------------------------------------------------------
 
-def add_view(case, url: str, image: Path, viewed_at: str | None, title: str = "", kind: str = "view") -> dict:
+def add_view(case, url: str, image: Path, viewed_at: str | None, title: str = "", kind: str = "view",
+             rec: dict | None = None) -> dict:
     """A viewport screenshot: one 'captured' post holding it, tied to the page and its profile."""
-    site = platform(url)
+    site, rec = platform(url), rec or {}
     item = {"source": site, "account_url": account_of(url), "media": [str(image)], "viewed_url": url,
-            "viewed_at": viewed_at, "title": (title or "")[:300], "capture": kind}
+            "viewed_at": viewed_at, "title": (title or "")[:300], "capture": kind} | rec
     ids = posts.add_posts(case, [item], kind="screenshot", origin="captured")
     file, sha = posts.store(case, image)
-    case.audit("capture view", {"url": url, "extension": (_paired() or {}).get("origin"), "where": where(url), "platform": site, "kind": kind, "file": file,
-                                "sha256": sha, "viewed_at": viewed_at, "post": ids[0] if ids else None})
+    case.audit("capture view", {"url": url, "extension": (_paired() or {}).get("origin"), "where": where(url),
+                                "platform": site, "kind": kind, "file": file, "sha256": sha, "viewed_at": viewed_at,
+                                "post": ids[0] if ids else None} | rec)
     return {"post": ids[0] if ids else None, "file": file}
 
 
-def add_page(case, url: str, archive: Path, viewed_at: str | None, media_dir: Path) -> dict:
-    """A page archive (MHTML from chrome.pageCapture): kept whole as evidence, then read for posts, whose
-    pictures come out of the archive (what her browser had already loaded)."""
-    site = platform(url)
+def add_page(case, url: str, archive: Path, viewed_at: str | None, media_dir: Path, rec: dict | None = None) -> dict:
+    """A page archive (MHTML from chrome.pageCapture): kept whole as evidence, then read for posts, whose pictures
+    come out of the archive (what her browser had already loaded). Grid thumbnails become posts marked "grid", which
+    a later full capture upgrades. If the page shows a checkpoint, challenge, block or "account disabled", that
+    platform is stopped (returned as `stopped`)."""
+    site, rec = platform(url), rec or {}
     file, sha = posts.store(case, archive, "mhtml")
+    page = fb._load(Path(archive), _local(viewed_at), media_dir)
+    text = fb._text(fb._Tree(page["html"]).root)
     items = parse(site, archive, _local(viewed_at), media_dir)
-    ids = posts.add_posts(case, items, evidence=file, origin="captured")
-    case.audit("capture page", {"url": url, "extension": (_paired() or {}).get("origin"), "where": where(url), "platform": site, "file": file, "sha256": sha,
-                                "viewed_at": viewed_at, "posts": len(items), "added": len(ids)})
-    return {"posts": len(items), "added": len(ids), "file": file}
+    for it in items:
+        it |= rec | {"capture_sha256": sha, "audience_flag": it.get("audience") != "Public"}
+    upgraded = []
+    ids = posts.add_posts(case, items, evidence=file, origin="captured", upgraded=upgraded)
+    total = _profile_posts(site, text) if account_of(url) and where(account_of(url)) == where(url) else None
+    case.audit("capture page", {"url": url, "extension": (_paired() or {}).get("origin"), "where": where(url),
+                                "platform": site, "file": file, "sha256": sha, "viewed_at": viewed_at,
+                                "posts": len(items), "added": len(ids), "upgraded": len(upgraded),
+                                "grid": sum(it.get("from") == "grid" for it in items), "profile_posts": total} | rec)
+    stopped = None
+    if reason := revoked(site, url, text):
+        from . import browser
+        stopped = browser.stop(site, reason, url, case)
+    return {"posts": len(items), "added": len(ids), "upgraded": len(upgraded), "file": file, "stopped": stopped}
 
 
-def add_recording(case, url: str, video: Path, started_at: str | None) -> dict:
+def add_recording(case, url: str, video: Path, started_at: str | None, rec: dict | None = None) -> dict:
     """A recording of the tab while she played a video (chrome.tabCapture), as one 'captured' post."""
-    site = platform(url)
+    site, rec = platform(url), rec or {}
     item = {"source": site, "account_url": account_of(url), "media": [str(video)], "viewed_url": url,
-            "viewed_at": started_at, "capture": "recording"}
+            "viewed_at": started_at, "capture": "recording"} | rec
     ids = posts.add_posts(case, [item], origin="captured")
     file, sha = posts.store(case, video)
-    case.audit("capture recording", {"url": url, "extension": (_paired() or {}).get("origin"), "where": where(url), "platform": site, "file": file, "sha256": sha,
-                                     "viewed_at": started_at, "post": ids[0] if ids else None})
+    case.audit("capture recording", {"url": url, "extension": (_paired() or {}).get("origin"), "where": where(url),
+                                     "platform": site, "file": file, "sha256": sha, "viewed_at": started_at,
+                                     "post": ids[0] if ids else None} | rec)
     return {"post": ids[0] if ids else None, "file": file}
+
+
+def guided(case, action: str, url: str, to: str | None = None) -> int:
+    """One press of Next in guided mode, audited: what it did ("scroll" or "open") and where."""
+    return case.audit("guided step", {"action": action, "url": url, "to": to, "extension": (_paired() or {}).get("origin")})
+
+
+def _profile_posts(site: str | None, text: str) -> int | None:
+    """A profile's own post count from its header ("212 posts" on Instagram, "74.5K posts" on X). The others show
+    none, and "N posts" elsewhere on their pages means something else (live QA: TikTok)."""
+    m = re.search(rf"{fb.NUM}\s*posts\b", fb._fold(text)) if site in ("Instagram", "X") else None
+    return fb._num(m[1]) if m else None
 
 
 def feed(case, limit: int = 200) -> list[dict]:
@@ -301,12 +428,21 @@ def _local(iso: str | None) -> datetime | None:
 # --- reading posts from a captured page ---------------------------------------------------------
 
 def parse(site: str | None, archive, saved_at: datetime | None = None, media_dir=None) -> list[dict]:
-    """Posts from a captured page archive (or a saved page in any format hunt.facebook reads)."""
+    """Posts from a captured page archive (or a saved page in any format hunt.facebook reads). Each says whether
+    it was seen in "full" (its own post, or a timeline item) or only as a "grid" thumbnail (media kind "grid"),
+    whether it's a video, and the audience the platform showed, when it showed one."""
     if site == "Facebook":
-        return fb.parse_saved(archive, saved_at=saved_at, media_dir=media_dir)
-    if site not in PARSERS:
+        items = fb.parse_saved(archive, saved_at=saved_at, media_dir=media_dir)
+    elif site in PARSERS:
+        items = PARSERS[site](fb._load(Path(archive), saved_at, media_dir))
+    else:
         return []
-    return PARSERS[site](fb._load(Path(archive), saved_at, media_dir))
+    for it in items:
+        it.setdefault("from", "full")
+        it.setdefault("video", bool(re.search(r"/(?:reel|reels|videos?|watch)/|[?&]v=", it.get("url") or "")))
+        if it["from"] == "grid":
+            it["media_kind"] = "grid"
+    return items
 
 
 def _page(page: dict):
@@ -328,8 +464,19 @@ def _json(root):
 
 
 def _media(el, ctx, skip=()) -> list[str]:
-    found = [fb._local(n.get("src"), ctx) for n in el.iter("img") if n not in skip and fb._photo(n)
-             and "profile picture" not in n.get("alt", "").lower()]
+    """Pictures the page showed, as local files from the archive. A <picture> loads one of its <source srcset>
+    images rather than the <img src> fallback (TikTok's covers, live QA), so every candidate is tried."""
+    def first(*urls):
+        return next((m for u in urls if u and (m := fb._local(u, ctx))), None)
+
+    def srcset(n):
+        return [part.strip().split(" ")[0] for part in n.get("srcset", "").split(",") if part.strip()]
+
+    found = []
+    for pic in el.iter("picture"):
+        found.append(first(*(u for s in pic.iter("source") for u in srcset(s) + [s.get("src")])))
+    found += [first(n.get("src"), *srcset(n)) for n in el.iter("img") if n not in skip and fb._photo(n)
+              and "profile picture" not in n.get("alt", "").lower()]
     found += [fb._local(n.get("poster"), ctx) for n in el.iter("video")]
     return list(dict.fromkeys(m for m in found if m))
 
@@ -340,6 +487,12 @@ def _iso(when: str | None) -> str | None:
         return datetime.fromisoformat(when.replace("Z", "+00:00")).astimezone(UTC).isoformat()
     except (AttributeError, ValueError):
         return None
+
+
+def _audience(root, private: str) -> str:
+    """What a profile page shows its posts' audience to be: "Followers" on a private or protected account,
+    else "Public" (these platforms' posts are public unless the account isn't)."""
+    return "Followers" if re.search(private, fb._fold(fb._text(root))) else "Public"
 
 
 def _testid(el, *names):
@@ -364,7 +517,9 @@ def parse_instagram(page: dict) -> list[dict]:
         if isinstance(d.get("code"), str) and isinstance(d.get("taken_at"), int):
             user, cap, place = d.get("user") or d.get("owner") or {}, d.get("caption") or {}, d.get("location") or {}
             p = post(d["code"], d.get("product_type") == "clips")
-            p.update(posted_at=fb._unix(d["taken_at"]), posted_at_precision="second",
+            p.setdefault("from", "grid")  # a profile's listing; its own page or a feed item makes it "full"
+            p.update(posted_at=fb._unix(d["taken_at"]), posted_at_precision="second", video=d.get("product_type") == "clips"
+                     or d.get("media_type") == 2,
                      text=p["text"] or (cap.get("text") if isinstance(cap, dict) else None),
                      author=user.get("full_name") or user.get("username"),
                      account_url=user.get("username") and f"https://www.instagram.com/{user['username'].lower()}/",
@@ -377,6 +532,7 @@ def parse_instagram(page: dict) -> list[dict]:
         if not m:
             continue
         p = post(m[2], m[1] == "reel")
+        p["from"] = "full"
         header = next(art.iter("header"), None)
         author = next((a for a in (header.iter("a") if header is not None else ())
                        if re.fullmatch(r"/[\w.]+/?", a.get("href", ""))), None)
@@ -400,19 +556,26 @@ def parse_instagram(page: dict) -> list[dict]:
         if p["comments"] is None and (n := re.search(rf"view all {fb.NUM} comments", text)):
             p["comments"] = fb._num(n[1])
         p["media"] = list(dict.fromkeys(p["media"] + _media(art, ctx, hset)))
+    tiles = 0
     for a in root.iter("a"):  # profile grid tiles
         m = re.search(r"/(p|reel)/([\w-]+)", a.get("href", ""))
         if not m:
             continue
         p = post(m[2], m[1] == "reel")
+        if p.get("from") != "full" and "position" not in p:
+            p["from"], p["position"], tiles = "grid", tiles, tiles + 1
+        p["video"] = p.get("video") or m[1] == "reel" or any(img.get("alt", "").startswith(("Video by", "Reel by"))
+                                                              for img in a.iter("img"))
         p["media"] = list(dict.fromkeys(p["media"] + _media(a, ctx)))
         for img in a.iter("img"):
             if (alt := ALT.search(img.get("alt", ""))) and not p["posted_at"]:
                 p["posted_at"], p["posted_at_precision"] = fb.parse_date(alt[2], page["ref"]) or (None, None)
                 p["author"] = p["author"] or alt[1]
             p.setdefault("alt", img.get("alt") or None)
+    audience = _audience(root, r"this account is private")
     for p in found.values():  # a profile page's own posts belong to that profile
         p["account_url"] = p["account_url"] or account_of(ctx["base"])
+        p.setdefault("audience", audience)
     return list(found.values())
 
 
@@ -438,6 +601,8 @@ def parse_tiktok(page: dict) -> list[dict]:
         if not m:
             continue
         p = found.setdefault(m[2], fb._post(source="TikTok", post_id=m[2]))
+        if "position" not in p and p.get("from") != "full":
+            p["from"], p["position"] = "grid", sum("position" in q for q in found.values())
         p["url"] = p["url"] or f"https://www.tiktok.com/@{m[1]}/video/{m[2]}"
         p["account_url"] = p["account_url"] or f"https://www.tiktok.com/@{m[1].lower()}"
         if not p["posted_at"]:
@@ -447,50 +612,80 @@ def parse_tiktok(page: dict) -> list[dict]:
     own = re.search(r"/@([\w.-]+)/video/(\d+)", ctx["base"])
     if own and own[2] in found:  # a video page: its own description, counts and poster
         p = found[own[2]]
+        p["from"] = "full"
+        p.pop("position", None)
         for key, names in (("text", ("browse-video-desc", "video-desc")), ("reactions", ("like-count", "browse-like-count")),
                            ("comments", ("comment-count", "browse-comment-count")), ("shares", ("share-count",))):
             if p[key] is None and (el := _testid(root, *names)):
                 value = fb._text(el[0]).replace("\n", " ")
                 p[key] = value if key == "text" else (fb._num(value) if re.fullmatch(fb.NUM, fb._fold(value)) else None)
         p["media"] = list(dict.fromkeys(p["media"] + [m for v in root.iter("video") if (m := fb._local(v.get("poster"), ctx))]))
+    audience = _audience(root, r"this account is private")
+    for p in found.values():
+        p["video"], p["audience"] = True, p.get("audience") or audience
     return list(found.values())
 
 
 def parse_x(page: dict) -> list[dict]:
-    """X's web app: each <article data-testid="tweet">: author, <time datetime> on the status link, tweetText,
-    tweetPhoto pictures, video posters, and the reply/repost/like counts in their aria-labels. A status
-    id's high bits are its time too (snowflake), for when <time> is missing."""
+    """X's web app, in both its markups. Signed in: <article data-testid="tweet"> with User-Name, <time datetime>,
+    tweetText, tweetPhoto and per-button aria-labels. Signed out (live QA, 2026-10-29): plain <article>s with no
+    test ids or <time>, the text in a dir=auto block, and the counts in one role=group aria-label ("98 replies,
+    269 reposts, 1042 likes, ..."). Either way the status link gives the post id, and the id (a snowflake) its time."""
     root, ctx = _page(page)
-    out = []
+    out, seen = [], set()
     for art in root.iter("article"):
-        if art.get("data-testid") != "tweet":
+        links = [m for a in art.iter("a") if (m := re.search(r"/(\w+)/status/(\d+)", a.get("href", "")))]
+        timed = next((a for a in art.iter("a") if re.search(r"/status/\d+", a.get("href", "")) and a.find(".//time") is not None), None)
+        if not links or (sid := (re.search(r"/(\w+)/status/(\d+)", timed.get("href")) if timed is not None else links[0])[2]) in seen:
             continue
-        status = next((a for a in art.iter("a") if re.search(r"/status/\d+/?$", a.get("href", ""))
-                       and a.find(".//time") is not None), None) \
-            or next((a for a in art.iter("a") if re.search(r"/status/\d+/?$", a.get("href", ""))), None)
-        if status is None:
-            continue
-        handle, sid = re.search(r"/(\w+)/status/(\d+)", status.get("href")).groups()
+        handle = next(m[1] for m in links if m[2] == sid)
+        seen.add(sid)
         names = _testid(art, "User-Name")
-        t = status.find(".//time")
+        named = next((fb._text(a) for a in art.iter("a") if a.get("href", "").rstrip("/").lower() in (f"/{handle.lower()}",
+                      f"https://x.com/{handle.lower()}") and fb._text(a) and not fb._text(a).startswith("@")), None)
+        t = timed.find(".//time") if timed is not None else None
         p = fb._post(source="X", url=f"https://x.com/{handle}/status/{sid}", post_id=sid,
                      account_url=f"https://x.com/{handle.lower()}",
-                     author=fb._text(next(names[0].iter("a"), names[0])).split("\n")[0] if names else handle)
+                     author=fb._text(next(names[0].iter("a"), names[0])).split("\n")[0] if names else named or handle)
         p["posted_at"] = _iso(t.get("datetime")) if t is not None else \
             datetime.fromtimestamp(((int(sid) >> 22) + 1288834974657) / 1000, UTC).isoformat()
         p["posted_at_precision"] = "second"
         p["posted_at_text"] = fb._text(t) if t is not None else None
-        if texts := _testid(art, "tweetText"):
-            p["text"] = fb._text(texts[0])
+        texts = _testid(art, "tweetText") or [n for n in art.iter("div") if n.get("dir") == "auto"]
+        if texts:
+            p["text"] = max((fb._text(n) for n in texts), key=len) or None
         photos = _testid(art, "tweetPhoto", "videoPlayer", "videoComponent")
-        p["media"] = list(dict.fromkeys(m for el in photos for m in _media(el, ctx)))
+        if photos:
+            p["media"] = list(dict.fromkeys(m for el in photos for m in _media(el, ctx)))
+        else:  # signed out, the media link is an empty overlay: take the post's own media images, not avatars
+            p["media"] = list(dict.fromkeys(m for n in art.iter("img") if re.search(r"/media/|video_thumb", n.get("src", ""))
+                                            and (m := fb._local(n.get("src"), ctx))))
         for key, testid in (("comments", "reply"), ("shares", "retweet"), ("reactions", "like")):
             if (btn := _testid(art, testid, f"un{testid}")) and (n := re.match(r"(\d[\d,.]*\s?[KkMm]?)\b",
                                                                                 btn[0].get("aria-label", ""))):
                 p[key] = fb._num(n[1])
+        group = next((n.get("aria-label", "") for n in art.iter() if n.get("role") == "group" and n.get("aria-label")), "")
+        for key, word in (("comments", "repl"), ("shares", "repost"), ("reactions", "like")):
+            if p[key] is None and (n := re.search(rf"(\d[\d,]*) {word}", group)):
+                p[key] = fb._num(n[1])
         if ctxs := _testid(art, "socialContext"):
             p["reposted_by"] = fb._text(ctxs[0]).replace("\n", " ")
+        p["video"] = bool(_testid(art, "videoPlayer", "videoComponent") or next(art.iter("video"), None) is not None)
         out.append(p)
+    inside = {n for art in root.iter("article") for n in art.iter()}
+    for a in root.iter("a"):  # the media tab's grid: tiles linking /status/<id>/photo|video/<n>, outside any article
+        m = re.search(r"/(\w+)/status/(\d+)/(photo|video)/\d", a.get("href", ""))
+        if not m or a in inside or m[2] in seen:
+            continue
+        seen.add(m[2])
+        p = fb._post(source="X", url=f"https://x.com/{m[1]}/status/{m[2]}", post_id=m[2], account_url=f"https://x.com/{m[1].lower()}",
+                     posted_at=datetime.fromtimestamp(((int(m[2]) >> 22) + 1288834974657) / 1000, UTC).isoformat(),
+                     posted_at_precision="second", media=_media(a, ctx))
+        p.update({"from": "grid", "position": sum(q.get("from") == "grid" for q in out), "video": m[3] == "video"})
+        out.append(p)
+    audience = _audience(root, r"protected account|these posts are protected|estos posts estan protegidos")
+    for p in out:
+        p["audience"] = audience
     return out
 
 
@@ -527,6 +722,8 @@ def parse_linkedin(page: dict) -> list[dict]:
             p["shares"] = fb._num(n[1])
         if p["text"] and (job := JOB.search(p["text"])):
             p["life_event"] = job[0].strip()
+        folded = fb._fold(lines)
+        p["audience"] = "Connections" if "connections only" in folded else "Public" if "visible to anyone" in folded else None
         found[aid] = p
     return list(found.values())
 

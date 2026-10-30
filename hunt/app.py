@@ -1390,7 +1390,41 @@ async def capture_pair(req: Request):
 async def capture_hello(req: Request):
     cases = [{"slug": s, "label": Case.open(s).details()["label"]} for s in all_cases()]
     active = next((c for c in cases if c["slug"] == browser.active_case()), None)
-    return JSONResponse({"version": version("hunt-osint"), **extension.status(), "cases": cases, "active_case": active})
+    state = browser.capture()
+    label = next((c["label"] for c in cases if c["slug"] == state["case"]), None)
+    return JSONResponse({"version": version("hunt-osint"), **extension.status(), "cases": cases, "active_case": active,
+                         "capture": state | {"label": label}, "off_sites": sorted(extension.CAPTURE_OFF),
+                         "stopped": browser.stops()})
+
+
+def _capture_state(b: dict) -> dict:
+    case = b.get("case") or None
+    if case is not None:
+        try:
+            Case.open(str(case))
+        except LookupError:
+            raise HTTPException(404, "no such case")
+    if b.get("on") and not case:
+        raise HTTPException(400, "choose a case to capture into")
+    return browser.set_capture(case, bool(b.get("on")))
+
+
+async def capture_state(req: Request):  # the extension's popup turned capture on or off
+    state = _capture_state(await _body(req))
+    print(f"hunt app: Hunt Capture {'on for ' + state['case'] if state['on'] else 'off'} (from the browser)", file=sys.stderr)
+    return JSONResponse(state)
+
+
+async def capture_problem(req: Request):  # the extension hit an error; Hunt shows the latest ones
+    message = str((await _body(req)).get("message") or "")[:300]
+    browser.problem(message)
+    print(f"hunt app: Hunt Capture problem: {message}", file=sys.stderr)
+    return JSONResponse({"ok": True})
+
+
+async def browser_capture(req: Request):  # Hunt's own screens turned capture on or off
+    state = _capture_state(await _body(req))
+    return JSONResponse(state)
 
 
 async def capture_signins(req: Request):
@@ -1412,8 +1446,13 @@ async def browser_open(req: Request):
             Case.open(str(b["case"]))
         except LookupError:
             raise HTTPException(404, "no such case")
+    size = b.get("window") or {}
+    if size and not (isinstance(size, dict) and all(isinstance(size.get(k), int) and 300 <= size[k] <= 5000
+                                                      for k in ("width", "height"))):
+        raise HTTPException(400, "window must be {width, height} in pixels, 300 to 5000")
     try:
-        return JSONResponse(await asyncio.to_thread(browser.open_url, str(b.get("url") or ""), req.url.port, b.get("case")))
+        return JSONResponse(await asyncio.to_thread(browser.open_url, str(b.get("url") or ""), req.url.port, b.get("case"),
+                                                    (size["width"], size["height"]) if size else None))
     except ValueError as e:
         raise HTTPException(400, str(e))
     except LookupError as e:
@@ -1449,8 +1488,13 @@ async def _capture_upload(req: Request, field: str, work):
             c = Case.open(str(form.get("case") or ""))
         except LookupError:
             raise HTTPException(404, "no such case")
-        if not extension.platform(form.get("url")):
-            raise HTTPException(400, "url must be a page on Facebook, Instagram, TikTok, X, LinkedIn or YouTube")
+        site = extension.platform(form.get("url"))
+        if not site:
+            raise HTTPException(400, "url must be a page on Facebook, Instagram, TikTok, X or YouTube")
+        if site in extension.CAPTURE_OFF:
+            raise HTTPException(403, f"Hunt Capture is off on {site} (its terms name browser plugins); save pages by hand")
+        if stop := browser.stops().get(site):
+            raise HTTPException(403, stop["message"])
         f = form.get(field)
         if not isinstance(f, UploadFile):
             raise HTTPException(400, f"no {field}")
@@ -1476,20 +1520,68 @@ async def _capture_upload(req: Request, field: str, work):
         await form.close()
 
 
+def _record(form, when: str) -> dict:
+    """The capture record's fields from what the extension sent with an upload (docs/capture.md)."""
+    return extension.record(form["url"], form.get(when) or None, str(form.get("capture_version") or "")[:40] or None,
+                            form.get("session") if form.get("session") in ("signed_in", "signed_out") else None)
+
+
 async def capture_view(req: Request):
     return await _capture_upload(req, "screenshot", lambda c, form, path, tmp: extension.add_view(
         c, form["url"], path, form.get("viewed_at") or None, form.get("title") or "",
-        form.get("kind") if form.get("kind") in ("view", "manual", "frame") else "view"))
+        form.get("kind") if form.get("kind") in ("view", "manual", "frame") else "view", _record(form, "viewed_at")))
+
+
+def _page_work(c, form, path, tmp):
+    done = extension.add_page(c, form["url"], path, form.get("viewed_at") or None, tmp / "media", _record(form, "viewed_at"))
+    diff = getattr(recheck, "diff_captures", None)  # docs/qol.md: Check again's comparison, once it's merged
+    return done | {"changes": diff(c) if diff else []}
 
 
 async def capture_page(req: Request):
-    return await _capture_upload(req, "archive", lambda c, form, path, tmp: extension.add_page(
-        c, form["url"], path, form.get("viewed_at") or None, tmp / "media"))
+    return await _capture_upload(req, "archive", _page_work)
 
 
 async def capture_recording(req: Request):
     return await _capture_upload(req, "video", lambda c, form, path, tmp: extension.add_recording(
-        c, form["url"], path, form.get("started_at") or None))
+        c, form["url"], path, form.get("started_at") or None, _record(form, "started_at")))
+
+
+async def capture_revoked(req: Request):  # the extension saw a checkpoint/challenge/suspension address
+    b = await _body(req)
+    site = extension.platform(str(b.get("url") or ""))
+    reason = extension.revoked(site, str(b.get("url") or ""))
+    if not site or not reason:
+        raise HTTPException(400, "that address isn't one a platform shows a checked or blocked account")
+    state = browser.capture()
+    case = Case.open(state["case"]) if state["case"] else None
+    return JSONResponse(browser.stop(site, reason, b.get("url"), case))
+
+
+async def capture_guided(req: Request):  # one press of Next in guided mode
+    b = await _body(req)
+    try:
+        c = Case.open(str(b.get("case") or ""))
+    except LookupError:
+        raise HTTPException(404, "no such case")
+    if b.get("action") not in ("scroll", "open") or not extension.platform(str(b.get("url") or "")):
+        raise HTTPException(400, "action must be scroll or open, on a supported page")
+    if extension.platform(b["url"]) in extension.CAPTURE_OFF or extension.platform(b["url"]) in browser.stops():
+        raise HTTPException(403, "guided mode doesn't run where capture is off or stopped")
+    return JSONResponse({"audit": extension.guided(c, b["action"], b["url"], b.get("to"))})
+
+
+async def browser_resume(req: Request):  # she resumes a stopped platform, deliberately, from Hunt
+    b = await _body(req)
+    state = browser.capture()
+    left = browser.resume(str(b.get("platform") or ""), Case.open(state["case"]) if state["case"] else None)
+    return JSONResponse({"stopped": left})
+
+
+async def browser_accounts(req: Request):
+    if req.method == "GET":
+        return JSONResponse(browser.accounts())
+    return JSONResponse(browser.set_accounts(await _body(req)))
 
 
 CAPTURE_ROUTES = [
@@ -1505,9 +1597,16 @@ CAPTURE_ROUTES = [
     Route("/api/capture/page", capture_page, methods=["POST"]),
     Route("/api/capture/recording", capture_recording, methods=["POST"]),
     Route("/api/capture/signins", capture_signins, methods=["POST"]),
+    Route("/api/capture/state", capture_state, methods=["POST"]),
+    Route("/api/capture/problem", capture_problem, methods=["POST"]),
+    Route("/api/browser/capture", browser_capture, methods=["POST"]),
     Route("/api/browser/status", browser_status),
     Route("/api/browser/open", browser_open, methods=["POST"]),
     Route("/api/browser/sign-out", browser_sign_out, methods=["POST"]),
+    Route("/api/browser/resume", browser_resume, methods=["POST"]),
+    Route("/api/browser/accounts", browser_accounts, methods=["GET", "POST"]),
+    Route("/api/capture/revoked", capture_revoked, methods=["POST"]),
+    Route("/api/capture/guided", capture_guided, methods=["POST"]),
 ]
 
 

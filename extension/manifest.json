@@ -5,7 +5,14 @@
   "description": "Records the social media pages you open yourself into your Hunt case, on this computer only.",
   "minimum_chrome_version": "116",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsirev4imJRXgfFfdYuFRL1DUTb4ttg21ZkMk5rG98Ox6fw46lJp7dz7A389SiV660EMiIL8b+krnoH3iSh6CWgfB3by3G8ViOMXT6dHPdNEyyhlnVgPnLlP20Rg9hmQBUfiRFS0nWXtU4OlZqaiaWRXwrYEDwpVRKV/mmpliqh4fKAKW7hPK6DaSOTx5097MbCIDponMltFYzFWxCa8p7lwRQ1Q6Xew/KAXUg1gHDE7uwQjqGDJkAn4v2NuF7VV5RXJXbDqsUi785g9pRODTbessYj1Uh9HiVDBDxE4RoyaclmeAKBdjwGAlR17g5jCjaRfFwhb9V31uYHHubWDMcQIDAQAB",
-  "permissions": ["storage", "pageCapture", "activeTab", "tabCapture", "offscreen", "cookies"],
+  "permissions": [
+    "storage",
+    "pageCapture",
+    "activeTab",
+    "tabCapture",
+    "offscreen",
+    "cookies"
+  ],
   "host_permissions": [
     "http://127.0.0.1/*",
     "https://*.facebook.com/*",
@@ -14,15 +21,30 @@
     "https://*.x.com/*",
     "https://*.twitter.com/*",
     "https://*.linkedin.com/*",
-    "https://*.youtube.com/*"
+    "https://*.youtube.com/*",
+    "https://*.reddit.com/*"
   ],
-  "background": { "service_worker": "background.js", "type": "module" },
+  "optional_host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "Hunt Capture (off)",
-    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
-  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "content_scripts": [
     {
       "matches": [
@@ -31,17 +53,27 @@
         "https://*.tiktok.com/*",
         "https://*.x.com/*",
         "https://*.twitter.com/*",
-        "https://*.linkedin.com/*",
-        "https://*.youtube.com/*"
+        "https://*.youtube.com/*",
+        "https://*.reddit.com/*"
       ],
-      "js": ["content.js"],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
   "commands": {
     "capture-this": {
-      "suggested_key": { "default": "Alt+Shift+H" },
+      "suggested_key": {
+        "default": "Alt+Shift+H"
+      },
       "description": "Capture this page now"
+    },
+    "guided-next": {
+      "suggested_key": {
+        "default": "Alt+Shift+N"
+      },
+      "description": "Guided mode: one step (one screen, or the next item to open)"
     }
   },
   "content_security_policy": {

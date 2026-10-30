@@ -124,13 +124,15 @@ def add_files(case, paths: list[Path], platform: str | None, posted_at: str | No
 
 
 def add_posts(case, items: list[dict], kind: str = "image", evidence: str | None = None,
-              origin: str = "added") -> list[int]:
+              origin: str = "added", upgraded: list | None = None) -> list[int]:
     """Posts with their words (hunt.facebook's importers, Hunt Capture): one post per item, `origin`
     'added' (the investigator's saved files) or 'captured' (recorded by the extension as she browsed).
-    Local media is stored as add_files does (`kind` for pictures: "image", or "screenshot" when the
-    picture is the screenshot), and everything else the item says goes to post_extra, with `evidence`,
-    the stored page it came from. Already in the case, so skipped: the same source and link; without a
-    link, the same date and words; with neither, the same pictures. Returns new post ids."""
+    Local media is stored as add_files does. Its kind is `kind` ("image", or "screenshot" when the picture
+    is the screenshot), or the item's own `media_kind` ("grid" for a grid thumbnail). Everything else the
+    item says goes to post_extra, with `evidence`, the stored page it came from.
+    Already in the case, so skipped: the same source and link; without a link, the same date and words; with
+    neither, the same pictures. One exception: a post known only from a grid (extra.from "grid") is upgraded
+    in place when its full post arrives (from "full"), and its id goes to `upgraded`. Returns new post ids."""
     if origin not in ("added", "captured"):
         raise ValueError("origin must be 'added' or 'captured'")
     case.db.executescript(SCHEMA + EXTRA)
@@ -138,8 +140,13 @@ def add_posts(case, items: list[dict], kind: str = "image", evidence: str | None
     for it in items:
         source, url, text = it.get("source") or ADDED, it.get("url"), it.get("text") or ""
         paths = [p for p in map(Path, it.get("media") or []) if _ext(p) in VIDEO | IMAGE and p.is_file()]
-        if url:
-            dup = case.rows("select 1 from posts where source = ? and url = ?", source, url)
+        if url:  # the same link from this source, or from a vendor reading it ("Instagram (via Apify)")
+            dup = case.rows("select p.id, p.source, p.origin, p.text, p.posted_at, e.extra from posts p left join post_extra e "
+                            "on e.post_id = p.id where p.url = ? and (p.source = ? or p.source like ?)",
+                            url, source, f"{source} (via %")
+            if dup and _upgrade(case, dup[0], it, paths, evidence, source, origin):
+                upgraded is not None and upgraded.append(dup[0]["id"])
+                continue
         elif text:
             dup = case.rows("select 1 from posts where source = ? and url is null and text = ? and "
                             "coalesce(posted_at, '') = ?", source, text, it.get("posted_at") or "")
@@ -152,23 +159,59 @@ def add_posts(case, items: list[dict], kind: str = "image", evidence: str | None
         post = case.db.execute("insert into posts (source, account_url, url, posted_at, text, origin, fetched_at) "
                                "values (?, ?, ?, ?, ?, ?, ?)",
                                (source, it.get("account_url"), url, it.get("posted_at"), text, origin, now())).lastrowid
-        stored = []
-        for path in paths:
-            ext = _ext(path)
-            file, sha = _store_file(case, path, ext)
-            if case.rows("select 1 from media where sha256 = ?", sha):  # one copy is enough, as in add_files
-                continue
-            what = "video" if ext in VIDEO else kind
-            case.db.execute("insert into media values (null, ?, ?, ?, ?, ?, null)",
-                            (post, what, file, sha, duration(case.dir / file) if what == "video" else None))
-            stored.append(sha)
-        extra = {k: v for k, v in it.items() if k not in ("source", "url", "account_url", "posted_at", "text", "media")
-                 and v not in (None, "", False)} | ({"evidence": evidence} if evidence else {})
-        case.db.execute("insert into post_extra values (?, ?)", (post, json.dumps(extra, ensure_ascii=False)))
+        stored = _media(case, post, paths, it.get("media_kind") or kind)
+        case.db.execute("insert into post_extra values (?, ?)", (post, json.dumps(_extra(it, evidence), ensure_ascii=False)))
         case.audit("post imported", {"source": source, "url": url, "posted_at": it.get("posted_at"), "origin": origin,
                                      "precision": it.get("posted_at_precision"), "media": stored, "from": evidence})
         ids.append(post)
     return ids
+
+
+def _extra(it: dict, evidence: str | None) -> dict:
+    return {k: v for k, v in it.items() if k not in ("source", "url", "account_url", "posted_at", "text", "media",
+                                                     "media_kind") and not (v is None or v is False or v == "")} \
+        | ({"evidence": evidence} if evidence else {})
+
+
+def _media(case, post: int, paths: list[Path], kind: str) -> list[str]:
+    stored = []
+    for path in paths:
+        ext = _ext(path)
+        file, sha = _store_file(case, path, ext)
+        if case.rows("select 1 from media where sha256 = ?", sha):  # one copy is enough, as in add_files
+            continue
+        what = "video" if ext in VIDEO else kind
+        case.db.execute("insert into media values (null, ?, ?, ?, ?, ?, null)",
+                        (post, what, file, sha, duration(case.dir / file) if what == "video" else None))
+        stored.append(sha)
+    return stored
+
+
+def _upgrade(case, row: dict, it: dict, paths: list[Path], evidence: str | None, source: str, origin: str) -> bool:
+    """A post seen only as a grid thumbnail, now captured in full: its words, date and full-size media join it.
+    Likewise a vendor's copy ("Instagram (via Apify)") that she then captures herself: her capture becomes the
+    record (origin "captured"), and the vendor's source is kept as extra.vendor_source."""
+    old = json.loads(row["extra"] or "{}")
+    if origin == "captured" and (row["origin"] == "vendor" or row["source"] != source):
+        case.db.execute("update posts set source = ?, origin = 'captured', text = ?, posted_at = ? where id = ?",
+                        (source, it.get("text") or row["text"] or "", it.get("posted_at") or row["posted_at"], row["id"]))
+        stored = _media(case, row["id"], paths, it.get("media_kind") or "image")
+        case.db.execute("insert or replace into post_extra values (?, ?)",
+                        (row["id"], json.dumps(old | _extra(it, evidence) | {"vendor_source": row["source"]}, ensure_ascii=False)))
+        case.audit("post captured over vendor copy", {"post": row["id"], "url": it.get("url"), "vendor_source": row["source"],
+                                                      "media": stored, "evidence": evidence})
+        return True
+    if old.get("from") != "grid" or it.get("from") != "full":
+        return False
+    case.db.execute("update posts set text = ?, posted_at = ? where id = ?",
+                    (row["text"] or it.get("text") or "", it.get("posted_at") or row["posted_at"], row["id"]))
+    stored = _media(case, row["id"], paths, it.get("media_kind") or "image")
+    case.db.execute("insert or replace into post_extra values (?, ?)",
+                    (row["id"], json.dumps(old | _extra(it, evidence) | {"from": "full", "grid_evidence": old.get("evidence")},
+                                           ensure_ascii=False)))
+    case.audit("post upgraded", {"post": row["id"], "url": it.get("url"), "from": "grid → full", "media": stored,
+                                 "evidence": evidence})
+    return True
 
 
 def store(case, path, ext: str | None = None) -> tuple[str, str]:

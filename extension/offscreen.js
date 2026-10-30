@@ -11,7 +11,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "stop" && recorder) recorder.stop();
 });
 
-async function start({ streamId, port, key, case: slug, url, startedAt }) {
+async function start({ streamId, port, key, case: slug, url, startedAt, captureVersion, session }) {
   if (recorder) throw new Error("Already recording.");
   const media = await navigator.mediaDevices.getUserMedia({
     audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } },
@@ -32,6 +32,8 @@ async function start({ streamId, port, key, case: slug, url, startedAt }) {
       f.append("case", slug);
       f.append("url", url);
       f.append("started_at", startedAt);
+      f.append("capture_version", captureVersion || "");
+      if (session) f.append("session", session);
       f.append("video", new Blob(chunks, { type: "video/webm" }), "recording.webm");
       const r = await fetch(`http://127.0.0.1:${port}/api/capture/recording`, { method: "POST", headers: { "x-hunt-key": key }, body: f });
       const data = await r.json().catch(() => ({}));

@@ -1,5 +1,5 @@
-// Hunt Capture's popup: pair, choose the case, turn capture on and off, capture or record on demand,
-// and see which sections of each confirmed account are still to open.
+// Hunt Capture's popup: pair, choose the case, turn capture on and off, capture or record on demand, pause a tab,
+// step through guided mode with Next, and see which sections of each confirmed account are still to open.
 
 const $ = (id) => document.getElementById(id);
 
@@ -43,11 +43,30 @@ async function render() {
   $("capture").disabled = $("record").disabled = !s.on;
   $("record").textContent = s.recording ? "Stop recording" : "Record video";
   for (const r of document.querySelectorAll("input[name=mode]")) r.checked = r.value === s.mode;
-  await renderChecklist();
+  $("everyview").checked = await chrome.permissions.contains({ origins: ["<all_urls>"] });
+  $("pause").checked = s.tabPaused;
+  $("pause").disabled = !s.on;
+  const site = (/^https:\/\/(?:[a-z0-9-]+\.)*(linkedin|strava|snapchat)\.com\//i.exec(s.tabUrl) || [])[1];
+  const stop = Object.entries(s.stopped || {}).find(([name]) => new RegExp(`${name === "X" ? "(x|twitter)" : name}\\.com`, "i").test(s.tabUrl));
+  $("banner").hidden = !(site || stop);
+  $("banner").textContent = stop ? stop[1].message
+    : site && site.toLowerCase() === "linkedin" ? "Hunt Capture is off on LinkedIn: its terms name browser plugins. Save pages with Save Page As and import them. Consider browsing logged out, or set LinkedIn's profile viewing to private first."
+    : site ? `Hunt Capture is off on ${site[0].toUpperCase()}${site.slice(1)}: its terms name extensions. Save pages with Save Page As and import them.` : "";
+  $("next").disabled = !s.on || s.guidedBusy || Boolean(site || stop);
+  $("next").textContent = s.guidedBusy ? "Recording…" : "Next";
+  await renderChecklist(s.tabUrl);
 }
 
-async function renderChecklist() {
+function counter(p) {  // "grid 212/212 · flagged 9 · opened 6 of 9 · videos 14, played 6"
+  if (!p) return "";
+  const grid = p.grid_total ? `${p.grid_seen}/${p.grid_total}` : `${p.grid_seen}`;
+  return `grid ${grid} · flagged ${p.flagged} · opened ${p.opened} of ${p.flagged} · videos ${p.videos}, played ${p.played}`;
+}
+
+async function renderChecklist(tabUrl = "") {
   const { accounts } = await ask({ type: "checklist" });
+  const here = accounts.find((a) => tabUrl.toLowerCase().replace("://m.", "://www.").startsWith(a.account.toLowerCase().replace(/\/$/, "")));
+  $("coverage").textContent = here ? `${here.platform} · ${counter(here.progress)}` : "";
   if (!accounts.length) return;
   const lists = accounts.map((a) => {
     const name = a.account.replace(/\/$/, "").split("/").pop();
@@ -113,6 +132,26 @@ $("record").addEventListener("click", async () => {
     }
     await render();
   } catch (err) { showError(err); }
+});
+
+$("next").addEventListener("click", async () => {
+  try {
+    $("next").disabled = true;
+    const done = await ask({ type: "next" });
+    showError(null);
+    $("coverage").textContent = done.did === "nothing" ? done.why : done.did === "open" ? `Opening ${done.to}` : $("coverage").textContent;
+  } catch (err) { showError(err); }
+  setTimeout(() => render().catch(showError), 1500);  // redraws the popup only; it moves nothing on the page
+});
+
+$("pause").addEventListener("change", async (e) => {
+  await ask({ type: "pause", paused: e.target.checked });
+  await render();
+});
+
+$("everyview").addEventListener("change", async (e) => {  // Chrome asks her; nothing is granted without that prompt
+  const origins = { origins: ["<all_urls>"] };
+  e.target.checked = e.target.checked ? await chrome.permissions.request(origins) : !(await chrome.permissions.remove(origins));
 });
 
 $("unpair").addEventListener("click", async () => {

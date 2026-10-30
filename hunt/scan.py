@@ -365,7 +365,7 @@ def _tag_hits(case, emit, post, cats: dict, injury_date: str | None) -> int:
     from . import facebook
     first = post["media"][0]["file"] if post["media"] else None
     return sum(_hit(case, emit, post, None, key, why, None, None, P_TEXT, injury_date, first)
-               for key, why in facebook.categories(post["extra"]) if key in cats)
+               for key, why in facebook.categories(post["extra"] | {"source": post["source"]}) if key in cats)
 
 
 def _hit(case, emit, post, media, category, what, t0, t1, p, injury_date, file, blur=False) -> bool:
