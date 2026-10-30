@@ -8,6 +8,7 @@ import base64
 import io
 import json
 import os
+import re
 import tempfile
 import zipfile
 from pathlib import Path
@@ -93,7 +94,7 @@ assert not __import__("re").search(r"[+-]\d+\.\d\b|\bbits\b", t), t  # never wei
 assert any(c.startswith("A-") for s in rep["sentences"] if s["section"] == "identity" for c in s["cites"])
 assert any(c.startswith("M-") for s in rep["sentences"] if s["section"] == "method" for c in s["cites"])
 assert "Fictional Mutual" in t and "claim CLM-123" in t and "No lifting over 5 kg" in t, t
-assert "on Thu 2026-" in t and ("EDT" in t or "EST" in t), t  # search times in the investigator's zone, with the day
+assert re.search(r"on (Mon|Tue|Wed|Thu|Fri|Sat|Sun) 2026-", t) and ("EDT" in t or "EST" in t), t  # search times in the investigator's zone, with the day
 assert "Jo Example ran the searches" in t and "with Hunt " in t, t  # who collected, with what
 gaps = " ".join(rep["couldnt_see"])
 assert "phone details" in gaps and "whatsmyname failed" in gaps and "Posts on Instagram weren't read" in gaps, gaps
@@ -353,6 +354,20 @@ assert "relates to sport and gym" in t and "41 days after the date of loss" in t
 assert "Lifting: nothing found after the date of loss that bears on this." in t, t  # the claim section stays, reworded
 assert not any(report.HEALTH.search(x["text"]) for x in rep["sentences"] if "My Health My Data" not in x["text"]), rep["sentences"]
 case.set_details(subject_residence="", mhmda_basis="")
+
+# From a page that isn't the subject's: a finding only once her note says how it concerns them (A7)
+posts.append({"id": 7, "source": "Bluesky", "account_url": "https://bsky.app/profile/a_friend", "url": "https://bsky.app/p/7",
+              "posted_at": "2026-04-15T10:00:00+00:00", "origin": "captured", "media": [], "extra": {"not_subject": True}})
+theirs = {"id": 7, "post_id": 7, "category": "sport", "what": "a group hike", "verdict": "likely", "status": "in report",
+          "posted_at": "2026-04-15", "source": "Bluesky", "file": None}
+rep = compose(hs=[*hits, theirs])
+assert "E-7" not in {e["id"] for e in rep["evidence"]} and any("aren't the subject's" in x for x in rep["couldnt_see"]), rep["couldnt_see"]
+case.db.execute("create table if not exists hits (id integer primary key)")
+case.db.execute("insert or ignore into hits values (7)")
+from hunt import notes as notes_  # noqa: E402
+notes_.add(case, "The subject is tagged and in the photo", about="hit", ref=7)
+assert "E-7" in {e["id"] for e in compose(hs=[*hits, theirs])["evidence"]}
+posts.pop()
 
 # Shown to a restricted audience: out of the report until counsel approves that item, then in it, saying so (K3)
 posts[0]["extra"] = {"audience": "Friends"}

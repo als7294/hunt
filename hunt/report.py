@@ -291,7 +291,13 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
                  for a in snap["audit"] if a["action"] == "counsel approved"}
     held = [h for h in hits if h.get("status") in KEPT and audience(h, by_post) not in (None, "", "Public")
             and str(h["id"]) not in approvals]
-    kept = sorted((h for h in hits if h.get("status") in KEPT and h not in held),
+    # From a page that isn't the subject's (capture marks its posts not_subject): a finding only with her note
+    # on the item saying why it concerns the subject (A7)
+    noted = {(n["about"], n["ref"]) for n in notesmod.list_notes(case) if not n["replaced_by"]}
+    foreign = [h for h in hits if h.get("status") in KEPT and h not in held
+               and ((by_post.get(h.get("post_id")) or {}).get("extra") or {}).get("not_subject")
+               and ("hit", str(h["id"])) not in noted and ("post", str(h.get("post_id"))) not in noted]
+    kept = sorted((h for h in hits if h.get("status") in KEPT and h not in held and h not in foreign),
                   key=lambda h: (h.get("source") or "", h.get("posted_at") or ""))
     ev = lambda hs: [f"E-{h['id']}" for h in hs]
     runs = [_run(r) for r in methodology]
@@ -680,6 +686,10 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     if ruled := [h for h in hits if h.get("status") == "not relevant"]:
         doc.say("couldnt_see", f"{_many(len(ruled), 'flagged item')} {'was' if len(ruled) == 1 else 'were'} ruled not "
                                "relevant by the investigator.", ev(ruled))
+    if foreign:
+        doc.say("couldnt_see", f"{_many(len(foreign), 'item')} from pages that aren't the subject's "
+                               f"{'was' if len(foreign) == 1 else 'were'} left out: none has a note saying how it concerns "
+                               "the subject.", ev(foreign), boilerplate=True)
     if held:
         doc.say("couldnt_see", f"{_many(len(held), 'item')} shown to a restricted audience "
                                f"({', '.join(sorted({audience(h, by_post) for h in held}))}) {'was' if len(held) == 1 else 'were'} "
