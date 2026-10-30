@@ -1099,12 +1099,91 @@ function wizSeen() { // the new-case form, as seeds are added (debounced)
   }, 450);
 }
 
+/* Claim vs evidence (docs/analysis.md §9): each restriction the claim states, and what after the injury bears on it.
+   Leads are leads: facts only, each linked to its evidence; she keeps them or sets them aside. */
+const postsTab = slug => { try { return sessionStorage.getItem(`hunt-posts-tab-${slug}`) || 'claim'; } catch { return 'claim'; } };
+let claimFilter = null; // the restriction card she clicked, or null for all
+const STRENGTH = c => c >= 0.7 ? ['strong', 'var(--gr)'] : c >= 0.5 ? ['moderate', 'var(--am)'] : ['weak', 'var(--mu)'];
+const CAT_COLOR = { lifting: '#EDBE62', walks: '#7FD4D9', sport: '#A3B5F2', activity: '#C4A8F2', travel: '#86D3A4', other_job: '#E89383', driving: '#C2C6CD', injury: '#8E939C' };
+const postIdOf = cites => { const e = (cites || []).find(x => /^E-\d+$/.test(x)); return e ? +e.slice(2) : null; }; // leads and the timeline cite posts as E-<post id>
+function leadParts(x, d, records) { // the post, flag, picture and link behind a lead
+  const pid = postIdOf(x.cites), post = d.posts.find(p => p.id === pid);
+  const hit = x.kind === 'scan' ? d.hits.find(h => h.post_id === pid && h.status !== 'not relevant' && x.shows.includes(h.what)) || d.hits.find(h => h.post_id === pid && h.status !== 'not relevant') : null;
+  const file = hit?.file || post?.media?.find(m => m.kind !== 'video')?.file || post?.media?.[0]?.file;
+  const rec = x.cites.find(c => c.startsWith('A-')), href = file ? null : post?.url || records[rec] || null;
+  return { post, hit, file, href, blur: hit?.blur || hit?.child_visible };
+}
+function leadCard(slug, x, d, records) {
+  const { hit, file, href, blur } = leadParts(x, d, records), [word, col] = STRENGTH(x.confidence), aside = x.status === 'not relevant';
+  const kept = ['kept', 'in report'].includes(hit?.status || x.status);
+  return html`<div class="card" style="padding:14px;display:flex;gap:14px;background:var(--panel-2);${aside ? 'opacity:.55' : ''}">
+    ${file ? html`<img class="thumb ${blur ? 'blur' : ''}" src="${evidenceUrl(slug, file)}" alt="" style="width:76px;height:76px;flex:none">`
+      : html`<span class="tile-ic" style="width:76px;height:76px;font-size:22px">${x.kind === 'record' ? '▤' : '“'}</span>`}
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px">
+      <div style="font-size:14px"><span class="muted">Claim:</span> ${x.claim}</div>
+      <div><span class="muted" style="font-size:14px">Evidence:</span> ${x.shows}</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px"><span class="t2">${longDay(x.date)}${x.days_after != null ? ` · ${x.days_after} days after the injury` : ''}</span>
+        <span style="color:${col}">${word}</span>${(hit?.status || x.status) === 'in report' ? html`<span class="tag" style="background:var(--gr-bg);color:var(--gr)">✓ In the report</span>` : ''}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:2px">
+        ${aside ? html`<button class="btn ghost sm" data-act="lead-set" data-id="${x.id}" data-status="">Put back</button>` : html`
+        <button class="btn sm ${kept ? 'good' : ''}" data-act="lead-set" data-id="${x.id}" data-hit="${hit?.id ?? ''}" data-status="kept">${kept ? '✓ Kept' : 'Keep'}</button>
+        <button class="btn ghost sm" data-act="lead-set" data-id="${x.id}" data-hit="${hit?.id ?? ''}" data-status="not relevant">Not relevant</button>`}
+        ${file ? html`<a class="btn ghost sm" href="${evidenceUrl(slug, file)}" target="_blank" rel="noopener">Open evidence</a>` : href && /^https?:\/\//.test(href) ? html`<a class="btn ghost sm" href="${href}" target="_blank" rel="noopener noreferrer">Open evidence ↗</a>` : ''}</div>
+    </div></div>`;
+}
+function claimView(slug, c, d, ld, tl, records) {
+  if (!ld.injury_date) return html`<div class="empty">${ld.note || 'Add the date of injury to set the evidence against the claim.'} <button data-act="details-edit-go" data-slug="${slug}" style="color:var(--ac)">Add it on the Report step →</button></div>`;
+  const live = ld.leads.filter(x => x.status !== 'not relevant'), aside = ld.leads.filter(x => x.status === 'not relevant');
+  const shown = claimFilter ? live.filter(x => x.restriction === claimFilter) : live;
+  return html`<div class="claim-grid">
+    <div class="claim-rs">${ld.restrictions.map(r => { const n = live.filter(x => x.restriction === r.key).length, on = claimFilter === r.key;
+      return html`<button class="panel" data-act="claim-filter" data-key="${r.key}" style="padding:14px 16px;text-align:left;display:flex;flex-direction:column;gap:4px;${on ? 'box-shadow:inset 0 0 0 1.5px var(--ac)' : ''}">
+        <span class="muted" style="font-size:12.5px">${r.stated ? 'The claim states' : 'The case asks about'}</span><b style="font-weight:500">${r.stated ? r.claim : r.claim.replace(/^The case asks about /, '')}</b>
+        <span style="font-size:13.5px;color:${n ? 'var(--am)' : 'var(--mu)'}">${n ? `${n} lead${n === 1 ? '' : 's'}` : 'Nothing found that contradicts this'}</span></button>`; })}
+      ${claimFilter ? html`<button class="muted" data-act="claim-filter" data-key="" style="font-size:13.5px;text-align:left">Show every restriction</button>` : ''}</div>
+    <div style="display:flex;flex-direction:column;gap:10px;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap"><b style="font-size:17px">Evidence after the injury${claimFilter ? html` <span class="muted" style="font-weight:400">against “${ld.restrictions.find(r => r.key === claimFilter)?.claim.replace(/^The case asks about /, '') || claimFilter}”</span>` : ''}</b>
+        <span class="muted" style="font-size:13px">Leads to check, most confident first. Only what you keep goes in the report.</span></div>
+      ${shown.length ? shown.map(x => leadCard(slug, x, d, records)) : html`<div class="empty">Nothing after ${longDay(ld.injury_date)} ${claimFilter ? 'bears on this' : 'bears on the claim'} yet.</div>`}
+      ${aside.length ? html`<details><summary class="muted" style="cursor:pointer;padding:4px 0">Set aside (${aside.length})</summary><div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${aside.map(x => leadCard(slug, x, d, records))}</div></details>` : ''}
+    </div></div>
+    ${timelineStrip(slug, tl, d, records)}`;
+}
+// The subject over time: posts as dots (coloured by what the scan saw), records as squares, stated events as flags
+function timelineStrip(slug, tl, d, records) {
+  const ev = tl.events.filter(e => e.date && !isNaN(asDate(e.date)));
+  if (ev.length < 2) return '';
+  const t = e => asDate(e.date).getTime(), inj = ev.find(e => e.kind === 'injury'), t1 = Math.max(...ev.map(t)), W = 1000, H = 64;
+  // around the injury: as much before it as after (two months at least), so an old record doesn't squash the months that matter
+  const t0 = Math.max(Math.min(...ev.map(t)), inj ? t(inj) - Math.max(t1 - t(inj), 60 * 864e5) : -Infinity), earlier = ev.filter(e => t(e) < t0).length;
+  const x = e => 20 + (t1 > t0 ? (Math.max(t(e), t0) - t0) / (t1 - t0) : .5) * (W - 40), link = e => { const pid = postIdOf(e.cites), post = d.posts.find(p => p.id === pid), f = post?.media?.[0]?.file;
+    return f ? evidenceUrl(slug, f) : post?.url || records[(e.cites || []).find(c => c.startsWith('A-'))] || null; };
+  const mark = e => { const X = x(e), col = CAT_COLOR[e.categories?.[0]] || '#5E636B', label = `${longDay(e.date)} · ${e.what}${e.categories?.length ? ` (${e.categories.join(', ')})` : ''}`;
+    const shape = e.kind === 'record' ? `<rect x="${X - 6}" y="${H / 2 - 6}" width="12" height="12" rx="2" fill="#C4A8F2"/>` : e.kind === 'stated' ? `<path d="M${X} ${H / 2 + 10} V${H / 2 - 14} l12 5 l-12 5" stroke="#EDBE62" stroke-width="2" fill="#EDBE6255"/>`
+      : `<circle cx="${X}" cy="${H / 2}" r="${e.categories?.length ? 7 : 5}" fill="${col}"/>`;
+    const href = link(e);
+    return href && /^(\/evidence\/|https?:)/.test(href) ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer"><title>${esc(label)}</title>${shape}</a>` : `<g><title>${esc(label)}</title>${shape}</g>`; };
+  return html`<div class="panel" style="padding:14px 18px;display:flex;flex-direction:column;gap:6px">
+    <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap" class="muted"><span style="font-size:14px">Timeline</span>
+      <span style="font-size:12.5px">● post (colour: what the scan saw) · ■ public record · ⚑ stated in a post · shaded: after the injury</span></div>
+    <svg viewBox="0 0 ${W} ${H + 18}" style="width:100%;height:auto;display:block" role="img" aria-label="Posts, records and stated events over time, with the injury date marked">
+      ${raw(inj ? `<rect x="${x(inj)}" y="0" width="${W - 20 - x(inj)}" height="${H}" fill="#EDBE6212"/><line x1="${x(inj)}" x2="${x(inj)}" y1="0" y2="${H}" stroke="#E89383" stroke-width="2" stroke-dasharray="4 4"/><text x="${x(inj) + (x(inj) > W - 160 ? -4 : 4)}" y="12" fill="#E89383" font-size="11" text-anchor="${x(inj) > W - 160 ? 'end' : 'start'}">injury ${esc(longDay(inj.date))}</text>` : '')}
+      ${raw(`<line x1="20" x2="${W - 20}" y1="${H / 2}" y2="${H / 2}" stroke="#2D3139"/>`)}
+      ${raw(ev.filter(e => e.kind !== 'injury').map(mark).join(''))}
+      ${raw(`<text x="20" y="${H + 14}" fill="#8E939C" font-size="11">${esc(earlier ? `${longDay(new Date(t0))} (${earlier} earlier, at the left edge)` : longDay(ev[0].date))}</text><text x="${W - 20}" y="${H + 14}" fill="#8E939C" font-size="11" text-anchor="end">${esc(longDay(ev.at(-1).date))}</text>`)}
+    </svg></div>`;
+}
+
 /* Find a person, 3b: posts */
 let pickedHit = null; // the item open on the right: kept across redraws, so a decision doesn't lose her place
 screens.posts = async slug => {
   const base = `/api/cases/${encodeURIComponent(slug)}`;
-  const [c, d, ch, w, al] = await Promise.all([loadCase(slug), api(`${base}/posts`).catch(() => ({ hits: [], posts: [], weekly: [], counts: {} })),
-    api(`${base}/changes`).catch(() => ({ checks: [], changes: [] })), api(`${base}/watch`).catch(() => ({})), api(`${base}/alerts`).catch(() => ({ alerts: [] }))]);
+  const [c, d, ch, w, al, ld, tl] = await Promise.all([loadCase(slug), api(`${base}/posts`).catch(() => ({ hits: [], posts: [], weekly: [], counts: {} })),
+    api(`${base}/changes`).catch(() => ({ checks: [], changes: [] })), api(`${base}/watch`).catch(() => ({})), api(`${base}/alerts`).catch(() => ({ alerts: [] })),
+    api(`${base}/leads`).catch(() => ({ restrictions: [], leads: [] })), api(`${base}/timeline`).catch(() => ({ events: [] }))]);
+  const claimable = ld.restrictions.length > 0 && (d.hits.length > 0 || ld.leads.length > 0), tab = claimable ? postsTab(slug) : 'flagged';
+  const records = ld.leads.some(x => x.kind === 'record') || tl.events.some(e => e.kind === 'record')
+    ? await api(`${base}/case.json`).then(j => Object.fromEntries(j.candidates.flatMap(x => x.finding_ids.map(id => [`A-${id}`, x.url])))).catch(() => ({})) : {};
   const hits = d.hits.filter(h => h.status !== 'not relevant'), sel = hits.find(h => h.id === pickedHit) || hits[0], look = [...(c.details.look_for || [])].map(k => lookLabel(k).toLowerCase());
   mount(html`${topCase(c, 'posts')}<main class="screen" style="padding:8px 24px 24px;gap:16px">
     <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap">
@@ -1117,8 +1196,9 @@ screens.posts = async slug => {
     <div id="add-posts" class="hidden"><div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px">${dropZone(slug)}
       <div class="muted" style="font-size:14px">Instagram, Facebook, TikTok and Strava only show posts to logged-in users, and Hunt never logs in. Save the posts you need there (screenshots, photos, videos) and add them here; Hunt checks them straight away.</div></div></div>
     <div id="inbox" class="hidden"></div>
-    ${c.steps.identity === 'done' ? html`<div class="two-up" style="gap:16px;align-items:start">${recheckCard(slug, ch)}${watchCard(slug, w, al)}</div>` : ''}
-    ${weeklyChart(d.weekly || [], c.details.injury_date)}
+    ${claimable ? html`<nav style="display:flex;gap:6px">${[['claim', 'Claim vs evidence'], ['flagged', `All flagged posts (${hits.length})`]].map(([k, label]) =>
+      html`<button class="step ${k === tab ? 'now' : ''}" data-act="posts-tab" data-tab="${k}" data-slug="${slug}" style="padding:7px 14px">${label}</button>`)}</nav>` : ''}
+    ${tab === 'claim' ? claimView(slug, c, d, ld, tl, records) : html`${weeklyChart(d.weekly || [], c.details.injury_date)}
     <div class="split" style="--side:460px;flex:1 0 auto;min-height:460px">
       <div style="display:flex;flex-direction:column;gap:8px;overflow:auto">${hits.length ? hits.map(h => html`<button class="row" data-act="pick-hit" data-id="${h.id}" style="text-align:left;${sel && h.id === sel.id ? 'box-shadow:inset 0 0 0 1.5px var(--ac)' : ''}">
           <span class="dot" style="background:${siteColor(h.source)}"></span>
@@ -1126,7 +1206,8 @@ screens.posts = async slug => {
           <div style="text-align:right;font-size:13.5px"><div style="color:${h.timing === 'after' ? 'var(--am)' : 'var(--mu)'}">${h.days_after != null && h.days_after >= 0 ? `+${h.days_after} days` : ''}</div><div class="muted">${h.verdict}${h.status === 'in report' ? ' · in report' : h.status === 'kept' ? ' · kept' : ''}</div></div></button>`)
         : html`<div class="empty">Nothing flagged yet. <a href="#/case/${slug}/scan" style="color:var(--ac)">See the scan →</a></div>`}</div>
       <div id="hit-detail">${sel ? hitDetail(slug, c, sel) : ''}</div>
-    </div>
+    </div>`}
+    ${c.steps.identity === 'done' ? html`<div class="two-up" style="gap:16px;align-items:start">${recheckCard(slug, ch)}${watchCard(slug, w, al)}</div>` : ''}
     <a class="panel row" href="#/case/${slug}/worklist" style="flex:none;padding:18px;gap:16px"><span class="tile-ic">▤</span>
       <div style="flex:1"><b>Worklist: Instagram, Facebook, TikTok and the rest</b><div class="muted" style="font-size:14px">Open each confirmed account in the Hunt Browser; Hunt records and scans what you scroll past.</div></div><span style="color:var(--ac)">Open →</span></a></main>`);
   window.__hits = hits; window.__case = c; window.__posts = d.posts;
@@ -1427,6 +1508,14 @@ const actions = {
     try { const r = await api(`/api/cases/${encodeURIComponent(el.dataset.slug)}/minimise`, { method: 'POST', body: { count: +el.dataset.count, bytes: +el.dataset.bytes } });
       el.closest('.life').innerHTML = html`<span class="muted" style="font-size:13.5px">Moved ${r.count} file${r.count === 1 ? '' : 's'} (${size(r.bytes)}) to the Trash. It’s in the case log.</span>`.s; }
     catch (e) { el.disabled = false; fail(e); } },
+  'posts-tab': el => { try { sessionStorage.setItem(`hunt-posts-tab-${el.dataset.slug}`, el.dataset.tab); } catch { /* fine */ } render(); },
+  'claim-filter': el => { claimFilter = el.dataset.key && claimFilter !== el.dataset.key ? el.dataset.key : null; render(); },
+  'lead-set': async el => { // a scan lead is its flag (the Posts list and the report agree); a caption's or record's is set here
+    const slug = route().slug, hit = el.dataset.hit, status = el.dataset.status || null; el.disabled = true;
+    try { if (hit) await api(`/api/cases/${encodeURIComponent(slug)}/hits/${encodeURIComponent(hit)}`, { method: 'POST', body: { status } });
+      else await api(`/api/cases/${encodeURIComponent(slug)}/leads/${encodeURIComponent(el.dataset.id)}`, { method: 'POST', body: { status } });
+      render(); } catch (e) { el.disabled = false; fail(e); } },
+  'details-edit-go': el => { location.hash = `#/case/${el.dataset.slug}/report`; setTimeout(() => actions['details-edit'](), 1200); },
   'person-hide': async el => { try { await api(`/api/cases/${encodeURIComponent(route().slug)}/people/${encodeURIComponent(el.dataset.id)}/hide`, { method: 'POST', body: { hidden: !!el.dataset.hidden } }); render(); } catch (e) { fail(e); } },
   'person-case': el => { wiz = newWizard(); wiz.seeds = [el.dataset.name]; location.hash = '#/new'; toast('A new case: say who asked and why it’s lawful to look into this person.'); },
   'mark-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = html`<input class="input" id="mark-label" placeholder="Who is it? e.g. Dan, or woman in red" style="flex:1;min-width:200px;font-size:14px" maxlength="200">
