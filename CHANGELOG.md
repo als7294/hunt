@@ -23,7 +23,10 @@ Changes since 0.1.0, mostly from the compliance audit and the decisions in [Hunt
 - **Relationships are quoted, not labelled:** "posted 'my brother Dan'", never "brother: Dan".
 - **"Seen before"** compares only the subject's own photos and videos, never a friend's post captured in passing.
 - **The face check** (still not in the app) runs only for a subject whose recorded home is a place it recognises and doesn't block. California is always blocked.
-- **Retention is a reminder:** at 90 days Hunt asks you to delete, hold or trim the case.
+- **Retention is a reminder:** at 90 days Hunt asks you to delete, hold or trim the case. Deleting a case leaves only a minimal record: the time, a hash of the case's name, its opening date, the reason, and the log entry's number. Never its name, label or purpose.
+- **Guided mode is off until you turn it on.** The switch is on the Accounts screen. Turning it on asks you to tick that you understand what it does, and lets you add a note (for example, your counsel's go-ahead). Both are logged. It runs only on accounts you confirmed, and every press is logged too.
+- **Background-check reports are always the screening version.**
+- **"Keep" keeps a flag for the case file only;** only **Add to report** puts it in the report.
 - **The evidence bundle's README** now describes this case exactly:
   - how many ways its files came in (adding "through a vendor" when Apify was used)
   - whether captures were made signed in or signed out
@@ -31,12 +34,6 @@ Changes since 0.1.0, mostly from the compliance audit and the decisions in [Hunt
   - whether the scan's leads are still to review
   - which requests named Hunt
   - It still carries the original, unblurred files, for chain of custody.
-
-### Decided, being built
-- **Guided mode** will be off until you turn it on in Hunt, with an acknowledgement of what it does. Until then, leave it alone.
-- **Background-check reports** will always be the screening version. Until then, choose it yourself.
-- **"Keep" keeps a flag for the case file only;** only **Add to report** puts it in the report. Today the report still lists kept flags too.
-- **Deleting a case** will leave only a minimal record: the time, a hash of the case's name, its opening date, the reason, and the log entry's number. Today `~/Hunt/deleted-cases.log` also keeps the case's name, label and purpose.
 
 ## 0.1.0: first release
 
