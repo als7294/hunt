@@ -339,4 +339,57 @@ c = Case("people test", "self-check")
 graph.label_photo(c, 7, "Dan")
 assert [x["label"] for x in graph.photo_labels(c)] == ["Dan"] and c.rows("select action from audit")[-1]["action"] == "person marked in photo"
 
+# Leads: the claim against the evidence (a fictional case). Only evidence after the injury, never what the
+# investigator set aside or a hit showing someone else; facts only, no fraud wording.
+from hunt import leads  # noqa: E402
+
+details = {"injury_date": "2026-03-01", "limits": "No lifting over 5 kg; no long walks; can't drive far; not working",
+           "look_for": ["sport"]}
+posts_ = [
+    {"id": 1, "posted_at": "2026-02-10T10:00:00", "text": "Leg day at the gym!", "media": [{}], "extra": None},
+    {"id": 2, "posted_at": "2026-04-02T12:00:00", "text": "Moving day. Helped my brother move the couch.", "media": [{}], "extra": None},
+    {"id": 3, "posted_at": "2026-05-03T09:00:00", "text": "First day at the new job! My coworker Sam Lee is great.", "media": [],
+     "extra": {"life_event": "started a new job at Harbor Freight Movers"}},
+    {"id": 4, "posted_at": "2026-05-20T09:00:00", "text": "Road trip to Flagstaff", "media": [{}], "extra": None},
+    {"id": 5, "posted_at": "2026-05-25T09:00:00", "text": "Long hike with friends", "media": [{}], "extra": None},
+    {"id": 6, "posted_at": "2026-06-10T09:00:00", "text": "Lunch with my coworker Ana Ruiz", "media": [], "extra": None},
+]
+hit = lambda i, post, cat, when, status="new", who="unknown", p=0.8: {
+    "id": i, "post_id": post, "media_id": i, "category": cat, "what": cat, "t0": None, "t1": None, "verdict": "likely", "p": p,
+    "timing": "after" if when >= "2026-03-01" else "before", "days_after": 0, "status": status, "who": who, "posted_at": when}
+hits_ = [hit(10, 2, "lifting", "2026-04-02", status="kept", who="him"), hit(11, 1, "sport", "2026-02-10"),
+         hit(12, 4, "driving", "2026-05-20", status="not relevant"), hit(13, 5, "walks", "2026-05-25", who="other")]
+recs = [{"site": "Texas TDLR licence", "url": "https://x/1", "found_by": ["licences"], "probability": 0.8, "decision": None,
+         "finding_ids": [7], "attrs": {"licence": "Electrician", "issued": "2026-04-15", "expires": "2028-04-15"}},
+        {"site": "FMCSA", "url": "https://x/2", "found_by": ["fmcsa"], "probability": 0.9, "decision": None, "finding_ids": [8],
+         "attrs": {"operation": "Interstate", "registered": "2019-01-01", "last_update": "2026-06-01"}},
+        {"site": "Old licence", "url": "https://x/3", "found_by": ["licences"], "probability": 0.1, "decision": None,
+         "finding_ids": [9], "attrs": {"licence": "Plumber", "issued": "2026-05-01"}}]  # a namesake's: not the person
+people_ = graph.associates([{**p, "account_url": None, "origin": "added", "url": None} for p in posts_], [], [Seed("name", "Dorian Vell")])["people"]
+r = leads.leads(details, posts_, hits_, recs, people_)
+assert [(x["key"], x["stated"]) for x in r["restrictions"]] == \
+    [("lifting", True), ("walking", True), ("driving", True), ("working", True), ("sport", False)], r["restrictions"]
+by = {}
+for x in r["leads"]:
+    by.setdefault(x["restriction"], []).append(x)
+assert {x["kind"] for x in by["lifting"]} == {"scan", "post"} and by["lifting"][0]["confidence"] == 0.8  # kept, confirmed him
+assert "“Moving day.” … “Helped my brother move the couch.”" in next(x["shows"] for x in by["lifting"] if x["kind"] == "post")
+assert {tuple(x["cites"]) for x in by["working"]} == {("A-7",), ("E-3",), ("A-8",), ("E-6",)}, by["working"]
+assert next(x for x in by["working"] if x["cites"] == ["E-6"])["shows"].startswith("A post on 2026-06-10 (101 days after the injury) "
+                                                                                   "names a co-worker (Ana Ruiz)")
+assert {tuple(x["cites"]) for x in by["driving"]} == {("E-4",), ("A-8",)}  # the driving hit was set aside: not a lead
+assert [x["kind"] for x in by["walking"]] == ["post"] and "sport" not in by  # her own caption counts; the hit shows
+assert [x["leads"] for x in r["restrictions"]] == [2, 1, 2, 4, 0]               # someone else; the gym post was before
+assert all(x["days_after"] > 0 and x["date"] >= "2026-03-01" for x in r["leads"])
+assert [x["confidence"] for x in r["leads"]] == sorted((x["confidence"] for x in r["leads"]), reverse=True)
+words = " ".join(x["shows"] + x["claim"] for x in r["leads"]).lower()
+assert not __import__("re").search(r"fraud|\blie|\blied|fake|false claim|malinger|dishonest|exaggerat", words), words
+assert leads.leads({"limits": "no lifting"}, posts_, hits_, recs)["leads"] == []  # no injury date: no leads, a note
+tl = leads.timeline(details, posts_, hits_, recs)
+assert [e["kind"] for e in tl][:3] == ["record", "post", "injury"] and tl[2]["date"] == "2026-03-01"
+assert [e["after_injury"] for e in tl[:2]] == [False, False] and all(e["after_injury"] for e in tl[3:])
+assert not any(e["kind"] == "stated" and "gym" in e["what"] for e in tl)  # life events only, not every caption
+assert any(e["what"] == "Stated in a post: “started a new job at Harbor Freight Movers”" for e in tl)
+assert next(e for e in tl if e["cites"] == ["E-2"])["categories"] == ["lifting"]
+
 print("ok")

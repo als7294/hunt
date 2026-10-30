@@ -170,6 +170,10 @@ r = c.post("/api/cases/vance-claim/decisions", content=json.dumps({"decision": "
 assert r["accounts"] == ["https://a.test/kestrel_vane88"], r  # the person no longer includes SiteB
 p = c.get("/api/cases/vance-claim/person").json()
 assert p["decision"] == "him" and [a["decision"] for a in p["accounts"]] == ["him"], p
+for path, keys in (("people", {"notice", "people"}), ("timeline", {"injury_date", "events"}),
+                   ("leads", {"injury_date", "restrictions", "leads"})):
+    r = c.get(f"/api/cases/vance-claim/{path}")
+    assert r.status_code == 200 and keys <= set(r.json()), (path, r.text)
 
 # --- Posts, media and scan, against stand-ins for hunt.posts / hunt.scan -------------------------
 from hunt import app as hunt_app
