@@ -42,6 +42,7 @@ Errors are `{"error": "message"}` with a 4xx or 5xx status.
 |---|---|---|
 | POST | `/api/cases/{slug}/search` | `{capture?: true}` → `{job}`. Returns 409 if the case already has an active job |
 | POST | `/api/cases/{slug}/scan` | `{check_everything?: false}` → `{job}`. Collects posts from accounts marked `him`, then scans them. Runs under the heavy lock |
+| GET | `/api/cases/{slug}/vendor` | `vendor.plan()` for the confirmed Instagram and Facebook accounts: `{key_set, run: [{url, newer_than, estimate_usd}], skipped: [{url, why}], estimate_usd, spent_usd, credit_left_usd, cap_usd, cycle_ends, ok, why}`. Show `why` before a scan starts. With `HUNT_APIFY_TOKEN` set, `/scan` reads those accounts through Apify after the free collectors, from 90 days before the injury date on (or the last read, whichever is later), within the caps |
 | GET | `/api/jobs/{id}/events` | Server-sent events, each with an `id:`. Replays from `Last-Event-ID`. Heartbeat comment every 15 s |
 | POST | `/api/jobs/{id}/pause`, `/resume`, `/cancel` | `{}` → `{state}` |
 

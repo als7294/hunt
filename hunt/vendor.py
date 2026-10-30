@@ -110,7 +110,9 @@ async def plan(case, accounts: list[dict], since: str | None = None, force: bool
             out["skipped"].append(a | {"why": f"read on {last[:10]}; not run again within {s['fresh_days']} days unless you ask"})
             continue
         cost = round(s["results_limit"] * s["price_per_post"][k], 3)
-        out["run"].append(a | {"newer_than": since or last, "estimate_usd": cost})
+        # an ordinary run starts at the later of the two, so it never re-buys posts; a forced re-read may go back on purpose
+        newer = since if force and since else max(filter(None, (since, last)), default=None)
+        out["run"].append(a | {"newer_than": newer, "estimate_usd": cost})
         out["estimate_usd"] = round(out["estimate_usd"] + cost, 3)
     if not out["run"]:
         out["why"] = "nothing to run"
