@@ -1825,13 +1825,14 @@ async def capture_guided(req: Request):  # one press of Next: Hunt decides the s
         raise HTTPException(403, str(e))
 
 
-async def browser_guided(req: Request):  # guided mode's switch, from Hunt only, with who confirmed it
+async def browser_guided(req: Request):  # guided mode's switch, from Hunt only, with her acknowledgement
     if req.method == "GET":
         return JSONResponse(browser.guided())
     b = await _body(req)
     state = browser.capture()
     try:
-        return JSONResponse(browser.set_guided(bool(b.get("on")), b.get("note"), Case.open(state["case"]) if state["case"] else None))
+        return JSONResponse(browser.set_guided(bool(b.get("on")), b.get("acknowledged") is True, b.get("note"),
+                                               Case.open(state["case"]) if state["case"] else None))
     except ValueError as e:
         raise HTTPException(400, str(e))
 

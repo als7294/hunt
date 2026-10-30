@@ -401,7 +401,7 @@ def _seen_as(case, url: str) -> dict:
     """A screenshot's or recording's audience (from the page's archive) and whether its page is the subject's."""
     audience, (mine, _) = _page_audience(case, url), _subject(case)
     acct = account_of(url)
-    return {"audience": audience, "audience_flag": audience != "Public", "not_subject": not (acct and where(acct) in mine)}
+    return {"audience": audience, "audience_flag": audience not in (None, "Public"), "not_subject": not (acct and where(acct) in mine)}
 
 
 def add_page(case, url: str, archive: Path, viewed_at: str | None, media_dir: Path, rec: dict | None = None) -> dict:
@@ -425,7 +425,7 @@ def add_page(case, url: str, archive: Path, viewed_at: str | None, media_dir: Pa
     else:
         not_subject = 0
     for it in items:
-        it |= rec | {"capture_sha256": sha, "audience_flag": it.get("audience") != "Public"}
+        it |= rec | {"capture_sha256": sha, "audience_flag": it.get("audience") not in (None, "Public")}  # D10
     upgraded = []
     ids = posts.add_posts(case, items, evidence=file, origin="captured", upgraded=upgraded)
     if audience:  # screenshots and recordings of this page taken before its first archive learn its audience now
@@ -433,9 +433,9 @@ def add_page(case, url: str, archive: Path, viewed_at: str | None, media_dir: Pa
                              "and json_extract(extra, '$.audience') is null"):
             extra = json.loads(row["extra"])
             if where(extra["viewed_url"]) == where(url):
-                extra = {k: v for k, v in extra.items() if k != "audience_flag"} | {"audience": audience}
-                case.db.execute("update post_extra set extra = ? where post_id = ?", (json.dumps(
-                    extra | ({"audience_flag": True} if audience != "Public" else {}), ensure_ascii=False), row["post_id"]))
+                extra |= {"audience": audience} | ({"audience_flag": True} if audience != "Public" else {})
+                case.db.execute("update post_extra set extra = ? where post_id = ?",
+                                (json.dumps(extra, ensure_ascii=False), row["post_id"]))
     total = _profile_posts(site, text) if account_of(url) and where(account_of(url)) == where(url) else None
     comments = sum(len(it.get("visible_comments") or []) for it in items)
     case.audit("capture page", {"url": url, "extension": (_paired() or {}).get("origin"), "where": where(url),
@@ -475,7 +475,7 @@ def guided(case, url: str, at_bottom: bool, visited: list[str] = ()) -> dict:
     from . import browser  # here: browser imports this module
     site = platform(url)
     if not browser.guided()["on"]:
-        raise PermissionError("Guided mode is off. It's turned on in Hunt, once counsel has confirmed it.")
+        raise PermissionError("Guided mode is off. It's turned on in Hunt's settings.")
     if not site or site in CAPTURE_OFF or browser.stopped(url):
         raise PermissionError("Guided mode doesn't run where capture is off or stopped.")
     here, acct = where(url), account_of(url)

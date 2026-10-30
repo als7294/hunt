@@ -214,7 +214,7 @@ The browser extension that records what the investigator views while logged in a
 | POST | `/api/browser/capture` | `{case, on}` → `{case, on, since}`. Turns Hunt Capture on (into `case`) or off. The extension mirrors it at its next page load. Capture is off whenever Hunt starts. 400 for on without a case; 404 for an unknown case |
 | POST | `/api/browser/resume` | `{platform}` → `{stopped}`. Lifts a hard stop (audited `capture resumed`). Only on her deliberate choice, after she's spoken to Ethos |
 | GET, POST | `/api/browser/accounts` | `{facebook?: handle, …}` → the handles she signs in with, used in `viewed_as` ("logged in as {handle}"). 409 if it would change a stopped platform's handle |
-| GET, POST | `/api/browser/guided` | `{on, note}` → `{on, note, ts}`. Guided mode's switch, off by default; `note` (who confirmed it for the firm, and when) is required to turn it on (400 without). Audited `guided mode on`/`off` |
+| GET, POST | `/api/browser/guided` | `{on, acknowledged, note?}` → `{on, acknowledged, note, ts}`. Guided mode's switch, off by default (D3). Turning it on needs `acknowledged: true`, her acknowledgement of the trade-off in legal.md "Guided mode" (400 without). Audited `guided mode on`/`off` |
 | POST | `/api/browser/sign-out` | `{}` → `{moved_to: "Trash"\|null, …status}`. Moves the Hunt Browser's profile (every login) to the Trash, never deletes. 409 while it's open |
 | GET | `/api/pairing` | `{paired: bool, origin?, name?, paired_at?}` |
 | POST | `/api/pairing` | `{}` → `{code: "<port>-<8 digits>", expires_in: 300}`. A one-time code for the extension's popup. Five wrong tries close it; a new one replaces it |

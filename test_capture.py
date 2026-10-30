@@ -405,12 +405,18 @@ assert (audit["viewed_as"], audit["capture_version"], audit["grid"], audit["prof
     ("logged in as laura.ethos.inv", "0.1.0.4242", 3, 212)
 # items whose audience isn't shown as Public are flagged (kept out of the report unless counsel approves)
 flags = Case.create("audience flags", purpose="self-check with made-up posts")
-flags.add_seeds([Seed("url", "https://www.facebook.com/dorian.vell")])
+flags.add_seeds([Seed("url", "https://www.facebook.com/dorian.vell"), Seed("url", "https://www.instagram.com/dorian.vell/")])
 ext.add_page(flags, "https://m.facebook.com/dorian.vell", HERE / "fixtures" / "facebook" / "mobile_fr.mhtml", None,
              Path(tempfile.mkdtemp()), ext.record("https://m.facebook.com/dorian.vell", None, "0.1.0.1", "signed_out"))
 shown = {p["text"][:7]: (p["extra"].get("audience"), p["extra"].get("audience_flag")) for p in posts.list_posts(flags)}
-assert shown == {"Séance ": ("Public", None), "Randonn": (None, True), "Premier": (None, True)}, shown
+assert shown == {"Séance ": ("Public", None), "Randonn": (None, None), "Premier": (None, None)}, shown  # D10: unknown isn't flagged
 assert all(p["extra"]["viewed_as"] == "logged out" for p in posts.list_posts(flags))
+private = mhtml("https://www.instagram.com/dorian.vell/", '<html><body><h2>This account is private</h2><a href="/p/DPriv00001/">'
+                '<img alt="Photo by Dorian Vell on October 1, 2026" src="https://cdn.test/p.jpg" width="300" height="300"></a></body></html>',
+                ["https://cdn.test/p.jpg"])
+(priv := Path(tempfile.mkdtemp()) / "page.mhtml").write_bytes(private)
+ext.add_page(flags, "https://www.instagram.com/dorian.vell/", priv, None, Path(tempfile.mkdtemp()))
+assert next(p["extra"] for p in posts.list_posts(flags) if p["url"].endswith("/DPriv00001/"))["audience_flag"] is True  # Followers
 # 2. Coverage and the "open these" list: the scan flags the reel's grid thumbnail; the reel is also an unplayed video
 case.db.executescript(scan.SCHEMA)
 reel = grid["https://www.instagram.com/reel/DQrReelHike2/"]
@@ -515,11 +521,11 @@ REEL = "https://www.instagram.com/reel/DQrReelHike2/"
 assert c.post("/api/capture/hello", content="{}", headers=HB).json()["guided"] is False
 assert g({"url": IG}).status_code == 403 and "turned on in Hunt" in g({"url": IG}).json()["error"]
 guide = lambda body: c.post("/api/browser/guided", content=json.dumps(body), headers=WEB)
-assert guide({"on": True}).status_code == 400  # who confirmed it, and when
-assert bare.post("/api/browser/guided", content=json.dumps({"on": True, "note": "x"}), headers=HB).status_code == 403  # Hunt only
-assert guide({"on": True, "note": "Counsel (J. Ortiz) confirmed guided mode, 2026-10-30"}).json()["on"] is True
+assert guide({"on": True}).status_code == 400 and guide({"on": True, "acknowledged": "yes"}).status_code == 400  # her acknowledgement
+assert bare.post("/api/browser/guided", content=json.dumps({"on": True, "acknowledged": True}), headers=HB).status_code == 403  # Hunt only
+assert guide({"on": True, "acknowledged": True, "note": "Read the trade-off; counsel to confirm before casework"}).json()["on"] is True
 assert c.post("/api/capture/hello", content="{}", headers=HB).json()["guided"] is True
-assert c.get("/api/browser/status").json()["guided"]["note"].startswith("Counsel (J. Ortiz)")
+assert c.get("/api/browser/status").json()["guided"]["acknowledged"] is True
 assert [json.loads(x)["action"] for x in (browser.ROOT / "audit.jsonl").read_text().splitlines()][-1] == "guided mode on"
 r = g({"url": IG, "at_bottom": False})
 assert r.status_code == 200 and (r.json()["action"], r.json()["to"]) == ("scroll", None) and r.json()["progress"]["grid_total"] == 212
@@ -577,7 +583,7 @@ views = {p["extra"]["viewed_url"]: p["extra"] for p in posts.list_posts(pal) if 
 assert views["https://www.instagram.com/mara.quill/"]["not_subject"] is True and "not_subject" not in views["https://www.instagram.com/dorian.vell/"]
 # CA5: a screenshot's audience is its page's: from the archive already there, or from the next one (filled in)
 assert views["https://www.instagram.com/mara.quill/"]["audience"] == "Public"  # the archive above showed it
-assert views["https://www.instagram.com/dorian.vell/"]["audience_flag"] is True  # no archive of that page yet
+assert "audience" not in views["https://www.instagram.com/dorian.vell/"]  # no archive of that page yet: unknown, not flagged (D10)
 (tmp2 := Path(tempfile.mkdtemp()) / "page.mhtml").write_bytes((FIX / "instagram_profile.mhtml").read_bytes())
 ext.add_page(pal, "https://www.instagram.com/dorian.vell/", tmp2, at, Path(tempfile.mkdtemp()))
 later = next(p["extra"] for p in posts.list_posts(pal) if p["extra"].get("viewed_url") == "https://www.instagram.com/dorian.vell/")

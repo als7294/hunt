@@ -30,7 +30,7 @@ EXTENSION_DIR = ROOT / "extension"  # a copy of extension/, plus pairing.json fo
 STATUS = ROOT / "signins.json"
 STOPS = ROOT / "stops.json"  # hard stops from the revocation watcher; they outlive restarts
 ACCOUNTS = ROOT / "accounts.json"  # the handle she signed in as, per platform, for "logged in as <handle>"
-GUIDED = ROOT / "guided.json"  # guided mode's switch: off unless turned on from Hunt, with who confirmed it
+GUIDED = ROOT / "guided.json"  # guided mode's switch: off unless she turns it on in Hunt, acknowledging the trade-off
 LOG = ROOT / "audit.jsonl"  # this computer's own audit lines: hard stops, resumes, guided mode on/off, sign-ins after a stop
 STOP_MESSAGE = ("{platform} showed {reason}. Hunt Capture has stopped recording {platform}. Don't use this account for "
                 "casework, and tell Ethos. Don't switch to another account, browser profile or proxy.")
@@ -228,15 +228,16 @@ def resume(platform: str, case=None) -> dict:
 
 
 def guided() -> dict:
-    """Guided mode's switch: {on, note, ts}. Off until turned on from Hunt with who confirmed it (legal.md)."""
-    return {"on": False, "note": None, "ts": None} | _read(GUIDED)
+    """Guided mode's switch: {on, acknowledged, note, ts}. Off until she turns it on in Hunt with an acknowledgement
+    of the trade-off (legal.md "Guided mode", decision D3; not a counsel gate)."""
+    return {"on": False, "acknowledged": False, "note": None, "ts": None} | _read(GUIDED)
 
 
-def set_guided(on: bool, note: str | None = None, case=None) -> dict:
-    note = str(note or "").strip()[:300]
-    if on and not note:
-        raise ValueError("say who confirmed guided mode for this firm, and when (counsel's name and the date)")
-    entry = {"on": bool(on), "note": note or None, "ts": now()}
+def set_guided(on: bool, acknowledged: bool = False, note: str | None = None, case=None) -> dict:
+    if on and not acknowledged:
+        raise ValueError("turning guided mode on needs your acknowledgement of the trade-off (legal.md, \"Guided mode\")")
+    entry = {"on": bool(on), "acknowledged": bool(on and acknowledged), "note": str(note or "").strip()[:300] or None,
+             "ts": now()}
     _write(GUIDED, entry)
     _log(f"guided mode {'on' if on else 'off'}", entry)
     if case is not None:

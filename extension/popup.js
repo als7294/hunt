@@ -54,7 +54,7 @@ async function render() {
     : site ? `Hunt Capture is off on ${site[0].toUpperCase()}${site.slice(1)}: its terms name extensions. Save pages with Save Page As and import them.` : "";
   $("next").disabled = !s.on || s.guidedBusy || Boolean(site || stop) || !hello.guided || s.mode === "manual";
   $("next").textContent = s.guidedBusy ? "Recording…" : "Next";
-  $("next").title = hello.guided ? "Alt+Shift+N" : "Guided mode is off. It's turned on in Hunt, once counsel has confirmed it.";
+  $("next").title = hello.guided ? "Alt+Shift+N" : "Guided mode is off. It's turned on in Hunt's settings.";
   await renderChecklist(s.tabUrl);
 }
 
