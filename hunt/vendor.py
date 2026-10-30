@@ -4,10 +4,11 @@ Hunt runs free by default. Without a key nothing here runs, and the note says wh
 (the Hunt Browser). With one, Apify's own pay-per-event Actors fetch a public account's posts and Hunt stores them
 like any other posts, marked origin 'vendor', with vendor, Actor, build, run id and cost in the audit log, so the
 report can say "N posts obtained through Apify under the investigator's own account". Built to live inside the
-free plan's $5 a month: results_limit newest posts an account on the first read and only newer ones after that
-(the Actors' onlyPostsNewerThan), no re-read of an account fetched within fresh_days unless asked, the estimate
-and the credit left shown before a run (plan()), a hard per-run charge cap (Apify's maxTotalChargeUsd) and a
-monthly cap. Prices, terms and the date they were checked: docs/research/vendors.md.
+free plan's $5 a month: results_limit newest posts an account on the first read (per platform: Facebook costs
+about three times Instagram a post) and only newer ones after that (the Actors' onlyPostsNewerThan), no re-read
+of an account fetched within fresh_days unless asked, the estimate and the credit left shown before a run
+(plan(), with a warning from 80% of the cap), a hard per-run charge cap (Apify's maxTotalChargeUsd) and a monthly
+cap. Prices are what the Actors charged on 2026-10-30; terms and sources: docs/research/vendors.md.
 
 The key is HUNT_APIFY_TOKEN, pasted on the app's "Connect free keys" screen (hunt/keys.py keeps it in HUNT_HOME/keys.json
 and in this process's environment); it is read at call time, never shipped, never shown back. The other settings live in
@@ -15,7 +16,9 @@ HUNT_HOME/vendor.json, never in a case:
   actors           {"instagram": "apify~instagram-post-scraper", "facebook": "apify~facebook-posts-scraper"}
                    (HUNT_APIFY_ACTORS, a JSON object, overrides): any Actor taking the same inputs can be swapped in
   price_per_post   per-post prices used for estimates and the per-run cap; they change, so they're settings
-  monthly_cap_usd  Hunt's own ceiling, under the plan's; results_limit; fresh_days
+  instagram_detail "detailedData" (default: every carousel picture and video URL) or "basicData" ($0.001 a post less,
+                   a carousel's cover picture only)
+  monthly_cap_usd  Hunt's own ceiling, under the plan's; results_limit (a number, or one per platform); fresh_days
 Only the accounts the investigator marked as the subject's are passed in, as for every collector. A post Hunt Capture
 already holds (same URL, any source) isn't stored twice; Facebook URLs are canonicalised as facebook.py does.
 """
@@ -36,8 +39,12 @@ API = "https://api.apify.com/v2"
 KEY = "HUNT_APIFY_TOKEN"
 NAMES = {"instagram": "Instagram (via Apify)", "facebook": "Facebook (via Apify)"}
 DEFAULTS = {"actors": {"instagram": "apify~instagram-post-scraper", "facebook": "apify~facebook-posts-scraper"},
-            "price_per_post": {"instagram": 0.0017, "facebook": 0.007},  # free-plan prices on 2026-10-29 (FB: $5 + $2 date filter per 1,000)
-            "monthly_cap_usd": 5.0, "results_limit": 100, "fresh_days": 7}
+            # what the Actors charged on 2026-10-30 (free plan): Instagram $0.0017 a post + $0.001 for detailed data;
+            # Facebook $0.005 a post + $0.002 a post when a date filter applies, and $0.001 a run (START_FEE)
+            "price_per_post": {"instagram": 0.0027, "facebook": 0.007}, "instagram_detail": "detailedData",
+            "monthly_cap_usd": 5.0, "results_limit": {"instagram": 100, "facebook": 50}, "fresh_days": 7}
+START_FEE = {"facebook": 0.001}  # charged per run, on top of the posts
+WARN_AT = 0.8  # of the monthly cap: plan() warns from here
 POLL = 60  # seconds the API waits per status call (its maximum)
 SETTLE = 10  # seconds before the final cost read: the first figures after a run are preliminary
 TIMEOUT = 900  # one run, in seconds
@@ -60,7 +67,7 @@ def settings() -> dict:
         saved = {}
     for k, v in saved.items():
         if k in DEFAULTS:
-            s[k] = s[k] | v if isinstance(DEFAULTS[k], dict) else v
+            s[k] = s[k] | v if isinstance(DEFAULTS[k], dict) and isinstance(v, dict) else v
     if os.environ.get("HUNT_APIFY_ACTORS"):
         s["actors"] |= json.loads(os.environ["HUNT_APIFY_ACTORS"])
     s["apify_key"] = os.environ.get(KEY, "")
@@ -74,7 +81,7 @@ def save_settings(**changes) -> dict:
     for k, v in changes.items():
         if k not in DEFAULTS:
             raise ValueError(f"unknown setting {k}")
-        saved[k] = (saved.get(k) or {}) | v if isinstance(DEFAULTS[k], dict) else v
+        saved[k] = (saved[k] if isinstance(saved.get(k), dict) else {}) | v if isinstance(DEFAULTS[k], dict) and isinstance(v, dict) else v
     HOME.mkdir(parents=True, exist_ok=True)
     file.write_text(json.dumps(saved, indent=1))
     file.chmod(0o600)
@@ -109,7 +116,7 @@ async def plan(case, accounts: list[dict], since: str | None = None, force: bool
         if last and not force and (datetime.now(UTC) - datetime.fromisoformat(last)).days < s["fresh_days"]:
             out["skipped"].append(a | {"why": f"read on {last[:10]}; not run again within {s['fresh_days']} days unless you ask"})
             continue
-        cost = round(s["results_limit"] * s["price_per_post"][k], 3)
+        cost = round(_limit(s, k) * s["price_per_post"][k] + START_FEE.get(k, 0), 3)
         # an ordinary run starts at the later of the two, so it never re-buys posts; a forced re-read may go back on purpose
         newer = since if force and since else max(filter(None, (since, last)), default=None)
         out["run"].append(a | {"newer_than": newer, "estimate_usd": cost})
@@ -128,6 +135,9 @@ async def plan(case, accounts: list[dict], since: str | None = None, force: bool
                   f" (${left:.2f} under Hunt's ${out['cap_usd']:.2f} cap)" if out["ok"] else
                   f"this run ≈ ${out['estimate_usd']:.2f} would pass the cap: ${out['spent_usd']:.2f} spent of ${out['cap_usd']:.2f}"
                   f" (${out['credit_left_usd']:.2f} credit left until {out['cycle_ends'][:10]})")
+    after = out["spent_usd"] + out["estimate_usd"]
+    if out["ok"] and after >= WARN_AT * out["cap_usd"]:
+        out["why"] += f" · warning: that takes the month to {after / out['cap_usd']:.0%} of the cap"
     return out
 
 
@@ -176,11 +186,12 @@ async def collect(case, accounts: list[dict], since: str | None, emit, force: bo
 
 async def _fetch(client, s, k, url, newer_than) -> tuple[list[dict], dict]:
     """Start the Actor, wait for it, read its dataset: (items, the settled run record)."""
-    actor, limit, auth = s["actors"][k], s["results_limit"], _auth(s)
-    body = {"instagram": {"username": [url], "resultsLimit": limit}, "facebook": {"startUrls": [{"url": url}], "resultsLimit": limit}}[k]
+    actor, limit, auth = s["actors"][k], _limit(s, k), _auth(s)
+    body = {"instagram": {"username": [url], "resultsLimit": limit, "dataDetailLevel": s["instagram_detail"]},
+            "facebook": {"startUrls": [{"url": url}], "resultsLimit": limit}}[k]
     if newer_than:
         body["onlyPostsNewerThan"] = newer_than[:19]
-    cap = round(limit * s["price_per_post"][k] * HEADROOM + 0.01, 2)  # Apify stops the run at this charge
+    cap = round((limit * s["price_per_post"][k] + START_FEE.get(k, 0)) * HEADROOM + 0.01, 2)  # Apify stops the run at this charge
     r = await client.post(f"{API}/acts/{actor}/runs", params={"maxTotalChargeUsd": cap, "timeout": TIMEOUT}, json=body, headers=auth)
     if r.status_code != 201:
         raise ValueError(f"Apify wouldn't start {actor}: HTTP {r.status_code} {_error(r)}")
@@ -244,10 +255,15 @@ async def _usage(s) -> dict:
 
 
 def _note(k, s, items, newer_than, run) -> str:
-    return (f"{NAMES[k]}: {len(items)} posts" + (f" newer than {newer_than[:10]}" if newer_than else f" (the newest {s['results_limit']})")
+    return (f"{NAMES[k]}: {len(items)} posts" + (f" newer than {newer_than[:10]}" if newer_than else f" (the newest {_limit(s, k)})")
             + f", fetched by Actor {s['actors'][k]} build {run.get('buildNumber')} (run {run.get('id')}, "
             f"${run.get('usageTotalUsd') or 0:.3f} charged to the investigator's own Apify account). Media are fetched from the "
             "platform's CDN and hashed here")
+
+
+def _limit(s, k) -> int:
+    lim = s["results_limit"]
+    return int(lim[k] if isinstance(lim, dict) else lim)
 
 
 def _last_read(case, k, url) -> str | None:
