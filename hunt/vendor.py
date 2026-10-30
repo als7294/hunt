@@ -21,6 +21,12 @@ HUNT_HOME/vendor.json, never in a case:
   monthly_cap_usd  Hunt's own ceiling, under the plan's; results_limit (a number, or one per platform); fresh_days
 Only the accounts the investigator marked as the subject's are passed in, as for every collector. A post Hunt Capture
 already holds (same URL, any source) isn't stored twice; Facebook URLs are canonicalised as facebook.py does.
+
+Two rules from the legal brief (docs/research/automation-legal.md §4): a platform under a capture hard stop (browser.stops():
+a checkpoint, an "automated behaviour" notice, a disabled account) is never read through the vendor either, since a vendor
+must never be a way around a block; and Watch's scheduled reads run only when the case's switch is on (set_watch, off by
+default), only for posts newer than the last read, within fresh_days and the caps, and never past the month's warning
+threshold without the investigator confirming in the app.
 """
 
 import asyncio
@@ -104,10 +110,16 @@ async def plan(case, accounts: list[dict], since: str | None = None, force: bool
      credit_left_usd, plan_max_usd, cap_usd, cycle_ends, ok, why}. ok is False, with the reason in why, when nothing may run."""
     s = settings()
     out = {"key_set": bool(s["apify_key"]), "run": [], "skipped": [], "estimate_usd": 0.0, "spent_usd": None, "credit_left_usd": None,
-           "plan_max_usd": None, "cap_usd": s["monthly_cap_usd"], "cycle_ends": None, "ok": False, "why": ""}
+           "plan_max_usd": None, "cap_usd": s["monthly_cap_usd"], "cycle_ends": None, "ok": False, "warning": False, "why": ""}
+    stops = stopped()
     for a in accounts:
         k = site(a["url"])
         if not k:
+            continue
+        if stop := stops.get(k):
+            out["skipped"].append(a | {"why": f"hard stop on {NAMES[k].split(' (')[0]} since {stop.get('ts', '')[:16]} ({stop.get('reason')}): "
+                                             "no vendor read; Hunt never uses a vendor to get around a block. Resume it from the app only "
+                                             "after speaking to Ethos"})
             continue
         if not s["apify_key"]:
             out["skipped"].append(a | {"why": NO_KEY})
@@ -136,20 +148,29 @@ async def plan(case, accounts: list[dict], since: str | None = None, force: bool
                   f"this run ≈ ${out['estimate_usd']:.2f} would pass the cap: ${out['spent_usd']:.2f} spent of ${out['cap_usd']:.2f}"
                   f" (${out['credit_left_usd']:.2f} credit left until {out['cycle_ends'][:10]})")
     after = out["spent_usd"] + out["estimate_usd"]
-    if out["ok"] and after >= WARN_AT * out["cap_usd"]:
+    out["warning"] = out["ok"] and after >= WARN_AT * out["cap_usd"]
+    if out["warning"]:
         out["why"] += f" · warning: that takes the month to {after / out['cap_usd']:.0%} of the cap"
     return out
 
 
-async def collect(case, accounts: list[dict], since: str | None, emit, force: bool = False) -> int:
+async def collect(case, accounts: list[dict], since: str | None, emit, force: bool = False, unattended: bool = False) -> int:
     """Read the accounts' public posts through Apify into the case, origin 'vendor'. Returns posts added.
-    Runs only what plan() allows; every run's cost is audited. Same events as posts.collect."""
+    Runs only what plan() allows; every run's cost is audited. Same events as posts.collect. `unattended` (Watch) also
+    stops short of the month's warning threshold: past it, only a run she confirms in the app goes ahead."""
     case.db.executescript(posts.SCHEMA)
     s, p, added = settings(), await plan(case, accounts, since, force), 0
     for a in p["skipped"]:
-        emit({"type": "source", "source": NAMES[site(a["url"])], "seed": a["url"], "status": "failed" if not p["key_set"] else "nothing found",
-              "found": 0, "checked": 0, "note": a["why"]})
+        emit({"type": "source", "source": NAMES[site(a["url"])], "seed": a["url"], "found": 0, "checked": 0, "note": a["why"],
+              "status": "failed" if not p["key_set"] or a["why"].startswith("hard stop") else "nothing found"})
     if not p["run"]:
+        return 0
+    if unattended and (p["warning"] or not p["ok"]):
+        why = ("a scheduled read doesn't run past 80% of the month's cap" if p["warning"] else
+               "a scheduled read doesn't run when the cap would be passed") + f" ({p['why']}); run it from the app to confirm"
+        for a in p["run"]:
+            emit({"type": "source", "source": NAMES[site(a["url"])], "seed": a["url"], "status": "nothing found", "found": 0, "checked": 0, "note": why})
+        case.audit("vendor watch skipped", {"vendor": "Apify", "accounts": [a["url"] for a in p["run"]], "why": why})
         return 0
     spent = p["spent_usd"]  # None only when the usage check failed; the cap is checked per account below
     async with _client() as client:
@@ -182,6 +203,31 @@ async def collect(case, accounts: list[dict], since: str | None, emit, force: bo
             added += found
     case.audit("vendor posts collected", {"vendor": "Apify", "accounts": [a["url"] for a in p["run"]], "added": added, "spent_usd": spent})
     return added
+
+
+async def recheck(case, accounts: list[dict], emit) -> int:
+    """Watch's scheduled read, when the case's switch is on: only posts newer than the last read, within fresh_days and
+    the caps, never past the month's warning threshold unattended. Returns posts added."""
+    if not watch_enabled(case):
+        return 0
+    return await collect(case, [a for a in accounts if site(a["url"])], None, emit, unattended=True)
+
+
+def watch_enabled(case) -> bool:
+    """The per-case switch for Watch's vendor reads; off by default."""
+    return case.meta("vendor_watch") == "1"
+
+
+def set_watch(case, on: bool) -> bool:
+    case.db.execute("insert or replace into meta values ('vendor_watch', ?)", ("1" if on else "0",))
+    case.audit("vendor watch", {"vendor": "Apify", "on": bool(on)})
+    return bool(on)
+
+
+def stopped() -> dict:
+    """Platforms under a capture hard stop, by key: {"instagram": {ts, reason, url, message}} (browser.stops())."""
+    from . import browser
+    return {p.lower(): e for p, e in browser.stops().items() if p.lower() in NAMES}
 
 
 async def _fetch(client, s, k, url, newer_than) -> tuple[list[dict], dict]:
