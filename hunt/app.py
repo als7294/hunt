@@ -18,6 +18,7 @@ import shutil
 import socket
 import sys
 import tempfile
+import types
 import threading
 import time
 import webbrowser
@@ -109,7 +110,7 @@ class Guard:
         if req.method not in ("GET", "HEAD"):
             if req.headers.get("origin") not in self.origins:
                 return 403, "cross-origin request"
-            want = "multipart/form-data" if req.url.path.endswith(("/media", "/logo", "/facebook")) else "application/json"
+            want = "multipart/form-data" if req.url.path.endswith(("/media", "/logo", "/facebook", "/reference")) else "application/json"
             if req.headers.get("content-type", "").split(";")[0].strip().lower() != want:
                 return 415, f"content type must be {want}"
         return None
@@ -371,15 +372,21 @@ async def startup(req: Request):
     try:
         rows = await health
         ready = [r for r in rows if r["ready"]]
-        keys = {r["key"]: r for r in rows if r["key"]}.values()  # one per key: the state portals share HUNT_SOCRATA_TOKEN
+        known = keys.status()  # every key Hunt reads, once each: the same list as the keys screen and the pills below
         missing = [r["source"] for r in rows if r["key_required"] and not r["key_set"]]
         check("sources", "Search sources", len(ready) == len(rows),
-              f"{len(ready)} of {len(rows)} ready; {sum(r['key_set'] for r in keys)} of {len(keys)} keys set"
+              f"{len(ready)} of {len(rows)} ready; {sum(k['set'] for k in known)} of {len(known)} keys set"
               + (f"; needs a key: {', '.join(missing)}" if missing else ""),
               [{k: r[k] for k in ("source", "ready", "reachable", "key", "key_set", "key_required", "detail")} for r in rows])
     except Exception as e:  # a broken probe mustn't hide the other checks
         check("sources", "Search sources", False, f"couldn't check: {type(e).__name__}: {e}")
     checks += await _browser_checks()
+    try:  # optional: OpenCV and the two face models, for comparing faces with a reference photo
+        from . import face
+        face._cv2(), face._path(face.DETECTOR), face._path(face.EMBEDDER)
+        check("face", "Face comparison (optional)", True, "ready, for cases where you turn it on")
+    except Exception as e:
+        check("face", "Face comparison (optional)", True, f"not set up: {e}. Only needed to compare faces with a reference photo")
     due = [(s, c) for s in slugs if (c := Case.open(s)).status()["retention_due"]]
     check("retention", f"Cases past {RETENTION_DAYS} days", not due,
           f"{len(due)} past retention: delete them to the Trash, or put them on legal hold" if due else "none",
@@ -407,8 +414,11 @@ async def _browser_checks() -> list[dict]:
     detail = "; ".join(f"{words}: {', '.join(said[state])}" for state, words in
                        (("signed_in", "signed in"), ("signed_out", "not signed in"), ("unknown", "not checked yet"))
                        if said[state])
-    return [{"id": "browser", "label": f"Hunt Browser {b.get('version') or ''}".strip(), "ok": True, "detail": detail,
-             "items": items, "checked_at": st.get("checked_at")}]
+    stopped = st.get("stopped") or {}  # hard stops (docs/capture.md): capture is off there until she resumes it
+    if stopped:
+        detail = f"Hunt Capture stopped recording {', '.join(stopped)}" + (f"; {detail}" if detail else "")
+    return [{"id": "browser", "label": f"Hunt Browser {b.get('version') or ''}".strip(), "ok": not stopped, "detail": detail,
+             "items": items, "checked_at": st.get("checked_at"), "stopped": stopped}]
 
 
 async def list_cases(req: Request):
@@ -520,7 +530,83 @@ async def get_case(req: Request):
         "active_job": {"id": job.id, "kind": job.kind} if job else None,
         "counts": {"accounts": await _accounts(c), "flagged": len(_flagged(hits)),
                    "evidence": sum(1 for f in (c.dir / "evidence").iterdir() if EVIDENCE_NAME.match(f.name))},
+        "face": _face_state(c),
     })
+
+
+# --- Face comparison with a reference photo: opt-in, gated by where the subject lives (docs/analysis.md §5) ----
+
+def _face_state(c: Case) -> dict:
+    refs = json.loads(c.meta("face_references") or "[]")
+    return {"on": bool(c.meta("face_basis")), "basis": c.meta("face_basis"),
+            "references": [f"/evidence/{c.name}/{Path(r).name}" for r in refs]}
+
+
+async def face_gate(req: Request):
+    """The rule for a residence before the case exists (the wizard). Not audited here: enabling audits it."""
+    from . import face
+    r = req.query_params.get("residence", "")
+    allowed, rule = face.gate(types.SimpleNamespace(meta=lambda k: r if k == "subject_residence" else None,
+                                                    audit=lambda *a: None))
+    return JSONResponse({"allowed": allowed, "rule": rule})
+
+
+async def face_on(req: Request):
+    from . import face
+    c, b = _case(req), await _body(req)
+    try:
+        face.enable(c, str(b.get("basis") or ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    return JSONResponse(_face_state(c))
+
+
+async def face_off(req: Request):
+    from . import face
+    c = _case(req)
+    face.disable(c)
+    return JSONResponse(_face_state(c))
+
+
+async def add_reference(req: Request):
+    """Reference photos (multipart files[]), streamed and hashed like /media; SVG refused, HEIC converted."""
+    from . import face
+    c = _case(req)
+    if not face.basis(c):
+        raise HTTPException(409, "turn on face comparison, with its legal basis, first")
+    form = await req.form(max_files=10, max_fields=5)
+    tmp = Path(tempfile.mkdtemp(prefix=".upload-", dir=c.dir))
+    try:
+        added = 0
+        for i, f in enumerate([*form.getlist("files[]"), *form.getlist("files")]):
+            if not isinstance(f, UploadFile):
+                continue
+            ext = Path(f.filename or "").suffix.lower()
+            head = (await f.read(1024)).lower()
+            await f.seek(0)
+            if ext == ".svg" or b"<svg" in head:
+                raise HTTPException(415, "SVG files aren't accepted")
+            dest = tmp / f"reference{i}{ext if ext[1:].isalnum() else '.img'}"
+            with open(dest, "wb") as out:
+                while chunk := await f.read(1 << 20):
+                    out.write(chunk)
+            face.add_reference(c, await _heic_to_jpeg(dest) if ext in (".heic", ".heif") else dest)
+            added += 1
+        if not added:
+            raise HTTPException(400, "no files")
+        return JSONResponse(_face_state(c))
+    finally:
+        await form.close()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+async def remove_reference(req: Request):
+    from . import face
+    c = _case(req)
+    face.remove_reference(c, req.path_params["sha"])
+    return JSONResponse(_face_state(c))
 
 
 async def add_seeds(req: Request):
@@ -558,8 +644,9 @@ def _window(d: dict) -> str | None:
 async def vendor_plan(req: Request):
     """What an Apify read of the confirmed Instagram and Facebook accounts would cost now, and the credit left."""
     c = _case(req)
+    person = req.query_params.get("who") == "person"  # before "Yes, it's them": the accounts that click would confirm
     accounts = [{"url": x["url"], "site": x["site"]} for x in (await search.snapshot(c))["candidates"]
-                if x["decision"] == "him" and vendor.site(x["url"])]
+                if (search.in_person(x) if person else x["decision"] == "him") and vendor.site(x["url"])]
     return JSONResponse(await vendor.plan(c, accounts, _window(c.details())))
 
 
@@ -613,7 +700,9 @@ async def get_person(req: Request):
     return JSONResponse({
         "accounts": [{"url": x["url"], "site": x["site"], "handle": _handle(x), "verdict": x["verdict"],
                       "probability": x["probability"], "reasons": [_plain(r) for r in x["reasons"]],
-                      "decision": x["decision"], "avatar": _avatar(c, x)} for x in people],
+                      "decision": x["decision"], "avatar": _avatar(c, x),
+                      "face": {k: x["face"][k] for k in ("match", "score", "why")} if x.get("face") else None} for x in people],
+        "reference": _face_state(c)["references"] if c.meta("face_basis") else [],
         "summary": [{"tag": t, "text": f"{n} of {len(people)} accounts {SUMMARY.get(t, t)}", "count": n}
                     for t, n in counts.most_common()],
         "weakest_verdict": min((x["verdict"] for x in people), key=VERDICTS.index, default=None),
@@ -645,7 +734,22 @@ async def get_people(req: Request):
     """Family and associates from what the case already holds (graph.associates): names and citations only."""
     c = _case(req)
     snap = await search.snapshot(c)
-    return JSONResponse(graph.associates(await _posts(c), snap["candidates"], c.seeds(), graph.photo_labels(c)))
+    out = graph.associates(await _posts(c), snap["candidates"], c.seeds(), graph.photo_labels(c))
+    hidden = set(json.loads(c.meta("people_hidden") or "[]"))
+    for person in out["people"]:
+        person["hidden"] = person["id"] in hidden
+    return JSONResponse(out)
+
+
+async def hide_person(req: Request):
+    """{hidden: bool}: "Not relevant" on an associate hides them from the screen and the report, audited; undoable."""
+    c, b = _case(req), await _body(req)
+    pid, on = req.path_params["id"], b.get("hidden", True) is not False
+    hidden = set(json.loads(c.meta("people_hidden") or "[]"))
+    (hidden.add if on else hidden.discard)(pid)
+    c.db.execute("insert or replace into meta values ('people_hidden', ?)", (json.dumps(sorted(hidden)),))
+    c.audit("associate not relevant" if on else "associate shown again", {"id": pid})
+    return JSONResponse({"hidden": sorted(hidden)})
 
 
 async def mark_photo_person(req: Request):
@@ -922,8 +1026,14 @@ async def export_report(req: Request):
     else:
         async with search.HEAVY:
             body, media = await report.to_pdf(html, rep), "application/pdf"
-    c.audit("report exported", {"format": fmt, "screening": rep["screening"], "tampered": rep["checks"]["tampered"]})
+    view = fmt == "html" and req.query_params.get("view") == "1"  # "Web page": shown in a tab, not downloaded
+    c.audit("report exported", {"format": fmt, "screening": rep["screening"], "tampered": rep["checks"]["tampered"]}
+            | ({"view": True} if view else {}))
     name = f"{c.name}-report{'-screening' if rep['screening'] else ''}.{fmt}"
+    if view:  # sandboxed: no script, no requests, not this origin; it prints as the download does
+        return Response(body, media_type=media, headers={
+            "content-disposition": f'inline; filename="{name}"',
+            "content-security-policy": "sandbox allow-modals; default-src 'none'; img-src data:; style-src 'unsafe-inline'"})
     return Response(body, media_type=media, headers={"content-disposition": f'attachment; filename="{name}"'})
 
 
@@ -1686,11 +1796,17 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/cases/{slug}/person", get_person),
         Route("/api/cases/{slug}/people", get_people),
         Route("/api/cases/{slug}/people/photo", mark_photo_person, methods=["POST"]),
+        Route("/api/cases/{slug}/people/{id}/hide", hide_person, methods=["POST"]),
         Route("/api/cases/{slug}/decisions", post_decision, methods=["POST"]),
         Route("/api/cases/{slug}/media", add_media, methods=["POST"]),
         Route("/api/cases/{slug}/posts", get_posts),
         Route("/api/cases/{slug}/hits/{id}", set_hit, methods=["POST"]),
         Route("/api/cases/{slug}/details", update_details, methods=["POST"]),
+        Route("/api/face/gate", face_gate),
+        Route("/api/cases/{slug}/face", face_on, methods=["POST"]),
+        Route("/api/cases/{slug}/face", face_off, methods=["DELETE"]),
+        Route("/api/cases/{slug}/reference", add_reference, methods=["POST"]),
+        Route("/api/cases/{slug}/reference/{sha}", remove_reference, methods=["DELETE"]),
         Route("/api/cases/{slug}/close", close_case, methods=["POST"]),
         Route("/api/cases/{slug}/reopen", reopen_case, methods=["POST"]),
         Route("/api/cases/{slug}/hold", hold_case, methods=["POST"]),

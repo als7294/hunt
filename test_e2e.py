@@ -141,6 +141,8 @@ inbox._trash = lambda path: shutil.move(str(path), TRASH / path.name)  # never t
 sys.modules["hunt.browser"] = types.SimpleNamespace(status=lambda: {  # as hunt.browser.status() answers
     "facebook": "signed_in", "x": "signed_out", "checked_at": "2026-10-29T12:00:00+00:00",
     "browser": {"available": True, "running": False, "version": "131.0", "profile": True},
+    "stopped": {"X": {"ts": "2026-10-29T12:00:00+00:00", "reason": "a login challenge", "url": "https://x.com/i/flow",
+                      "message": "X showed a login challenge. Hunt Capture has stopped recording X."}},
     "logins": [{"platform": "facebook", "label": "Facebook", "url": "https://www.facebook.com/login"},
                {"platform": "x", "label": "X", "url": "https://x.com/login"}]})
 
@@ -179,10 +181,13 @@ assert c.get("/login?t=e2e-token").status_code == 303
 
 rows = {x["id"]: x for x in c.get("/api/startup").json()["checks"]}
 assert {"cases", "evidence", "ai", "network", "proxy", "sources", "browser", "retention"} <= set(rows), rows
-assert rows["browser"]["detail"] == "signed in: Facebook; not signed in: X" and rows["browser"]["label"] == "Hunt Browser 131.0"
+assert rows["browser"]["detail"] == "Hunt Capture stopped recording X; signed in: Facebook; not signed in: X", rows["browser"]
+assert rows["browser"]["label"] == "Hunt Browser 131.0" and not rows["browser"]["ok"] and "X" in rows["browser"]["stopped"]
 assert [x["state"] for x in rows["browser"]["items"]] == ["signed_in", "signed_out"], rows["browser"]
 assert rows["sources"]["ok"] and len(rows["sources"]["items"]) == 6 and rows["ai"]["ok"], rows["sources"]
-assert rows["sources"]["detail"] == "6 of 6 ready; 1 of 1 keys set" and rows["cases"]["detail"].startswith("0 cases"), rows
+known = server.keys.status()  # the keys line counts each key once, as the keys screen lists them
+assert rows["sources"]["detail"] == f"6 of 6 ready; {sum(k['set'] for k in known)} of {len(known)} keys set", rows["sources"]
+assert len({k["key"] for k in known}) == len(known) and rows["cases"]["detail"].startswith("0 cases"), rows
 assert c.post("/api/settings", content=json.dumps({"firm": "Example Investigations", "investigator": "Jo Example",
                                                     "licence": "PI-000000", "timezone": "America/New_York"}),
               headers=JSON).status_code == 200
