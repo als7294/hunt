@@ -659,20 +659,33 @@ The walkthrough followed the guide in the real app, from a clean `HUNT_HOME`, on
 1400 px. What it found and fixed is in the hunt-server commits from that day. What's left:
 
 **Not fixed**
-- **The search cluster crowds at 15 accounts.** On `nasa`, account labels overlap around the centre at 1400 px
-  (`hunt/static/cluster.js` places them). It's readable on "Is it them?", which lists the same accounts.
 - **Mirror accounts score high, and higher since the analysis merge.** Eight Mastodon instances showing a copy of
   `@NASA` scored 62% each on the first run. On the re-run after the analysis merge (126de25) the same accounts scored
   94–99% ("almost certain"), with the same three reasons: shared profile photo, a link back to the real profiles, and
   the username. It isn't `hunt/learning.py`, which needs 30 decisions of each kind first. The UI words them "likely"
   at most, and she ruled them out by hand (Is it them? keeps them listed, with Undo). A federated copy should
   probably not count the photo it copies as a second identifier (`hunt/match.py`, analysis session).
-- **Text-only flags show an empty striped thumbnail** on the scan and worklist cards. Cosmetic.
-- **"Web page" on the Report screen downloads the HTML** rather than opening it (the export sends
-  `Content-Disposition: attachment`).
-- **Media removed at retention** still shows as a broken image (point 21 above).
 - **Case-level notes aren't in the report**; only notes on an item that's in the report are (cited "Note n"). A
   choice of which case notes to print would be a new screen.
+- **`posts.collect` calls every unreadable site "Reddit".** For an account on a site it has no reader for (GitHub,
+  SoundCloud…) it emits `failed` with "this site's posts can't be read logged out (Reddit answers 403)", now visible
+  in the scan's source list. The note should name the site, and "not readable logged out" isn't a failure
+  (`hunt/posts.py`, posts owner).
+- **The subject's name in the search cluster** can sit under a match badge ("✓ 12 of 16 accounts share a profile
+  photo"); the account labels now step aside, the subject's doesn't. Cosmetic; the name is in the case pill.
+- **Face comparison isn't downloadable from Hunt yet.** The start-up row says when OpenCV or the two models are
+  missing, but the "button on the startup screen" (docs/analysis.md "Plug in") would be a `setup.plan` item: the
+  setup owner's.
+
+**Fixed** (2026-10-30, hunt-server)
+- **The search cluster crowded at 15 accounts.** Each account label is measured every frame against the subject's
+  name, the headline, the match badges and the labels already placed; one that would overlap stays hidden until its
+  node is hovered.
+- **Text-only flags showed an empty striped thumbnail.** They show a quote mark, and the card is shorter.
+- **"Web page" downloaded the HTML.** It opens in a tab (`report.html?view=1`), inline and sandboxed (no script, no
+  requests, not the app's origin), and prints as the download does.
+- **Media removed at retention showed as a broken image.** An evidence picture that no longer loads becomes a box
+  reading "Removed from the case".
 
 **Not verified live, on purpose**
 - **Sign in / Open in Hunt Browser** (launches Chrome for Testing on the Mac) and **worklist opens**. Both routes
@@ -694,6 +707,13 @@ The walkthrough followed the guide in the real app, from a clean `HUNT_HOME`, on
   the start screen, Connect your accounts and the worklist show it, and Resume lifts it after the confirmation.
 - **The capture switch** was tested without a Hunt Browser running: Start / Stop capturing changes Hunt's state;
   the extension's mirroring of it wasn't seen.
+- **Face comparison** ran for real on `nasa` (16 profile photos, OpenCV and the cached models) with a generated
+  reference image that has no face, so every result was "couldn't compare", and the screen says the reference can't
+  be used. "Same face" / "Different face" were seen only with a simulated `/person` answer in the page: no real
+  person's face was processed.
+- **The Apify estimate** was seen only with a simulated `/vendor` answer in the page. The real one, with Aaron's key,
+  answered "nothing to run" (no Instagram or Facebook account in the case). No Apify run was started: it spends his
+  credit.
 
 **Noticed while testing, not a Hunt bug**
 - Restarting `hunt app` makes a new sign-in link, so an open tab stops working. It now says "Open Hunt again"

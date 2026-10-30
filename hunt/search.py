@@ -238,7 +238,8 @@ async def compare_faces(case: Case, report: dict, emit):
     from . import face
     if not face.references(case):
         return
-    stored, done = {r["url"]: r for r in case.rows("select url, evidence from avatars")}, face.results(case)
+    stored = {r["url"]: r for r in case.rows("select url, evidence from avatars")}
+    done = {u for u, r in face.results(case).items() if not r["why"].startswith("no usable reference photo")}  # a better reference: try again
     todo = [(c["url"], case.dir / a["evidence"]) for c in report["candidates"]
             if in_person(c) and c["url"] not in done and (a := stored.get(avatar_url(c["attrs"])))]
     if not todo:

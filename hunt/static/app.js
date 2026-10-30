@@ -542,9 +542,16 @@ function recordsPanel(p) {
 
 // Face comparison results beside the photos they came from: a lead, one reason among the others, never the verdict
 const FACE_CHIP = { yes: ['Same face', 'var(--gr)', 'var(--gr-bg)'], no: ['Different face', 'var(--rd)', 'var(--rd-bg)'], unclear: ['Couldn’t compare', 'var(--am)', 'var(--am-bg)'] };
+const faceWhy = why => String(why || '').replace(/\(?[0-9a-f]{64}\.\w+: /g, '').replace(/\)$/, ''); // reasons name files by hash
 function faceRows(p) {
   const rows = p.accounts.filter(a => a.face), ref = p.reference?.[0];
   if (!rows.length) return '';
+  if (rows.every(a => /^no usable reference photo/.test(a.face.why))) return html`<div class="panel" style="width:min(880px,100%);padding:18px;display:flex;flex-direction:column;gap:10px">
+    <b>Face comparison with your reference photo</b>
+    <div class="reason warn"><span class="ic">!</span><span>Your reference photo can’t be used: ${faceWhy(rows[0].face.why).replace(/^no usable reference photo ?/, '') || 'no usable face'}. Nothing was compared.</span></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="btn sm" for="face-ref-add" style="cursor:pointer">Add a reference photo</label>
+      <span class="muted" style="font-size:13.5px">A clear, recent, front-facing photo of the subject. Then search again to compare.</span></div>
+    <input type="file" id="face-ref-add" accept="image/jpeg,image/png,.heic" multiple hidden></div>`;
   return html`<div class="panel" style="width:min(880px,100%);padding:18px;display:flex;flex-direction:column;gap:12px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap"><b>Face comparison with your reference photo</b>
       <span class="muted" style="font-size:13.5px">Face comparison is one reason among the others; it can’t confirm an account on its own.</span></div>
@@ -552,7 +559,7 @@ function faceRows(p) {
       return html`<div class="row" style="background:var(--panel-2);gap:16px;flex-wrap:wrap">
         <div style="display:flex;gap:8px;align-items:center">${[[ref, 'Your reference photo'], [a.avatar, `${a.site}’s profile photo`]].map(([src, alt]) => src ? html`<img class="thumb" src="${src}" alt="${alt}" title="${alt}" style="width:64px;height:64px;flex:none">` : html`<span class="thumb" style="width:64px;height:64px"></span>`)}</div>
         <div style="flex:1;min-width:200px"><b style="font-weight:500">${a.site}</b> <span class="muted">${a.handle || handleOf(a.url)}</span>
-          <div class="muted" style="font-size:13px">${a.face.why}</div></div>
+          <div class="muted" style="font-size:13px">${faceWhy(a.face.why)}</div></div>
         <span class="tag" style="background:${bg};color:${col}">${label}${a.face.match === 'unclear' ? '' : ` · ${(+a.face.score).toFixed(2)}`}</span></div>`; })}</div>`;
 }
 
@@ -1468,6 +1475,10 @@ document.addEventListener('change', async e => {
   if (e.target.id === 'wiz-state') { wiz.state = e.target.value; wiz.faceOn = false; drawWizard(); wizGate(); }
   if (e.target.id === 'wiz-face-on') { wiz.faceOn = e.target.checked; drawWizard(); }
   if (e.target.id === 'wiz-ref') { wiz.faceFiles = [...e.target.files]; drawWizard(); }
+  if (e.target.id === 'face-ref-add' && e.target.files.length) {
+    const form = new FormData(); [...e.target.files].forEach(f => form.append('files[]', f));
+    try { await api(`/api/cases/${encodeURIComponent(route().slug)}/reference`, { method: 'POST', form }); toast('Added. Search again to compare faces with it.'); render(); } catch (err) { fail(err); }
+  }
   if (e.target.id === 'fb-files' || e.target.id === 'fb-folder') uploadFacebook(e.target.dataset.slug, e.target.files);
   if (e.target.id === 'bring-folder') openBring(e.target.value.trim());
   if (e.target.id === 'watch-on' || e.target.id === 'watch-every') {

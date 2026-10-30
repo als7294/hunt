@@ -235,6 +235,10 @@ asyncio.run(search.compare_faces(fc, build(fc), logs.append))  # once per accoun
 cand = build(fc)["candidates"][0]
 assert len(calls) == 1 and logs[0]["message"] == "compared faces on 1 profile photo", logs
 assert cand["face"]["match"] == "yes" and any("same face as your reference photo" in r for r in cand["reasons"]), cand
+# an unusable reference doesn't block a later, better one: those accounts are compared again
+fc.db.execute("update face_checks set match = 'unclear', why = 'no usable reference photo (x.png: no face found)'")
+asyncio.run(search.compare_faces(fc, build(fc), logs.append))
+assert len(calls) == 2, calls
 face.disable(fc)
 assert "face" not in build(fc)["candidates"][0]  # off: results aren't used
 print("ok")
