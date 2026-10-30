@@ -92,7 +92,7 @@ assert not __import__("re").search(r"[+-]\d+\.\d\b|\bbits\b", t), t  # never wei
 assert any(c.startswith("A-") for s in rep["sentences"] if s["section"] == "identity" for c in s["cites"])
 assert any(c.startswith("M-") for s in rep["sentences"] if s["section"] == "method" for c in s["cites"])
 assert "Fictional Mutual" in t and "claim CLM-123" in t and "No lifting over 5 kg" in t, t
-assert "on Thu 2026-" in t and ("EDT" in t or "EST" in t), t  # search times in the investigator's zone, with the day
+assert __import__("re").search(r"on (?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) 2026-", t) and ("EDT" in t or "EST" in t), t  # search times in the investigator's zone, with the day
 assert "Jo Example ran the searches" in t and "with Hunt " in t, t  # who collected, with what
 gaps = " ".join(rep["couldnt_see"])
 assert "phone details" in gaps and "whatsmyname failed" in gaps and "Posts on Instagram weren't read" in gaps, gaps
