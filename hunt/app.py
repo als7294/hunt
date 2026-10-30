@@ -371,10 +371,10 @@ async def startup(req: Request):
     try:
         rows = await health
         ready = [r for r in rows if r["ready"]]
-        keys = {r["key"]: r for r in rows if r["key"]}.values()  # one per key: the state portals share HUNT_SOCRATA_TOKEN
+        known = keys.status()  # every key Hunt reads, once each: the same list as the keys screen and the pills below
         missing = [r["source"] for r in rows if r["key_required"] and not r["key_set"]]
         check("sources", "Search sources", len(ready) == len(rows),
-              f"{len(ready)} of {len(rows)} ready; {sum(r['key_set'] for r in keys)} of {len(keys)} keys set"
+              f"{len(ready)} of {len(rows)} ready; {sum(k['set'] for k in known)} of {len(known)} keys set"
               + (f"; needs a key: {', '.join(missing)}" if missing else ""),
               [{k: r[k] for k in ("source", "ready", "reachable", "key", "key_set", "key_required", "detail")} for r in rows])
     except Exception as e:  # a broken probe mustn't hide the other checks
@@ -407,8 +407,11 @@ async def _browser_checks() -> list[dict]:
     detail = "; ".join(f"{words}: {', '.join(said[state])}" for state, words in
                        (("signed_in", "signed in"), ("signed_out", "not signed in"), ("unknown", "not checked yet"))
                        if said[state])
-    return [{"id": "browser", "label": f"Hunt Browser {b.get('version') or ''}".strip(), "ok": True, "detail": detail,
-             "items": items, "checked_at": st.get("checked_at")}]
+    stopped = st.get("stopped") or {}  # hard stops (docs/capture.md): capture is off there until she resumes it
+    if stopped:
+        detail = f"Hunt Capture stopped recording {', '.join(stopped)}" + (f"; {detail}" if detail else "")
+    return [{"id": "browser", "label": f"Hunt Browser {b.get('version') or ''}".strip(), "ok": not stopped, "detail": detail,
+             "items": items, "checked_at": st.get("checked_at"), "stopped": stopped}]
 
 
 async def list_cases(req: Request):

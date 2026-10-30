@@ -18,9 +18,8 @@ from .case import HOME
 
 PATH = HOME / "keys.env"
 MAX_CHARS = 500
-LABEL = {"github": "GitHub", "gravatar": "Gravatar", "fec": "OpenFEC", "courtlistener": "CourtListener",
-         "licences": "State open-data portals", "businesses": "State open-data portals", "fmcsa": "State open-data portals",
-         "edgar": "SEC EDGAR"}
+LABEL = {"github": "GitHub", "gravatar": "Gravatar", "fec": "OpenFEC", "courtlistener": "CourtListener", "edgar": "SEC EDGAR"}
+KEY_LABEL = {"HUNT_SOCRATA_TOKEN": "State open-data portals"}  # a key shared by several sources is named for itself
 EXTRA: dict[str, dict] = {}
 READERS = ("public", "vendor")  # Hunt modules outside sources/ that add their key to EXTRA when imported
 
@@ -35,7 +34,7 @@ def known() -> dict[str, dict]:
     out = {}
     for src in sources.SOURCES:
         if key := getattr(src, "KEY", None):
-            k = out.setdefault(key, {"label": LABEL.get(src.NAME, src.NAME), "sources": [], "required": False,
+            k = out.setdefault(key, {"label": KEY_LABEL.get(key) or LABEL.get(src.NAME, src.NAME), "sources": [], "required": False,
                                      "url": getattr(src, "KEY_URL", None), "free": getattr(src, "KEY_FREE", None)})
             k["sources"].append(src.NAME)
             k["required"] |= bool(getattr(src, "KEY_REQUIRED", False))
@@ -126,7 +125,8 @@ if __name__ == "__main__":  # self-check: python -m hunt.keys (uses a throwaway 
     assert os.environ["HUNT_GITHUB_TOKEN"] == "ghp_example" and oct(PATH.stat().st_mode)[-3:] == "600"
     assert "ghp_example" not in str(status()) and _saved()["HUNT_FEC_KEY"] == "fec-example"
     assert PATH.read_text() == "# my keys\nHUNT_FEC_KEY='fec-example'\nHUNT_GITHUB_TOKEN=ghp_example\n", PATH.read_text()
-    assert rows["HUNT_SOCRATA_TOKEN"]["sources"] == ["licences", "businesses", "fmcsa"]
+    assert {"licences", "businesses", "fmcsa"} <= set(rows["HUNT_SOCRATA_TOKEN"]["sources"])
+    assert rows["HUNT_SOCRATA_TOKEN"]["label"] == "State open-data portals"
     assert rows["HUNT_COURTLISTENER_TOKEN"]["required"] and not rows["HUNT_GITHUB_TOKEN"]["required"]
     for bad in ({"HUNT_NOPE": "x"}, {"HUNT_SEC_UA": "x"}, {"HUNT_FEC_KEY": 3}, {"HUNT_FEC_KEY": "a\nHUNT_X=b"}):
         try:

@@ -84,7 +84,7 @@ a { color: inherit; text-decoration: none; }
 .seed.email { background: var(--teal-bg); } .seed.email b { color: var(--teal); }
 .seed.phone { background: var(--violet-bg); } .seed.phone b { color: var(--violet); }
 .seed.username, .seed.url { background: var(--am-bg); } .seed.username b, .seed.url b { color: var(--am); }
-.seed.address, .seed.location { background: var(--raise); } .seed.address b, .seed.location b { color: var(--t2); }
+.seed.address, .seed.location, .seed.dob, .seed.age, .seed.employer { background: var(--raise); } .seed.address b, .seed.location b, .seed.dob b, .seed.age b, .seed.employer b { color: var(--t2); }
 .seed .x { color: var(--mu); margin-left: 2px; }
 
 /* Choice chips */

@@ -145,11 +145,15 @@ screens.startup = async () => {
   const firstBoot = (() => { try { return !localStorage.getItem('hunt-connect-seen'); } catch { return false; } })();
   const next = () => { if (['', '#/', '#/startup'].includes(location.hash)) { const to = firstBoot ? '#/connect' : '#/'; if (location.hash === to) render(); else location.hash = to; } };
   // Cases past retention wait for a decision; otherwise carry on by itself
-  if (checks.some(c => (c.id === 'retention' || c.id === 'downloads') && c.items?.length)) box.insertAdjacentHTML('beforeend', html`<a class="btn primary sm" href="#/" style="align-self:flex-start;margin-top:6px">Continue →</a>`.s);
+  if (checks.some(c => ((c.id === 'retention' || c.id === 'downloads') && c.items?.length) || Object.keys(c.stopped || {}).length)) box.insertAdjacentHTML('beforeend', html`<a class="btn primary sm" href="#/" style="align-self:flex-start;margin-top:6px">Continue →</a>`.s);
   else setTimeout(next, checks.every(c => c.ok) ? 500 : 2500);
 };
 
 const SIGNIN = { signed_in: 'signed in', signed_out: 'not signed in', unknown: 'not checked yet' };
+const stopsBlock = stopped => Object.entries(stopped || {}).map(([pf, x]) => html`<div class="reason bad" style="flex-direction:column;align-items:stretch;gap:8px">
+  <div style="display:flex;gap:12px;align-items:flex-start"><span class="ic">!</span><div><b style="font-weight:600">${x.message}</b>
+    <div class="muted" style="font-size:13px;overflow-wrap:anywhere">${when(x.ts)}${x.url ? ` · ${x.url}` : ''}</div></div></div>
+  <div class="life" style="padding-left:40px"><button class="btn ghost sm" data-act="resume-ask" data-platform="${pf}">Resume ${pf}…</button></div></div>`);
 // `hunt doctor`'s findings the other rows don't already cover, and the downloads still missing (GET /api/setup)
 const COVERED = ['ollama', 'model', 'chromium', 'python', 'uv', 'hunt'];
 const setupRows = su => !su ? [] : [...su.doctor.filter(d => !d.ok && !COVERED.includes(d.id)).map(d => ({ id: `doctor-${d.id}`, label: d.label, ok: false, detail: [d.detail, d.fix && `To fix: ${d.fix}`].filter(Boolean).join(' · ') })),
@@ -158,7 +162,7 @@ const skipped = () => { try { return JSON.parse(localStorage.getItem('hunt-skipp
 function bootRow(c, keys = []) {
   const extra = c.id === 'sources' ? html`${(c.items || []).filter(x => x.reachable === false).map(x => html`<span class="muted" style="font-size:13px">${x.source}: can’t be reached (${x.detail})</span>`)}
       ${keys.length ? html`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${keys.map(k => html`<a class="acct" href="#/keys" style="font-size:13px;${k.set ? '' : k.required ? 'color:var(--am)' : 'color:var(--mu)'}">${k.set ? html`${k.label} <span style="color:var(--gr)">✓</span>` : `${k.label} · ${k.required ? 'key needed' : k.url ? 'free key available' : 'not set'}`}</a>`)}</div>` : ''}`
-    : c.id === 'browser' && c.items ? html`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${c.items.map(x => html`<span class="acct" style="font-size:13px" title="${x.label}: ${SIGNIN[x.state]}">${x.label}${x.state === 'signed_in' ? html` <span style="color:var(--gr)">✓</span>` : skipped().includes(x.platform) ? html` <span class="dim">skipped</span>` : html` <button data-act="browser-open" data-url="${x.url}" style="color:var(--ac)">Sign in</button>`}</span>`)}</div>
+    : c.id === 'browser' && c.items ? html`${Object.keys(c.stopped || {}).length ? html`<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">${stopsBlock(c.stopped)}</div>` : ''}<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${c.items.map(x => html`<span class="acct" style="font-size:13px" title="${x.label}: ${SIGNIN[x.state]}">${x.label}${x.state === 'signed_in' ? html` <span style="color:var(--gr)">✓</span>` : skipped().includes(x.platform) ? html` <span class="dim">skipped</span>` : html` <button data-act="browser-open" data-url="${x.url}" style="color:var(--ac)">Sign in</button>`}</span>`)}</div>
       ${c.checked_at ? html`<span class="dim" style="font-size:12.5px">checked ${ago(c.checked_at).toLowerCase()}</span>` : ''}`
     : c.id === 'downloads' ? html`<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">${c.items.map(x => html`<div class="card" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
         <div style="display:flex;justify-content:space-between;gap:8px"><b style="font-weight:500">${x.label}</b><span class="muted" style="font-size:13px">${x.size ? size(x.size) : ''}</span></div>
@@ -756,7 +760,7 @@ function drawBring(ask) {
 let poller = null; // the one screen-level poll (sign-ins, pairing, captures); cleared on every render
 const poll = (fn, ms) => { clearInterval(poller); poller = setInterval(fn, ms); };
 const CAPTURE_KIND = { view: 'screenshot', manual: 'screenshot', frame: 'video frame', page: 'page', recording: 'recording' };
-const sectionRows = (slug, a) => html`<div style="display:flex;flex-direction:column;padding:4px 0">${a.sections.map(x => html`<div style="display:flex;align-items:center;gap:10px;font-size:14px;padding:3px 0">
+const sectionRows = (slug, a) => html`<div style="display:flex;flex-direction:column;padding:4px 0">${a.platform === 'LinkedIn' ? html`<div class="muted" style="font-size:13px;padding:2px 0 6px">Save each page by hand (File › Save Page As); Hunt Capture doesn’t record LinkedIn.</div>` : ''}${a.sections.map(x => html`<div style="display:flex;align-items:center;gap:10px;font-size:14px;padding:3px 0">
   <span style="width:18px;height:18px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;${x.seen ? 'background:var(--gr-bg);color:var(--gr)' : 'box-shadow:inset 0 0 0 1.5px var(--line)'}">${x.seen ? '✓' : ''}</span>
   <span style="flex:1">${x.label} ${x.seen ? html`<span class="muted" style="font-size:12.5px">· ${when(x.seen_at)}${x.evidence ? html` · <a href="${evidenceUrl(slug, x.evidence)}" target="_blank" rel="noopener" style="color:var(--ac)">saved</a>` : ''}</span>` : html`<span class="dim" style="font-size:12.5px">· not opened yet</span>`}</span>
   <button data-act="browser-open" data-url="${x.url}" data-case="${slug}" style="color:var(--ac);font-size:13.5px">Open</button></div>`)}</div>`;
@@ -765,7 +769,7 @@ const captureRows = (slug, caps) => caps.length ? caps.slice(0, 30).map(x => htm
     <div style="flex:1;min-width:0;font-size:14px"><div>${x.platform || ''} · ${CAPTURE_KIND[x.kind] || x.kind}${x.kind === 'page' && x.posts != null ? html` · <span class="t2">${x.posts} posts read, ${x.added} new</span>` : ''}</div>
       <div class="muted" style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x.where || x.url}</div><div class="dim" style="font-size:12px">${when(x.viewed_at || x.ts)}</div></div>
     ${x.file ? html`<a class="btn ghost sm" href="${evidenceUrl(slug, x.file)}" target="_blank" rel="noopener">View</a>` : ''}</div>`)
-  : html`<div class="empty" style="padding:16px">Nothing captured yet. Turn on capture in the Hunt Capture popup, then browse.</div>`;
+  : html`<div class="empty" style="padding:16px">Nothing captured yet. Start capturing, then browse in the Hunt Browser.</div>`;
 function facebookTile(slug, links, note) {
   return html`<div style="display:flex;flex-direction:column;gap:10px"><div style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:${siteColor('Facebook')}"></span><b>Facebook</b></div>
     <div class="t2" style="font-size:14.5px">Facebook shows almost nothing logged out. Browse it yourself, save what you find, and Hunt reads it.</div>
@@ -816,7 +820,7 @@ screens.worklist = async slug => {
       <div class="sub" style="margin-top:6px">Open each account in the Hunt Browser and scroll as you normally would. Hunt records and scans what loads; it never opens, scrolls or clicks anything itself.</div></div>
       <a class="btn ghost sm" href="#/case/${slug}/posts">Posts →</a></div>
     <div class="split" style="--side:440px;flex:1 0 auto">
-      <div style="display:flex;flex-direction:column;gap:14px"><div id="wl-cards" style="display:flex;flex-direction:column;gap:14px"><div class="panel muted" style="padding:18px">Loading the worklist…</div></div><div id="wl-fb"></div></div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div id="wl-capture" style="display:flex;flex-direction:column;gap:8px"></div><div id="wl-cards" style="display:flex;flex-direction:column;gap:14px"><div class="panel muted" style="padding:18px">Loading the worklist…</div></div><div id="wl-fb"></div></div>
       <div style="display:flex;flex-direction:column;gap:14px">
         <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;align-items:baseline"><b>Found so far</b><span class="muted" style="font-size:13.5px">newest first</span></div>
           <div id="wl-found" style="display:flex;flex-direction:column;gap:10px;max-height:640px;overflow:auto"></div></div>
@@ -828,10 +832,25 @@ screens.worklist = async slug => {
   await drawWorklist(slug);
   poll(() => route().name === 'worklist' ? drawWorklist(slug) : clearInterval(poller), 5000);
 };
+// Start / Stop capturing into this case (POST /api/browser/capture); the extension mirrors it at its next page load
+function captureSwitch(slug, bs) {
+  const cap = bs.capture || {}, here = cap.on && cap.case === slug, problem = (bs.problems || []).at(-1);
+  if (!bs.browser?.available) return html`<div class="muted" style="font-size:14px">Install the Hunt Browser to capture: <span class="mono">uv run playwright install chromium</span></div>`;
+  return html`<div class="panel" style="padding:14px 18px;display:flex;flex-direction:column;gap:6px">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      ${here ? html`<span class="dot" style="background:var(--rd);box-shadow:0 0 8px var(--rd)"></span><b>Recording into this case</b><span class="muted" style="font-size:13px">since ${when(cap.since)}</span>`
+        : cap.on ? html`<span class="dot" style="background:var(--am)"></span><span>Recording into <b>${cap.case}</b>, not this case</span>`
+        : html`<span class="dot"></span><span class="t2">Not capturing</span>`}
+      <button class="btn sm ${here ? 'ghost' : 'primary'}" style="margin-left:auto" data-act="capture-set" data-slug="${slug}" data-on="${here ? '' : '1'}">${here ? 'Stop capturing' : cap.on ? 'Capture into this case instead' : 'Start capturing'}</button></div>
+    ${bs.browser?.pinned === false ? html`<span class="muted" style="font-size:13px">Pin Hunt Capture to see its REC badge in the browser (puzzle icon → pin).</span>` : ''}
+    ${problem ? html`<span style="font-size:13px;color:var(--am)">${problem.message}</span>` : ''}</div>`;
+}
 async function drawWorklist(slug) {
   const base = `/api/cases/${encodeURIComponent(slug)}`;
   const [cl, d, caps, ch, wl] = await Promise.all([api(`${base}/checklist`).catch(() => ({ accounts: [] })), api(`${base}/posts`).catch(() => ({ hits: [], posts: [] })),
     api(`${base}/captures`).catch(() => ({ captures: [] })), api(`${base}/changes`).catch(() => ({ changes: [] })), api(`${base}/worklist`).catch(() => ({ worklist: [], uncompared_captures: 0 }))]);
+  const bs = await api('/api/browser/status').catch(() => null);
+  if ($('#wl-capture') && bs) $('#wl-capture').innerHTML = fmt([captureSwitch(slug, bs), ...stopsBlock(bs.stopped)]);
   const sig = JSON.stringify([cl, d.hits, d.posts.length, caps.captures.length, ch.changes.length, wl, previews]);
   if (!$('#wl-cards') || sig === wlSig) return; // redraw only when something changed: open sections and scroll stay put
   wlSig = sig;
@@ -892,7 +911,13 @@ screens.connect = async () => {
     <div style="width:min(720px,100%);display:flex;flex-direction:column;gap:18px">
       <div><a href="#/" data-act="back" class="muted" style="font-size:15px">← Back</a><div class="h2" style="margin-top:10px">Connect your accounts</div>
         <div class="sub" style="margin-top:6px">Sign in once, in the Hunt Browser, to the platforms you’ll look at. Hunt never sees your passwords, and nothing is recorded while you sign in. Skip any you don’t use.</div></div>
+      ${Object.keys(st.stopped || {}).length ? html`<div style="display:flex;flex-direction:column;gap:8px">${stopsBlock(st.stopped)}</div>` : ''}
       <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px" id="connect-rows">${connectRows(st)}</div>
+      ${st.browser?.available ? html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><b>Your accounts <span class="muted" style="font-weight:400;font-size:14px">(optional)</span></b>
+        <span class="muted" style="font-size:13.5px">The handle you sign in with on each platform, so every capture reads “logged in as @handle” in the evidence.</span>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">${st.logins.map(l => html`<label class="field"><span class="label">${l.label}</span>
+          <input class="input acct-in" data-platform="${l.platform}" value="${(st.accounts || {})[l.platform] || ''}" placeholder="@handle" autocomplete="off" spellcheck="false"></label>`)}</div>
+        <div><button class="btn sm" data-act="accounts-save">Save handles</button></div></div>` : ''}
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${seenFlag('hunt-keys-seen') ? html`<a class="btn primary" href="#/">Done</a>` : html`<a class="btn primary" href="#/keys">Next: free keys (optional) →</a>`}
         ${st.browser?.profile ? html`<span class="life" style="margin-left:auto"><button class="btn ghost sm" data-act="signout-ask">Sign out of everything…</button></span>` : ''}</div>
       <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><b>Hunt Capture in another browser</b><div id="pairing" style="display:flex;flex-direction:column;gap:10px">${pairingPanel(pr, pairCode && pairCode.until > Date.now() ? pairCode : null)}</div></div>
@@ -1311,6 +1336,18 @@ const actions = {
       $('#key-rows').innerHTML = fmt(keys.map(keyRow)); toast(value ? 'Saved. Hunt uses it from now on.' : 'Removed.'); }
     catch (e) { el.disabled = false; fail(e); }
   },
+  'resume-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = html`<div style="display:flex;flex-direction:column;gap:8px"><span class="t2" style="font-size:14px">Only resume after you’ve spoken to Ethos, and never with another account.</span>
+    <div style="display:flex;gap:6px"><button class="btn sm" data-act="resume-do" data-platform="${el.dataset.platform}">Resume ${el.dataset.platform}</button><button class="btn ghost sm" data-act="life-cancel">Cancel</button></div></div>`.s; },
+  'resume-do': async el => { el.disabled = true;
+    try { await api('/api/browser/resume', { method: 'POST', body: { platform: el.dataset.platform } }); toast(`${el.dataset.platform}: capture can record again. It’s in the case log.`);
+      if (el.closest('#boot')) el.closest('.reason').innerHTML = html`<span class="muted" style="font-size:13.5px">Resumed.</span>`.s; else render(); }
+    catch (e) { el.disabled = false; fail(e); } },
+  'accounts-save': async el => { const handles = Object.fromEntries([...document.querySelectorAll('.acct-in')].map(i => [i.dataset.platform, i.value.trim()]).filter(([, v]) => v));
+    try { await api('/api/browser/accounts', { method: 'POST', body: handles }); toast('Saved. Captures will say which account you were logged in as.'); } catch (e) { fail(e); } },
+  'capture-set': async el => { el.disabled = true;
+    try { await api('/api/browser/capture', { method: 'POST', body: el.dataset.on ? { case: el.dataset.slug, on: true } : { on: false } });
+      toast(el.dataset.on ? 'Capturing into this case. Browse in the Hunt Browser.' : 'Capture is off.'); drawWorklist(el.dataset.slug); }
+    catch (e) { el.disabled = false; fail(e); } },
   'connect-skip': el => { const sk = skipped(), pf = el.dataset.platform; setSkipped(sk.includes(pf) ? sk.filter(x => x !== pf) : [...sk, pf]); render(); },
   'signout-ask': el => { el.closest('.life').innerHTML = html`<span class="muted" style="font-size:13.5px">This signs you out of every platform in the Hunt Browser. The profile goes to the Trash.</span>
     <button class="btn sm" style="background:var(--rd-bg);color:var(--rd)" data-act="signout-do">Sign out</button><button class="btn ghost sm" data-act="back">Cancel</button>`.s; },
