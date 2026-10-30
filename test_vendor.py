@@ -114,8 +114,15 @@ case.db.execute("insert into posts values (null, 'Facebook', 'https://www.facebo
 # With a key: the plan shows the estimate and the credit left before anything runs
 plan = asyncio.run(vendor.plan(case, accounts))
 assert plan["key_set"] and [a["url"] for a in plan["run"]] == [accounts[0]["url"], accounts[1]["url"]] and plan["skipped"] == []
-assert plan["estimate_usd"] == 0.87 and plan["spent_usd"] == 0.9 and plan["credit_left_usd"] == 4.1 and plan["ok"], plan
-assert plan["why"] == "this run ≈ $0.87 · about $4.10 of this month's credit left ($4.10 under Hunt's $5.00 cap)", plan["why"]
+assert plan["estimate_usd"] == 0.621 and plan["spent_usd"] == 0.9 and plan["credit_left_usd"] == 4.1 and plan["ok"], plan
+assert plan["why"] == "this run ≈ $0.62 · about $4.10 of this month's credit left ($4.10 under Hunt's $5.00 cap)", plan["why"]
+assert [a["estimate_usd"] for a in plan["run"]] == [0.27, 0.351]  # 100 Instagram posts; 50 Facebook posts plus the run's start fee
+state["spent"] = 3.5  # from 80% of the cap, the sentence warns
+assert asyncio.run(vendor.plan(case, accounts))["why"].endswith(" · warning: that takes the month to 82% of the cap")
+state["spent"] = 0.9
+assert vendor._limit(vendor.save_settings(results_limit=25), "facebook") == 25  # one number, or one per platform
+assert vendor._limit(vendor.save_settings(results_limit={"facebook": 40}), "facebook") == 40 and vendor._limit(vendor.settings(), "instagram") == 100
+vendor.save_settings(results_limit={"instagram": 100, "facebook": 50})
 assert [a["newer_than"] for a in plan["run"]] == [None, None] and calls[-1][1] == "/v2/users/me/limits"
 
 # The run: posts stored as origin 'vendor' with the vendor's names, media fetched from the CDNs and hashed, cost audited
@@ -144,13 +151,13 @@ summary = json.loads(case.rows("select detail from audit where action = 'vendor 
 assert summary == {"vendor": "Apify", "accounts": [accounts[0]["url"], accounts[1]["url"]], "added": 4, "spent_usd": 0.9 + 0.187 * 2}
 runs_table = {r["seed"]: r for r in case.rows("select * from runs where source like 'apify-%'")}
 assert runs_table[accounts[0]["url"]]["source"] == "apify-instagram" and "Actor apify~instagram-post-scraper build 0.0.648 (run run1, $0.187 charged" in runs_table[accounts[0]["url"]]["note"]
-assert "(the newest 100)" in runs_table[accounts[1]["url"]]["note"]
+assert "(the newest 50)" in runs_table[accounts[1]["url"]]["note"] and "(the newest 100)" in runs_table[accounts[0]["url"]]["note"]
 starts = [c for c in calls if c[0] == "POST" and c[1].endswith("/runs")]
 assert [c[1] for c in starts] == ["/v2/acts/apify~instagram-post-scraper/runs", "/v2/acts/apify~facebook-posts-scraper/runs"]
-assert starts[0][3] == {"username": ["https://www.instagram.com/nasa/"], "resultsLimit": 100}  # the first read: the newest 100, no date filter
-assert starts[1][3] == {"startUrls": [{"url": "https://www.facebook.com/NASA"}], "resultsLimit": 100}
-assert float(starts[0][2]["maxTotalChargeUsd"]) == 0.22 and starts[0][2]["timeout"] == str(vendor.TIMEOUT)  # Apify's own hard cap on the run's charge
-assert 0.7 < float(starts[1][2]["maxTotalChargeUsd"]) < 1.0
+assert starts[0][3] == {"username": ["https://www.instagram.com/nasa/"], "resultsLimit": 100, "dataDetailLevel": "detailedData"}  # first read: newest 100, no date filter
+assert starts[1][3] == {"startUrls": [{"url": "https://www.facebook.com/NASA"}], "resultsLimit": 50}
+assert 0.34 <= float(starts[0][2]["maxTotalChargeUsd"]) <= 0.36 and starts[0][2]["timeout"] == str(vendor.TIMEOUT)  # Apify's own hard cap on the run's charge
+assert 0.44 <= float(starts[1][2]["maxTotalChargeUsd"]) <= 0.46
 assert all(kw.get("proxy") == "socks5h://127.0.0.1:9050" for kw in clients if "headers" in kw)  # Apify and the CDNs through HUNT_PROXY
 assert case.rows("select count(*) n from post_seen")[0]["n"] == 4  # re-checks can tell which vendor posts went away
 
@@ -175,14 +182,14 @@ vendor.save_settings(fresh_days=s0)
 # The monthly cap stops runs before the credit is spent; a cap reached mid-way stops the next account
 state["spent"] = 4.95
 plan = asyncio.run(vendor.plan(case, accounts, force=True))
-assert not plan["ok"] and plan["why"].startswith("this run ≈ $0.87 would pass the cap: $4.95 spent of $5.00 ($0.05 credit left until 2026-10-31)"), plan["why"]
+assert not plan["ok"] and plan["why"].startswith("this run ≈ $0.62 would pass the cap: $4.95 spent of $5.00 ($0.05 credit left until 2026-10-31)"), plan["why"]
 events.clear()
 n_starts = len([c for c in calls if c[0] == "POST"])
 assert asyncio.run(vendor.collect(case, accounts, None, events.append, force=True)) == 0
 assert [e["status"] for e in events if e["status"] != "running"] == ["failed", "failed"]
-assert events[-1]["note"] == "ValueError: monthly cap: $4.95 spent, this run ≈ $0.70, cap $5.00", events[-1]["note"]
+assert events[-1]["note"] == "ValueError: monthly cap: $4.95 spent, this run ≈ $0.35, cap $5.00", events[-1]["note"]
 assert len([c for c in calls if c[0] == "POST"]) == n_starts  # nothing started
-state["spent"] = 4.2  # Instagram (≈ $0.17) fits, Facebook (≈ $0.70) would pass $5 after it
+state["spent"] = 4.5  # Instagram (≈ $0.27) fits, Facebook (≈ $0.35) would pass $5 after it
 events.clear()
 asyncio.run(vendor.collect(case, accounts, None, events.append, force=True))
 finished = [(e["source"], e["status"], e["note"][:60]) for e in events if e["status"] != "running"]
