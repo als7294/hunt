@@ -336,6 +336,17 @@ assert r.headers["content-disposition"].startswith("attachment") and "&lt;" not 
 r = c.get("/api/cases/vance-claim/report.json?screening=1").json()
 assert r["report"]["screening"] and all(m["ok"] for m in r["manifest"])
 assert c.get("/api/cases/vance-claim/report.docx").status_code == 404
+# The residence: a known ISO 3166 code or a US state, normalised; the wizard offers the same list (F2, AP2)
+url = "/api/cases/vance-claim/details"
+for bad in ("XX", "US-ZZ", "EU", "DE-BY", "U"):
+    assert c.post(url, content=json.dumps({"subject_residence": bad}), headers=JSON).status_code == 400, bad
+assert c.post(url, content=json.dumps({"subject_residence": " uk "}), headers=JSON).status_code == 200
+assert Case.open("vance-claim").meta("subject_residence") == "GB"
+c.post(url, content=json.dumps({"subject_residence": ""}), headers=JSON)
+assert c.get("/api/face/gate?residence=XX").json()["allowed"] is False
+js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "hunt", "static", "app.js")).read()
+from hunt.case import COUNTRIES  # noqa: E402
+assert set(js.split("const ISO_COUNTRIES = '")[1].split("'")[0].split()) == COUNTRIES
 # Counsel's approval of a restricted-audience item: named, audited, for a hit that exists
 url = "/api/cases/vance-claim/hits/7/counsel"
 assert c.post(url, content=json.dumps({"by": " "}), headers=JSON).status_code == 400

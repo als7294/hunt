@@ -324,11 +324,10 @@ function drawWizard() {
 /* Face comparison with a reference photo (docs/analysis.md §5): optional, off by default, allowed only where the
    subject lives permits it. The rule that decides is shown as the server words it. */
 const US_STATES = 'AL Alabama|AK Alaska|AZ Arizona|AR Arkansas|CA California|CO Colorado|CT Connecticut|DE Delaware|DC District of Columbia|FL Florida|GA Georgia|HI Hawaii|ID Idaho|IL Illinois|IN Indiana|IA Iowa|KS Kansas|KY Kentucky|LA Louisiana|ME Maine|MD Maryland|MA Massachusetts|MI Michigan|MN Minnesota|MS Mississippi|MO Missouri|MT Montana|NE Nebraska|NV Nevada|NH New Hampshire|NJ New Jersey|NM New Mexico|NY New York|NC North Carolina|ND North Dakota|OH Ohio|OK Oklahoma|OR Oregon|PA Pennsylvania|RI Rhode Island|SC South Carolina|SD South Dakota|TN Tennessee|TX Texas|UT Utah|VT Vermont|VA Virginia|WA Washington|WV West Virginia|WI Wisconsin|WY Wyoming'.split('|').map(x => [x.slice(0, 2), x.slice(3)]);
-let countries = null; // [[ISO code, name]], from the browser's own region names
-const countryList = () => countries ??= (() => { const dn = new Intl.DisplayNames(['en'], { type: 'region' }), out = [];
-  for (let a = 65; a < 91; a++) for (let b = 65; b < 91; b++) { const code = String.fromCharCode(a, b); let name; try { name = dn.of(code); } catch { continue; }
-    if (name && name !== code && !/unknown/i.test(name) && !['EU', 'EZ', 'UN', 'QO', 'XA', 'XB', 'ZZ'].includes(code)) out.push([code, name]); }
-  return out.sort((x, y) => x[1].localeCompare(y[1])); })();
+let countries = null; // [[ISO code, name]]: the server's list (case.COUNTRIES; test_app keeps them equal), named by the browser
+const ISO_COUNTRIES = 'AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS XK YE YT ZA ZM ZW'.split(' ');
+const countryList = () => countries ??= (() => { const dn = new Intl.DisplayNames(['en'], { type: 'region' });
+  return ISO_COUNTRIES.map(code => [code, dn.of(code) || code]).sort((x, y) => x[1].localeCompare(y[1])); })();
 const residenceOf = w => w.country === 'US' ? (w.state ? `US-${w.state}` : 'US') : w.country;
 function faceStep(w) {
   const r = residenceOf(w), g = w.gate;
@@ -1400,6 +1399,10 @@ function detailsForm(c) {
   return html`<form id="details-form" style="display:flex;flex-direction:column;gap:12px"><div class="h3" style="font-size:19px">Case details for the report</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">${DETAIL_FIELDS.map(([k, label, hint]) => html`<label class="field"><span class="label">${label}</span>
       <input class="input" name="${k}" ${hint === 'date' ? raw('type="date"') : ''} value="${d[k] || ''}" placeholder="${hint === 'date' ? '' : hint}"></label>`)}</div>
+    <label class="field" style="max-width:420px"><span class="label">Where the subject lives <span class="dim">· decides whether face comparison may run, and Washington’s health-data rules</span></span>
+      <select class="input" name="subject_residence"><option value="">Not known</option>
+        ${US_STATES.map(([k, n]) => html`<option value="US-${k}" ${d.subject_residence === `US-${k}` ? 'selected' : ''}>${n}, United States</option>`)}
+        ${countryList().map(([k, n]) => html`<option value="${k}" ${d.subject_residence === k ? 'selected' : ''}>${n}</option>`)}</select></label>
     <label class="field"><span class="label">Recommendations <span class="dim">· your own words, printed under “Conclusion and recommendations”</span></span>
       <textarea class="input" name="recommendations" rows="3" style="resize:vertical">${d.recommendations || ''}</textarea></label>
     <div style="display:flex;gap:8px"><button class="btn primary sm" data-act="details-save">Save</button><button class="btn ghost sm" data-act="details-cancel">Cancel</button>

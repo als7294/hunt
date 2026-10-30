@@ -43,7 +43,7 @@ from . import graph, keys, leads, report, search, sources, vendor, vlm
 from . import bundle, demo, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
-from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, RETENTION_DAYS, Case, all_cases  # watch.py reads RETENTION_DAYS here
+from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, RETENTION_DAYS, Case, all_cases, residence  # watch.py reads RETENTION_DAYS here
 from .match import ICD203
 from .seed import detect, now
 
@@ -470,7 +470,6 @@ async def create_case(req: Request):
 
 EDITABLE = ("reference", "injury_date", "limits", "look_for", "client", "adjuster", "file_number", "assignment_date",
             "subject_dob", "recommendations", "subject_residence", "mhmda_basis")
-RESIDENCE = re.compile(r"[A-Z]{2}(-[A-Z0-9]{1,3})?")  # ISO 3166: "US-AZ", "GB"
 
 
 def _details(b: dict) -> dict:
@@ -487,9 +486,9 @@ def _details(b: dict) -> dict:
         elif not isinstance(v, str) or len(v) > 4000:
             raise HTTPException(400, f"{k} must be text of at most 4,000 characters")
         elif k == "subject_residence":
-            if not RESIDENCE.fullmatch(v.strip().upper()):
-                raise HTTPException(400, "subject_residence must be an ISO 3166 code like US-AZ or GB")
-            out[k] = v.strip().upper()
+            if not (code := residence(v)):
+                raise HTTPException(400, "subject_residence must be a country's ISO 3166 code, or US- and a state: like GB or US-AZ")
+            out[k] = code
         elif k in DATES:
             try:
                 date.fromisoformat(v)
@@ -548,6 +547,9 @@ async def face_gate(req: Request):
     """The rule for a residence before the case exists (the wizard). Not audited here: enabling audits it."""
     from . import face
     r = req.query_params.get("residence", "")
+    if r.strip() and not residence(r):
+        return JSONResponse({"allowed": False, "rule": "the subject's residence isn't a known ISO 3166 code"})
+    r = residence(r) or ""
     allowed, rule = face.gate(types.SimpleNamespace(meta=lambda k: r if k == "subject_residence" else None,
                                                     audit=lambda *a: None))
     return JSONResponse({"allowed": allowed, "rule": rule})
