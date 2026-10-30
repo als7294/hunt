@@ -65,7 +65,8 @@ function seedKind(raw) {
 }
 const SEED_LABEL = { name: 'NAME', email: 'EMAIL', phone: 'PHONE', username: 'USER', url: 'LINK', address: 'ADDRESS', location: 'PLACE' };
 const unprefixed = v => { const [k, ...rest] = v.split(':'); return rest.length && KINDS.includes(k) ? rest.join(':').trim() : v; };
-const seedPill = (value, kind, removable) => html`<span class="seed ${kind}"><b>${SEED_LABEL[kind] || kind.toUpperCase()}</b><span>${unprefixed(value)}</span>${removable ? html`<button class="x" data-act="seed-remove" data-value="${value}" aria-label="Remove">×</button>` : ''}</span>`;
+const shown = (v, kind) => kind === 'dob' || kind === 'age' ? unprefixed(v).replace(/^(?:dob|d\.o\.b\.?|born|birthday|birth ?date|b\.|age|aged)\s*:?\s*/i, '') : unprefixed(v);
+const seedPill = (value, kind, removable) => html`<span class="seed ${kind}"><b>${SEED_LABEL[kind] || kind.toUpperCase()}</b><span>${shown(value, kind)}</span>${removable ? html`<button class="x" data-act="seed-remove" data-value="${value}" aria-label="Remove">×</button>` : ''}</span>`;
 
 /* ---------- chrome ---------- */
 const brand = html`<a class="brand" href="#/"><span class="logo"></span>Hunt</a>`;
@@ -1339,7 +1340,7 @@ const actions = {
   'resume-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = html`<div style="display:flex;flex-direction:column;gap:8px"><span class="t2" style="font-size:14px">Only resume after you’ve spoken to Ethos, and never with another account.</span>
     <div style="display:flex;gap:6px"><button class="btn sm" data-act="resume-do" data-platform="${el.dataset.platform}">Resume ${el.dataset.platform}</button><button class="btn ghost sm" data-act="life-cancel">Cancel</button></div></div>`.s; },
   'resume-do': async el => { el.disabled = true;
-    try { await api('/api/browser/resume', { method: 'POST', body: { platform: el.dataset.platform } }); toast(`${el.dataset.platform}: capture can record again. It’s in the case log.`);
+    try { await api('/api/browser/resume', { method: 'POST', body: { platform: el.dataset.platform } }); toast(`${el.dataset.platform}: Hunt Capture can record there again.`);
       if (el.closest('#boot')) el.closest('.reason').innerHTML = html`<span class="muted" style="font-size:13.5px">Resumed.</span>`.s; else render(); }
     catch (e) { el.disabled = false; fail(e); } },
   'accounts-save': async el => { const handles = Object.fromEntries([...document.querySelectorAll('.acct-in')].map(i => [i.dataset.platform, i.value.trim()]).filter(([, v]) => v));
