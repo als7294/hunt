@@ -13,7 +13,10 @@ hearings (ordinance violations); Texas TCEQ civil judgments. Federal dockets and
 appellate case law are the courtlistener source's. Add a table in _socrata.py's three steps.
 
 Each record carries the case number, court, filing date, the person's role, case type,
-status and whatever city or address the record shows, so the matcher can separate namesakes.
+status and whatever city or address the record shows (`address` as one postal line, the
+form match.place_text geocodes; `employer` where a case is between an employer and its
+employee), so the matcher can separate namesakes. No open court table carries a date of
+birth; OSCN's by-hand form filters on one.
 """
 
 import re
@@ -30,6 +33,7 @@ NYC = "data.cityofnewyork.us"
 BORO = {"1": "Manhattan", "2": "Bronx", "3": "Brooklyn", "4": "Queens", "5": "Staten Island"}
 NY_COUNTY = {"New York": "Manhattan", "Kings": "Brooklyn", "Queens": "Queens", "Bronx": "Bronx", "Richmond": "Staten Island"}
 CHICAGO = "Chicago administrative hearing"
+OATH = "New York City OATH trial"
 VS = re.compile(r"\s+(?:v\.?|vs\.?)\s+", re.I)
 ROLE = re.compile(r"\s+(plaintiff|defendant|requester|respondent|claimant|petitioner)s?\s*$", re.I)
 SIDES = {  # captions name the person on one side; that side's role when the caption doesn't say
@@ -48,6 +52,13 @@ def _link(v):
     return v.get("url") if isinstance(v, dict) else v
 
 
+def _addr(street, city, state, zip_code=None) -> str:
+    """One postal line, 'Street, City, ST ZIP', so the geocoder sees the whole address."""
+    street, city = joined(street), joined(city)
+    tail = " ".join(p for p in (str(state or "").strip(), str(zip_code or "").strip()) if p)
+    return ", ".join(p for p in (street, city, tail) if p) if street else ""
+
+
 def _ny_court_place(court) -> str:
     county = str(court or "").rpartition(" - ")[2]
     return place(NY_COUNTY[county], "NY") if county in NY_COUNTY else ""
@@ -59,7 +70,8 @@ DATASETS = [
                              "filed": day(r.get("caseopendate")), "status": r.get("casestatus"),
                              "judgment": r.get("casejudgement"), "harassment_finding": r.get("findingofharassment"),
                              "finding_date": day(r.get("findingdate")), "penalty": r.get("penalty"),
-                             "address": joined(r.get("housenumber"), r.get("streetname")),
+                             "address": _addr(joined(r.get("housenumber"), r.get("streetname")), BORO.get(str(r.get("boroid"))),
+                                              "NY", r.get("zip")),
                              "location": place(BORO.get(str(r.get("boroid"))), "NY"), "litigation_id": r.get("litigationid")},
             key="litigationid"),
     Dataset("New York City civil litigation (Law Department)", NYC, "pjgc-h7uv", {"matter_name": "party"},
@@ -70,7 +82,7 @@ DATASETS = [
                              "location": _ny_court_place(r.get("court_name"))},
             key="docket_index", url=lambda r: f"https://{NYC}/resource/pjgc-h7uv.json?"
             + urlencode({"docket_index": r.get("docket_index", ""), "court_name": r.get("court_name", "")})),
-    Dataset("New York City OATH trial", NYC, "y3hw-z6bm", {"name": "party"},
+    Dataset(OATH, NYC, "y3hw-z6bm", {"name": "party"},
             lambda r, role: {"caption": r.get("name"), "case": r.get("name"), "court": "New York City OATH Trials Division",
                              "docket_number": r.get("case_number"),
                              "case_type": joined(r.get("type"), r.get("category"), r.get("subcategory")),
@@ -85,7 +97,8 @@ DATASETS = [
                              "hearing": _ymd(r.get("hearing_date")), "severity": r.get("severity"),
                              "case_type": r.get("violation_type"), "violation": r.get("violation_description"),
                              "penalty": r.get("penality_imposed"), "paid": r.get("amount_paid"), "balance": r.get("balance_due"),
-                             "address": joined(r.get("respondent_house_number"), r.get("respondent_street")),
+                             "address": _addr(joined(r.get("respondent_house_number"), r.get("respondent_street")),
+                                              r.get("respondent_city"), "NY", r.get("respondent_zip")),
                              "location": place(r.get("respondent_city"), "NY"), "zip": r.get("respondent_zip")},
             key="ecb_violation_number"),
     Dataset("New York State tax warrant", "data.ny.gov", "v7ua-z23v",
@@ -95,7 +108,8 @@ DATASETS = [
                              "amount": r.get("warrant_filed_amount"), "filed": day(r.get("warrant_filed_date")),
                              "satisfied": day(r.get("warrant_satisfaction_date")), "vacated": day(r.get("warrant_vacate_date")),
                              "expires": day(r.get("warrant_expiration_date")), "county": r.get("county_code"),
-                             "location": place(r.get("city"), r.get("state")), "address": (r.get("debtor_address_1") or "").title(),
+                             "location": place(r.get("city"), r.get("state")),
+                             "address": _addr(r.get("debtor_address_1"), r.get("city"), r.get("state"), r.get("zip_code")),
                              "co_debtors": [n for n in (r.get(f"debtor_name_{i}") for i in (2, 3, 4))
                                             if n and n.upper() != "AND/OR"], "warrant": _link(r.get("url"))},
             key="warrant_id", url=lambda r: _link(r.get("url")) or f"https://data.ny.gov/resource/v7ua-z23v.json?"
@@ -114,7 +128,7 @@ DATASETS = [
                              "department": r.get("issuing_department"), "hearing": day(r.get("hearing_date")),
                              "disposition": r.get("case_disposition"), "fine": r.get("imposed_fine"),
                              "violation": r.get("violation_description"), "violation_date": day(r.get("violation_date")),
-                             "address": (r.get("address") or "").title(), "location": "Chicago, IL"},
+                             "address": _addr(r.get("address"), "Chicago", "IL"), "location": "Chicago, IL"},
             key="docket_number"),
     Dataset("Texas TCEQ civil judgment", "data.texas.gov", "7ift-kbgd", {"respondent_name": "respondent"},
             lambda r, role: {"court": "Texas district court (Attorney General for TCEQ)",
@@ -146,6 +160,8 @@ async def search(seed):
         if caption := f.attrs.pop("caption", None):
             party, role, side = _party(caption, last)
             f.attrs["fullname"], f.attrs["roles"] = party, [role or SIDES[f.site][side]]
+            if f.site == OATH and side == 1 and str(f.attrs.get("case_type", "")).startswith("Personnel"):
+                f.attrs["employer"] = VS.split(caption, maxsplit=1)[0].strip()  # the agency disciplining its employee
         elif f.site == CHICAGO:
             seg = next((s for s in f.attrs["respondents"] if last in words(s)), f.attrs["fullname"])
             business, _, person = seg.rpartition(" C/O ")  # "ACME LLC C/O VELL, DORIAN": the person minds the company's case
@@ -159,10 +175,12 @@ async def search(seed):
 # --- investigator links: the portals that bar scripts, opened by hand ---
 
 STATES = dict(s.split(" ", 1) for s in (
-    "AK Alaska|AZ Arizona|CA California|CO Colorado|DC District of Columbia|FL Florida|GA Georgia|IA Iowa|ID Idaho|IL Illinois|"
-    "IN Indiana|KS Kansas|MA Massachusetts|MD Maryland|MI Michigan|MN Minnesota|MO Missouri|NC North Carolina|ND North Dakota|"
-    "NM New Mexico|NV Nevada|NY New York|OH Ohio|OK Oklahoma|OR Oregon|PA Pennsylvania|RI Rhode Island|SC South Carolina|"
-    "TX Texas|VA Virginia|WA Washington|WI Wisconsin").split("|"))
+    "AK Alaska|AL Alabama|AR Arkansas|AZ Arizona|CA California|CO Colorado|CT Connecticut|DC District of Columbia|DE Delaware|"
+    "FL Florida|GA Georgia|HI Hawaii|IA Iowa|ID Idaho|IL Illinois|IN Indiana|KS Kansas|KY Kentucky|LA Louisiana|MA Massachusetts|"
+    "MD Maryland|ME Maine|MI Michigan|MN Minnesota|MO Missouri|MS Mississippi|MT Montana|NC North Carolina|ND North Dakota|"
+    "NE Nebraska|NH New Hampshire|NJ New Jersey|NM New Mexico|NV Nevada|NY New York|OH Ohio|OK Oklahoma|OR Oregon|PA Pennsylvania|"
+    "RI Rhode Island|SC South Carolina|SD South Dakota|TN Tennessee|TX Texas|UT Utah|VA Virginia|VT Vermont|WA Washington|"
+    "WI Wisconsin|WV West Virginia|WY Wyoming").split("|"))
 NATIONAL = [  # {name} is the quoted name; {last}/{first} its parts
     ("CourtListener: federal dockets (RECAP) with party {name}", "https://www.courtlistener.com/?type=r&q=party%3A{name}"),
     ("CourtListener: case law with {name} in the caption", "https://www.courtlistener.com/?type=o&q=caseName%3A{name}"),
@@ -237,6 +255,26 @@ PORTALS = {  # checked 2026-10-29: docs/research/tools.md has each one's terms a
     "RI": [("Rhode Island judiciary public portal", "https://publicportal.courts.ri.gov/PublicPortal/")],
     "ND": [("North Dakota courts public search", "https://publicsearch.ndcourts.gov/")],
     "IA": [("Iowa Courts Online", "https://www.iowacourts.state.ia.us/ESAWebApp/DefaultFrame")],
+    "AL": [("Alacourt public access, trial courts statewide (paid per search)", "https://pa.alacourt.com/")],
+    "AR": [("Arkansas CourtConnect, district and circuit courts", "https://caseinfo.arcourts.gov/opad/")],
+    "CT": [("Connecticut Superior Court civil, family, housing and small claims, by party name",
+            "https://civilinquiry.jud.ct.gov/PartySearch.aspx")],
+    "DE": [("Delaware CourtConnect: Superior Court and Court of Common Pleas civil",
+            "https://courtconnect.courts.delaware.gov/cc/cconnect/ck_public_qry_main.cp_main_idx")],
+    "HI": [("Hawaii eCourt Kokua (guest access)", "https://jimspss1.courts.state.hi.us/JIMSExternal/")],
+    "KY": [("Kentucky CourtNet 2.0 (paid subscription)", "https://kcoj.kycourts.net/CourtNet/")],
+    "LA": [("Louisiana Supreme Court docket (parish courts are subscription services)", "https://www.lasc.org/Docket")],
+    "ME": [("Maine eCourts public information", "https://www.courts.maine.gov/ecourts/")],
+    "MS": [("Mississippi Electronic Courts (paid subscription)", "https://courts.ms.gov/clerks/clerk_mec.php")],
+    "MT": [("Montana Supreme Court docket (trial courts have no statewide search)", "https://supremecourtdocket.mt.gov/")],
+    "NE": [("Nebraska JUSTICE court calendar by name (case search is paid)", "https://www.nebraska.gov/justicecc/ccname.cgi")],
+    "NJ": [("New Jersey Courts public records: civil case jackets by party, judgments, Tax Court", "https://www.njcourts.gov/public")],
+    "SD": [("South Dakota PARS public access record search (paid)", "https://ujspars.sd.gov/")],
+    "TN": [("Tennessee appellate courts public case history", "https://www.tncourts.gov/PublicCaseHistory/"),
+           ("Davidson County (Nashville) Circuit Court Clerk", "https://circuitclerk.nashville.gov/"),
+           ("Davidson County (Nashville) Criminal Court Clerk", "https://sci.ccc.nashville.gov/"),
+           ("Shelby County (Memphis) criminal justice portal", "https://cjs.shelbycountytn.gov/")],
+    "UT": [("Utah Xchange (paid subscription)", "https://legacy.utcourts.gov/xchange/")],
 }
 
 
