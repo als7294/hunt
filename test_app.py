@@ -295,6 +295,12 @@ sha = refs[0].rsplit("/", 1)[1].split(".")[0]
 assert c.request("DELETE", f"{api}/reference/{sha}", content="{}", headers=JSON).json()["references"] == []
 assert c.request("DELETE", f"{api}/face", content="{}", headers=JSON).json()["on"] is False
 
+# --- People around the subject: "Not relevant" hides one, audited, and can be undone ------------------------
+r = c.post("/api/cases/vance-claim/people/abc123/hide", content="{}", headers=JSON)
+assert r.status_code == 200 and r.json()["hidden"] == ["abc123"], r.text
+assert c.post("/api/cases/vance-claim/people/abc123/hide", content=json.dumps({"hidden": False}), headers=JSON).json()["hidden"] == []
+assert "notice" in c.get("/api/cases/vance-claim/people").json()
+
 # --- Free keys: saved into the environment, listed without their values, cleared -----------------
 os.environ.pop("HUNT_GRAVATAR_KEY", None)
 r = c.post("/api/keys", content=json.dumps({"HUNT_GRAVATAR_KEY": "gk-example"}), headers=JSON)

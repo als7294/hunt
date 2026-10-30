@@ -27,7 +27,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from . import bundle, case as casemod, notes as notesmod, search
+from . import bundle, case as casemod, graph, notes as notesmod, search
 from .case import EVIDENCE_NAME, Case
 from .match import ICD203, norm_url
 from .seed import now
@@ -36,7 +36,8 @@ MARKED = {"him": "The investigator confirmed the {site} account as the subject's
           "not him": "The investigator ruled out the {site} account{when}.",
           "unsure": "The investigator was unsure about the {site} account{when}."}
 SECTIONS = [("summary", "Synopsis"), ("scope", "Assignment and scope"), ("method", "Search methodology"),
-            ("presence", "Online presence"), ("identity", "Identity confirmation"), ("records", "Public records"),
+            ("presence", "Online presence"), ("identity", "Identity confirmation"), ("people", "People around the subject"),
+            ("records", "Public records"),
             ("found", "Findings"),
             ("conclusion", "Conclusion and recommendations"), ("couldnt_see", "Limitations: what we couldn't see"),
             ("disclaimers", "Disclaimers")]
@@ -444,6 +445,53 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         doc.say("identity", f"{_many(len(single), 'account')} rest on a single identifier and should not be relied on "
                             "without confirmation.", [acc(c) for c in single])
 
+    # People around the subject (docs/analysis.md §8; legal.md A1–A10): only what the case already holds, each as
+    # observed and cited, never a relationship label (A6); a minor by "a child" alone (A5); none in screening (A8)
+    if screening:
+        doc.say("people", "This screening version leaves out the people around the subject.", opened, boilerplate=True)
+    else:
+        hidden = set(json.loads(case.meta("people_hidden") or "[]"))
+        around = [x for x in graph.associates(posts, cands, case.seeds(), graph.photo_labels(case))["people"]
+                  if x["id"] not in hidden and any(ct["kind"] != "name" for ct in x["cites"])]  # a surname is never a tie
+        kept_post = {h["post_id"]: f"E-{h['id']}" for h in kept if h.get("post_id")}
+        account = {norm_url(c["url"]): c for c in people + records}
+        marked = {json.loads(r["detail"]).get("label"): f"M-a{r['rowid']}"
+                  for r in case.rows("select rowid, detail from audit where action = 'person marked in photo'")}
+
+        def seen(ct):  # one citation, in the source's own words: (what was observed, [citations]) or None
+            if ct["kind"] == "post":
+                post = by_post.get(int(str(ct["ref"]).removeprefix("E-")) if str(ct["ref"]).removeprefix("E-").isdigit() else None)
+                if not post:
+                    return None
+                own_acc = account.get(norm_url(post.get("account_url") or ""))
+                cites = [kept_post[post["id"]]] if post["id"] in kept_post else [acc(own_acc)] if own_acc else []
+                day_ = f" of {_when(post['posted_at'], tz, False)}" if post.get("posted_at") else ""
+                return (f"a post{day_} reads \u201c{ct['quote']}\u201d", cites) if cites else None
+            c = account.get(norm_url(ct["url"] or ""))
+            if ct["kind"] == "bio" and c:
+                return f"the {c['site']} bio reads \u201c{ct['quote']}\u201d", [acc(c)]
+            if ct["kind"] == "record" and c:
+                return ("a public record lists them at the subject's address" if ct["type"] == "same address"  # never their address (A2)
+                        else f"is a party in {ct['quote']}"), [acc(c)]
+            if ct["kind"] == "photo" and (m := marked.get(ct["quote"].removeprefix("marked by the investigator: "))):
+                return f"the investigator marked \u201c{ct['quote'].removeprefix('marked by the investigator: ')}\u201d in a kept photo", \
+                    [kept_post.get(int(str(ct["ref"])[2:]), m) if str(ct["ref"]).startswith("E-") else m]
+            return None
+        said = []
+        for x in around:
+            obs = [o for o in map(seen, x["cites"]) if o]
+            if obs:
+                who_ = x["name"] if x["name"] else "a child (name withheld)" if x["minor"] else "someone not named"
+                text = "; ".join(dict.fromkeys(o[0] for o in obs))
+                said.append(((f"{who_[0].upper() + who_[1:]}: {text}" if not text.startswith("is a party")
+                             else f"{who_[0].upper() + who_[1:]} {text}") + ".", [ci for o in obs for ci in o[1]]))
+        n = len(said)
+        doc.say("people", f"The subject's own posts, bios and public records name {f'{n} other person' if n == 1 else f'{n} other people' if n else 'no one else'}"
+                          + ("; none of them was searched, and nothing about them is a finding." if said else "."),
+                log.get("search finished", log.get("search", opened))[:1])
+        for text, cites in said:
+            doc.say("people", text, cites)
+
     # Public records: what each one says, and how it was tied to the subject
     if searched_records := [r for r in methodology if r["source"] in RECORDS and not (r["note"] or "").startswith("not run")]:
         kinds = list(dict.fromkeys(RECORDS[r["source"]] for r in searched_records))
@@ -571,7 +619,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     review_done = scanned and not any(h.get("status") == "new" for h in hits)
     decisions = bool(case.decisions())
     done = {"summary": bool(runs), "scope": True, "method": bool(runs), "presence": bool(people), "identity": decisions,
-            "records": True,
+            "records": True, "people": True,
             "found": review_done, "conclusion": decisions, "couldnt_see": True, "disclaimers": True}
     header = {"title": TITLES.get(d["kind"], "Online Investigation Report"), "firm": prefs["firm"],
               "investigator": prefs["investigator"], "licence": prefs["licence"], "contact": prefs["contact"],

@@ -5,6 +5,7 @@ Offline; all subjects here are fictional.
 
 import asyncio
 import io
+import json
 import os
 import tempfile
 import zipfile
@@ -78,8 +79,8 @@ assert report.settings()["logo"] and report.logo_path().suffix == ".png"
 
 # Before the investigator confirms: neutral wording, machine readings no stronger than "likely"
 rep = compose()
-assert [x["id"] for x in rep["sections"]] == ["summary", "scope", "method", "presence", "identity", "records", "found",
-                                             "conclusion", "couldnt_see", "disclaimers"]
+assert [x["id"] for x in rep["sections"]] == ["summary", "scope", "method", "presence", "identity", "people", "records",
+                                             "found", "conclusion", "couldnt_see", "disclaimers"]
 assert all(s["cites"] for s in rep["sentences"]) and rep["checks"]["every_sentence_cited"], rep["sentences"]
 assert len(rep["couldnt_see"]) == len(rep["couldnt_see_cites"]) and all(rep["couldnt_see_cites"])
 assert not any(x["section"] == "couldnt_see" for x in rep["sentences"])  # the app shows them as bullets, once
@@ -275,6 +276,25 @@ assert not any(n2["cite"] in x["cites"] for x in compose(screening=True)["senten
 
 one = compose(hs=[h for h in hits if h["status"] in ("kept", "in report")][:1])  # singular: "was", "Exhibit"
 assert "1 item relating to the listed activities was kept for this report (Exhibit " in text(one), text(one)
+
+# People around the subject (legal.md A1–A10): as observed and cited, never a relationship label; a minor unnamed;
+# none in screening; "Not relevant" leaves them out
+from hunt import graph  # noqa: E402
+posts.append({"id": 2, "source": "Bluesky", "account_url": "https://bsky.app/profile/kestrel_vane88", "url": "https://bsky.app/p/2",
+              "posted_at": "2026-04-20T10:00:00+00:00", "origin": "fetched", "media": [], "extra": None,
+              "text": "Lake day with my brother Dan Okafor. Proud of my son Leo, 9 years old!"})
+said = [x for x in compose()["sentences"] if x["section"] == "people"]
+words = " ".join(x["text"] for x in said)
+assert said[0]["text"].startswith("The subject's own posts, bios and public records name 2 other people"), said
+assert "Dan Okafor: a post of" in words and "my brother Dan Okafor" in words and "Brother" not in words, words
+assert "A child (name withheld): a post of" in words and "Leo" not in words, words
+assert all(x["cites"] == [f"A-{bsky_id}"] for x in said[1:]), said  # the post isn't kept: cited to the account that posted it
+dan = next(x for x in graph.associates(posts, build(case)["candidates"], case.seeds())["people"] if x["name"] == "Dan Okafor")
+case.db.execute("insert or replace into meta values ('people_hidden', ?)", (json.dumps([dan["id"]]),))
+assert "Dan Okafor" not in " ".join(x["text"] for x in compose()["sentences"])  # "Not relevant"
+assert [x["text"] for x in compose(screening=True)["sentences"] if x["section"] == "people"] == \
+    ["This screening version leaves out the people around the subject."]
+posts.pop()
 
 # A case known only by a username: no "the subject, the subject", the header names the case, and accounts she
 # ruled out are cited to her decisions (they're in no table, so an account id couldn't be looked up)

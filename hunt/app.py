@@ -734,7 +734,22 @@ async def get_people(req: Request):
     """Family and associates from what the case already holds (graph.associates): names and citations only."""
     c = _case(req)
     snap = await search.snapshot(c)
-    return JSONResponse(graph.associates(await _posts(c), snap["candidates"], c.seeds(), graph.photo_labels(c)))
+    out = graph.associates(await _posts(c), snap["candidates"], c.seeds(), graph.photo_labels(c))
+    hidden = set(json.loads(c.meta("people_hidden") or "[]"))
+    for person in out["people"]:
+        person["hidden"] = person["id"] in hidden
+    return JSONResponse(out)
+
+
+async def hide_person(req: Request):
+    """{hidden: bool}: "Not relevant" on an associate hides them from the screen and the report, audited; undoable."""
+    c, b = _case(req), await _body(req)
+    pid, on = req.path_params["id"], b.get("hidden", True) is not False
+    hidden = set(json.loads(c.meta("people_hidden") or "[]"))
+    (hidden.add if on else hidden.discard)(pid)
+    c.db.execute("insert or replace into meta values ('people_hidden', ?)", (json.dumps(sorted(hidden)),))
+    c.audit("associate not relevant" if on else "associate shown again", {"id": pid})
+    return JSONResponse({"hidden": sorted(hidden)})
 
 
 async def mark_photo_person(req: Request):
@@ -1781,6 +1796,7 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/cases/{slug}/person", get_person),
         Route("/api/cases/{slug}/people", get_people),
         Route("/api/cases/{slug}/people/photo", mark_photo_person, methods=["POST"]),
+        Route("/api/cases/{slug}/people/{id}/hide", hide_person, methods=["POST"]),
         Route("/api/cases/{slug}/decisions", post_decision, methods=["POST"]),
         Route("/api/cases/{slug}/media", add_media, methods=["POST"]),
         Route("/api/cases/{slug}/posts", get_posts),
