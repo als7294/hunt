@@ -1,4 +1,4 @@
-// <hunt-cluster>: the live 3D search view, adapted from the Claude Design "pointer-cluster3"
+// <hunt-cluster>: the live 3D search view, adapted from the "pointer-cluster3" design mockup
 // mock. The mock played a fixed 38 s demo; this one is driven by real search events via
 // el.update(state), and nodes ease in when their data arrives.
 //

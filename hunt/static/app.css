@@ -1,4 +1,4 @@
-/* Hunt: tokens and components ported from the Claude Design "Pointer App v3" mockups. */
+/* Hunt: tokens and components ported from the "Pointer App v3" design mockups. */
 @font-face { font-family: Geist; src: url(fonts/Geist-Variable.woff2) format("woff2"); font-weight: 100 900; }
 @font-face { font-family: "Geist Mono"; src: url(fonts/GeistMono-Variable.woff2) format("woff2"); font-weight: 100 900; }
 
@@ -30,7 +30,7 @@ a { color: inherit; text-decoration: none; }
 .screen { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
 
 /* Top bar */
-.top { position: relative; height: 68px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 20px; z-index: 2; }
+.top { position: relative; min-height: 68px; flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 20px; z-index: 2; } /* wraps when full, never pushes the page sideways */
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 18px; }
 .logo { position: relative; width: 24px; height: 24px; flex: none; }
 .logo::before { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 2.4px solid var(--tx); }
@@ -148,7 +148,6 @@ img.thumb.blur, .blur { filter: blur(10px) saturate(.6); }
   .case-name { max-width: 110px; } .pill-extra { display: none; } .top .chip-btn { padding: 9px 10px; } /* the case pill stays on screen at 1024 px; the closed bar and the menu say it */
 }
 @media (max-width: 900px) {
-  .top { height: auto; min-height: 68px; flex-wrap: wrap; row-gap: 8px; padding-block: 10px; } /* too much for one row: wrap, never scroll sideways */
   .two-up, .split, .report-grid, .claim-grid { grid-template-columns: minmax(0, 1fr); } /* 1fr alone can't shrink below a long URL or a table */
   .claim-rs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); } /* the restrictions side by side above the leads */
   .h1 { font-size: 34px; } .wiz-grid .h1 { font-size: 38px !important; }

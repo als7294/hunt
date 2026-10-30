@@ -817,13 +817,13 @@ Still open:
 
 ## 6. Method and limits
 
-**The four audit notes** are outside the repo, in `/Users/aaronsmith/Library/Application Support/Claude/side-session-notes/local_dc868f5e-4ddc-4d67-a390-017b5e50bf3c/legal-automation/audit/`:
+**The four audit notes** were working notes kept outside the repo:
 - `browser_capture.md`: C1, C2, C3, C5, C9, C10 and guided mode;
 - `collectors_limits.md`: C6, C7, C8, C11, C12, K8, a per-source table, and the "Not yet enforced" re-check;
 - `case_report_face.md`: K1–K7 and F1–F4;
 - `contact_associates.md`: C4, C13 and A1–A10.
 
-**Scratch probes** are in `/private/tmp/claude-501/-Users-aaronsmith-Documents-OSINT--claude-worktrees-legal-automation-73caa8/b4060bf8-f6b1-4d73-958d-d20914e84856/scratchpad/`:
+**Scratch probes** were run outside the repo:
 - `run_static.py`, `static_body.py` and `mut/`: the mutation check of `test_capture.py`'s static block (lines 454–496);
 - `race.js` and `race_spaced.js`: guided mode against a mocked `chrome` API, with a 30 ms reply delay, for G1 and G2;
 - `probe_assoc.py` and `probe_minor2.py`: `graph.associates` on made-up text;

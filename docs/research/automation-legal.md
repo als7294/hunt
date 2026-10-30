@@ -109,7 +109,7 @@ _Research date: 2026-10-29. This is research, not legal advice. **[S]** = source
 - **Depth:** a 124-video profile yielded "over a hundred" with scrolling [S] (same). That vendor used its own unblocking tooling, so an honest client will see less [I].
 - **Gating:** comments are partly gated, search needs session cookies, and rate limits arrive "after a few requests" [S] (same). Consumer reports describe a limited number of clips before stalling [S] ([Tokgauge, low quality](https://tokgauge.com/guides/watch-tiktok-without-the-app/)).
 - **oEmbed** needs no token, but "Embed Videos will be deprecated soon" [S] ([TikTok for Developers](https://developers.tiktok.com/doc/embed-videos/)).
-- **robots.txt** lets generic agents read profile and video pages. It disallows `/embed/@`, `/embed/v2`, `/search?` and `/search/user?q=`, and blocks AI crawlers including ClaudeBot [S] ([tiktok.com/robots.txt](https://www.tiktok.com/robots.txt)).
+- **robots.txt** lets generic agents read profile and video pages. It disallows `/embed/@`, `/embed/v2`, `/search?` and `/search/user?q=`, and blocks named AI crawlers [S] ([tiktok.com/robots.txt](https://www.tiktok.com/robots.txt)).
 - **Defensibility:**
   - **CFAA:** low, as for public pages generally.
   - **Contract:** the US terms (updated 2026-07-15; issued by "TikTok USDS Joint Venture") ban extracting data "for any purpose … using any automated system or software" [S] ([TikTok US ToS §3.4](https://www.tiktok.com/legal/page/us/terms-of-service/en)). The Bright Data reasoning was about Meta's wording and is untested for TikTok's [I].

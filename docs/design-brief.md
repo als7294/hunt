@@ -1,6 +1,6 @@
-# Hunt: design brief for Claude Design
+# Hunt: design brief
 
-Paste everything below the line into Claude Design.
+Paste everything below the line into the design tool.
 
 ---
 

@@ -1,4 +1,4 @@
-// <fetch-hound>: the startup-screen hound from the Claude Design mockups (three.js vendored locally).
+// <fetch-hound>: the startup-screen hound from the design mockups (three.js vendored locally).
 (function () {
   if (customElements.get('fetch-hound')) return;
   const THREEp = import('/vendor/three.module.min.js');
