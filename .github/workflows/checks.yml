@@ -1,0 +1,23 @@
+# Every push runs the self-checks. Each test_*.py is a plain-assert script that prints "ok".
+name: checks
+on: [push, pull_request]
+jobs:
+  self-checks:
+    runs-on: macos-14  # the checks use sips and the macOS Trash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - name: Offline self-checks
+        run: |
+          fail=0
+          for t in test_*.py; do
+            case $t in test_scan.py|test_photo.py|test_geo.py|test_vlm.py|test_clues.py) continue;; esac
+            echo "== $t"; uv run python "$t" || fail=1
+          done
+          exit $fail
+      - name: Model-backed checks  # need CLIP / GeoCLIP weights; informative on a runner, required locally
+        continue-on-error: true
+        run: for t in test_scan.py test_photo.py test_geo.py test_vlm.py test_clues.py; do echo "== $t"; uv run python "$t"; done

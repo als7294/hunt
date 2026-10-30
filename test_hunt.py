@@ -144,7 +144,8 @@ assert (case.dir / top["evidence"][0]["file"]).read_bytes() == b"<html>A</html>"
 assert any("taken on 2 of 600 sites checked" in r for r in top["reasons"]), top["reasons"]
 assert report["pivots"] == ["vane_alt"], report["pivots"]  # not the known handle, not the namesake's
 assert other["probability"] < top["probability"]
-assert [a["action"] for a in report["audit"]] == ["case opened"]
+assert [a["action"] for a in report["audit"]] == ["case opened", "source run"]  # every run is in the case log
+assert report["methodology"][0]["audit"] == report["audit"][1]["rowid"]
 assert top["tags"][0] == "username" and len(top["tags"]) == len(top["reasons"])
 
 # Opening never creates; creating never merges; details round-trip
@@ -188,4 +189,15 @@ assert case.verify(quick=True)["tampered"] == [rel]  # and once seen, it stays f
 (case.dir / rel).write_bytes(b"edited")
 assert case.verify(quick=True)["tampered"] == [rel]  # a changed size is always re-hashed
 
+# keys.env: optional keys loaded once, never overriding what's already set
+import os, tempfile
+from pathlib import Path
+from hunt import cli
+with tempfile.TemporaryDirectory() as d:
+    f = Path(d) / "keys.env"
+    f.write_text("# comment\nHUNT_FEC_KEY = 'abc'\nHUNT_GITHUB_TOKEN=ghp_x\nOTHER=no\nbroken line\n")
+    os.environ["HUNT_GITHUB_TOKEN"] = "already"
+    assert cli.load_keys(f) == ["HUNT_FEC_KEY"]
+    assert os.environ["HUNT_FEC_KEY"] == "abc" and os.environ["HUNT_GITHUB_TOKEN"] == "already" and "OTHER" not in os.environ
+    assert cli.load_keys(Path(d) / "missing.env") == []
 print("ok")

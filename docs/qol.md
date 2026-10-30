@@ -29,7 +29,7 @@ Ranked by how often each comes up × how much it helps this investigator:
 
 ## What was built
 
-Sections 1–3 and 5 run offline. Check again (4) and watching (6) make the same logged-out requests a search and a scan already make, through `HUNT_PROXY`; watching's notifications are local. Nothing is ever downloaded from Instagram, TikTok or Facebook for the investigator.
+Sections 1–3, 5, 7 and 8 run offline. Check again (4) and watching (6) make the same logged-out requests a search and a scan already make, through `HUNT_PROXY`; watching's notifications are local. Nothing is ever downloaded from Instagram, TikTok or Facebook for the investigator.
 
 ### 1. The Downloads inbox (`hunt/inbox.py`, `hunt inbox`)
 
@@ -84,12 +84,18 @@ A zip for handing to a client, counsel or court:
 | In the zip | What it is |
 |---|---|
 | `exhibits/` | Every evidence file under a readable name, dated when it was saved into the case. Profile photos stored as `.img` get their real type. |
-| `manifest.csv` | Exhibit, SHA-256, bytes, hash OK, what it is, source, URL, account, posted at, saved at, original name. Cells a spreadsheet would run as formulas (`=`, `+`, `-`, `@`) are quoted. |
+| `manifest.csv` | Exhibit, SHA-256, bytes, hash OK, **role** (evidence or lead), **collected** (read by Hunt / captured in the Hunt Browser / added by the investigator), what it is, source, URL, account, posted at, saved at, the **capture record** (`viewed_as`, `audience`, `tool_version`), original name. Cells a spreadsheet would run as formulas (`=`, `+`, `-`, `@`) are quoted. |
 | `SHA256SUMS` | The hashes each file was *saved* under, so `shasum -a 256 -c SHA256SUMS` checks the whole bundle on any machine. A file that changed fails, as it should, and is also flagged in the manifest and README. |
 | `audit-log.csv` | The case log with its row ids. They match the report's `M-a<id>` citations. |
-| `README.txt` | The case, its purpose on record, the Hunt version, and how to check the bundle on macOS, Linux and Windows. |
+| `README.txt` | The case, its purpose on record, the Hunt version, how to check the bundle on macOS, Linux and Windows, and **how the evidence was collected**: automation-legal.md's Appendix A paragraph, for a certification under FRE 902(13) and (14). |
 
 The zip's own SHA-256 is printed, sent as the `x-bundle-sha256` header, and logged as `evidence exported`.
+
+**Every sentence in the README stays true** (automation-legal.md's Appendix A asks for exactly this):
+- **The capture record.** Its sentence ("the account it was viewed from, the audience…, the versions of Hunt and Hunt Capture") appears only when every captured exhibit carries all three fields. Otherwise the README says how many captured files lack them. Today none carry them: Hunt Capture doesn't send them yet (integration point 18), and K5 is still partly built.
+- **User-Agents.** The Appendix's "a User-Agent naming Hunt" isn't true for every request, so the README says which: public APIs and post feeds name Hunt; the site-existence checks, profile-photo fetches and screenshots present a common browser's (integration point 19).
+- **Leads.** Frames the automatic scan saved from a video are `role: lead`, described as "a lead, not evidence; the video is the evidence". Every other file is `evidence`.
+- **Not built:** the separate attribution section per account (numeric ID, matching details; *Vayner*). The report owner may prefer it in the report; see integration point 20.
 
 `hunt export` writes to `~/Hunt/exports/` by default. The app builds the zip in a temporary folder inside the case, streams it, then removes that temporary copy.
 
@@ -106,7 +112,21 @@ Insurance cases run for months, and posts vanish or accounts change. A job looks
    - An account that now shows no posts at all is flagged `none_left`.
    - A post that reappears is `post back`.
    - A failed read judges nothing.
-3. **Screenshots:** a fresh, dated capture of every account (`recapture`). For Instagram, TikTok, Facebook and X, which Hunt can't read logged out, this is the only way to see a change: compare the dated screenshots by eye.
+3. **Screenshots:** a fresh, dated, logged-out capture of every account (`recapture`), **except Instagram, Facebook, X and LinkedIn**, whose robots.txt denies unnamed bots. Hunt never sends those platforms a request of its own.
+
+**On Instagram, Facebook, X, LinkedIn and logged-in TikTok, Check again is a worklist** (automation-legal.md §4.3):
+- **The worklist** (`GET /api/cases/{slug}/worklist`) lists the subject's confirmed accounts there, with when each was last opened or captured.
+- **Opening is hers:** `POST …/worklist/open` opens one account in the Hunt Browser, on her click. It's one page load, audited as `worklist open`, and there is no "open all".
+- **LinkedIn pacing:** re-opening a LinkedIn profile within 7 days needs `confirmed: true` after a warning, since LinkedIn can show members who viewed them (Colorado 4.4(a); NYSBA 4.C).
+- **Capture comparison** (`recheck.diff_captures`): with Hunt Capture on, each new page archive is compared with the last archive of the same page (the extension's `where` key), giving the same change kinds:
+  - **`posts gone`:** a post from the last capture counts as gone only if an **older** post from that capture is still on the page now. Grids often carry no dates, and a post that simply wasn't scrolled to is never called gone.
+  - **`post back`.**
+  - **`profile changed`,** with `field: "page title"`. The title carries the name, and on LinkedIn the headline too.
+  - **`account gone` / `account back`,** from the platform's own "isn't available" / "doesn't exist" wording.
+  - **Private accounts:** a page saying the account is private gives `posts gone` with `none_left` and that reason.
+  - **Empty captures:** a capture that showed no posts judges nothing, and isn't used as the baseline.
+  - Every entry carries `"via": "capture"`.
+- **When it runs:** at the start of every Check again job, from `POST …/captures/compare`, and, once the capture owner adds the hook, right after each page capture (integration point 17).
 
 Each change is an audit entry and a `change` event on the job, and the summary is audited as `recheck`. `GET /api/cases/{slug}/changes` lists them all with their `M-a` citations. The posts that went missing stay in the case, with their media, as evidence.
 
@@ -153,7 +173,7 @@ Hunt finds the accounts, then keeps looking for fraud clues without the investig
 - **In the app,** the scan takes the heavy lock like every heavy job.
 - **The vision model's own load can't be lowered:** Ollama is a separate process. Waiting for an idle Mac is what protects the investigator from it.
 
-**When watching stops by itself:** when the case is closed (meta `closed`), or when its retention period ends (`app.RETENTION_DAYS` after it was opened, unless meta `legal_hold`). Either way it's audited as `watch off` with the reason. Nothing sets `closed` or `legal_hold` yet (integration point 9).
+**When watching stops by itself:** when the case is closed (meta `closed`), or when its retention period ends (`app.RETENTION_DAYS` after it was opened, unless meta `legal_hold`). Either way it's audited as `watch off` with the reason. `POST /api/cases/{slug}/close` and `/hold` set them (and close stops watching at once); see `docs/api.md`.
 
 **CLI:**
 
@@ -165,9 +185,170 @@ hunt watch --background on                # keep watching when Hunt is closed (o
 hunt watch                                # check what's due now (what the agent runs)
 ```
 
+### 7. Move a case between computers (`hunt/pack.py`, `hunt pack` / `hunt unpack`)
+
+Laura works on a work laptop and at home. A whole case travels as one encrypted archive: `<case>-<UTC time>.hunt-case.dmg`.
+
+**What's in the archive:**
+- `case.db`: a consistent copy, with the audit log, notes, decisions, posts, hits and watch settings.
+- Every evidence file.
+- `case.json`.
+- `manifest.json`: every file's SHA-256 and size, the case, which computer it was packed on, when, and the Hunt version.
+
+**The format:** an **AES-256 encrypted disk image**, made with macOS's own `hdiutil`.
+- It needs no extra software.
+- Finder can open it with the passphrase.
+- The passphrase is chosen per archive (12+ characters) and goes to `hdiutil` on stdin, never on a command line or in a log.
+- I chose it over adding a crypto library: the `cryptography` package isn't installed, and a home-made cipher is out of the question.
+
+**Unpacking:**
+- The image is mounted read-only and hidden from Finder.
+- The manifest may only name `case/case.db`, `case/case.json` and `case/evidence/<sha256>.<ext>`, so a crafted archive can't write anywhere else.
+- Every file is copied aside while being hashed. One mismatch, one missing file, or one file the manifest doesn't list, and nothing is accepted.
+- The database's integrity is checked, and only then is the case put in place.
+- **Never merged:** a case with the same name here is kept, and the new one arrives as `-2`. "Replace" moves the one here to the Trash first.
+
+**Chain of custody across the move:**
+- The archived case's own log ends with `case packed`: which computer, which file.
+- The computer it left logs `case pack sealed`, with the archive's and the manifest's SHA-256.
+- The computer it arrives on logs `case unpacked`, with the same two hashes, so the two logs can be tied together.
+- Watching is turned off on arrival (`watch off`, "moved from another computer"), so two computers never both watch one subject.
+
+```
+hunt pack --case vance-claim             # asks for the passphrase twice; saves to ~/Downloads
+hunt unpack ~/Downloads/vance-claim-20261029-120000Z.hunt-case.dmg [--replace]
+```
+
+### 8. Have we seen this person before? (`hunt/seen.py`, `hunt seen`)
+
+Investigators re-encounter subjects and do the work twice. When a case is created, and after a search, its identifiers are looked up in the other cases on this computer:
+- **What's compared:**
+  - seeds (username, email, phone, profile URL, address, name), normalised: case, `@` and spacing don't matter, and URLs are normalised as decisions are
+  - the URLs and handles of accounts marked as the subject's
+  - the SHA-256 of the photos and videos in the case
+- **Not compared:** page sources and screenshots. A site serves the same "not found" page to everyone.
+- **Strength:** a name alone is a **weak** match (namesakes); everything else is strong.
+- **What a match shows:** the other case's label, kind and opening date, and what matched. Nothing more.
+- **Safety:** local and read-only, and nothing is merged.
+
+**Screening:** an employment screening is purpose-bound, so it works both ways:
+- A `background` case's lookup, or any lookup with `screening=1`, doesn't open other cases, and says why.
+- `background` cases never appear in another case's matches.
+- **Why:** an employment screening may only use what was collected for it (FCRA permissible purpose). Many states bar hiring decisions based on past workers' compensation claims, which is what an insurance case often is.
+
+```
+hunt seen kestrel_vane88 kestrel@example.com     # before opening a case
+hunt seen --case vance-claim [--screening]
+```
+
+### 9. Install, first run, doctor, update, uninstall (`hunt/setup.py`)
+
+Laura installs and runs Hunt without knowing Python. The investigator-facing story is in [user-guide.md](user-guide.md).
+
+**Install, once, in Terminal:** `uv tool install git+https://github.com/als7294/hunt && hunt setup`.
+- This works before Hunt is on PyPI. Once it's published, `uv tool install hunt-osint`.
+- uv brings its own Python 3.12.
+- Getting uv itself is `brew install uv`, or uv's own installer. That one *is* a `curl | sh`; Hunt doesn't ship one of its own.
+- About 1.2 GB on disk.
+
+**The launcher, `hunt setup` → `~/Applications/Hunt.app`.** I chose an **AppleScript applet made on her Mac with `osacompile`**, a stay-open app:
+- Double-click starts `hunt app`, which opens the browser.
+- Clicking the Dock icon again reopens the page.
+- **Quit** stops the server.
+- **Why it isn't blocked:** Gatekeeper checks only quarantined files, which means downloaded ones, and an app made locally is never quarantined. `osacompile` signs it ad hoc by itself. So it runs without code signing, notarisation or "Open Anyway". Checked on this Mac: signature `adhoc`, no `com.apple.quarantine`.
+- **Why not ship a prebuilt Hunt.app:** a downloaded, unsigned `.app` or `.command` *would* be quarantined. On macOS 15+ that means a trip to System Settings → Privacy & Security → Open Anyway.
+- **What it carries:** it remembers `HUNT_HOME`, `HUNT_PROXY` and `HUNT_VLM` as they were when it was made, because an app started from the Dock doesn't see the shell's settings. Run `hunt setup --launcher` after changing the proxy; the old app goes to the Trash.
+- **Its log:** `~/Hunt/app.log`, made under umask 077 because it holds the run's sign-in link.
+
+**`hunt doctor`:** Python, uv, Hunt's version and install kind, Ollama (running, installed, or not), the vision model, the browser build, the Hunt Capture extension folder, ffmpeg, free disk space, the `~/Hunt` folder, and the launcher. Each row has a plain fix, and it exits 1 if anything needs fixing. Offline, apart from a 2-second look at the local Ollama.
+
+**First-run downloads** (`hunt setup`, `GET /api/setup`, `POST /api/setup/{item}`):
+- **What's offered:** the vision model and the browser build. Nothing else.
+- **The size comes first:**
+  - The model's size is read from its manifest in Ollama's library, a ~1 KB request. `qwen3-vl:4b-instruct` is 3.34 GB.
+  - The browser's size comes from Playwright's own `--dry-run` plus a `HEAD` per file: Chrome for Testing 156 is 195 MB.
+  - A download starts only when the investigator accepts that exact size: the route takes `{size}` and refuses any other number.
+  - If the size can't be read, the item isn't offered.
+- **How each is fetched:**
+  - The model through the local Ollama's own `/api/pull`, so Ollama does the downloading and keeps the model where it always does.
+  - The browser with `playwright install chromium`.
+  - Both stream `progress` events over the existing SSE job pattern.
+- **Ollama itself** is an app from ollama.com. Hunt points to it and doesn't install it.
+
+**`hunt update`:**
+- `uv tool upgrade hunt-osint`, after a yes.
+- Its size can't be known in advance: usually a few MB, more when a dependency like PyTorch changes, and the prompt says so.
+- A source checkout is told to `git pull && uv sync`.
+- `hunt --version` and the startup screen show the version.
+
+**`hunt uninstall`:**
+- Refused while Hunt is open.
+- Removes the background watcher (audited in every watched case).
+- Moves Hunt.app to the Trash.
+- `uv tool uninstall hunt-osint`.
+- Asks **separately**, showing the case count and size, before moving `~/Hunt` to the Trash.
+- Leaves the browser build and the model, which other tools may share, and says how to remove them.
+
+### 10. Minimisation at the end of retention (`hunt/minimise.py`, `hunt minimise`, `/api/cases/{slug}/minimise`)
+
+Hunt scans everything, but a report uses only what's material (10 CCR §2695.7(d); automation-legal.md §4.5). Once a case's retention date has passed, the raw media nobody used can go while the case stays.
+
+**What goes:** the photos, videos and screenshots of posts that no kept or reported hit and no note points to, plus the frames the scan saved for flags nobody kept.
+
+**What stays:**
+- everything kept, reported or noted
+- page archives, search results and profile screenshots (they're records)
+- the case itself
+
+**How the house rules shape it:**
+- **Never a deletion.** The files go to the Trash as one folder (`<case> unused media <date>`). The purge isn't complete until the investigator empties the Trash herself, and the UI and CLI say so.
+- **Asked first.** It happens only for the exact count and size the investigator was shown. If moving fails, every file is put back.
+- **Never on legal hold:** removing files under a hold would be spoliation. Never before the retention date, and never while a job runs.
+- **Audited** as `media minimised`, with every file's path, SHA-256, size and post.
+
+**Afterwards:** the case's posts still list those media, but their files are gone. `Case.verify()` and the bundle skip missing files, and the evidence route answers 404. The UI should show "removed at retention" for media whose SHA-256 is in a `media minimised` entry (integration point 21).
+
 ### Self-checks
 
-All offline, using temp folders only. `test_inbox.py`, `test_bundle.py`, `test_recheck.py`, `test_notes.py`, `test_watch.py` and `test_qol.py` each print `ok`.
+All offline, using temp folders only. `test_inbox.py`, `test_bundle.py`, `test_recheck.py`, `test_worklist.py`, `test_notes.py`, `test_watch.py`, `test_pack.py`, `test_seen.py`, `test_setup.py`, `test_minimise.py` and `test_qol.py` each print `ok`.
+
+`test_worklist.py` runs hand-made page archives of a fictional Instagram profile through Hunt Capture's own `extension.add_page`. In turn, the profile:
+- loses a post
+- changes its title
+- gets the post back
+- shows no posts
+- turns private
+- disappears
+- comes back
+
+The coverage rule (an older post must still be visible) is mutation-checked. The test also covers the worklist's LinkedIn pacing confirmation.
+
+`test_minimise.py` checks:
+- no purge before retention, or on legal hold
+- exactly what goes and what stays
+- a wrong count or size is refused
+- a failing Trash puts every file back
+- the audit holds every hash
+
+`test_setup.py` never installs or downloads anything:
+- Ollama's API and library are stubbed `httpx` transports.
+- Playwright is a fake shell script, for the dry run and the progress lines.
+- `uv`, `launchctl` and the Trash are stubbed.
+- `osacompile` runs for real, into a temp folder. It compiles the launcher, and the test reads the result back with `osadecompile`.
+
+`test_pack.py` makes one real encrypted image in a temp folder (about 10 s) and checks:
+- a wrong passphrase is refused
+- a taken name gets `-2`, and `replace` moves the old case to a stubbed Trash
+- the hashes in the logs on both sides agree
+- watching is off on arrival
+
+On plain folders, it checks that a changed, extra or missing file, a path outside `case/`, and a folder with no manifest are each refused, and that the case itself is never touched. It leaves no image attached.
+
+`test_seen.py` checks:
+- strong and weak matches, and their order
+- matches through a confirmed account and through the same video
+- lookups from typed seeds
+- both screening rules
 
 `test_watch.py` stubs battery, load, idle time, `launchctl`, notifications, the re-check and the scan. It never installs a real LaunchAgent, notifies, or touches `~/Library` or the Trash. It covers:
 - waiting on battery, when busy, and when in use
@@ -196,7 +377,7 @@ The real Trash call was checked once by hand, on a scratch file.
 
 | What | Why |
 |---|---|
-| **"Went private" on Instagram, TikTok, Facebook and X** | Telling private from public needs the logged-in or scraped page. Hunt takes a new dated screenshot instead. Bluesky has no private accounts, and Mastodon's "locked" only gates followers. An account whose posts all vanish is flagged `none_left` ("made private, or emptied"). |
+| **Private, profile-photo and bio changes on Instagram, Facebook, X and LinkedIn by Hunt itself** | Hunt never requests those platforms. Changes come from comparing her own captures (the page title, the posts shown, "private" and "isn't available" pages). The profile photo and the bio aren't compared there: the extension's parsers return posts, not profile fields. |
 | **YouTube profile changes** | The channel's RSS feed carries only its title. Posts gone from the latest 15 are still detected. |
 | **EXIF panel** (rank 9) | Platforms strip EXIF, so downloaded social media rarely has any. `posts.add_files` already reads `DateTimeOriginal`, and `photo.py` reads device, time and GPS. "Where from" was the more useful metadata. |
 | **Instagram shortcode → time** | The shortcode decodes to a media ID whose top bits look like milliseconds since a 2011 epoch. That's unverified for current IDs, so it isn't used. |
@@ -284,7 +465,12 @@ The real Trash call was checked once by hand, on a scratch file.
   - `account gone`: "The Mastodon account can't be found at its address any more (last seen 1 Oct)", in the warning style.
   - `account back` and `post back`: neutral.
   - Each line has **Add note** (section F), with `about: "account", ref: account`.
-- **Footnote:** "Instagram, TikTok, Facebook and X can't be read logged out. Hunt took a new dated screenshot of each to compare." Link it to the account's captures.
+- **The worklist,** for Instagram, Facebook, X, LinkedIn and TikTok, sits beside the list (`GET …/worklist`):
+  - One row per account: platform icon, account, "last opened 3 Oct" (or "never"), and an **Open in Hunt Browser** button → `POST …/worklist/open` `{account}`.
+  - On 409, show the warning ("You opened this LinkedIn profile on 2 Oct…") with **Open anyway** (`confirmed: true`) and **Cancel**.
+  - There is no "Open all".
+  - Helper: "Hunt doesn't visit these sites itself. Open each one with Hunt Capture on; Hunt compares what you see with your last visit."
+  - If `uncompared_captures` > 0, call `POST …/captures/compare` and add the returned changes to the list.
 - **Empty state:** "Nothing changed since 1 Oct."
 - **Afterwards:** refresh `GET …/posts`, since new posts may need a scan, and offer **Scan new posts**.
 
@@ -305,7 +491,7 @@ The real Trash call was checked once by hand, on a scratch file.
 - **A card under Check again:**
   - **☐ Watch this subject**, with a **Every day · Every 3 days · Every week** selector (`every_days` 1/3/7).
   - Helper: "Hunt checks the subject's accounts again, scans what's new and tells you when something changes."
-  - Toggling sends `POST /api/cases/{slug}/watch` `{on, every_days}`. A 409 is shown as is (e.g. "mark at least one account as him first", "its 90-day retention period has ended").
+  - Toggling sends `POST /api/cases/{slug}/watch` `{on, every_days}`. A 409 is shown as is (e.g. "mark at least one account as the subject’s on Is it them? first", "its 90-day retention period has ended").
 - **Status line** (`GET …/watch`):
   - "Last checked 2 Nov, 03:10 · Next 5 Nov" (`last`, `next`, local time).
   - The `status` in words:
@@ -325,6 +511,60 @@ The real Trash call was checked once by hand, on a scratch file.
   - Opening the list sends `POST …/alerts/seen`.
 - **Lock-screen note** near the switch: "Notifications show counts only, never what was posted. To hide them on the lock screen: System Settings → Notifications → Show previews: When unlocked."
 
+### H. "Move to another computer" in the case menu, and "Bring a case in" on the case list
+
+**Packing:**
+- Case menu: **Move to another computer…** opens a dialog.
+- **Passphrase** and **Again** fields (password inputs). Helper: "12 or more characters; a few words works well. Hunt can't recover it."
+- **Save to** folder, default `~/Downloads`.
+- Button **Pack case** → `POST /api/cases/{slug}/pack` `{passphrase, folder}`.
+- Show progress, since it's slow for big cases: "Packing… (large videos take a while)".
+- On success: "Saved `vance-claim-20261029-120000Z.hunt-case.dmg` (3 files, 1.2 GB). Fingerprint: `71a9…f6`. Copy it to the other computer, and send the passphrase separately."
+- Clear the passphrase fields when the dialog closes.
+
+**Unpacking:**
+- Case list: **Bring a case in…** lists `GET /api/case-archives` (default `~/Downloads`), plus a folder field.
+- Pick an archive, enter the **Passphrase**, then **Unpack** → `POST /api/case-archives/unpack` `{name, folder, passphrase}`.
+- If the answer's `slug` isn't the archive's case name, say: "A case with this name is already here, so this one was added as vance-claim-2. Nothing was merged."
+- Offer **Replace the one here instead** (`replace: true`), with a confirm step: "The case on this computer goes to the Trash. You can put it back from there."
+- Errors are shown as is, e.g. "wrong passphrase, or not a Hunt case archive", or "case/evidence/… doesn't match its hash in the manifest; nothing was imported".
+- After unpacking: "Watching is off on this computer. Turn it on here if this is where the case will be watched."
+
+### I. "Seen before" in the new-case form and on the search results
+
+- **New-case form:**
+  - As seeds are typed (debounced), call `POST /api/seen-before` `{seeds, kind}`.
+  - If there are matches, show a banner above **Create**: "You may have looked into this person before: *Vance 2025 claim* (insurance, opened 3 Mar 2025) shares the username kestrel_vane88."
+  - Each match links to the case and lists its `on` items: `file` as "the same photo/video", `name` as "same name only: could be someone else", in a weaker style.
+  - **Nothing is merged and nothing is blocked:** the investigator decides.
+- **After a search** (Is it them?, or the case overview): `GET /api/cases/{slug}/seen-before` gives the same list.
+- **`checked: false`:** show `why` in place of the list (employment screenings).
+- **`skipped_screenings` > 0:** add a quiet line, "1 employment screening on this computer wasn't looked at."
+- **Notes:** a **Note** button on each match pre-fills "Seen before in *Vance 2025 claim*: …" (`about: "case"`). Linking the two cases goes on the record that way, by the investigator's own hand.
+
+### J. Setup and version on the start screen
+
+- **The version:** "Hunt 0.1.0" in the corner, from `GET /api/startup` → `version` (or `GET /api/setup`). Beside it, "Update: run `hunt update`".
+- **A setup card** when `GET /api/setup` → `items` isn't empty. One row per item:
+  - **Ollama** (`installable: false`): "Hunt runs its vision model with Ollama, a free app." A link to `https://ollama.com/download` (opened in her browser), plus "Open Ollama once, then **Check again**", which re-fetches `/api/setup`.
+  - **The vision model / the browser:** label, `detail`, and the size in GB (`size / 2**30`, one decimal).
+    - Button **Download 3.3 GB** → `POST /api/setup/{id}` `{size}`, sending exactly the `size` shown.
+    - Then a progress bar from the job's `progress` events (`done / total`), with the `message` underneath, small.
+    - Pause and cancel use the existing job controls.
+    - When it's done, re-fetch `/api/setup`.
+  - **`installable: false` with a size of null:** "Couldn't read the download size; check the connection", and a **Try again** button. Never offer a download without a size.
+- **"Everything Hunt needs"** (collapsed): the `doctor` rows, ✓ or ✗ with `detail`, and `fix` under each ✗.
+- **The Hunt Browser's sign-in rows** stay as the capture session designed them (`/api/browser/status`).
+
+### K. Retention: "Remove unused media" beside delete and legal hold
+
+- **Where:** the startup screen's retention row, and the case's own page once `Case.status().retention_due`.
+- **The offer:** `GET /api/cases/{slug}/minimise` gives `count` and `bytes`. Show **Remove unused media (34 files, 1.2 GB) and keep the case**, beside **Delete the case** and **Put on legal hold**.
+- **The confirm dialog** lists the files (kind, source, posted date) and says: "Nobody kept, reported or noted these. They go to the Trash; the case and everything kept stay."
+- **Then:** `POST …/minimise` `{count, bytes}`. On success: "Moved to the Trash as 'vance-claim unused media 2027-01-28 …'. Empty the Trash to finish removing them."
+- **409:** shown as is (legal hold, not yet due, changed since shown).
+- **Under legal hold:** the row says "On legal hold: nothing may be removed", and there's no button.
+
 ## Audit actions for the report (to pass to the report owner)
 
 Every row below is an audit entry, so its citation is `M-a<rowid>`, except notes, which are `N-<id>`. The sentences are suggestions in the report's neutral wording. Dates are the audit `ts`.
@@ -339,10 +579,16 @@ Every row below is an audit entry, so its citation is `M-a<rowid>`, except notes
 | `account gone` | `account, last_seen` | "On {date}, the {site} account at {account} could no longer be found; it was last seen on {last_seen}." | What we found; also What we couldn't see (later posts can't be read) |
 | `account back` | `account, missing_on` | "On {date}, the {site} account at {account} could be found again; it couldn't be on {missing_on}." | What we found |
 | `note` | `note: "N-<id>", about, ref, text, replaces` | An "Investigator's notes" list: "N-4 ({date}): {text}". Omit replaced notes, or mark them "corrected by N-x". Notes about an account, post or hit can sit beside that item. | Its own section, after What we found |
+| `worklist open` | `account, platform, warned` | Methodology: "{platform} account {account} was opened by the investigator in the Hunt Browser on {date}." | How we searched |
+| changes with `"via": "capture"` | as Check again's, plus `page` | Same sentences as Check again's; say "on the investigator's capture of {date}" instead of "when Hunt checked again". | What we found |
+| `media minimised` | `count, bytes, trashed_as, files: [{file, sha256, bytes, post, kind}]` | "On {date}, at the end of the retention period, {count} unused media files were removed (data minimisation); their hashes are in the case log." | How we searched (or an appendix) |
 | `watch on` / `watch off` | `every_days, next` / `why` | "From {date}, the subject's accounts were watched every {every_days} days." / "Watching stopped on {date}: {why}." | How we searched |
 | `watch run` | `new_posts, changes, new_flagged, alerts` | Usually folded into one sentence: "The accounts were checked {n} times between {first} and {last} while watched; {sum new_flagged} posts were newly flagged." | How we searched |
 | `alert` | `kind, text, hits` or `change` | Not a report sentence in itself: the hits and changes it points to are already cited. Useful as "first noticed on {date}". | (none) |
 | `background watching` | `on, agent` | Methodology detail: "Checks also ran in the background while Hunt was closed, from {date}." | How we searched |
+| `case packed` | `from, file` | "The case was packed on {from} on {date} to move it to another computer." | How we searched (chain of custody) |
+| `case pack sealed` | `file, sha256, manifest_sha256, files, bytes, changed` | Only on the computer it left: "Archive {file} (SHA-256 {sha256:8}) was sealed on {date}." | Appendix |
+| `case unpacked` | `file, sha256, manifest_sha256, from, packed_at, files, as, replaced` | "On {date}, the case was brought onto this computer from {from} (packed {packed_at}); all {files} files matched their hashes (archive SHA-256 {sha256:8})." | How we searched (chain of custody) |
 | `inbox import` | `name, folder, sha256, exhibit, platform, handle, url, posted_at, from, where_from, result, trashed` | "{exhibit} was saved by the investigator as {name} and filed on {date} (SHA-256 {sha256:8})." | Evidence |
 | `evidence exported` | `file, sha256, exhibits, changed` | "An evidence bundle of {exhibits} files was made on {date} (SHA-256 {sha256})." | Appendix |
 
@@ -367,7 +613,26 @@ In screening mode, run notes and changed bios through the same protected-traits 
 6. **`report.py`: `N-<id>` citations.** Notes are a fourth citation kind beside `A-`, `E-` and `M-`. `notes.list_notes(case)` gives them with `cite`, `replaced_by` and `ref`.
 7. **The startup checks** could also remind about Check again: "2 cases not checked again in 30 days", from the latest `recheck` audit `ts` per case. Optional.
 8. **`search.screenshot`** only captures accounts that have no screenshot yet. `recheck._recapture` repeats its loop (about 10 lines) to capture again. An `again=True` flag there would let both share it.
-9. **Closing a case, and legal hold.** `watch.py` stops watching when `case.meta("closed")` is set, and when the retention period ends unless `case.meta("legal_hold")` is set. Nothing writes either key yet: `Case.set_details` doesn't accept them. A "Close case" action, and a legal-hold toggle, belong in `case.py`/`app.py`. When they arrive, watching follows them with no change here.
+9. **Closing a case, and legal hold.** Done (hunt-server): `Case.close()`, `reopen()`, `set_hold()` and `status()`, and the routes `POST /api/cases/{slug}/close`, `/reopen`, `/hold` and `/delete` (to the Trash). Closing also calls `watch.stop(case, "the case is closed")` at once. `RETENTION_DAYS` now lives in `hunt/case.py`, and `app.RETENTION_DAYS` re-exports it. `watch._ended` could call `case.status()["retention_due"]` instead of repeating the rule.
 10. **`serve()`** got one hook (`app.app.router.lifespan_context = _watching(app.app)`) to start the watch loop in the server's own event loop. That loop is where `search.HEAVY` lives. Tests that build the app with `make_app` never start it.
 11. **New post collectors** (TikTok, Instagram, Facebook, from data-sources) reach Check again and watching with no change here, as long as they're registered in `posts.FETCHERS`/`posts._site`. "Posts gone" and `none_left` then cover those platforms too.
+12. **Screening as a case setting.** "Screening" is a report flag today (`?screening=1`), plus the `background` kind. `seen.py` treats every `background` case as an employment screening. If a case-level "this is an employment screening" setting arrives, `seen.for_case` should read it instead of the kind.
+13. **A case created from "seen before".** The new-case form could offer "Open *Vance 2025 claim* instead". That's navigation only, never a merge.
+14. **Hunt Capture must ship inside the installed package.** `browser.SOURCE` is `<repo>/extension`, outside the `hunt` package, so a wheel (and `uv tool install`) had no extension.
+    - **Stopgap here:** `[tool.hatch.build.targets.wheel.force-include] "extension" = "extension"` in `pyproject.toml`, so it lands at `<site-packages>/extension`, which `browser.SOURCE` already resolves to. That's safe because uv tools get an environment of their own.
+    - **Proper fix, for the capture owner:** move `extension/` to `hunt/extension/` and set `SOURCE = Path(__file__).parent / "extension"`, then drop the force-include.
+    - `hunt doctor`'s `capture` row catches a missing extension either way.
+15. **`_new_job` opens the case** (to refuse jobs on closed cases), so jobs that aren't tied to a case (setup downloads, slug `""`) build their `Job` directly. A small `_new_job(..., case=False)` would share the pattern.
+16. **`watch.py` now reads `Case.status()`** (`closed`, `retention_due`) instead of meta keys, so it follows `case.py`'s lifecycle exactly.
+17. **A hook after each page capture, for the capture owner (asked).** In `app.capture_page`, after `extension.add_page(...)`, call `recheck.diff_captures(c)` and return its changes. Changes then appear the moment she captures. Until then, they appear at the next Check again or `POST …/captures/compare`.
+18. **Capture-record fields (K5), for the capture owner (asked).** The bundle reads these from `capture view` / `capture page` / `capture recording` audit details, and per post from `post_extra`:
+    - `viewed_as`: "logged in as <handle>" or "logged out"
+    - `audience`: e.g. "Public" or "Friends"
+    - `hunt_version`
+    - `capture_version`: the extension's manifest version
+
+    Names can change if the capture owner prefers others; `bundle._record` is the one place to adjust.
+19. **User-Agents vs "honest UA".** `sources/wmn.py` sends a Chrome User-Agent, and `search.avatars` reuses it. Maigret sends its own headers, and Playwright screenshots send Chromium's. automation-legal.md §4.4 asks for an honest User-Agent on the automatic checks. The bundle README describes what's true today; when the sources change, its sentence in `bundle.COLLECTED` should change with them.
+20. **The per-account attribution section** (*Vayner*: numeric ID, matching details), listed in automation-legal.md's bundle additions, isn't built. It reads like report content: the "Is it them?" reasons per account, plus each platform's numeric ID where a capture recorded it. The report owner can decide where it lives; the bundle can carry it as `attribution.csv` once those IDs are recorded.
+21. **Media removed at retention.** The posts and scan views should show "removed at retention (data minimisation)" for media whose SHA-256 appears in a `media minimised` audit entry, rather than a broken image.
 

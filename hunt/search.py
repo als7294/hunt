@@ -177,7 +177,8 @@ def build(case: Case, places: dict | None = None) -> dict:
         "decision": decided.get("", {}).get("decision"),
         "photos": [{"file": r["name"], "at": r["ts"], "evidence": r["evidence"], **json.loads(r["analysis"])}
                    for r in case.rows("select * from photos order by id")],
-        "methodology": case.rows("select rowid, ts, source, seed_kind, seed, status, found, checked, note from runs order by ts"),
+        "methodology": case.rows("select rowid, ts, source, seed_kind, seed, status, found, checked, note, audit "
+                                 "from runs order by ts, rowid"),
         "audit": case.rows("select rowid, * from audit order by ts"),
     }
 

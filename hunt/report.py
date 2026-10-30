@@ -52,7 +52,9 @@ PROTECTED = re.compile(r"\b(age|aged|born|birth\w*|gender|sex|pronouns?|racial|e
 READ_AUTOMATICALLY = re.compile(r"bsky|bluesky|mastodon|youtube", re.I)  # what posts.collect reads
 # Sources whose findings are records about a person, not accounts they run (hunt/sources: public records)
 RECORDS = {"fec": "FEC itemized political contributions", "edgar": "SEC EDGAR filings",
-           "npi": "the NPI healthcare provider registry", "courtlistener": "federal court dockets in CourtListener's RECAP archive"}
+           "npi": "the NPI healthcare provider registry", "courtlistener": "federal court dockets in CourtListener's RECAP archive",
+           "licences": "state occupational and professional licences", "businesses": "state business registries",
+           "fmcsa": "the FMCSA motor-carrier census"}
 # Screening (employment) mode leaves these sources out entirely: what they reveal is protected in several states
 SCREENED = {"fec": "political affiliation", "npi": "health"}
 # …and court dockets whose subject is health or politics
@@ -260,7 +262,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     kept = sorted((h for h in hits if h.get("status") in KEPT),
                   key=lambda h: (h.get("source") or "", h.get("posted_at") or ""))
     ev = lambda hs: [f"E-{h['id']}" for h in hs]
-    runs = [f"M-{r['rowid']}" for r in methodology]
+    runs = [_run(r) for r in methodology]
     files = exhibit_files(case)
 
     # Exhibits, numbered in the order the report refers to them: account captures, then findings
@@ -359,7 +361,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     for r in methodology:  # in time order
         if r["source"] != "-" and not (r["note"] or "").startswith("not run"):  # those are limitations
             key = (r["source"], r["seed_kind"], r["seed"])
-            latest[key] = {**r, "cites": latest.get(key, {}).get("cites", []) + [f"M-{r['rowid']}"]}
+            latest[key] = {**r, "cites": latest.get(key, {}).get("cites", []) + [_run(r)]}
     for r in latest.values():
         again = f" (run {len(r['cites'])} times, latest shown)" if len(r["cites"]) > 1 else ""
         if r["status"] == "failed":
@@ -378,6 +380,19 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         doc.say("method", "Public posts from the accounts confirmed as the subject's were collected and scanned on this "
                           "computer for the listed activities.",
                 log.get("scan", []) + log.get("posts collected", []) + log.get("scan finished", []))
+    detail = lambda cid: json.loads(audit[cid]["detail"])
+    if again := log.get("recheck"):  # hunt/recheck.py
+        new, changes = (sum(detail(x).get(k) or 0 for x in again) for k in ("new_posts", "changes"))
+        when = _when(audit[again[0]]["ts"], tz, False) + ("" if len(again) == 1 else f" to {_when(audit[again[-1]]['ts'], tz, False)}")
+        doc.say("method", f"The confirmed accounts were looked at again {_many(len(again), 'time')} ({when}): {_many(new, 'new post')}, "
+                          f"{_many(changes, 'change')}.", again)
+    for cid in log.get("watch on", []) + log.get("watch off", []):  # hunt/watch.py
+        if audit[cid]["action"] == "watch on":
+            doc.say("method", f"From {_when(audit[cid]['ts'], tz, False)}, the accounts were watched every "
+                              f"{_many(detail(cid).get('every_days') or 0, 'day')}.", [cid])
+        else:
+            doc.say("method", f"Watching stopped on {_when(audit[cid]['ts'], tz, False)}: {detail(cid).get('why') or 'turned off'}.",
+                    [cid])
     if "file added" in log:  # one entry per file, written by hunt.posts
         doc.say("method", f"The investigator added {_many(len(log['file added']), 'file')} by hand.", log["file added"])
 
@@ -430,7 +445,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     # Public records: what each one says, and how it was tied to the subject
     if searched_records := [r for r in methodology if r["source"] in RECORDS and not (r["note"] or "").startswith("not run")]:
         kinds = list(dict.fromkeys(RECORDS[r["source"]] for r in searched_records))
-        doc.say("records", f"The subject's name was searched in {', '.join(kinds)}.", [f"M-{r['rowid']}" for r in searched_records])
+        doc.say("records", f"The subject's name was searched in {', '.join(kinds)}.", [_run(r) for r in searched_records])
     for c in records:
         why = "; ".join(_plain(r) for r, t in zip(c["reasons"], c["tags"]) if t != "confirmed" and not r.startswith(("+0.0", "-")))
         shot = f" ({ex(acc(c))})" if ex(acc(c)) else ""
@@ -475,6 +490,11 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     if d["recommendations"]:
         set_by = [x for x in log.get("case details", []) if "recommendations" in json.loads(audit[x]["detail"])] or scope
         doc.say("conclusion", f"The investigator recommends: {d['recommendations']}", set_by[-1:])
+    status = case.status()
+    if status["closed"] and log.get("case closed"):
+        why = detail(log["case closed"][-1]).get("reason")
+        doc.say("conclusion", f"The case was closed on {_when(status['closed'], tz, False)}" + (f": {_end(why)}" if why else "."),
+                log["case closed"][-1:])
     doc.say("conclusion", f"Machine readings in this report are worded no stronger than '{CEILING}'; only the "
                           "investigator's own review goes further.", log.get("decision", opened))
     if exhibits:
@@ -485,12 +505,12 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     # Limitations: what we couldn't see (automatic)
     for r in methodology:
         if (r["note"] or "").startswith("not run"):
-            doc.say("couldnt_see", f"{r['source']} wasn't run: {r['note'][len('not run: '):]}.", [f"M-{r['rowid']}"])
+            doc.say("couldnt_see", f"{r['source']} wasn't run: {r['note'][len('not run: '):]}.", [_run(r)])
         elif r["source"] == "-":
             doc.say("couldnt_see", f"No source searches {r['seed_kind']} details yet, so '{r['seed']}' was only used to "
-                                   "compare accounts.", [f"M-{r['rowid']}"])
+                                   "compare accounts.", [_run(r)])
         elif r["status"] == "failed":
-            doc.say("couldnt_see", f"{r['source']} failed for '{r['seed']}': {r['note']}.", [f"M-{r['rowid']}"])
+            doc.say("couldnt_see", f"{r['source']} failed for '{r['seed']}': {r['note']}.", [_run(r)])
     for c in people:
         if c["seed"]["kind"] == "email":
             doc.say("couldnt_see", f"{c['site']}: the email is registered there, but no public profile was seen, so nothing "
@@ -511,7 +531,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     if searched:
         kinds = list(dict.fromkeys(RECORDS[r["source"]] for r in searched))
         doc.say("couldnt_see", f"Public records were limited to {', '.join(kinds)}; state and county court, criminal and "
-                               "property records weren't searched.", [f"M-{r['rowid']}" for r in searched])
+                               "property records weren't searched.", [_run(r) for r in searched])
     else:
         doc.say("couldnt_see", "Court and other public records weren't searched.", log.get("search", opened)[:1])
 
@@ -530,6 +550,9 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         doc.say("disclaimers", "This screening version leaves out protected characteristics (such as age, health, "
                                "religion and family status), political-contribution and health-related records, and "
                                "profile screenshots.", opened, boilerplate=True)
+    if status["legal_hold"] and log.get("legal hold"):
+        doc.say("disclaimers", f"The case has been on legal hold since {_when(status['legal_hold'], tz, False)}; its records are "
+                               "kept past the usual retention period.", log["legal hold"][-1:], boilerplate=True)
     doc.say("disclaimers", prefs["confidentiality"], opened)
 
     said = {s["section"] for s in doc.sentences}
@@ -576,6 +599,11 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     }
 
 
+def _run(r: dict) -> str:
+    """A source run's citation: its case-log row (in the bundle's audit-log.csv), or the run itself for older cases."""
+    return f"M-a{r['audit']}" if r.get("audit") else f"M-{r['rowid']}"
+
+
 def _record(c: dict) -> str | None:
     """The public-record source behind a candidate, or None for an account."""
     return next((src for src in c["found_by"] if src in RECORDS), None)
@@ -611,6 +639,22 @@ def _summary(c: dict) -> str:
                  f"address of record {a['location']}" if a.get("location") else None] if a.get("cik") else
                 [f"named in {a.get('filings') or 'some'} filings by {a.get('filer')}",
                  f"filer located in {a['filer_location']}" if a.get("filer_location") else None])
+    elif src == "licences":
+        bits = [a.get("licence"), f"licence {a['licence_number']}" if a.get("licence_number") else None, a.get("business"),
+                f"status {a['status']}" if a.get("status") else None, f"issued {a['issued']}" if a.get("issued") else None,
+                f"expires {a['expires']}" if a.get("expires") else None, a.get("location"),
+                f"under {a['sponsor']}" if a.get("sponsor") else None]
+    elif src == "businesses":
+        bits = [" and ".join(a["roles"]) + " of " + a["business"] if a.get("roles") and a.get("business") else a.get("business"),
+                a.get("entity_type"), f"formed {a['formed']}" if a.get("formed") else None,
+                f"listing {a['location']}" if a.get("location") else None,
+                f"business in {a['business_location']}" if a.get("business_location") not in (None, a.get("location")) else None]
+    elif src == "fmcsa":
+        bits = [" and ".join(a["roles"]) if a.get("roles") else None,
+                a["carrier"] + (f" (trading as {a['dba']})" if a.get("dba") else "") if a.get("carrier") else None,
+                f"USDOT {a['usdot']}" if a.get("usdot") else None, a.get("status"), a.get("operation"),
+                f"{a['power_units']} power units, {a.get('drivers') or 0} drivers" if a.get("power_units") else None,
+                a.get("location"), f"registration updated {a['last_update']}" if a.get("last_update") else None]
     elif src == "courtlistener":
         bits = [a.get("case"), f"{a['court']}, docket {a.get('docket_number')}" if a.get("court") else None,
                 f"filed {a['filed']}" if a.get("filed") else None, f"terminated {a['terminated']}" if a.get("terminated") else None,
@@ -643,10 +687,13 @@ def _log_entry(cid: str, methodology: list[dict], audit: dict, tz: str) -> dict:
     if cid in audit:
         a = audit[cid]
         detail = json.loads(a["detail"])
-        what = a["action"] + (f": {detail['url'] or 'the whole person'} → {detail['decision']}" if a["action"] == "decision"
-                              else "")
+        decided = {"him": "the subject's", "not him": "not the subject's"}.get(detail.get("decision"), detail.get("decision"))
+        what = a["action"] + (f": {detail['url'] or 'the whole person'} → {decided}" if a["action"] == "decision" else "")
+        if a["action"] == "source run":
+            what = (f"{detail['source']} search for {detail['seed_kind']} '{detail['seed']}': {detail['status']}, "
+                    f"{detail['found']} found of {detail['checked']} checked")
         return {"id": cid, "when": _when(a["ts"], tz), "what": what, "audit_log_id": a["rowid"]}
-    r = next((r for r in methodology if f"M-{r['rowid']}" == cid), None)
+    r = next((r for r in methodology if _run(r) == cid), None)
     return {"id": cid, "audit_log_id": None, "when": _when(r["ts"], tz) if r else "", "what":
             f"{r['source']} search for {r['seed_kind']} '{r['seed']}': {r['status']}, {r['found']} found of "
             f"{r['checked']} checked" if r else cid}

@@ -3,6 +3,10 @@ hunt photo IMAGE... --case NAME [--purpose TEXT]
 hunt inbox --case NAME [--folder DIR] [--days N] [--import all|ID[=URL]...] [--keep]
 hunt export --case NAME [--out DIR]
 hunt watch [--case NAME (--every 1|3|7 | --off)] [--background on|off]
+hunt pack --case NAME [--out DIR]          hunt unpack FILE [--replace]
+hunt seen [SEED...] [--case NAME] [--screening]
+hunt doctor | hunt setup [--launcher] | hunt update | hunt uninstall
+hunt minimise --case NAME
 hunt learning [--on | --off | --reset]
 hunt app
 
@@ -13,27 +17,53 @@ Both write <case>/case.json (also printed to stdout). inbox lists the photos and
 lately (~/Downloads by default) with clean names, and with --import files them into the case and
 moves the originals to the Trash. export zips every evidence file under a readable name with a
 SHA-256 manifest, for handing over. watch checks the watched cases that are due (what the background
-agent runs), or turns watching on and off. learning shows what Hunt has learned from your decisions
-(on this machine only), turns it on or off, or forgets it. app opens the Hunt app in
+agent runs), or turns watching on and off. pack locks a whole case in an encrypted archive for another
+computer, and unpack brings one in after checking every file's hash. seen looks for the subject in
+the other cases on this computer. doctor checks what Hunt needs and says how to fix what's missing;
+setup puts Hunt in Applications and downloads what's missing, showing each size and asking first;
+update and uninstall do what they say (uninstall moves things to the Trash). minimise, once a case's
+retention period is over, moves the raw media nobody kept or cited to the Trash. learning shows what Hunt has learned from your decisions (on this machine
+only), turns it on or off, or forgets it. app opens the Hunt app in
 your browser, served only to this machine.
 """
 
 import argparse
 import asyncio
+import getpass
 import json
 import os
 import sys
 from datetime import date
+from importlib.metadata import version
 from pathlib import Path
 
-from . import bundle, inbox, photo, recheck, search, watch
-from .case import HOME, Case
+from . import bundle, inbox, minimise, pack, photo, recheck, search, seen, setup, watch
+from .case import HOME, Case, all_cases
 from .search import build  # noqa: F401  (re-exported: tests and older callers import it from here)
 from .seed import detect, now
 
 
+def load_keys(path: Path = HOME / "keys.env") -> list[str]:
+    """Optional keys from ~/Hunt/keys.env, one KEY=value per line. Set env vars win. Returns the names set."""
+    names = []
+    if not path.is_file():
+        return names
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k, v = k.strip(), v.strip().strip("'\"")
+        if k.startswith("HUNT_") and v and k not in os.environ:
+            os.environ[k] = v
+            names.append(k)
+    return names
+
+
 def main():
+    load_keys()
     ap = argparse.ArgumentParser(prog="hunt", description="Local-first OSINT: one search, every source, the right person, with proof.")
+    ap.add_argument("--version", action="version", version=f"hunt {version('hunt-osint')}")
     proxy = argparse.ArgumentParser(add_help=False)
     proxy.add_argument("--proxy", default=os.environ.get("HUNT_PROXY"),
                        help="route every request through this proxy, e.g. socks5h://127.0.0.1:9050 (or set HUNT_PROXY)")
@@ -68,6 +98,27 @@ def main():
     w.add_argument("--off", action="store_true", help="stop watching --case")
     w.add_argument("--background", choices=("on", "off"),
                    help="keep watching when Hunt is closed: installs (or removes) a per-user LaunchAgent")
+    k = sub.add_parser("pack", parents=[proxy], help="lock a whole case in an encrypted archive, to move it to another computer")
+    k.add_argument("--case", required=True, help="the case to pack")
+    k.add_argument("--out", type=Path, default=inbox.DOWNLOADS, help="where to save it (default ~/Downloads)")
+    u = sub.add_parser("unpack", parents=[proxy], help="bring in a case packed on another computer, checking every file")
+    u.add_argument("file", type=Path, help="the .hunt-case.dmg archive")
+    u.add_argument("--replace", action="store_true",
+                   help="if a case with that name is here, move it to the Trash first (default: keep both)")
+    n = sub.add_parser("seen", parents=[proxy], help="have we seen this person before? (looks in the other cases on this computer)")
+    n.add_argument("seeds", nargs="*", help="what you know about the subject, as for search")
+    n.add_argument("--case", help="look up this case's subject instead")
+    n.add_argument("--screening", action="store_true", help="an employment screening: other cases stay out of it")
+    sub.add_parser("doctor", parents=[proxy], help="check what Hunt needs, with a plain fix for anything missing")
+    st = sub.add_parser("setup", parents=[proxy],
+                        help="put Hunt in Applications and download what's missing (shows each size, asks first)")
+    st.add_argument("--launcher", action="store_true",
+                    help="make Hunt.app again, e.g. after changing HUNT_PROXY (the old one goes to the Trash)")
+    sub.add_parser("update", parents=[proxy], help="update Hunt to the latest version")
+    sub.add_parser("uninstall", parents=[proxy], help="remove Hunt from this Mac (asks before moving your cases to the Trash)")
+    mn = sub.add_parser("minimise", parents=[proxy],
+                        help="after retention: move the raw media nobody kept or cited to the Trash (asks first)")
+    mn.add_argument("--case", required=True)
     lg = sub.add_parser("learning", help="what Hunt has learned from your decisions; turn it on or off, or forget it")
     lg.add_argument("--on", action="store_true", help="learn from decisions again")
     lg.add_argument("--off", action="store_true", help="stop learning and go back to the default weights")
@@ -82,6 +133,9 @@ def main():
         return serve()
     if args.cmd == "watch":
         return watch_cmd(args)
+    if args.cmd in ("pack", "unpack", "seen", "doctor", "setup", "update", "uninstall", "minimise"):
+        return {"pack": pack_cmd, "unpack": unpack_cmd, "seen": seen_cmd, "doctor": doctor_cmd, "setup": setup_cmd,
+                "update": update_cmd, "uninstall": uninstall_cmd, "minimise": minimise_cmd}[args.cmd](args)
     if args.cmd == "learning":
         from . import learning
         if args.on or args.off:
@@ -190,3 +244,132 @@ def watch_cmd(args):
     os.nice(10)
     for line in asyncio.run(watch.tick(lambda c: watch.run(c, search.printer(sys.stderr)))):
         print(f"{now()[:16].replace('T', ' ')} {line}")
+
+
+def pack_cmd(args):
+    try:
+        case = Case(args.case, create=False)
+    except LookupError as e:
+        raise SystemExit(str(e))
+    passphrase = _ask(f"Passphrase for the archive ({pack.MIN_PASSPHRASE}+ characters): ")
+    if _ask("Again: ") != passphrase:
+        raise SystemExit("the passphrases don't match")
+    try:
+        made = pack.pack(case, args.out, passphrase)
+    except (ValueError, OSError) as e:
+        raise SystemExit(str(e))
+    print(f"{made['path']}\n  {made['files']} files, {made['bytes'] / 1e6:.1f} MB; SHA-256 {made['sha256']}"
+          + "".join(f"\n  changed since saved: {x}" for x in made["changed"])
+          + "\nKeep the passphrase apart from the archive.")
+
+
+def unpack_cmd(args):
+    if not args.file.is_file():
+        raise SystemExit(f"no such file: {args.file}")
+    try:
+        got = pack.unpack(args.file, _ask("Passphrase: "), args.replace)
+    except ValueError as e:
+        raise SystemExit(str(e))
+    print(f"unpacked as {got['slug']}: {got['files']} files checked"
+          + ("; the case that was here is in the Trash" if got["replaced"] else ""))
+
+
+def _ask(prompt: str) -> str:
+    try:
+        return getpass.getpass(prompt)  # never echoed, never on the command line
+    except (EOFError, KeyboardInterrupt):
+        raise SystemExit("no passphrase given")
+
+
+def seen_cmd(args):
+    if args.case:
+        try:
+            r = seen.for_case(Case(args.case, create=False), args.screening)
+        except LookupError as e:
+            raise SystemExit(str(e))
+    else:
+        r = seen.lookup(seen.from_seeds(args.seeds), screening=args.screening)
+    if not r["checked"]:
+        return print(r["why"])
+    for m in r["matches"]:
+        on = ", ".join(f"{o['kind']} {o['value'][:12] if o['kind'] == 'file' else o['value']}" for o in m["on"])
+        print(f"{m['case']}  ({m['label']}, {m['kind']}, opened {m['created'][:10]})"
+              f"{'' if m['strong'] else '  name only: could be someone else'}\n  {on}")
+    print(f"{len(r['matches'])} other case(s) share something"
+          + (f"; {r['skipped_screenings']} employment screening(s) not looked at" if r["skipped_screenings"] else ""))
+
+
+def doctor_cmd(args):
+    rows = setup.doctor()
+    for r in rows:
+        print(f"{'✓' if r['ok'] else '✗'} {r['label']}: {r['detail']}" + (f"\n    fix: {r['fix']}" if r["fix"] else ""))
+    if bad := [r for r in rows if not r["ok"]]:
+        raise SystemExit(f"\n{len(bad)} to fix.")
+    print("\nEverything Hunt needs is here.")
+
+
+def setup_cmd(args):
+    if args.launcher or not setup.LAUNCHER.exists():
+        try:
+            print(f"Made {setup.launcher()}: double-click Hunt in Applications to start it, Quit it in the Dock to stop.")
+        except OSError as e:
+            print(f"Couldn't make Hunt.app: {e}")
+    for item in asyncio.run(setup.plan()):
+        if not item["installable"]:
+            print(f"- {item['label']}: {item['detail']}")
+            continue
+        if not _yes(f"Download {item['label']}, {item['size'] / 2**30:.1f} GB? {item['detail']} [y/N] "):
+            continue
+        asyncio.run(setup.install(item["id"], item["size"], _progress))
+        print()
+    left = [r for r in setup.doctor() if not r["ok"]]
+    print("\nHunt is ready." if not left else "\nStill to do:\n" + "\n".join(f"- {r['label']}: {r['fix']}" for r in left))
+
+
+def update_cmd(args):
+    print(f"This is Hunt {version('hunt-osint')}.")
+    if _yes("Fetch the latest Hunt from GitHub? Usually a few MB; more when a large part (such as PyTorch) changes. [y/N] "):
+        print(setup.update())
+
+
+def uninstall_cmd(args):
+    if not _yes("Remove Hunt from this Mac? Background watching stops and Hunt.app goes to the Trash. [y/N] "):
+        return
+    trash = _yes(f"Also move {HOME} ({len(all_cases())} cases, {setup.data_size() / 2**30:.1f} GB) to the Trash? "
+                 "Keep it if you may need the cases again. [y/N] ")
+    try:
+        print("\n".join(setup.uninstall(trash)))
+    except ValueError as e:
+        raise SystemExit(str(e))
+
+
+def _yes(prompt: str) -> bool:
+    try:
+        return input(prompt).strip().lower() in ("y", "yes")
+    except EOFError:
+        return False
+
+
+def _progress(e: dict):
+    if e["type"] == "progress":
+        print(f"\r  {e['done'] / 2**20:,.0f} of {e['total'] / 2**20:,.0f} MB", end="", file=sys.stderr, flush=True)
+    elif e["type"] == "log":
+        print(f"\n  {e['message']}", file=sys.stderr)
+
+
+def minimise_cmd(args):
+    try:
+        case = Case(args.case, create=False)
+    except LookupError as e:
+        raise SystemExit(str(e))
+    p = minimise.plan(case)
+    if not p["ready"]:
+        raise SystemExit(f"Nothing to remove: {p['why']}.")
+    if not p["files"]:
+        return print("Every photo and video in this case is kept, reported or noted: nothing to remove.")
+    for f in p["files"]:
+        print(f"  {f['file']}  {f['kind']}  {f['bytes'] / 1e6:.1f} MB")
+    if _yes(f"Move these {p['count']} files ({p['bytes'] / 1e6:.1f} MB) to the Trash? Nobody kept, reported or noted "
+            "them. The case and everything kept stay. [y/N] "):
+        done = minimise.purge(case, p["count"], p["bytes"])
+        print(f"Moved to the Trash as \"{done['trashed_as']}\". Empty the Trash to finish removing them.")

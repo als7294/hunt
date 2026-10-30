@@ -34,3 +34,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["hunt"]
+
+# Hunt Capture is loaded from <site-packages>/extension (browser.SOURCE); without this an installed Hunt has no
+# extension. Safe at the top level: `uv tool install` gives Hunt an environment of its own. (docs/qol.md)
+[tool.hatch.build.targets.wheel.force-include]
+"extension" = "extension"

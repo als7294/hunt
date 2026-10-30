@@ -38,11 +38,13 @@ from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Re
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import report, search, vlm
-from . import bundle, inbox, notes, recheck, watch  # docs/qol.md
-from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, Case, all_cases
+from . import keys, report, search, sources, vlm
+from . import bundle, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
+from . import facebook  # docs/facebook.md
+from . import browser, extension  # docs/capture.md
+from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, RETENTION_DAYS, Case, all_cases  # watch.py reads RETENTION_DAYS here
 from .match import ICD203
-from .seed import detect
+from .seed import detect, now
 
 STATIC = Path(__file__).parent / "static"
 COOKIE = "hunt"
@@ -52,7 +54,6 @@ KINDS = ("insurance", "background", "diligence", "journalism")
 HIT_STATUSES = ("kept", "not relevant", "in report")
 HEARTBEAT = 15  # seconds between SSE comments on a quiet job
 THROTTLE = 0.25  # seconds between `scan` progress events (~4/s); the latest one wins
-RETENTION_DAYS = 90
 NAMESAKE = 0.2
 VERDICTS = [label for _, label in ICD203]
 
@@ -87,6 +88,8 @@ class Guard:
     def problem(self, req: Request) -> tuple[int, str] | None:
         if req.headers.get("host") not in self.hosts:
             return 403, "wrong host"
+        if req.url.path.startswith("/api/capture/"):  # Hunt Capture: extension origin + key, never the cookie
+            return extension.problem(req)
         if req.headers.get("sec-fetch-site", "none") not in ("same-origin", "none"):
             return 403, "cross-site request"
         if req.url.path == "/login":
@@ -97,7 +100,7 @@ class Guard:
         if req.method not in ("GET", "HEAD"):
             if req.headers.get("origin") not in self.origins:
                 return 403, "cross-origin request"
-            want = "multipart/form-data" if req.url.path.endswith(("/media", "/logo")) else "application/json"
+            want = "multipart/form-data" if req.url.path.endswith(("/media", "/logo", "/facebook")) else "application/json"
             if req.headers.get("content-type", "").split(";")[0].strip().lower() != want:
                 return 415, f"content type must be {want}"
         return None
@@ -182,6 +185,8 @@ def _job(req: Request) -> Job:
 def _new_job(req: Request, slug: str, kind: str, work) -> JSONResponse:
     if _active(req, slug):
         raise HTTPException(409, "this case already has a job running")
+    if Case.open(slug).meta("closed"):
+        raise HTTPException(409, "this case is closed; reopen it first")
     job = Job(slug, kind)
     req.app.state.jobs[job.id] = job
     job.start(work)
@@ -318,9 +323,10 @@ async def _accounts(c: Case) -> int:
 
 async def startup(req: Request):
     checks = []
+    health = asyncio.create_task(sources.health())  # one HEAD per source; runs while the rest are checked
 
-    def check(id, label, ok, detail):
-        checks.append({"id": id, "label": label, "ok": bool(ok), "detail": detail})
+    def check(id, label, ok, detail, items=None):
+        checks.append({"id": id, "label": label, "ok": bool(ok), "detail": detail, **({"items": items} if items else {})})
 
     slugs = all_cases()
     root = HOME / "cases"
@@ -353,11 +359,47 @@ async def startup(req: Request):
           else "no connection" + (" through the proxy" if proxy else ""))
     check("proxy", "Proxy", proxy and online, ("in use; sites see the proxy, not you" if online else "set but not working")
           if proxy else "not set: sites see this computer's address")
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).isoformat()
-    old = [s for s in slugs if (c := Case.open(s)).meta("created") < cutoff and not c.meta("legal_hold")]
-    check("retention", f"Cases older than {RETENTION_DAYS} days", not old,
-          f"{len(old)} to review or delete: {', '.join(old[:5])}" if old else "none")
+    try:
+        rows = await health
+        ready = [r for r in rows if r["ready"]]
+        keys = [r for r in rows if r["key"]]
+        missing = [r["source"] for r in rows if r["key_required"] and not r["key_set"]]
+        check("sources", "Search sources", len(ready) == len(rows),
+              f"{len(ready)} of {len(rows)} ready; {sum(r['key_set'] for r in keys)} of {len(keys)} keys set"
+              + (f"; needs a key: {', '.join(missing)}" if missing else ""),
+              [{k: r[k] for k in ("source", "ready", "reachable", "key", "key_set", "key_required", "detail")} for r in rows])
+    except Exception as e:  # a broken probe mustn't hide the other checks
+        check("sources", "Search sources", False, f"couldn't check: {type(e).__name__}: {e}")
+    checks += await _browser_checks()
+    due = [(s, c) for s in slugs if (c := Case.open(s)).status()["retention_due"]]
+    check("retention", f"Cases past {RETENTION_DAYS} days", not due,
+          f"{len(due)} past retention: delete them to the Trash, or put them on legal hold" if due else "none",
+          [{"slug": s, "label": c.details()["label"], "created": c.meta("created")} for s, c in due])
     return JSONResponse({"version": version("hunt-osint"), "proxy": bool(proxy), "checks": checks})
+
+
+async def _browser_checks() -> list[dict]:
+    """The Hunt Browser row: hunt.browser.status() (docs/capture.md) as one check, with a sign-in state per
+    platform in `items` [{platform, label, url, state}] and `checked_at`."""
+    fn = getattr(_module("browser"), "status", None)
+    if not fn:
+        return []
+    try:
+        st = await _call(fn)
+    except Exception as e:
+        return [{"id": "browser", "label": "Hunt Browser", "ok": False, "detail": f"status unavailable: {e}"}]
+    b = st.get("browser") or {}
+    if not b.get("available"):
+        return [{"id": "browser", "label": "Hunt Browser", "ok": False,
+                 "detail": "not installed (for logged-in platforms): uv run playwright install chromium"}]
+    items = [{**{k: x[k] for k in ("platform", "label", "url")}, "state": st.get(x["platform"], "unknown")}
+             for x in st.get("logins", [])]
+    said = {state: [x["label"] for x in items if x["state"] == state] for state in ("signed_in", "signed_out", "unknown")}
+    detail = "; ".join(f"{words}: {', '.join(said[state])}" for state, words in
+                       (("signed_in", "signed in"), ("signed_out", "not signed in"), ("unknown", "not checked yet"))
+                       if said[state])
+    return [{"id": "browser", "label": f"Hunt Browser {b.get('version') or ''}".strip(), "ok": True, "detail": detail,
+             "items": items, "checked_at": st.get("checked_at")}]
 
 
 async def list_cases(req: Request):
@@ -365,9 +407,11 @@ async def list_cases(req: Request):
     for s in all_cases():
         c = Case.open(s)
         d = c.details()
+        st = c.status()
         out.append({"slug": s, "label": d["label"], "kind": d["kind"], "reference": d["reference"], "tool": d["tool"],
                     "created": d["created"], "updated": c.db.execute("select max(ts) from audit").fetchone()[0],
-                    "headline": await _headline(c)})
+                    "headline": await _headline(c), "closed": bool(st["closed"]), "legal_hold": bool(st["legal_hold"]),
+                    "retention_due": st["retention_due"]})
     return JSONResponse(sorted(out, key=lambda x: x["created"] or "", reverse=True))
 
 
@@ -458,6 +502,7 @@ async def get_case(req: Request):
                   "identity": "done" if c.decisions() else "todo",
                   "posts": "running" if running("scan") else "done" if _audited(c, "scan") else "todo",
                   "report": "done" if _audited(c, "report exported") else "todo"},
+        "status": c.status(),
         "active_job": {"id": job.id, "kind": job.kind} if job else None,
         "counts": {"accounts": await _accounts(c), "flagged": len(_flagged(hits)),
                    "evidence": sum(1 for f in (c.dir / "evidence").iterdir() if EVIDENCE_NAME.match(f.name))},
@@ -498,7 +543,7 @@ async def start_scan(req: Request):
     accounts = [{"url": x["url"], "site": x["site"]} for x in (await search.snapshot(c))["candidates"]
                 if x["decision"] == "him"]
     if not accounts:
-        raise HTTPException(409, "mark at least one account as him first")
+        raise HTTPException(409, "mark at least one account as the subject’s on Is it them? first")
     d = c.details()
 
     async def work(job):
@@ -531,7 +576,8 @@ def _agreeing(c: dict) -> set[str]:
 async def get_person(req: Request):
     c = _case(req)
     snap = await search.snapshot(c)
-    people = [x for x in snap["candidates"] if search.in_person(x)]
+    found = [x for x in snap["candidates"] if search.in_person(x)]
+    people = [x for x in found if not report._record(x)]  # accounts they run; public records about them are listed apart
     counts = Counter(t for x in people for t in _agreeing(x))
     namesakes = [x for x in snap["candidates"] if not search.in_person(x) and x["probability"] < NAMESAKE
                  and "name" in _agreeing(x)]
@@ -545,6 +591,14 @@ async def get_person(req: Request):
         "namesakes": [{"url": x["url"], "site": x["site"], "label": x["attrs"].get("fullname") or x["attrs"].get("name")
                        or _handle(x), "why": [_plain(r) for r in x["reasons"]], "decision": x["decision"]}
                       for x in namesakes],
+        "records": [{"url": x["url"], "site": x["site"], "source": report._record(x), "summary": report._summary(x),
+                     "attrs": x["attrs"], "verdict": x["verdict"], "probability": x["probability"],
+                     "reasons": [_plain(r) for r in x["reasons"]], "name_only": _agreeing(x) <= {"name"},
+                     "decision": x["decision"], "fetched": min((e["at"] for e in x["evidence"]), default=None)}
+                    for x in found if report._record(x)],
+        "coverage": [{"source": r["source"], "status": r["status"], "found": r["found"], "note": r["note"]}
+                     for r in c.rows("select source, status, found, note from runs where source in "
+                                     f"({', '.join('?' * len(report.RECORDS))}) order by rowid", *report.RECORDS)],
         "decision": snap["decision"],
     })
 
@@ -634,6 +688,7 @@ async def get_posts(req: Request):
     return JSONResponse({
         "counts": {"read_automatically": sum(p.get("origin") == "fetched" for p in posts),
                    "added_by_you": sum(p.get("origin") == "added" for p in posts),
+                   "captured": sum(p.get("origin") == "captured" for p in posts),
                    "flagged": len(flagged), "by_category": dict(Counter(h.get("category") for h in flagged))},
         "weekly": [{"week": w, "posts": weekly[w, "posts"], "flagged": weekly[w, "flagged"]} for w in weeks],
         "hits": hits, "posts": posts,
@@ -661,10 +716,99 @@ async def set_hit(req: Request):
     return JSONResponse(await _call(scan.set_status, c, hit_id, status))  # it audits the change
 
 
+# --- case lifecycle: close, reopen, legal hold, delete --------------------------------------------------
+
+def _reason(b: dict) -> str | None:
+    r = b.get("reason")
+    if r is not None and (not isinstance(r, str) or len(r) > 2000):
+        raise HTTPException(400, "reason must be text of at most 2,000 characters")
+    return (r or "").strip() or None
+
+
+async def close_case(req: Request):
+    c = _case(req)
+    if _active(req, c.name):
+        raise HTTPException(409, "wait for the running job to finish, or cancel it")
+    if not c.meta("closed"):
+        c.close(_reason(await _body(req)))
+        watch.stop(c, "the case is closed")
+    return JSONResponse(c.status())
+
+
+async def reopen_case(req: Request):
+    c = _case(req)
+    if c.meta("closed"):
+        c.reopen()  # watching doesn't restart by itself: turn it on again if it's still wanted
+    return JSONResponse(c.status())
+
+
+async def hold_case(req: Request):
+    c = _case(req)
+    b = await _body(req)
+    if not isinstance(b.get("on"), bool):
+        raise HTTPException(400, "send {on: true} or {on: false}")
+    if bool(c.meta("legal_hold")) != b["on"]:
+        c.set_hold(b["on"], _reason(b))
+    return JSONResponse(c.status())
+
+
+async def delete_case(req: Request):
+    """Move the whole case folder to the Trash (Finder's Put Back restores it). Never under a legal hold."""
+    c = _case(req)
+    b = await _body(req)
+    if b.get("confirm") != c.name:
+        raise HTTPException(400, f"to delete, send confirm: {c.name!r}")
+    if c.meta("legal_hold"):
+        raise HTTPException(409, "this case is on legal hold; lift the hold first")
+    if _active(req, c.name):
+        raise HTTPException(409, "wait for the running job to finish, or cancel it")
+    d, st = c.details(), c.status()
+    rid = c.audit("case deleted", {"reason": _reason(b), "to": "Trash", "retention_due": st["retention_due"]})
+    c.db.close()
+    try:
+        await asyncio.to_thread(inbox._trash, c.dir)
+    except OSError as e:
+        raise HTTPException(500, f"couldn't move the case to the Trash: {e}")
+    with open(HOME / "deleted-cases.log", "a") as f:  # the case's own log went to the Trash with it
+        f.write(json.dumps({"ts": now(), "slug": c.name, "label": d["label"], "purpose": d["purpose"],
+                            "created": d["created"], "reason": _reason(b), "audit_rowid": rid}) + "\n")
+    return JSONResponse({"deleted": c.name, "to": "Trash"})
+
+
 # --- the investigator's report settings -------------------------------------------------------------
 
 async def get_settings(req: Request):
     return JSONResponse(report.settings())
+
+
+async def get_keys(req: Request):
+    """The free keys: which are set and where from, never a value (hunt/keys.py)."""
+    return JSONResponse({"keys": keys.status()})
+
+
+async def post_keys(req: Request):
+    try:
+        return JSONResponse({"keys": keys.save(await _body(req))})
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+async def public_preview(req: Request):
+    """Read public preview, on her click, for one confirmed account (docs/research/automation-legal.md §4.4):
+    hunt.public.preview(case, url), sync or async, returning at least {note}. 501 until that module exists."""
+    c, b = _case(req), await _body(req)
+    url = b.get("url")
+    if not (isinstance(url, str) and url.startswith("https://")):
+        raise HTTPException(400, "url must be the account's https address")
+    fn = getattr(_module("public"), "preview", None)
+    if not fn:
+        raise HTTPException(501, "the public preview reader isn't installed yet")
+    if c.meta("closed"):
+        raise HTTPException(409, "this case is closed; reopen it first")
+    try:
+        return JSONResponse(await _call(fn, c, url))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 async def post_settings(req: Request):
@@ -744,7 +888,7 @@ async def evidence(req: Request):
     if not path.is_file():
         raise HTTPException(404, "no such evidence")
     ext = name.rsplit(".", 1)[1].lower()
-    if ext in ("html", "htm", "svg", "xml", "xhtml"):  # never rendered as a page from our origin
+    if ext in ("html", "htm", "svg", "xml", "xhtml", "mhtml", "mht"):  # never rendered as a page from our origin
         return FileResponse(path, media_type="text/plain; charset=utf-8", headers={"content-security-policy": "sandbox"})
     return FileResponse(path, media_type=_sniff(path) if ext == "img" else mimetypes.guess_type(name)[0]
                         or "application/octet-stream")
@@ -842,7 +986,7 @@ async def start_recheck(req: Request):
     c = _case(req)
     accounts = await recheck.confirmed(c)
     if not accounts:
-        raise HTTPException(409, "mark at least one account as him first")
+        raise HTTPException(409, "mark at least one account as the subject’s on Is it them? first")
 
     async def work(job):
         await recheck.run(c, accounts, job.emit, job.pause)
@@ -890,7 +1034,7 @@ async def post_watch(req: Request):
     if not b["on"]:
         return JSONResponse(watch.stop(c, "turned off"))
     if not await recheck.confirmed(c):
-        raise HTTPException(409, "mark at least one account as him first")
+        raise HTTPException(409, "mark at least one account as the subject’s on Is it them? first")
     try:
         return JSONResponse(watch.start(c, every))
     except ValueError as e:
@@ -947,6 +1091,129 @@ async def _watch_loop(app):
             print(f"hunt app: watching: {type(e).__name__}: {e}", file=sys.stderr)
 
 
+def _folder(value) -> Path:
+    folder = Path(str(value or inbox.DOWNLOADS)).expanduser()
+    if not folder.is_absolute() or not folder.is_dir():
+        raise HTTPException(400, "folder must be a folder on this computer")
+    return folder
+
+
+async def post_pack(req: Request):
+    c = _case(req)
+    b = await _body(req)
+    folder, passphrase = _folder(b.get("folder")), b.get("passphrase")
+    try:
+        made = await asyncio.to_thread(pack.pack, c, folder, passphrase if isinstance(passphrase, str) else "")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except OSError as e:
+        raise HTTPException(409, str(e))
+    return JSONResponse({"name": Path(made["path"]).name, **made})
+
+
+async def get_archives(req: Request):
+    folder = _folder(req.query_params.get("folder"))
+    return JSONResponse({"folder": str(folder), "files": pack.archives(folder)})
+
+
+async def post_unpack(req: Request):
+    b = await _body(req)
+    folder, name = _folder(b.get("folder")), b.get("name")
+    if not isinstance(name, str) or "/" in name or not name.endswith(pack.SUFFIX):
+        raise HTTPException(400, f"name must be a {pack.SUFFIX} file in the folder")
+    if not isinstance(b.get("passphrase"), str) or not isinstance(b.get("replace", False), bool):
+        raise HTTPException(400, "passphrase must be text, and replace true or false")
+    if b.get("replace") and any(not j.finished for j in req.app.state.jobs.values()):
+        raise HTTPException(409, "wait for the running job to finish: replacing moves a case to the Trash")
+    try:
+        return JSONResponse(await asyncio.to_thread(pack.unpack, folder / name, b["passphrase"], b.get("replace", False)))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+async def get_seen(req: Request):
+    c = _case(req)
+    return JSONResponse(await asyncio.to_thread(seen.for_case, c, req.query_params.get("screening") == "1"))
+
+
+async def post_seen(req: Request):
+    b = await _body(req)
+    ids = seen.from_seeds(_str_list(b.get("seeds"), "seeds"))
+    return JSONResponse(await asyncio.to_thread(seen.lookup, ids, None, b.get("kind") == seen.SCREENING))
+
+
+async def get_setup(req: Request):
+    rows, items = await asyncio.gather(asyncio.to_thread(setup.doctor), setup.plan())
+    return JSONResponse({"version": version("hunt-osint"), "doctor": rows, "items": items})
+
+
+async def post_setup(req: Request):
+    item, size = req.path_params["item"], (await _body(req)).get("size")
+    planned = next((i for i in await setup.plan() if i["id"] == item), None)
+    if not planned:
+        raise HTTPException(404, f"{item}: nothing to install")
+    if not planned["installable"]:
+        raise HTTPException(409, planned["detail"])
+    if type(size) is not int or size != planned["size"]:
+        raise HTTPException(400, f"send size: {planned['size']}, the download size you showed and the investigator accepted")
+
+    if _active(req, ""):
+        raise HTTPException(409, "a download is already running")
+    job = Job("", "setup")  # not a case's job (_new_job opens the case): "" keeps it to one download at a time
+    req.app.state.jobs[job.id] = job
+    job.start(lambda job: setup.install(item, size, job.emit))
+    return JSONResponse({"job": job.id})
+
+
+async def get_worklist(req: Request):
+    c = _case(req)
+    done = c.rows("select coalesce(max(audit), 0) as n from captured_pages") if c.rows(
+        "select 1 from sqlite_master where name = 'captured_pages'") else [{"n": 0}]
+    pending = c.db.execute("select count(*) from audit where action = 'capture page' and rowid > ?", (done[0]["n"],)).fetchone()[0]
+    return JSONResponse({"worklist": recheck.worklist(c), "uncompared_captures": pending})
+
+
+async def post_worklist_open(req: Request):
+    c = _case(req)
+    b = await _body(req)
+    if not isinstance(b.get("account"), str) or not isinstance(b.get("confirmed", False), bool):
+        raise HTTPException(400, "account must be the account's URL, and confirmed true or false")
+    try:
+        item = recheck.open_from_worklist(c, b["account"], b.get("confirmed", False))
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:  # a pacing warning: shown, then sent again with confirmed: true
+        raise HTTPException(409, str(e))
+    try:
+        opened = await asyncio.to_thread(browser.open_url, item["url"], req.url.port, c.name)
+    except (ValueError, LookupError) as e:
+        raise HTTPException(409, str(e))
+    return JSONResponse(opened | {"warning": item["warning"]})
+
+
+async def post_compare(req: Request):
+    return JSONResponse({"changes": await asyncio.to_thread(recheck.diff_captures, _case(req))})
+
+
+async def get_minimise(req: Request):
+    return JSONResponse(await asyncio.to_thread(minimise.plan, _case(req)))
+
+
+async def post_minimise(req: Request):
+    c = _case(req)
+    b = await _body(req)
+    if type(b.get("count")) is not int or type(b.get("bytes")) is not int:
+        raise HTTPException(400, "send count and bytes: the numbers shown to the investigator")
+    if _active(req, c.name):
+        raise HTTPException(409, "this case has a job running")
+    try:
+        return JSONResponse(await asyncio.to_thread(minimise.purge, c, b["count"], b["bytes"]))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    except OSError as e:
+        raise HTTPException(409, f"nothing was moved: {e}")
+
+
 def _watching(app):
     @asynccontextmanager
     async def lifespan(_):
@@ -971,6 +1238,276 @@ QOL_ROUTES = [
     Route("/api/cases/{slug}/alerts/seen", post_alerts_seen, methods=["POST"]),
     Route("/api/watch/background", get_background),
     Route("/api/watch/background", post_background, methods=["POST"]),
+    Route("/api/cases/{slug}/pack", post_pack, methods=["POST"]),
+    Route("/api/case-archives", get_archives),
+    Route("/api/case-archives/unpack", post_unpack, methods=["POST"]),
+    Route("/api/cases/{slug}/seen-before", get_seen),
+    Route("/api/seen-before", post_seen, methods=["POST"]),
+    Route("/api/setup", get_setup),
+    Route("/api/setup/{item}", post_setup, methods=["POST"]),
+    Route("/api/cases/{slug}/worklist", get_worklist),
+    Route("/api/cases/{slug}/worklist/open", post_worklist_open, methods=["POST"]),
+    Route("/api/cases/{slug}/captures/compare", post_compare, methods=["POST"]),
+    Route("/api/cases/{slug}/minimise", get_minimise),
+    Route("/api/cases/{slug}/minimise", post_minimise, methods=["POST"]),
+]
+
+
+# --- Facebook: pages and screenshots the investigator saved there (docs/facebook.md) -------------
+
+FB_PAGES = {".html", ".htm", ".mhtml", ".mht", ".webarchive"}
+FB_PICTURES = {".png", ".jpg", ".jpeg", ".webp", ".heic", ".heif"}
+
+
+def _relative(name: str | None) -> Path:
+    """An upload's own relative path (a folder upload keeps 'Page_files/photo.jpg'), never one that leaves."""
+    name = (name or "").replace("\\", "/")
+    parts = [part for part in name.split("/") if part not in ("", ".")]
+    if not parts or name.startswith("/") or ":" in parts[0] or ".." in parts or "\0" in name:
+        raise HTTPException(400, "file names must be relative paths without '..'")
+    return Path(*parts)
+
+
+def _saved_at(value) -> datetime | None:
+    if not value:
+        return None
+    try:
+        when = datetime.fromisoformat(str(value))
+    except ValueError:
+        raise HTTPException(400, "saved_at must be an ISO date-time")
+    return when.astimezone().replace(tzinfo=None) if when.tzinfo else when
+
+
+async def add_facebook(req: Request):
+    c = _case(req)
+    posts, = _needs("posts")
+    form = await req.form(max_files=5000, max_fields=20)
+    tmp = Path(tempfile.mkdtemp(prefix=".upload-", dir=c.dir))
+    try:
+        pages, pictures, skipped = [], [], []
+        for f in [*form.getlist("files[]"), *form.getlist("files")]:
+            if not isinstance(f, UploadFile):
+                continue
+            rel = _relative(f.filename)
+            ext = rel.suffix.lower()
+            head = (await f.read(1024)).lower()
+            await f.seek(0)
+            # a saved page's _files folder also holds scripts, styles and SVG icons: listed, never stored
+            if ext not in FB_PAGES | FB_PICTURES or ext in FB_PICTURES and b"<svg" in head:
+                skipped.append(str(rel))
+                continue
+            dest = tmp / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with open(dest, "wb") as out:  # streamed, as in add_media
+                while chunk := await f.read(1 << 20):
+                    out.write(chunk)
+            if ext in FB_PAGES:
+                pages.append(dest)
+            elif not any(part.endswith("_files") for part in rel.parts[:-1]):  # a page's pictures come with it
+                pictures.append(await _heic_to_jpeg(dest) if ext in (".heic", ".heif") else dest)
+        if not pages and not pictures:
+            raise HTTPException(400, "no saved Facebook pages or screenshots")
+        saved_at = _saved_at(form.get("saved_at"))
+        try:
+            done = await asyncio.to_thread(_import_facebook, c, posts, pages, pictures, tmp, saved_at)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return JSONResponse(done | {"skipped": skipped})
+    finally:
+        await form.close()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _import_facebook(c: Case, posts, pages: list[Path], pictures: list[Path], tmp: Path, saved_at) -> dict:
+    """Each page hashed into evidence, then its posts; a screenshot with a post's date line becomes that
+    post, any other picture is added as a plain file."""
+    found = added = 0
+    for i, page in enumerate(pages):
+        file, sha = posts.store(c, page, "plist" if page.suffix.lower() == ".webarchive" else page.suffix.lower()[1:])
+        items = facebook.parse_saved(page, saved_at=saved_at, media_dir=tmp / f".media-{i}")
+        new = posts.add_posts(c, items, evidence=file)
+        found, added = found + len(items), added + len(new)
+        c.audit("facebook page imported", {"name": page.name, "sha256": sha, "posts": len(items), "added": len(new)})
+    for shot in pictures:
+        item = facebook.parse_screenshot(shot)
+        new = posts.add_posts(c, [item], kind="screenshot") if item["posted_at"] else \
+            posts.add_files(c, [shot], "Facebook", None)
+        found, added = found + 1, added + len(new)
+    return {"added": added, "posts": found, "pages": len(pages), "screenshots": len(pictures)}
+
+
+async def facebook_links(req: Request):
+    return JSONResponse({"links": facebook.search_links(_case(req).seeds())})
+
+
+FACEBOOK_ROUTES = [
+    Route("/api/cases/{slug}/facebook", add_facebook, methods=["POST"]),
+    Route("/api/cases/{slug}/facebook/links", facebook_links),
+]
+
+
+# --- Hunt Capture: the browser extension's routes, and the app's pairing screens (docs/capture.md) -
+
+CAPTURE_FILES = {  # form field → (stored extension, magic bytes it must start with)
+    "screenshot": [(".jpg", b"\xff\xd8\xff"), (".png", b"\x89PNG")],
+    "archive": [(".mhtml", b"")],  # checked below: an MHTML is a MIME message, multipart/related
+    "video": [(".webm", b"\x1aE\xdf\xa3"), (".mp4", b"")],
+}
+
+
+async def pairing_new(req: Request):
+    return JSONResponse(extension.new_code(req.url.port))
+
+
+async def pairing_status(req: Request):
+    return JSONResponse(extension.status())
+
+
+async def pairing_forget(req: Request):
+    extension.forget()
+    print("hunt app: Hunt Capture unpaired", file=sys.stderr)
+    return JSONResponse(extension.status())
+
+
+async def case_checklist(req: Request):
+    return JSONResponse({"accounts": await asyncio.to_thread(extension.checklist, _case(req))})
+
+
+async def case_captures(req: Request):
+    return JSONResponse({"captures": extension.feed(_case(req))})
+
+
+async def capture_pair(req: Request):
+    b = await _body(req)
+    try:
+        key = extension.pair(str(b.get("code") or ""), req.headers["origin"], str(b.get("name") or ""))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    print(f"hunt app: Hunt Capture paired ({req.headers['origin']})", file=sys.stderr)  # each capture audits it too
+    return JSONResponse({"key": key})
+
+
+async def capture_hello(req: Request):
+    cases = [{"slug": s, "label": Case.open(s).details()["label"]} for s in all_cases()]
+    active = next((c for c in cases if c["slug"] == browser.active_case()), None)
+    return JSONResponse({"version": version("hunt-osint"), **extension.status(), "cases": cases, "active_case": active})
+
+
+async def capture_signins(req: Request):
+    try:
+        return JSONResponse(browser.record(await _body(req)))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+async def browser_status(req: Request):
+    browser.repoint(req.url.port)  # an open Hunt Browser follows Hunt to its new port; nothing else changes
+    return JSONResponse(await asyncio.to_thread(browser.status))
+
+
+async def browser_open(req: Request):
+    b = await _body(req)
+    if b.get("case") is not None:
+        try:
+            Case.open(str(b["case"]))
+        except LookupError:
+            raise HTTPException(404, "no such case")
+    try:
+        return JSONResponse(await asyncio.to_thread(browser.open_url, str(b.get("url") or ""), req.url.port, b.get("case")))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except LookupError as e:
+        raise HTTPException(503, str(e))
+
+
+async def browser_sign_out(req: Request):
+    try:
+        where = await asyncio.to_thread(browser.sign_out)
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+    except OSError as e:
+        raise HTTPException(500, f"couldn't move the profile to the Trash: {e}")
+    print("hunt app: Hunt Browser profile moved to the Trash" if where else "hunt app: no Hunt Browser profile", file=sys.stderr)
+    return JSONResponse({"moved_to": where} | await asyncio.to_thread(browser.status))
+
+
+async def capture_checklist(req: Request):
+    b = await _body(req)
+    try:
+        c = Case.open(str(b.get("case") or ""))
+    except LookupError:
+        raise HTTPException(404, "no such case")
+    return JSONResponse({"accounts": await asyncio.to_thread(extension.checklist, c)})
+
+
+async def _capture_upload(req: Request, field: str, work):
+    """A capture upload: the case, the page's URL (a supported site's https page), one file of the right
+    kind streamed to a temp dir, then `work(case, form, path, tmp)` in a worker thread."""
+    form = await req.form(max_files=1, max_fields=10)
+    try:
+        try:
+            c = Case.open(str(form.get("case") or ""))
+        except LookupError:
+            raise HTTPException(404, "no such case")
+        if not extension.platform(form.get("url")):
+            raise HTTPException(400, "url must be a page on Facebook, Instagram, TikTok, X, LinkedIn or YouTube")
+        f = form.get(field)
+        if not isinstance(f, UploadFile):
+            raise HTTPException(400, f"no {field}")
+        head = await f.read(2048)
+        await f.seek(0)
+        ext = next((e for e, magic in CAPTURE_FILES[field] if magic and head.startswith(magic)), None)
+        if field == "archive" and b"multipart/related" in head.lower():
+            ext = ".mhtml"
+        if field == "video" and head[4:8] == b"ftyp":
+            ext = ".mp4"
+        if not ext:
+            raise HTTPException(415, f"that isn't a {field} Hunt Capture sends")
+        tmp = Path(tempfile.mkdtemp(prefix=".capture-", dir=c.dir))
+        try:
+            path = tmp / f"{field}{ext}"
+            with open(path, "wb") as out:
+                while chunk := await f.read(1 << 20):
+                    out.write(chunk)
+            return JSONResponse(await asyncio.to_thread(work, c, form, path, tmp))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+    finally:
+        await form.close()
+
+
+async def capture_view(req: Request):
+    return await _capture_upload(req, "screenshot", lambda c, form, path, tmp: extension.add_view(
+        c, form["url"], path, form.get("viewed_at") or None, form.get("title") or "",
+        form.get("kind") if form.get("kind") in ("view", "manual", "frame") else "view"))
+
+
+async def capture_page(req: Request):
+    return await _capture_upload(req, "archive", lambda c, form, path, tmp: extension.add_page(
+        c, form["url"], path, form.get("viewed_at") or None, tmp / "media"))
+
+
+async def capture_recording(req: Request):
+    return await _capture_upload(req, "video", lambda c, form, path, tmp: extension.add_recording(
+        c, form["url"], path, form.get("started_at") or None))
+
+
+CAPTURE_ROUTES = [
+    Route("/api/pairing", pairing_status),
+    Route("/api/pairing", pairing_new, methods=["POST"]),
+    Route("/api/pairing/forget", pairing_forget, methods=["POST"]),
+    Route("/api/cases/{slug}/checklist", case_checklist),
+    Route("/api/cases/{slug}/captures", case_captures),
+    Route("/api/capture/pair", capture_pair, methods=["POST"]),
+    Route("/api/capture/hello", capture_hello, methods=["POST"]),
+    Route("/api/capture/checklist", capture_checklist, methods=["POST"]),
+    Route("/api/capture/view", capture_view, methods=["POST"]),
+    Route("/api/capture/page", capture_page, methods=["POST"]),
+    Route("/api/capture/recording", capture_recording, methods=["POST"]),
+    Route("/api/capture/signins", capture_signins, methods=["POST"]),
+    Route("/api/browser/status", browser_status),
+    Route("/api/browser/open", browser_open, methods=["POST"]),
+    Route("/api/browser/sign-out", browser_sign_out, methods=["POST"]),
 ]
 
 
@@ -986,6 +1523,7 @@ async def _server_error(req, exc: Exception):
 
 
 def make_app(token: str, port: int) -> Guard:
+    keys.load()  # free keys saved in Hunt go into the environment the sources read
     routes = [
         Route("/login", login),
         Route("/api/startup", startup),
@@ -1004,14 +1542,21 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/cases/{slug}/posts", get_posts),
         Route("/api/cases/{slug}/hits/{id}", set_hit, methods=["POST"]),
         Route("/api/cases/{slug}/details", update_details, methods=["POST"]),
+        Route("/api/cases/{slug}/close", close_case, methods=["POST"]),
+        Route("/api/cases/{slug}/reopen", reopen_case, methods=["POST"]),
+        Route("/api/cases/{slug}/hold", hold_case, methods=["POST"]),
+        Route("/api/cases/{slug}/delete", delete_case, methods=["POST"]),
         Route("/api/settings", get_settings),
         Route("/api/settings", post_settings, methods=["POST"]),
         Route("/api/settings/logo", get_logo),
+        Route("/api/keys", get_keys),
+        Route("/api/keys", post_keys, methods=["POST"]),
+        Route("/api/cases/{slug}/preview", public_preview, methods=["POST"]),
         Route("/api/settings/logo", post_logo, methods=["POST"]),
         Route("/api/cases/{slug}/report", get_report),
         Route("/api/cases/{slug}/report.{fmt:str}", export_report),
         Route("/evidence/{slug}/{name}", evidence),
-    ] + QOL_ROUTES + ([Mount("/", app=Frontend(directory=STATIC, html=True))] if STATIC.is_dir() else [])
+    ] + QOL_ROUTES + FACEBOOK_ROUTES + CAPTURE_ROUTES + ([Mount("/", app=Frontend(directory=STATIC, html=True))] if STATIC.is_dir() else [])
     app = Starlette(routes=routes, exception_handlers={HTTPException: _http_error, Exception: _server_error})
     app.state.token, app.state.jobs = token, {}
     return Guard(app, token, port)
@@ -1022,7 +1567,7 @@ def serve():
     import uvicorn
     token = secrets.token_urlsafe(32)
     sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
+    sock.bind(("127.0.0.1", int(os.environ.get("HUNT_PORT") or 0)))  # HUNT_PORT: a fixed port, for development
     port = sock.getsockname()[1]
     url = f"http://127.0.0.1:{port}/login?t={token}"
     app = make_app(token, port)
