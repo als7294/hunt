@@ -483,8 +483,8 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
             if obs:
                 who_ = x["name"] if x["name"] else "a child (name withheld)" if x["minor"] else "someone not named"
                 text = "; ".join(dict.fromkeys(o[0] for o in obs))
-                said.append(((f"{who_[0].upper() + who_[1:]}: {text}" if not text.startswith("is a party")
-                             else f"{who_[0].upper() + who_[1:]} {text}") + ".", [ci for o in obs for ci in o[1]]))
+                line = f"{who_[0].upper() + who_[1:]}: {text}" if not text.startswith("is a party") else f"{who_[0].upper() + who_[1:]} {text}"
+                said.append((line + ("" if re.search(r"[.!?]\u201d$", line) else "."), [ci for o in obs for ci in o[1]]))
         n = len(said)
         doc.say("people", f"The subject's own posts, bios and public records name {f'{n} other person' if n == 1 else f'{n} other people' if n else 'no one else'}"
                           + ("; none of them was searched, and nothing about them is a finding." if said else "."),

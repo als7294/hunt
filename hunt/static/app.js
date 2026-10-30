@@ -453,6 +453,7 @@ screens.identity = async slug => {
   const accts = p.accounts, n = accts.length, weakest = p.weakest_verdict, low = Math.min(...accts.map(a => a.probability ?? 1));
   const avatar = accts.find(a => a.avatar)?.avatar;
   mount(html`${topCase(c, 'identity')}<main class="screen" style="align-items:center;padding:6px 16px 32px;gap:18px">
+    ${identityTabs(slug, 'identity')}
     <div style="text-align:center;display:flex;flex-direction:column;gap:8px"><div class="h2">Is this them?</div>
       <div class="sub">${n ? `We found ${n} account${n > 1 ? 's' : ''} that look like the same person.` : 'No account looks likely enough yet. Add more of what you know and search again.'}</div></div>
     ${n ? html`<div style="width:min(880px,100%);background:linear-gradient(180deg,#1E2230,#1B1D23 40%);border-radius:24px;padding:28px;box-shadow:inset 0 0 0 1px var(--edge);display:flex;flex-direction:column;gap:20px">
@@ -577,6 +578,39 @@ const sourceRows = rows => html`${rows.map(r => { const url = /^https?:/.test(r.
   <span class="muted" style="white-space:nowrap">${url ? handleOf(url) : r.seed}${host && !r.source.toLowerCase().includes(host) ? html` <span class="dim">on ${host}</span>` : ''}</span>
   <span class="t2" style="white-space:nowrap">${r.status === 'running' ? 'reading…' : r.status === 'failed' ? 'couldn’t read' : `${r.found ?? 0} found`}</span>
   ${r.note ? html`<span class="dim" style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.note}">${raw ? 'the site didn’t answer as expected (details on hover)' : r.note}</span>` : ''}</div>`; })}`;
+
+/* People around the subject (docs/analysis.md §8; legal.md A1–A10): only what the case already holds, by name and
+   citation. Nothing about them is searched; "Open as a new case…" starts the wizard with its own purpose. */
+const identityTabs = (slug, now) => html`<nav style="display:flex;gap:6px;align-self:center">${[['identity', 'Accounts'], ['people', 'People around the subject']].map(([k, label]) =>
+  html`<a class="step ${k === now ? 'now' : ''}" href="#/case/${slug}/${k}" style="padding:7px 14px">${label}</a>`)}</nav>`;
+const sureness = c => c >= 0.9 ? 'stated' : c >= 0.6 ? 'likely' : 'a hint';
+const SOURCE_WORD = { post: 'a post', bio: 'a profile bio', record: 'a public record', photo: 'your mark on a kept photo', name: 'the name' };
+function personCard(slug, x) {
+  const title = x.name || (x.minor ? `${x.labels[0]} (name withheld)` : `${x.labels[0]}, not named`); // "withheld" only for a possible minor
+  return html`<div class="panel" style="padding:16px 18px;display:flex;flex-direction:column;gap:8px;${x.hidden ? 'opacity:.55' : ''}">
+    <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><b style="font-size:16.5px">${title}</b>
+      ${x.types.map(t => html`<span class="tag">${t}</span>`)}<span class="muted" style="font-size:13px">${sureness(x.confidence)}</span>
+      ${x.minor ? html`<span class="tag warn" title="Minors are never named, searched or face-compared">possible minor</span>` : ''}</div>
+    <div style="display:flex;flex-direction:column;gap:4px">${x.cites.map(ct => html`<div style="font-size:14px" class="t2">
+      <span class="muted">${SOURCE_WORD[ct.kind] || ct.kind}:</span> ${ct.kind === 'record' && ct.type === 'same address' ? 'lists them at the subject’s address' : html`“${ct.quote}”`}
+      ${/^https?:\/\//.test(ct.url || '') ? html` <a href="${ct.url}" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:13px">the ${ct.kind === 'post' ? 'post' : ct.kind === 'record' ? 'record' : 'profile'} ↗</a>` : ''}</div>`)}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn ghost sm" data-act="person-hide" data-id="${x.id}" data-hidden="${x.hidden ? '' : '1'}">${x.hidden ? 'Show again' : 'Not relevant'}</button>
+      ${!x.minor && x.name ? html`<button class="btn ghost sm" data-act="person-case" data-name="${x.name}" title="A new case about this person, with its own purpose. Nothing else is carried over">Open as a new case…</button>` : ''}</div></div>`;
+}
+screens.people = async slug => {
+  const [c, r] = await Promise.all([loadCase(slug), api(`/api/cases/${encodeURIComponent(slug)}/people`)]);
+  const shown = r.people.filter(x => !x.hidden), hidden = r.people.filter(x => x.hidden);
+  mount(html`${topCase(c, 'identity')}<main class="screen" style="align-items:center;padding:6px 16px 32px;gap:16px">
+    ${identityTabs(slug, 'people')}
+    <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:8px"><div class="h2" style="text-align:center">People around the subject</div>
+      <div class="sub" style="text-align:center">${r.notice}</div></div>
+    <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
+      ${shown.length ? shown.map(x => personCard(slug, x)) : html`<div class="empty">Nobody else is named in the subject’s posts, bios or records yet${hidden.length ? ' (apart from those you marked not relevant)' : ''}.</div>`}
+      ${hidden.length ? html`<details><summary class="muted" style="cursor:pointer;padding:6px 0">Marked not relevant (${hidden.length})</summary><div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">${hidden.map(x => personCard(slug, x))}</div></details>` : ''}
+      <span class="dim" style="font-size:12.5px">The report quotes what was observed, with its source, and never states a relationship. Children are never named. Employment screening reports leave this section out.</span></div>
+  </main>`);
+};
 
 /* Find a person, 3a: analysing photos and videos. Starts by itself once the investigator confirms it's them */
 let queuedScan = null; // a case whose new files arrived while its scan was running
@@ -1118,6 +1152,9 @@ function hitDetail(slug, c, h) {
       ${h.url ? html`<a class="btn ghost sm" href="${/^https?:\/\//.test(h.url) ? h.url : '#'}" target="_blank" rel="noopener noreferrer" title="Opens the live post in your own browser, not through Hunt’s proxy">Open the post</a>` : ''}
       <button class="btn ghost sm" data-act="note-open" data-about="hit" data-ref="${h.id}" data-title="Notes on this item">Note</button>
       <span class="btn ghost sm soon" aria-disabled="true" title="Coming soon">Locate this photo →</span></div>
+    ${h.media_id && src && ['kept', 'in report'].includes(h.status) ? html`<div class="life" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn ghost sm" data-act="mark-ask" data-media="${h.media_id}">Mark people in this photo</button>
+      <span class="dim" style="font-size:12.5px">Your own words; the same words in several photos are one person. No face search.</span></div>` : ''}
   </div>`;
 }
 function weeklyChart(weeks, injury) {
@@ -1164,7 +1201,8 @@ screens.report = async slug => {
   const link = url => /^https?:\/\//.test(url || '') ? html`<a href="${url}" target="_blank" rel="noopener noreferrer" title="Opens in your own browser">${url.replace(/^https?:\/\/(www\.)?/, '')}</a>` : url || '';
   const body = s => {
     const xs = r.sentences.filter(x => x.section === s.id), parts = [];
-    if (s.id === 'found') { const by = new Map(); xs.forEach(x => by.set(x.platform || '', [...(by.get(x.platform || '') || []), x]));
+    if (s.id === 'people' && xs.length) { parts.push(para(xs.slice(0, 1))); xs.slice(1).forEach(x => parts.push(para([x]))); } // one person each
+    else if (s.id === 'found') { const by = new Map(); xs.forEach(x => by.set(x.platform || '', [...(by.get(x.platform || '') || []), x]));
       by.forEach((list, platform) => parts.push(html`${platform ? html`<h4 style="margin:6px 0 4px;font-size:15px;color:var(--t2)">${platform}</h4>` : ''}${list.map(x => para([x]))}`)); } // one exhibit each
     else if (xs.length) parts.push(para(xs));
     if (s.id === 'presence' && r.presence.length) parts.push(html`<div style="overflow:auto"><table class="tbl"><tr><th>#</th><th>Platform</th><th>Username</th><th>URL</th><th>Public / private</th><th>Last activity</th><th>Relevant</th><th>Status</th><th>Exhibit</th></tr>
@@ -1389,6 +1427,13 @@ const actions = {
     try { const r = await api(`/api/cases/${encodeURIComponent(el.dataset.slug)}/minimise`, { method: 'POST', body: { count: +el.dataset.count, bytes: +el.dataset.bytes } });
       el.closest('.life').innerHTML = html`<span class="muted" style="font-size:13.5px">Moved ${r.count} file${r.count === 1 ? '' : 's'} (${size(r.bytes)}) to the Trash. It’s in the case log.</span>`.s; }
     catch (e) { el.disabled = false; fail(e); } },
+  'person-hide': async el => { try { await api(`/api/cases/${encodeURIComponent(route().slug)}/people/${encodeURIComponent(el.dataset.id)}/hide`, { method: 'POST', body: { hidden: !!el.dataset.hidden } }); render(); } catch (e) { fail(e); } },
+  'person-case': el => { wiz = newWizard(); wiz.seeds = [el.dataset.name]; location.hash = '#/new'; toast('A new case: say who asked and why it’s lawful to look into this person.'); },
+  'mark-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = html`<input class="input" id="mark-label" placeholder="Who is it? e.g. Dan, or woman in red" style="flex:1;min-width:200px;font-size:14px" maxlength="200">
+    <button class="btn sm" data-act="mark-do" data-media="${el.dataset.media}">Mark</button><button class="btn ghost sm" data-act="life-cancel">Cancel</button>`.s; $('#mark-label').focus(); },
+  'mark-do': async el => { const label = $('#mark-label').value.trim(); if (!label) return toast('Write who it is, in your own words.', true);
+    try { await api(`/api/cases/${encodeURIComponent(route().slug)}/people/photo`, { method: 'POST', body: { media_id: +el.dataset.media, label } });
+      el.closest('.life').innerHTML = html`<span class="muted" style="font-size:13.5px">Marked “${label}”. It’s in the case log and on People around the subject.</span>`.s; } catch (e) { fail(e); } },
   'wl-open': async el => { // her click, audited; a pacing warning (LinkedIn) asks first
     const { slug, account } = el.dataset, confirmed = !!el.dataset.confirmed;
     try { const r = await api(`/api/cases/${encodeURIComponent(slug)}/worklist/open`, { method: 'POST', body: { account, confirmed } });
