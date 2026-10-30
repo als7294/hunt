@@ -148,7 +148,8 @@ img.thumb.blur, .blur { filter: blur(10px) saturate(.6); }
   .case-name { max-width: 110px; } .pill-extra { display: none; } .top .chip-btn { padding: 9px 10px; } /* the case pill stays on screen at 1024 px; the closed bar and the menu say it */
 }
 @media (max-width: 900px) {
-  .two-up, .split, .report-grid, .claim-grid { grid-template-columns: 1fr; }
+  .top { height: auto; min-height: 68px; flex-wrap: wrap; row-gap: 8px; padding-block: 10px; } /* too much for one row: wrap, never scroll sideways */
+  .two-up, .split, .report-grid, .claim-grid { grid-template-columns: minmax(0, 1fr); } /* 1fr alone can't shrink below a long URL or a table */
   .claim-rs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); } /* the restrictions side by side above the leads */
   .h1 { font-size: 34px; } .wiz-grid .h1 { font-size: 38px !important; }
   .step { padding: 6px 8px 6px 6px; font-size: 13px; } .step-link { width: 14px; } .sep { display: none; }
@@ -187,3 +188,7 @@ button.tile:hover { box-shadow: 0 0 0 2px var(--ac); }
 
 /* Notes drawer */
 .drawer { position: fixed; right: 16px; top: 76px; bottom: 16px; width: min(400px, calc(100% - 32px)); z-index: 30; padding: 18px; display: flex; flex-direction: column; gap: 12px; box-shadow: inset 0 0 0 1px var(--edge), 0 30px 60px rgba(0, 0, 0, .5); }
+
+/* The report reads at any width: long links wrap, wide tables scroll inside themselves */
+.report-grid > article { min-width: 0; overflow-wrap: anywhere; }
+.report-grid > article table { display: block; max-width: 100%; overflow-x: auto; }

@@ -148,6 +148,7 @@ screens.startup = async () => {
   catch (e) { checks = [{ id: 'server', label: 'Starting Hunt', ok: false, detail: e.message }]; }
   const box = $('#boot');
   for (let i = 0; i < checks.length; i++) {
+    if (!box?.isConnected) return; // she left the startup screen while the checks were still appearing
     box.insertAdjacentHTML('beforeend', bootRow(checks[i], keys).s);
     $('#boot-bar').style.transform = `scaleX(${(i + 1) / checks.length})`; $('#boot-pct').textContent = `${Math.round((i + 1) / checks.length * 100)}%`;
     await new Promise(r => setTimeout(r, 380));
@@ -155,6 +156,7 @@ screens.startup = async () => {
   sessionStorage.setItem('hunt-booted', '1');
   const firstBoot = (() => { try { return !localStorage.getItem('hunt-connect-seen'); } catch { return false; } })();
   const next = () => { if (['', '#/', '#/startup'].includes(location.hash)) { const to = firstBoot ? '#/connect' : '#/'; if (location.hash === to) render(); else location.hash = to; } };
+  if (!box?.isConnected) return;
   // Cases past retention wait for a decision; otherwise carry on by itself
   if (checks.some(c => ((c.id === 'retention' || c.id === 'downloads') && c.items?.length) || Object.keys(c.stopped || {}).length)) box.insertAdjacentHTML('beforeend', html`<a class="btn primary sm" href="#/" style="align-self:flex-start;margin-top:6px">Continue →</a>`.s);
   else setTimeout(next, checks.every(c => c.ok) ? 500 : 2500);
