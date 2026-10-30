@@ -40,7 +40,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from . import graph, keys, leads, report, search, sources, vendor, vlm
-from . import bundle, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
+from . import bundle, demo, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
 from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, RETENTION_DAYS, Case, all_cases  # watch.py reads RETENTION_DAYS here
@@ -1024,7 +1024,8 @@ async def _report(req: Request, c: Case, export: bool = False) -> dict:
     checks = await asyncio.to_thread(c.verify, not export)  # exports re-hash every file
     scan = _module("scan")
     labels = {k: v.get("label", k) for k, v in getattr(scan, "CATEGORIES", {}).items()}
-    return report.compose(c, snap, posts, hits, checks, screening=screening, labels=labels)
+    return report.compose(c, snap, posts, hits, checks, screening=screening, labels=labels,
+                          prefs=demo.PREFS if c.meta("demo") else None)  # the fictional demo: DEMO firm, never hers
 
 
 async def get_report(req: Request):
@@ -1351,6 +1352,8 @@ async def get_worklist(req: Request):
 
 async def post_worklist_open(req: Request):
     c = _case(req)
+    if c.meta("closed"):  # the demo case too: closed, so no click of it ever opens a page
+        raise HTTPException(409, "this case is closed; reopen it first")
     b = await _body(req)
     if not isinstance(b.get("account"), str) or not isinstance(b.get("confirmed", False), bool):
         raise HTTPException(400, "account must be the account's URL, and confirmed true or false")
@@ -1390,6 +1393,22 @@ async def post_minimise(req: Request):
         raise HTTPException(409, f"nothing was moved: {e}")
 
 
+async def get_demo(req: Request):
+    exists = (HOME / "cases" / demo.SLUG / "case.db").exists()
+    return JSONResponse({"exists": exists, "slug": demo.SLUG, "label": demo.LABEL})
+
+
+async def post_demo(req: Request):
+    reset = (await _body(req)).get("reset") is True
+    if reset and _active(req, demo.SLUG):
+        raise HTTPException(409, "the demo case has a job running")
+    try:
+        c = await asyncio.to_thread(demo.build, reset)
+    except FileNotFoundError as e:
+        raise HTTPException(409, str(e))
+    return JSONResponse({"slug": c.name, "label": demo.LABEL})
+
+
 def _watching(app):
     @asynccontextmanager
     async def lifespan(_):
@@ -1426,6 +1445,8 @@ QOL_ROUTES = [
     Route("/api/cases/{slug}/captures/compare", post_compare, methods=["POST"]),
     Route("/api/cases/{slug}/minimise", get_minimise),
     Route("/api/cases/{slug}/minimise", post_minimise, methods=["POST"]),
+    Route("/api/demo", get_demo),
+    Route("/api/demo", post_demo, methods=["POST"]),
 ]
 
 

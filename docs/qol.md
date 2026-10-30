@@ -331,6 +331,51 @@ Fixed along the way:
 - Its fix wording read "Free disk space: Free up space…" in setup's summary.
 - uv had picked Python 3.13, so the install is now pinned to 3.12.
 
+### 11. The demo case (`hunt/demo.py`, `hunt demo`, `/api/demo`)
+
+**Purpose:** anyone opening Hunt, Laura's interviewer included, should see a finished investigation in thirty seconds.
+
+**What it is:** `hunt demo` builds `demo-dorian-vell` from `fixtures/demo/` alone, with no network. It's a fictional workers' compensation claim against Dorian Vell, a mover with a reported back injury. The case contains:
+- **The search:**
+  - eleven source runs, one of them failed
+  - Instagram, TikTok, Bluesky and an email registration on Strava, with verdicts and reasons
+  - two namesakes (GitHub, Mastodon) set aside
+  - records: a contractor licence and a motor-carrier entry that match the employer, and a namesake's court record that its birth year rules out
+  - profile screenshots
+- **The decisions:**
+  - the confirmed person
+  - TikTok confirmed by hand: its display name only repeats the handle, so the handle alone left it at "roughly even chance"
+- **Posts:**
+  - five Bluesky posts "read automatically"
+  - an Instagram video captured in the Hunt Browser, with its capture record
+- **Scan flags,** reviewed: three in the report (a caption, a photo, and the video's 3–8 s stretch), two kept, and one ruled not relevant. They're written with the scan's own `_hit`, so they're shaped exactly as a real scan's.
+- **Check again:** a deleted post and a rewritten bio.
+- **Notes:** a note, its correction, and a note on the video flag.
+- **Exports:** in `exports/`, the finished report (HTML and JSON) and the evidence bundle.
+
+**DEMO everywhere:**
+- the label ("DEMO · Dorian Vell claim (fictional)"), purpose, client, reference and file number
+- meta `demo`
+- every picture ("DEMO · generated illustration")
+- the bundle's README
+- **the report:** it's built with DEMO report settings, both in `exports/` and in the app (`app._report` passes `demo.PREFS` for a demo case). So the firm, investigator, licence and confidentiality line say DEMO, and no real investigator's name or licence is ever printed on it.
+
+**Kept apart from real work:**
+- **Unreachable accounts:** accounts are on `.example` hosts (`instagram.example/dorianvell`), which never resolve. No click can reach a real person who happens to share a handle.
+- **Read-only:** the case is closed when built, so no search, scan, re-check or worklist open runs on it.
+- **Never matched:** "Seen before" never matches it, in either direction.
+- **Rebuilding:** `hunt demo --reset` moves it to the Trash and builds it again.
+
+**Media:** drawn by `scripts/demo_media.py` from shapes and text, and dedicated to the public domain (CC0, `fixtures/demo/LICENSE.md`): 164 KB in all. The wheel force-includes them as `hunt/demo_media`, so an installed Hunt can build the demo too.
+
+**The self-check** (`test_demo.py`):
+- builds it with every network connection refused
+- checks the DEMO marking everywhere it should appear, that the case is read-only, and that it stays out of "seen before"
+- checks every report section is done
+- resolves every `A-`, `E-`, `M-`, `M-a` and `N-` citation anywhere in the report to a row of the case
+- checks the exports
+- checks that `--reset` sends the old case to the Trash
+
 ### Self-checks
 
 All offline, using temp folders only. `test_inbox.py`, `test_bundle.py`, `test_recheck.py`, `test_worklist.py`, `test_notes.py`, `test_watch.py`, `test_pack.py`, `test_seen.py`, `test_setup.py`, `test_minimise.py` and `test_qol.py` each print `ok`.
@@ -587,6 +632,16 @@ The real Trash call was checked once by hand, on a scratch file.
 - **Then:** `POST …/minimise` `{count, bytes}`. On success: "Moved to the Trash as 'vance-claim unused media 2027-01-28 …'. Empty the Trash to finish removing them."
 - **409:** shown as is (legal hold, not yet due, changed since shown).
 - **Under legal hold:** the row says "On legal hold: nothing may be removed", and there's no button.
+
+### L. "Open the demo case" on the first run and on Home
+
+- **On the first run** (after Connect your accounts and free keys), and on Home whenever there are no other cases: a quiet card or secondary button, **Open the demo case**.
+  - Helper: "A finished, fictional investigation, to see what Hunt does. It's marked DEMO everywhere and can't be changed by a search."
+  - It calls `GET /api/demo`. If `exists` is false, it calls `POST /api/demo` `{}`, which builds the case in a second or two (show a spinner), then opens `#/case/demo-dorian-vell/identity`.
+- **On Home,** the demo appears in the case list like any case: its label already says DEMO. Give it a "DEMO" chip, and sort it after real cases.
+- **In the demo case,** a banner on every step: "DEMO: everything here is fictional." The closed banner's **Reopen** can stay, but a **Rebuild the demo** link (`POST /api/demo` `{reset: true}`) is the better reset.
+- **On the report screen,** read the firm, investigator, licence and confidentiality line from the report's `header`, not from the report settings. For the demo, the header carries DEMO values. Today the screen shows "Add your firm, name and licence" there.
+- **In the retention prompt,** after 90 days the demo appears like any case: its delete is just "Delete the demo".
 
 ## Audit actions for the report (to pass to the report owner)
 

@@ -18,6 +18,7 @@ Hunt finds a person's accounts, helps you decide which are really theirs, looks 
   - **Startup checks:** your cases, evidence fingerprints, the local AI, the internet and your proxy, every source, the Hunt Browser, and retention dates. The version is shown there too.
   - **Connect your accounts:** sign in once, as yourself, in the Hunt Browser.
   - **Free keys (optional).**
+- **A demo case** (`hunt demo`): a finished, fictional investigation to look through, marked DEMO everywhere and read-only.
 - **`hunt doctor`** checks everything Hunt needs and gives a plain fix for each problem.
 - **`hunt update`** updates Hunt.
 - **`hunt uninstall`** removes Hunt. It asks separately before moving your cases to the Trash.

@@ -24,6 +24,7 @@ KINDS = {"username", "email", "phone", "url", "address", "name"}
 WEAK = {"name"}
 NOT_CHECKED = ("Not checked: this is an employment screening, which may only use what was collected for it. "
                "Other investigations on this computer stay out of it.")
+DEMO = "Not checked: this is the fictional demo case, which is never compared with real cases."
 
 
 def identifiers(case) -> set[tuple[str, str]]:
@@ -53,6 +54,8 @@ def lookup(ids: set, exclude: str | None = None, screening: bool = False) -> dic
         if slug == exclude:
             continue
         other = Case.open(slug)
+        if other.meta("demo"):  # the fictional demo (hunt/demo.py) is never a match
+            continue
         d = other.details()
         if d["kind"] == SCREENING:
             skipped += 1
@@ -68,6 +71,8 @@ def lookup(ids: set, exclude: str | None = None, screening: bool = False) -> dic
 
 def for_case(case, screening: bool = False) -> dict:
     """lookup() for an existing case. A case of kind 'background' is always looked up as a screening."""
+    if case.meta("demo"):
+        return {"checked": False, "why": DEMO, "skipped_screenings": 0, "matches": []}
     return lookup(identifiers(case), case.name, screening or case.details()["kind"] == SCREENING)
 
 
