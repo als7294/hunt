@@ -1299,7 +1299,8 @@ const TODO = { summary: 'search', method: 'search', identity: 'identity', found:
 const TODO_LABEL = { search: 'Run the search', identity: 'Decide whether it’s them', posts: 'Review the flagged posts left' };
 const MISSING = { client: 'Add the client', reference: 'Add the claim or reference number', assignment_date: 'Add the assignment date',
   investigator: 'Add your name in report settings', licence: 'Add your licence number in report settings',
-  abroad_basis: 'Write down the lawful basis (the subject lives abroad)', no_notice: 'Write down why the subject wasn’t told' };
+  abroad_basis: 'Write down the lawful basis (the subject lives abroad)', no_notice: 'Write down why the subject wasn’t told',
+  mhmda_basis: 'Write down the fraud basis (Washington subject)' };
 const HEADER_ROWS = [['client', 'Client'], ['adjuster', 'Adjuster'], ['reference', 'Claim or reference no.'], ['file_number', 'Our file no.'], ['subject', 'Subject'],
   ['subject_dob', 'Date of birth'], ['injury_date', 'Date of injury or loss'], ['assignment_date', 'Assigned'], ['report_date', 'Report date']];
 const DETAIL_FIELDS = [['client', 'Client', 'Carrier, TPA or law firm'], ['adjuster', 'Adjuster', ''], ['reference', 'Claim or reference no.', ''], ['file_number', 'Our file no.', 'Your own file number'],
@@ -1376,7 +1377,8 @@ screens.report = async slug => {
         <label class="panel" style="padding:16px 18px;display:flex;gap:12px;align-items:center;cursor:pointer"><input type="checkbox" data-act="screening" ${screening || bg ? 'checked' : ''} ${bg ? 'disabled' : ''} style="width:18px;height:18px;accent-color:var(--ac)">
           <span><b>Job screening mode</b><br><span class="muted" style="font-size:13.5px">${bg ? 'Always on for a background check: only the accounts you confirmed, and no protected details or family' : 'Hides protected details (age, health, religion, family…)'}</span></span></label>
         <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px">
-          ${bg && !r.presence.length ? html`<div class="reason warn"><span class="ic">!</span>A background report covers only accounts you confirmed. <a href="#/case/${slug}/identity" style="color:var(--ac)">Confirm one on Is it them? →</a></div>` : html`
+          ${r.checks.missing.includes('mhmda_basis') ? html`<div class="reason warn"><span class="ic">!</span>The subject lives in Washington: write down the fraud basis before exporting. <button data-act="details-edit" style="color:var(--ac)">Edit the case details →</button></div>`
+            : bg && !r.presence.length ? html`<div class="reason warn"><span class="ic">!</span>A background report covers only accounts you confirmed. <a href="#/case/${slug}/identity" style="color:var(--ac)">Confirm one on Is it them? →</a></div>` : html`
           <a class="btn primary" href="${base}.pdf${q}">Export PDF</a><a class="btn" href="${base}.html${q}&view=1" target="_blank" rel="noopener" title="Opens in a new tab; print it from there">Web page</a><a class="btn ghost" href="${base}.json${q}">Data file</a>
           <a class="btn ghost" href="/api/cases/${encodeURIComponent(slug)}/evidence.zip" download>Evidence bundle (.zip)</a>`}
           <div class="muted" style="font-size:13px">Every evidence file under a readable name, with a SHA-256 manifest anyone can check with <span class="mono">shasum -c</span>.</div></div>
@@ -1407,6 +1409,8 @@ function detailsForm(c) {
       <select class="input" name="subject_residence"><option value="unknown">Not known</option>
         ${US_STATES.map(([k, n]) => html`<option value="US-${k}" ${d.subject_residence === `US-${k}` ? 'selected' : ''}>${n}, United States</option>`)}
         ${countryList().map(([k, n]) => html`<option value="${k}" ${d.subject_residence === k ? 'selected' : ''}>${n}</option>`)}</select></label>
+    ${d.subject_residence === 'US-WA' ? html`<label class="field"><span class="label">Fraud basis <span class="dim">· the subject lives in Washington: the My Health My Data Act allows this work to prevent or investigate fraud (RCW 19.373.100(3)); say how</span></span>
+      <textarea class="input" name="mhmda_basis" rows="2" style="resize:vertical">${d.mhmda_basis || ''}</textarea></label>` : ''}
     ${c.abroad ? html`<label class="field"><span class="label">Lawful basis <span class="dim">· the subject lives in the UK, Canada or the EEA: e.g. legitimate interests in investigating a claim (GDPR Art. 6(1)(f))</span></span>
       <textarea class="input" name="abroad_basis" rows="2" style="resize:vertical">${d.abroad_basis || ''}</textarea></label>
       <label class="field"><span class="label">Why the subject wasn’t told <span class="dim">· e.g. telling them would seriously impair the investigation (Art. 14(5)(b))</span></span>

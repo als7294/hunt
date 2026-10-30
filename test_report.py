@@ -340,6 +340,20 @@ assert "abroad_basis" not in rep["checks"]["missing"] and "The subject lives in 
     "interests in investigating a claim. Why they weren't told of this investigation: Notice would impair the investigation." in text(rep)
 case.set_details(subject_residence="", abroad_basis="", no_notice="")
 
+# A Washington subject (My Health My Data Act): the fraud basis is on record or missing; observed activity only,
+# described by the activity looked for; nothing about the injury or physical condition (F3)
+case.set_details(subject_residence="US-WA")
+rep = compose()
+assert "mhmda_basis" in rep["checks"]["missing"] and "Fraud basis on record: none recorded." in text(rep), text(rep)
+case.set_details(mhmda_basis="Claim fraud investigation for Fictional Mutual")
+rep, t = compose(), text(compose())
+assert "mhmda_basis" not in rep["checks"]["missing"] and "Fraud basis on record: Claim fraud investigation" in t, t
+assert "E-2" not in {e["id"] for e in rep["evidence"]} and "knee" not in t and "finishing a 10k" not in t, t
+assert "relates to sport and gym" in t and "41 days after the date of loss" in t, t
+assert "Lifting: nothing found after the date of loss that bears on this." in t, t  # the claim section stays, reworded
+assert not any(report.HEALTH.search(x["text"]) for x in rep["sentences"] if "My Health My Data" not in x["text"]), rep["sentences"]
+case.set_details(subject_residence="", mhmda_basis="")
+
 # Shown to a restricted audience: out of the report until counsel approves that item, then in it, saying so (K3)
 posts[0]["extra"] = {"audience": "Friends"}
 rep = compose()

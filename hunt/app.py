@@ -1112,6 +1112,8 @@ async def export_report(req: Request):
     fmt = req.path_params["fmt"]
     if fmt not in ("html", "pdf", "json"):
         raise HTTPException(404, "report formats: html, pdf, json")
+    if c.mhmda and not (c.meta("mhmda_basis") or "").strip():
+        raise HTTPException(409, "the subject lives in Washington: write down the fraud basis (My Health My Data Act) first")
     if c.details()["kind"] == "background" and not any(u and x["decision"] == "him" for u, x in c.decisions().items()):
         raise HTTPException(409, "a background report covers only accounts you confirmed: confirm at least one on Is it them? first")
     rep = await _report(req, c, export=True)

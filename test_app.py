@@ -379,6 +379,13 @@ assert c.post("/api/cases/vance-claim/hits/999/counsel", content=json.dumps({"by
 assert c.post(url, content=json.dumps({"by": "A. Counsel", "note": "Friends-only post, approved"}), headers=JSON).json() == \
     {"hit": 7, "counsel": "A. Counsel"}
 assert Case.open("vance-claim").rows("select action from audit order by rowid desc limit 1")[0]["action"] == "counsel approved"
+# A Washington subject: no export until the fraud basis is written down (F3)
+c.post("/api/cases/vance-claim/details", content=json.dumps({"subject_residence": "US-WA"}), headers=JSON)
+r = c.get("/api/cases/vance-claim/report.json")
+assert r.status_code == 409 and "Washington" in r.json()["error"], r.text
+c.post("/api/cases/vance-claim/details", content=json.dumps({"mhmda_basis": "Claim fraud investigation"}), headers=JSON)
+assert c.get("/api/cases/vance-claim/report.json").status_code == 200
+c.post("/api/cases/vance-claim/details", content=json.dumps({"subject_residence": "US-AZ", "mhmda_basis": ""}), headers=JSON)
 # A background check: no export until she confirms an account, and no map of the people around the subject (K1, A8)
 bg = c.post("/api/cases", content=json.dumps({**new, "label": "Quill check", "kind": "background", "seeds": ["rquill_example"],
                                               "purpose": "Employer XYZ: pre-employment check, consent on file"}), headers=JSON).json()["slug"]
