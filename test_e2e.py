@@ -78,9 +78,11 @@ search.SOURCES = [
                 body="<html>Reddit profile</html>")]),
     source("fec", {"name"}, lambda s: [Finding("fec", s, "FEC contributions", "https://www.fec.gov/data/?n=vance",
                                                {"fullname": "Robert Vance", "contributions": 2, "total_usd": 300,
-                                                "recipients": ["Committee To Elect Example"]}, body="<html>fec</html>")]),
+                                                "recipients": ["Committee To Elect Example"], "employer": "Example Health"},
+                                               body="<html>fec</html>")]),
     source("npi", {"name"}, lambda s: [Finding("npi", s, "NPI Registry", "https://npiregistry.cms.hhs.gov/provider-view/1",
-                                               {"fullname": "Robert Vance", "npi": "1", "specialty": "Registered Nurse"},
+                                               {"fullname": "Robert Vance", "npi": "1", "specialty": "Registered Nurse",
+                                                "organization": "Example Health Clinic"},
                                                body="<html>npi</html>")]),
 ]
 
@@ -189,7 +191,8 @@ r = c.post("/api/cases", content=json.dumps({
     "label": "Vance claim", "seeds": ["kestrel_vane88", "Robert Vance"], "kind": "insurance", "tool": "person",
     "purpose": "Fictional Mutual claim FM-1 (fictional): disputed knee injury; permissible purpose on file",
     "reference": "FM-1", "injury_date": "2026-03-01", "look_for": ["sport"], "client": "Fictional Mutual",
-    "assignment_date": "2026-03-20", "subject_dob": "1990-05-05", "limits": "No running"}), headers=JSON)
+    "assignment_date": "2026-03-20", "subject_dob": "1990-05-05", "limits": "No running",
+    "subject_employer": "Example Health"}), headers=JSON)
 assert r.status_code == 201, r.text
 slug = r.json()["slug"]
 api = f"/api/cases/{slug}"

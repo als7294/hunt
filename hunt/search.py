@@ -107,6 +107,7 @@ def build(case: Case, places: dict | None = None) -> dict:
     subject = case.seeds()
     decided = case.decisions()
     him = {u for u, d in decided.items() if u and d["decision"] == "him"}
+    facts = case.details()  # subject_dob, subject_age_range, subject_employer: scored against records
     shots = defaultdict(list)
     for c in case.rows("select * from captures"):
         shots[c["finding_id"]].append({"kind": c["kind"], "at": c["ts"], "sha256": c["sha256"], "file": c["evidence"]})
@@ -125,7 +126,8 @@ def build(case: Case, places: dict | None = None) -> dict:
         taken[r["seed"].lower()] = (t[0] + r["found"], t[1] + r["checked"])
 
     def rate(c, extra=None):
-        p, verdict, reasons, tags = match.score(Seed(**c["seed"]), c["url"], c["attrs"], subject, taken, places, extra, him)
+        p, verdict, reasons, tags = match.score(Seed(**c["seed"]), c["url"], c["attrs"], subject, taken, places, extra, him,
+                                                facts)
         c.update(verdict=verdict, probability=round(p, 3), reasons=reasons, tags=tags)
 
     candidates = []

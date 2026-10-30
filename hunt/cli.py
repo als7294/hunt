@@ -7,6 +7,7 @@ hunt pack --case NAME [--out DIR]          hunt unpack FILE [--replace]
 hunt seen [SEED...] [--case NAME] [--screening]
 hunt doctor | hunt setup [--launcher] | hunt update | hunt uninstall
 hunt minimise --case NAME
+hunt learning [--on | --off | --reset]
 hunt app
 
 search fans each seed out to every source that handles its kind, scores every
@@ -21,7 +22,8 @@ computer, and unpack brings one in after checking every file's hash. seen looks 
 the other cases on this computer. doctor checks what Hunt needs and says how to fix what's missing;
 setup puts Hunt in Applications and downloads what's missing, showing each size and asking first;
 update and uninstall do what they say (uninstall moves things to the Trash). minimise, once a case's
-retention period is over, moves the raw media nobody kept or cited to the Trash. app opens the Hunt app in
+retention period is over, moves the raw media nobody kept or cited to the Trash. learning shows what Hunt has learned from your decisions (on this machine
+only), turns it on or off, or forgets it. app opens the Hunt app in
 your browser, served only to this machine.
 """
 
@@ -117,10 +119,14 @@ def main():
     mn = sub.add_parser("minimise", parents=[proxy],
                         help="after retention: move the raw media nobody kept or cited to the Trash (asks first)")
     mn.add_argument("--case", required=True)
+    lg = sub.add_parser("learning", help="what Hunt has learned from your decisions; turn it on or off, or forget it")
+    lg.add_argument("--on", action="store_true", help="learn from decisions again")
+    lg.add_argument("--off", action="store_true", help="stop learning and go back to the default weights")
+    lg.add_argument("--reset", action="store_true", help="forget every decision learned from")
     sub.add_parser("app", parents=[proxy], help="open the Hunt app in your browser (this machine only)")
     args = ap.parse_args()
 
-    if args.proxy:
+    if getattr(args, "proxy", None):
         os.environ["HUNT_PROXY"] = args.proxy
     if args.cmd == "app":
         from .app import serve
@@ -130,6 +136,13 @@ def main():
     if args.cmd in ("pack", "unpack", "seen", "doctor", "setup", "update", "uninstall", "minimise"):
         return {"pack": pack_cmd, "unpack": unpack_cmd, "seen": seen_cmd, "doctor": doctor_cmd, "setup": setup_cmd,
                 "update": update_cmd, "uninstall": uninstall_cmd, "minimise": minimise_cmd}[args.cmd](args)
+    if args.cmd == "learning":
+        from . import learning
+        if args.on or args.off:
+            learning.set_enabled(args.on)
+        if args.reset:
+            learning.reset()
+        return print(json.dumps(learning.status(), indent=2))
     try:
         case = Case(args.case, args.purpose)
     except ValueError as e:
