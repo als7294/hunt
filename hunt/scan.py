@@ -43,6 +43,8 @@ BATCH = 8
 HEAD_S, TAIL_FRAMES = 180, 60  # 1 frame/s over the first 3 minutes, then 60 spread over the rest
 FRAME_SIDE = 640
 MERGE_S = 5  # candidate frames this close in time form one stretch
+OCR_TIMEOUT = 30  # seconds for one screenshot's text
+MAX_STRETCHES = 8  # vision-model calls per video at most (earliest first)
 STATUSES = ("new", "kept", "not relevant", "in report")
 # ponytail: hand-set probabilities. Calibrate from the investigator's keep / not-relevant labels.
 P_YES_MANY, P_YES_ONCE, P_UNCLEAR, P_TEXT = 0.7, 0.5, 0.3, 0.5
@@ -131,6 +133,7 @@ create table if not exists hits (id integer primary key, post_id int, media_id i
     unique (post_id, media_id, category, t0));
 create unique index if not exists hits_once on hits (post_id, coalesce(media_id, 0), category, coalesce(t0, -1));
 create table if not exists scanned (media_id int, category text, primary key (media_id, category));
+create table if not exists clip_cache (key text primary key, emb blob);
 """
 
 
@@ -173,49 +176,64 @@ async def run(case, look_for: list[str], limits: str, injury_date: str | None, e
             else:
                 frames[m["id"]] = [(None, str(path))]
             if m["kind"] == "screenshot":
-                text = " ".join(await asyncio.to_thread(photo.read_text, str(path)))
+                text = " ".join(await _ocr(path, emit))
                 for c, spec in cats.items():
                     if found := _keywords(text, spec):
                         progress.found += _hit(case, emit, p, m, c, f"Screenshot text: “{found}”", None, None, P_TEXT,
                                                injury_date, m["file"])
         await vlm.unload()
+        progress.case, progress.shas = case, {m["id"]: Path(m["file"]).stem for _, m in media}  # CLIP's cache keys
         scores = await _clip_scores(frames, cats, pause, progress)
 
-        # 3. The vision model, on candidate stretches only
+        # 3. The vision model: one call per photo or stretch of video, for all its candidate categories
         jobs = []
         for p, m in media:
-            for c in cats:
-                if (m["id"], c) in seen and not check_everything:
-                    continue
-                stretches = ranges([t for t, s in zip(frames[m["id"]], scores[m["id"]]) if candidate(s, c)],
-                                   m["kind"] == "video")
-                if check_everything and not stretches:
-                    stretches = ranges(frames[m["id"]], m["kind"] == "video", spread=True)
-                jobs += [(p, m, c, s) for s in stretches]
+            todo = [c for c in cats if check_everything or (m["id"], c) not in seen]
+            shots = [(t, f, {c for c in todo if check_everything or candidate(s, c)})
+                     for (t, f), s in zip(frames[m["id"]], scores[m["id"]])]
+            if m["kind"] != "video":
+                jobs += [(p, m, None, None, [(t, f)], asks) for t, f, asks in shots if asks]
+                continue
+            hot = [(t, f) for t, f, asks in shots if asks]
+            stretches = ranges(hot, True) or (ranges([(t, f) for t, f, _ in shots], True, spread=True)
+                                               if check_everything else [])
+            asks_at = {t: asks for t, _, asks in shots}
+            jobs += [(p, m, t0, t1, frames_, set().union(*(asks_at[t] for t, _ in frames_)))
+                     for t0, t1, frames_ in stretches[:MAX_STRETCHES]]
         progress.planned(jobs, media)
         unavailable = None
         try:
-            for p, m, c, (t0, t1, shots) in jobs:
+            for p, m, t0, t1, shots, asks in jobs:
                 await pause.wait()
+                asks = [c for c in cats if c in asks]
                 if unavailable is None:
                     started = time.monotonic()
                     try:
-                        answer = await vlm.judge([s for _, s in pick(shots)], cats[c]["question"], limits)
+                        answer = await vlm.judge([f for _, f in pick(shots)], {c: cats[c]["question"] for c in asks},
+                                                 limits)
                     except vlm.VLMUnavailable as e:
                         unavailable = str(e)
                         emit({"type": "log", "message": f"vision model unavailable ({e}); the rest are listed "
                                                         "unchecked"})
                     else:
                         progress.judged(time.monotonic() - started)
-                        answer = answer or {"answer": "unclear", "why": "the vision model gave no usable answer"}
+                        answer = answer or {"shows": "the vision model gave no usable answer"}
                 if unavailable is not None:
-                    answer = {"answer": "unclear", "shows": f"Possibly {cats[c]['label']}: found by the image search, "
-                                                            "not checked by the vision model"}
-                if answer.get("answer") in ("yes", "unclear"):
-                    p_hit = P_UNCLEAR if answer["answer"] == "unclear" else P_YES_MANY if len(shots) > 1 else P_YES_ONCE
-                    frame = shots[len(shots) // 2][1]  # a video hit shows its middle frame, kept as evidence
-                    file = m["file"] if m["kind"] != "video" else case._store(Path(frame).read_bytes(), "jpg")[1]
-                    what = _unweighed(answer.get("shows") or answer.get("why") or cats[c]["label"])
+                    answer = {"shows": "found by the image search, not checked by the vision model"}
+                frame, file = shots[len(shots) // 2][1], None  # a video hit shows its middle frame, kept as evidence
+                answers = answer.get("answers") or {}
+                for c in asks:
+                    said = answers.get(c, answer.get("answer", "unclear"))
+                    # Asked several things at once, the model hedges "unclear" on ones the image plainly
+                    # doesn't show; beside a firm "yes" that's noise (dev split: precision 0.25 -> 0.29).
+                    if said == "no" or said == "unclear" and "yes" in answers.values():
+                        continue
+                    if file is None:
+                        file = m["file"] if m["kind"] != "video" else case._store(Path(frame).read_bytes(), "jpg")[1]
+                    p_hit = P_UNCLEAR if said == "unclear" else P_YES_MANY if len(shots) > 1 else P_YES_ONCE
+                    what = _unweighed(answer.get("shows") or cats[c]["label"])
+                    if said == "unclear" and unavailable is not None:
+                        what = f"Possibly {cats[c]['label']}: {what}"
                     progress.found += _hit(case, emit, p, m, c, what, t0, t1, p_hit, injury_date, file,
                                            blur=answer.get("child_visible", False))
                 progress.step(m)
@@ -308,8 +326,8 @@ def ranges(shots: list[tuple[float | None, str]], video: bool, spread: bool = Fa
 
 
 def pick(shots: list) -> list:
-    """At most 3 frames for the vision model: first, middle and last."""
-    return shots if len(shots) <= 3 else [shots[0], shots[len(shots) // 2], shots[-1]]
+    """At most 4 stills for the vision model, evenly spread over the stretch (tiled into one image)."""
+    return shots if len(shots) <= 4 else [shots[round(i * (len(shots) - 1) / 3)] for i in range(4)]
 
 
 def video_frames(path, out: Path, seconds: float | None) -> list[tuple[float, str]]:
@@ -344,6 +362,17 @@ WEIGHT = re.compile(r"\s*\b(?:about |around |roughly )?\d+(?:[.,]\d+)?\s?(?:kg|k
 def _unweighed(text: str) -> str:
     """The vision model's description without any weight it guessed despite being told not to."""
     return WEIGHT.sub("", text).strip()
+
+
+async def _ocr(path, emit) -> list[str]:
+    """Apple Vision OCR of a screenshot, given up after OCR_TIMEOUT: Vision can block forever inside
+    VNRecognizeTextRequest when several processes use it at once, and that must not hang the scan.
+    The stuck thread can't be interrupted, so it's left behind and the screenshot gets no text."""
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(photo.read_text, str(path)), OCR_TIMEOUT)
+    except asyncio.TimeoutError:
+        emit({"type": "log", "message": f"text reading timed out on {Path(path).name}; skipped"})
+        return []
 
 
 def _keywords(text: str, spec: dict) -> str | None:
@@ -383,24 +412,48 @@ def _hit(case, emit, post, media, category, what, t0, t1, p, injury_date, file, 
 
 
 async def _clip_scores(frames: dict, cats: dict, pause: asyncio.Event, progress) -> dict:
-    """media id -> [{category: share}] per frame, from CLIP, then CLIP unloaded."""
-    flat = [(mid, f) for mid, shots in frames.items() for _, f in shots]
+    """media id -> [{category: share}] per frame. With progress.case and progress.shas (media id -> SHA-256)
+    the embeddings are cached in the case by media hash and frame time (prompts by their text), so a
+    rescan or a new look-for item loads CLIP only for what it hasn't embedded, and not at all when
+    everything is cached."""
+    import numpy as np
+    case, shas = getattr(progress, "case", None), getattr(progress, "shas", None)
+    prompts = [p for c in cats.values() for p in c["prompts"]] + NEGATIVES
+    flat = [(mid, f, f"{CLIP_MODEL}:{shas[mid]}@{t}" if shas else f) for mid, shots in frames.items() for t, f in shots]
+    keys = [k for *_, k in flat] + [f"{CLIP_MODEL}:text@{p}" for p in prompts]
+    cache = _cached(case, keys) if case else {}
+    images = [(f, k) for _, f, k in flat if k not in cache]
+    texts = [p for p in prompts if f"{CLIP_MODEL}:text@{p}" not in cache]
+    if images or texts:
+        clip = await asyncio.to_thread(_Clip)
+        try:
+            if texts:
+                cache |= dict(zip((f"{CLIP_MODEL}:text@{p}" for p in texts), await asyncio.to_thread(clip.text, texts)))
+            for i in range(0, len(images), BATCH):
+                await pause.wait()
+                batch = images[i:i + BATCH]
+                cache |= dict(zip((k for _, k in batch), await asyncio.to_thread(clip.images, [f for f, _ in batch])))
+                progress.send()
+        finally:
+            clip.close()
+        if case:
+            case.db.executemany("insert or replace into clip_cache values (?, ?)",
+                                [(k, cache[k].astype(np.float16).tobytes()) for k in keys if k in cache])
+    text = np.stack([cache[f"{CLIP_MODEL}:text@{p}"] for p in prompts])
     scores = {mid: [] for mid in frames}
-    if not flat:
-        return scores
-    clip = await asyncio.to_thread(_Clip)
-    try:
-        texts = await asyncio.to_thread(clip.text, [p for c in cats.values() for p in c["prompts"]] + NEGATIVES)
-        for i in range(0, len(flat), BATCH):
-            await pause.wait()
-            batch = flat[i:i + BATCH]
-            sims = await asyncio.to_thread(clip.images, [f for _, f in batch])
-            for (mid, _), row in zip(batch, sims @ texts.T):
-                scores[mid].append(_shares(row.float().tolist(), cats))
-            progress.send()
-    finally:
-        clip.close()
+    for mid, _, k in flat:
+        scores[mid].append(_shares((cache[k] @ text.T).tolist(), cats))
     return scores
+
+
+def _cached(case, keys: list[str]) -> dict:
+    import numpy as np
+    out = {}
+    for i in range(0, len(keys), 500):  # SQLite's limit on bound parameters
+        chunk = keys[i:i + 500]
+        for row in case.rows(f"select key, emb from clip_cache where key in ({','.join('?' * len(chunk))})", *chunk):
+            out[row["key"]] = np.frombuffer(row["emb"], dtype=np.float16).astype(np.float32)
+    return out
 
 
 def _shares(sims: list[float], cats: dict) -> dict[str, float]:
@@ -435,7 +488,7 @@ class _Clip:
         with self.torch.no_grad():
             inputs = self.proc(text=prompts, return_tensors="pt", padding=True).to(self.device)
             t = self._embedding(self.model.get_text_features(**inputs))
-        return t / t.norm(dim=-1, keepdim=True)
+        return list((t / t.norm(dim=-1, keepdim=True)).float().cpu().numpy())
 
     def images(self, paths: list[str]):
         ims = []
@@ -445,7 +498,7 @@ class _Clip:
         with self.torch.no_grad():
             inputs = self.proc(images=ims, return_tensors="pt").to(self.device)
             v = self._embedding(self.model.get_image_features(pixel_values=inputs["pixel_values"].to(self.dtype)))
-        return v / v.norm(dim=-1, keepdim=True)
+        return list((v / v.norm(dim=-1, keepdim=True)).float().cpu().numpy())
 
     def _embedding(self, out):
         """transformers 5 returns an output object whose pooler_output is the projected embedding."""
@@ -474,7 +527,7 @@ class _Progress:
 
     def planned(self, jobs, media):
         """After CLIP: media without candidates are done; the rest wait for the vision model."""
-        for _, m, _, _ in jobs:
+        for _, m, *_ in jobs:
             self.left[m["id"]] = self.left.get(m["id"], 0) + 1
         self.done(sum(1 for _, m in media if m["id"] not in self.left))
 

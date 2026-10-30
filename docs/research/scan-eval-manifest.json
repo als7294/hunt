@@ -1,0 +1,3193 @@
+[
+ {
+  "id": "0396730917",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/cspscotland.bsky.social/post/3lnv5njxxcc2z",
+  "licence": "© cspscotland.bsky.social; public post, evaluation only",
+  "author": "cspscotland.bsky.social",
+  "labels": [],
+  "tag": "portrait",
+  "split": "dev"
+ },
+ {
+  "id": "03eb0d9d09",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/guelphgrotto.bsky.social/post/3mysaylbros2n",
+  "licence": "© guelphgrotto.bsky.social; public post, evaluation only",
+  "author": "guelphgrotto.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "057615e85a",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Carrying_Cash_in_Republican_China_-_Heavy_sacks_of_money_being_carried_on_shoulder_poles_from_the_bank.jpg",
+  "licence": "Public domain",
+  "author": "Unknown authorUnknown author",
+  "labels": [
+   "lifting"
+  ],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "06042970d5",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/worldphysio1951.bsky.social/post/3myypak3shx2z",
+  "licence": "© worldphysio1951.bsky.social; public post, evaluation only",
+  "author": "worldphysio1951.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "087fcf99b2",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/balancedetroit.bsky.social/post/3lhyemvmnc22f",
+  "licence": "© balancedetroit.bsky.social; public post, evaluation only",
+  "author": "balancedetroit.bsky.social",
+  "labels": [
+   "sport"
+  ],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "08a95bad5e",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/3countiesrubbish.bsky.social/post/3lxknkxrdpk2h",
+  "licence": "© 3countiesrubbish.bsky.social; public post, evaluation only",
+  "author": "3countiesrubbish.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "09f47b4655",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Amputee_with_crutches_walking_in_Bulacan_05.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "FBenjr123",
+  "labels": [
+   "injury"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "0c6e532d62",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:A_Courier_Delivering_a_Parcel.jpg",
+  "licence": "CC BY 2.0",
+  "author": "Meanwell Packaging",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "0df8da588e",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Snow_shovelling.jpg",
+  "licence": "Public domain",
+  "author": "Jeff the quiet",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "0eeade446d",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/kayakaustintours.bsky.social/post/3lxrx62pzs22m",
+  "licence": "© kayakaustintours.bsky.social; public post, evaluation only",
+  "author": "kayakaustintours.bsky.social",
+  "labels": [
+   "activity"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "1083c996a0",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Kayaking_on_the_Washburn_-_geograph.org.uk_-_370721.jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "DS Pugh",
+  "labels": [
+   "activity",
+   "sport"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "1098c046e6",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/bromsgroverugby.bsky.social/post/3mynfc7d4s22w",
+  "licence": "© bromsgroverugby.bsky.social; public post, evaluation only",
+  "author": "bromsgroverugby.bsky.social",
+  "labels": [
+   "sport"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "10f780821d",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/studiozcincy.bsky.social/post/3lhdwplkyvs2w",
+  "licence": "© studiozcincy.bsky.social; public post, evaluation only",
+  "author": "studiozcincy.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "1129029356",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Worker_installs_a_glass_panel_in_a_warehouse.jpg",
+  "licence": "CC BY 2.0",
+  "author": "Shixart1985",
+  "labels": [
+   "lifting",
+   "other_job"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "1179117f68",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Bandaged_orthopedic_plaster_splint.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Acabashi",
+  "labels": [
+   "injury"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "132a4578c2",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Man_carrying_a_box,_possibly_for_offerings_MET_DP375093.jpg",
+  "licence": "CC0",
+  "author": "",
+  "labels": [],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "16b00dd2e8",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/thinkdriving.bsky.social/post/3lbz2qsp2xc2c",
+  "licence": "© thinkdriving.bsky.social; public post, evaluation only",
+  "author": "thinkdriving.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "173f1fc1e0",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/physiopainassoc.bsky.social/post/3m5bhucoahs24",
+  "licence": "© physiopainassoc.bsky.social; public post, evaluation only",
+  "author": "physiopainassoc.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "17bea7459e",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Piece_of_chocolate_cake_on_a_white_plate_decorated_with_chocolate_sauce.jpg",
+  "licence": "CC0",
+  "author": "Daria YakovlevaMinor edits made by Subsidiary account",
+  "labels": [],
+  "tag": "food",
+  "split": "dev"
+ },
+ {
+  "id": "1af18608ec",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/blueskyfitness.bsky.social/post/3lluglzoqjk22",
+  "licence": "© blueskyfitness.bsky.social; public post, evaluation only",
+  "author": "blueskyfitness.bsky.social",
+  "labels": [
+   "sport"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "1c1300477f",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Mechanic_repairing_car_engine_1.jpg",
+  "licence": "CC0",
+  "author": "Bembety",
+  "labels": [
+   "other_job"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "1d78ba6476",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:US_Navy_040424-N-4190W-003_A_forklift_driver_stacks_bomb_racks_on_top_of_each_other_in_the_ship%27s_hanger_bay_aboard_USS_John_F._Kennedy_(CV_67).jpg",
+  "licence": "Public domain",
+  "author": "U.S. Navy photo by Photographer’s Mate 3rd Class Chris Weibull.",
+  "labels": [
+   "driving",
+   "other_job"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "227d639d67",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Lolcat_in_folder.jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "Clancy Ratliff from St. Paul, MN, U.S.",
+  "labels": [],
+  "tag": "meme",
+  "split": "dev"
+ },
+ {
+  "id": "234f45271d",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:A_View_near_Tintern_Abbey_in_South_Wales_(1129747).jpg",
+  "licence": "CC0",
+  "author": "",
+  "labels": [],
+  "tag": "old",
+  "split": "test"
+ },
+ {
+  "id": "23ca9948de",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/kayak-nomad.bsky.social/post/3m7hwru7nic2v",
+  "licence": "© kayak-nomad.bsky.social; public post, evaluation only",
+  "author": "kayak-nomad.bsky.social",
+  "labels": [
+   "activity"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "2592df82c2",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Suitcase._The_airport_in_Poznan.jpg",
+  "licence": "CC BY-SA 3.0",
+  "author": "MOs810",
+  "labels": [
+   "travel"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "2799d64fef",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Christ_in_the_Wilderness_-_Ivan_Kramskoy_-_Google_Cultural_Institute.jpg",
+  "licence": "Public domain",
+  "author": "Ivan Kramskoi",
+  "labels": [],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "2999aed23b",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Farmer_carries_hay_bales_on_a_sunny_day_in_a_rural_area.jpg",
+  "licence": "CC BY 2.0",
+  "author": "Shixart1985",
+  "labels": [
+   "lifting"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "2c1b897528",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Man_driving_a_car_(22627037394).jpg",
+  "licence": "CC0",
+  "author": "StockyPics",
+  "labels": [
+   "driving"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "2c7b95661c",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Driving_lesson_-_geograph.org.uk_-_1292099.jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "Andrew Curtis",
+  "labels": [
+   "sport"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "2ca0cac4e9",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Derrynaflan_claustral_building.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "A.-K. D.",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "2ccb2fcf5a",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Interior_View_of_Allegiant_Airplane_Cabin.jpg",
+  "licence": "CC BY 2.0",
+  "author": "User:YourUsername",
+  "labels": [
+   "travel"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "2d67b5a834",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/bcphysio.bsky.social/post/3lygogcmxdp26",
+  "licence": "© bcphysio.bsky.social; public post, evaluation only",
+  "author": "bcphysio.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "2d81f2d7a8",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Person_with_crutches_State_Library_of_Queensland_Cultural_Precinct,_Stanley_Place_South_Brisbane_P1110167.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "John Robert McPherson",
+  "labels": [
+   "injury"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "2e22a77bb7",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/ardentinnycentre.bsky.social/post/3mhq4wswbyk2s",
+  "licence": "© ardentinnycentre.bsky.social; public post, evaluation only",
+  "author": "ardentinnycentre.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "3017205a8a",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/evertonfc.com/post/3lvlxjxprcc2a",
+  "licence": "© evertonfc.com; public post, evaluation only",
+  "author": "evertonfc.com",
+  "labels": [
+   "sport"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "30db1d1218",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Beach_volleyball-Huntington_Beach-California_3.jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "Matthew Brown aka Morven",
+  "labels": [
+   "sport"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "328ee36a77",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/dalkeithrfc.bsky.social/post/3liukflgfmk25",
+  "licence": "© dalkeithrfc.bsky.social; public post, evaluation only",
+  "author": "dalkeithrfc.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "32be3c2234",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Historischer_Brandt_Zwieback-Lkw-Kofferaufbau.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Rolf Kranz",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "3474f5e4df",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Katajanokanlaituri_Etel%C3%A4satamassa_-_N203860_-_hkm.HKMS000005-km003u0j.jpg",
+  "licence": "CC BY 4.0",
+  "author": "Sakari Pälsi",
+  "labels": [
+   "lifting"
+  ],
+  "tag": "old",
+  "split": "test"
+ },
+ {
+  "id": "34e715572a",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/usagym.org/post/3mvunlmggzk2t",
+  "licence": "© usagym.org; public post, evaluation only",
+  "author": "usagym.org",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "3675cb981e",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/edinmoveremovals.bsky.social/post/3lyunhxgoqc2n",
+  "licence": "© edinmoveremovals.bsky.social; public post, evaluation only",
+  "author": "edinmoveremovals.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "36c8160308",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/kayak-nomad.bsky.social/post/3m7zhusjemc2j",
+  "licence": "© kayak-nomad.bsky.social; public post, evaluation only",
+  "author": "kayak-nomad.bsky.social",
+  "labels": [
+   "activity"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "370d104eda",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/evertonfc.com/post/3lvdtigedk22c",
+  "licence": "© evertonfc.com; public post, evaluation only",
+  "author": "evertonfc.com",
+  "labels": [],
+  "tag": "group pose",
+  "split": "dev"
+ },
+ {
+  "id": "37690faba5",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Family_watching_television_1958.jpg",
+  "licence": "Public domain",
+  "author": "Evert F. Baumgardner",
+  "labels": [],
+  "tag": "old",
+  "split": "test"
+ },
+ {
+  "id": "382f1a0f44",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Barista_prepares_coffee_at_a_busy_cafe_in_the_morning_with_customers_waiting_for_their_orders.jpg",
+  "licence": "CC BY 2.0",
+  "author": "Shixart1985",
+  "labels": [
+   "other_job"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "387681c975",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:A_woman_holding_a_cup_of_coffee_on_the_laptop.jpg",
+  "licence": "CC BY 2.0",
+  "author": "Shixart1985",
+  "labels": [],
+  "tag": "small item",
+  "split": "dev"
+ },
+ {
+  "id": "38b604ce29",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Woman_Climbing_a_Ladder.jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "amtec_photos",
+  "labels": [
+   "activity"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "394be67897",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Fit_young_man_doing_deadlift_exercise_in_gym.jpg",
+  "licence": "CC BY 2.0",
+  "author": "Nenad Stojkovic",
+  "labels": [
+   "lifting",
+   "sport"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "3e935ac959",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Warehouse_workers_prepare_packages_for_shipment_at_Sharpe_Army_Depot_-_DPLA_-_414220df83b823977c05c01a4b6b4106.jpeg",
+  "licence": "Public domain",
+  "author": "Department of Defense. American Forces Information Service. Defense Visual Information Center. 1994",
+  "labels": [
+   "other_job"
+  ],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "3ea5bca9fd",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/catfordparkrun.bsky.social/post/3mxo34yzx422a",
+  "licence": "© catfordparkrun.bsky.social; public post, evaluation only",
+  "author": "catfordparkrun.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "3eb289b48d",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Virenque_et_Dufaux_-_World_Cycling_Championships_1990_-_Amateur_Men%27s_Road_Race.jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "ta_do (@flickr)",
+  "labels": [
+   "sport"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "4157cd9d01",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:BeachInFured.JPG",
+  "licence": "Public domain",
+  "author": "User: (WT-shared) LikeThatWillHappen at  wts wikivoyage",
+  "labels": [
+   "travel"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "43ac28e25d",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Man_leaning_against_a_wall_and_checking_his_wristwatch_while_holding_a_phone_on_a_city_street.jpg",
+  "licence": "CC BY 2.0",
+  "author": "Shixart1985",
+  "labels": [],
+  "tag": "small item",
+  "split": "test"
+ },
+ {
+  "id": "440980d45c",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/evertonfc.com/post/3luhwuqguic2n",
+  "licence": "© evertonfc.com; public post, evaluation only",
+  "author": "evertonfc.com",
+  "labels": [],
+  "tag": "group pose",
+  "split": "test"
+ },
+ {
+  "id": "48bea13f96",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Trek_Group_31.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Олег Ракович",
+  "labels": [],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "4a5d0ca683",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/cspscotland.bsky.social/post/3mjwsehzsjc2i",
+  "licence": "© cspscotland.bsky.social; public post, evaluation only",
+  "author": "cspscotland.bsky.social",
+  "labels": [],
+  "tag": "portrait",
+  "split": "test"
+ },
+ {
+  "id": "4a9cf40d43",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/dalkeithrfc.bsky.social/post/3liqrm3siac2t",
+  "licence": "© dalkeithrfc.bsky.social; public post, evaluation only",
+  "author": "dalkeithrfc.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "4bb8bc404e",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Hiking_trail_on_N%C3%A1mafjall_Mountain,_Iceland,_20240716_1130_1346.jpg",
+  "licence": "CC BY 4.0",
+  "author": "Jakub Hałun",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "4c7489579b",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/worldphysio1951.bsky.social/post/3mywm6te4gj2l",
+  "licence": "© worldphysio1951.bsky.social; public post, evaluation only",
+  "author": "worldphysio1951.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "4f360c42e3",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/guelphgrotto.bsky.social/post/3mybaqmfnts2n",
+  "licence": "© guelphgrotto.bsky.social; public post, evaluation only",
+  "author": "guelphgrotto.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "4f3e4e2a3d",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Albucasis_blistering_a_patient_in_the_hospital_at_Cordova._Wellcome_L0015000.jpg",
+  "licence": "CC BY 4.0",
+  "author": "w:Ernest Board",
+  "labels": [],
+  "tag": "old",
+  "split": "test"
+ },
+ {
+  "id": "4f53b8dd9b",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/anyweatherroofing.bsky.social/post/3kqvtc4dd3725",
+  "licence": "© anyweatherroofing.bsky.social; public post, evaluation only",
+  "author": "anyweatherroofing.bsky.social",
+  "labels": [
+   "other_job"
+  ],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "4ff4c4d866",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Tourists_looking_at_Paris_from_the_Eiffel_Tower_(34861306904).jpg",
+  "licence": "CC BY 2.0",
+  "author": "Mark Bonica from Durham, NH, USA",
+  "labels": [
+   "travel"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "54cc5c3a98",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/bcphysio.bsky.social/post/3lt3hqu5gib2j",
+  "licence": "© bcphysio.bsky.social; public post, evaluation only",
+  "author": "bcphysio.bsky.social",
+  "labels": [],
+  "tag": "gym, no lifting",
+  "split": "dev"
+ },
+ {
+  "id": "55f53be357",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/broadleaftreecare.bsky.social/post/3mhglcr76zo2h",
+  "licence": "© broadleaftreecare.bsky.social; public post, evaluation only",
+  "author": "broadleaftreecare.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "577e2ced6b",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/parkrunaustralia.bsky.social/post/3laxvnp2yns26",
+  "licence": "© parkrunaustralia.bsky.social; public post, evaluation only",
+  "author": "parkrunaustralia.bsky.social",
+  "labels": [
+   "sport"
+  ],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "5845444c9f",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/mountcookadventure.bsky.social/post/3mmtaav7jxk2c",
+  "licence": "© mountcookadventure.bsky.social; public post, evaluation only",
+  "author": "mountcookadventure.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "5b211277c8",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Pathfinder_Long_Distance_Walk..._-_geograph.org.uk_-_5331849.jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "M J Richardson",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "5f8e8efb45",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:WRJCH_2018-08-11_JM2x_Semi_CD_(Martin_Rulsch)_68.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Martin Rulsch, Wikimedia Commons",
+  "labels": [
+   "sport"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "609b885753",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Willem_van_den_Bundel_(c.1575-1655)_-_Landscape_with_Figures_Walking_along_a_Country_Path,_a_Distant_View_of_Delft_Beyond_-_453838_-_National_Trust.jpg",
+  "licence": "Public domain",
+  "author": "Willem van den Bundel",
+  "labels": [],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "620bc94fc6",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Group_Photo_After_yoga_Class.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Yogacharya Rajendra",
+  "labels": [],
+  "tag": "group pose",
+  "split": "dev"
+ },
+ {
+  "id": "6216457fdb",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:A_View_near_Tintern_Abbey_in_South_Wales.jpeg",
+  "licence": "Public domain",
+  "author": "",
+  "labels": [],
+  "tag": "old",
+  "split": "test"
+ },
+ {
+  "id": "6281027a87",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/catfordparkrun.bsky.social/post/3my2vd5ref22s",
+  "licence": "© catfordparkrun.bsky.social; public post, evaluation only",
+  "author": "catfordparkrun.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "62ce77618c",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Holiday_Mountain_Ski_Monticello_Catskills.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "EgorovaSvetlana",
+  "labels": [
+   "travel"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "6496e4a67e",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Zoe_talking_and_holding_a_smartphone_20221008a.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Solomon203",
+  "labels": [],
+  "tag": "small item",
+  "split": "dev"
+ },
+ {
+  "id": "652d66f74c",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Eldridge_Street_Synagogue_(42773).jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Rhododendrites",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "66de077739",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Football_match_time.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Donia Said Kamel",
+  "labels": [
+   "sport"
+  ],
+  "tag": "children",
+  "split": "test"
+ },
+ {
+  "id": "689f80b724",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:A_Kentucky_soldier_helps_a_local_Afghan_child_put_on_his_new_backpack_in_southern_Afghanistan_120407-A-UH571-003.jpg",
+  "licence": "Public domain",
+  "author": "Sgt. Paul Evans",
+  "labels": [],
+  "tag": "children",
+  "split": "dev"
+ },
+ {
+  "id": "69f7fd8a66",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/ancrumcentre.bsky.social/post/3lthhnj3fic2y",
+  "licence": "© ancrumcentre.bsky.social; public post, evaluation only",
+  "author": "ancrumcentre.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "6bdf3e9bb2",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Driving_Van_Trailer_on_a_train_for_Swansea_-_geograph.org.uk_-_7818565.jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "DS Pugh",
+  "labels": [
+   "travel"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "6e7333bd9b",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:066_Digging_a_hole_with_a_shovel_-_gardening_tools.jpg",
+  "licence": "CC BY 3.0",
+  "author": "Marek Ślusarczyk (Tupungato) Photo portfolio",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "6f89efc88a",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/greenlight7700.bsky.social/post/3m2v34ynvc22s",
+  "licence": "© greenlight7700.bsky.social; public post, evaluation only",
+  "author": "greenlight7700.bsky.social",
+  "labels": [],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "6fcdb79f57",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/officialcpfc.bsky.social/post/3lfrhsxehic2e",
+  "licence": "© officialcpfc.bsky.social; public post, evaluation only",
+  "author": "officialcpfc.bsky.social",
+  "labels": [
+   "sport"
+  ],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "704ae5b16c",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Amateur_football_match_between_Wales_and_England_at_Porthmadog_(1496774).jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Geoff Charles",
+  "labels": [],
+  "tag": "old",
+  "split": "test"
+ },
+ {
+  "id": "70d2592f08",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/grinsulating.bsky.social/post/3m4rpwrukg22b",
+  "licence": "© grinsulating.bsky.social; public post, evaluation only",
+  "author": "grinsulating.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "747f64fcf0",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Bouldering_wall_(Luch_Climbing_Gym)_in_Saint-Petersburg,_Russia.jpg",
+  "licence": "CC BY 4.0",
+  "author": "Bondarev.gal",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "7578170a2e",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:2018wikimania-group-photo-1.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Fuzheado",
+  "labels": [],
+  "tag": "crowd",
+  "split": "dev"
+ },
+ {
+  "id": "75f220e11c",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Woman_seated_behind_steering_wheel_of_automobile_LCCN2001706316.jpg",
+  "licence": "Public domain",
+  "author": "National Photo Company Collection",
+  "labels": [
+   "driving"
+  ],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "7776f9b2e6",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:141100_-_Athletics_track_Gerrard_Gosens_guide_action_-_3b_-_2000_Sydney_race_photo.jpg",
+  "licence": "CC BY-SA 3.0",
+  "author": "Sport the library",
+  "labels": [
+   "sport"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "788f930d66",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Chef_cooking_Mysore_masala_dosa_in_Mysuru,_July_2013.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Sunnya343",
+  "labels": [
+   "other_job"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "7bb0a4f93c",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/sk-removals.bsky.social/post/3mywhykjusk26",
+  "licence": "© sk-removals.bsky.social; public post, evaluation only",
+  "author": "sk-removals.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "7c1fd741ec",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/level-ground.bsky.social/post/3lhfixrb2gs2m",
+  "licence": "© level-ground.bsky.social; public post, evaluation only",
+  "author": "level-ground.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "7e17fbdda7",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/islandkayaktours.bsky.social/post/3mni7iki4e227",
+  "licence": "© islandkayaktours.bsky.social; public post, evaluation only",
+  "author": "islandkayaktours.bsky.social",
+  "labels": [
+   "activity"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "8014943983",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Malfermo_de_infana_boksoklubo_en_Tjumeno_15.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "DMyshkin",
+  "labels": [
+   "sport"
+  ],
+  "tag": "children",
+  "split": "dev"
+ },
+ {
+  "id": "8101ff24d7",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:NCDOT-Mack-dump-truck-20110706-5958117410.jpg",
+  "licence": "CC BY 2.0",
+  "author": "NCDOTcommunications",
+  "labels": [
+   "driving",
+   "other_job"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "81ca90d354",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/grinsulating.bsky.social/post/3m472cjqwes2c",
+  "licence": "© grinsulating.bsky.social; public post, evaluation only",
+  "author": "grinsulating.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "8277815476",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Japanese_Scroll,_techniques_for_Physiotherapy_Wellcome_L0034590.jpg",
+  "licence": "CC BY 4.0",
+  "author": "",
+  "labels": [],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "82940622cf",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/msmdrivingschool.bsky.social/post/3ljk4au3djs2g",
+  "licence": "© msmdrivingschool.bsky.social; public post, evaluation only",
+  "author": "msmdrivingschool.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "83b2cfbe0a",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Walkers_on_Hermaness_Hill_-_geograph.org.uk_-_7507162.jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "Mike Pennington",
+  "labels": [
+   "walks"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "83c9d794f3",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Mark_Willis_65_Pickup_Truck_Racing_-_2025_American_Speedfest.jpg",
+  "licence": "CC BY 4.0",
+  "author": "BWard 1997",
+  "labels": [
+   "driving"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "83e6052341",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/ardentinnycentre.bsky.social/post/3mcrsiy4lpc24",
+  "licence": "© ardentinnycentre.bsky.social; public post, evaluation only",
+  "author": "ardentinnycentre.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "8664a9d833",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:James_Pattison_Cockburn_-_Family_Walking_in_a_Wood,_Child_Being_Helped_to_Clamber_up_a_Bank_-_B1975.4.148_-_Yale_Center_for_British_Art.jpg",
+  "licence": "CC0",
+  "author": "James Pattison Cockburn",
+  "labels": [],
+  "tag": "old",
+  "split": "test"
+ },
+ {
+  "id": "86a0a8d83d",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/greenlight7700.bsky.social/post/3l6sil7r7iu2o",
+  "licence": "© greenlight7700.bsky.social; public post, evaluation only",
+  "author": "greenlight7700.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "877bbd441a",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Deadlift_Barbell.JPG",
+  "licence": "CC BY-SA 2.0",
+  "author": "stu_spivack",
+  "labels": [
+   "lifting",
+   "sport"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "884dfe24e5",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Swansea,_Glamorganshire.jpeg",
+  "licence": "Public domain",
+  "author": "",
+  "labels": [],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "8912bc2778",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Swimming_pool_Gan_Shmuel.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Laliv g",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "8bf0c56711",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/bpdrivingthanet.bsky.social/post/3kamxbueb4v2q",
+  "licence": "© bpdrivingthanet.bsky.social; public post, evaluation only",
+  "author": "bpdrivingthanet.bsky.social",
+  "labels": [],
+  "tag": "group pose",
+  "split": "test"
+ },
+ {
+  "id": "8c03d22cf4",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Mattress_Performance_rules_of_engagement.jpg",
+  "licence": "CC BY 4.0",
+  "author": "Emma Sulkowicz",
+  "labels": [],
+  "tag": "text",
+  "split": "dev"
+ },
+ {
+  "id": "8cdd89b205",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/ardentinnycentre.bsky.social/post/3mmbt2hfg3224",
+  "licence": "© ardentinnycentre.bsky.social; public post, evaluation only",
+  "author": "ardentinnycentre.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "8d3128f7c3",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:The_Red_Shoes_Fairytale_Infographic_-_Renate_Aomere.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Renate Aomere",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "906537b363",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/greenlight7700.bsky.social/post/3l6b2ugzaj52u",
+  "licence": "© greenlight7700.bsky.social; public post, evaluation only",
+  "author": "greenlight7700.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "9072f50785",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:2024-25_Boston_University_basketball_players_before_a_game.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Kenneth C. Zirkel",
+  "labels": [
+   "sport"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "9181b2c5fa",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Full_rigid_shell_back_brace.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Orthodontist101",
+  "labels": [
+   "injury"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "9382fe86a9",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Krul_Tepes_cosplayer_sitting_on_the_sofa_(3161820).jpg",
+  "licence": "CC0",
+  "author": "izhora22",
+  "labels": [],
+  "tag": "portrait",
+  "split": "dev"
+ },
+ {
+  "id": "93b89bbae1",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/dalkeithrfc.bsky.social/post/3li5qxhqb3s2r",
+  "licence": "© dalkeithrfc.bsky.social; public post, evaluation only",
+  "author": "dalkeithrfc.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "93c9cb9f80",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/grinsulating.bsky.social/post/3m3ymu5mojc2u",
+  "licence": "© grinsulating.bsky.social; public post, evaluation only",
+  "author": "grinsulating.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "93e81e96b8",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Sightseeing_On_The_Beach_(Unsplash).jpg",
+  "licence": "CC0",
+  "author": "Masha Danilova mashaissomasha",
+  "labels": [
+   "travel"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "95e2243fdd",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Man_chopping_wood_with_an_axe_in_a_rural_outdoor_setting.jpg",
+  "licence": "CC BY 2.0",
+  "author": "Shixart1985",
+  "labels": [
+   "activity"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "972f899982",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Flip-side_of_Melvyn_Douglas_1940s_sepia-toned_vintage_portrait.jpg",
+  "licence": "Public domain",
+  "author": "Columbia Pictures Corp.",
+  "labels": [],
+  "tag": "old",
+  "split": "test"
+ },
+ {
+  "id": "97fdb0f677",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/studiozcincy.bsky.social/post/3lidhe7ecck2x",
+  "licence": "© studiozcincy.bsky.social; public post, evaluation only",
+  "author": "studiozcincy.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "9dbbce30e3",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Conway_Station,_and_the_Gothic_Arch_in_the_Town_Wall._Built_1847.jpeg",
+  "licence": "Public domain",
+  "author": "J. Newman &amp; Co.",
+  "labels": [],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "9ecb327a31",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Short_leg_cast_red.jpg",
+  "licence": "CC0",
+  "author": "Jonascumgi",
+  "labels": [
+   "injury"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "a13f57c03d",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Human%E2%80%93canine_friendship_-_girl_hugging_her_dog_tightly_at_golden_hour_in_Laos.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Basile Morin",
+  "labels": [],
+  "tag": "children",
+  "split": "test"
+ },
+ {
+  "id": "a4e72977f9",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Public_transport_share_taxi_in_Maracaibo_city,_Zulia,_Venezuela.jpg",
+  "licence": "CC0",
+  "author": "Wilfredor",
+  "labels": [
+   "driving"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "a59457a833",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/usagym.org/post/3mxclbbkr3k2i",
+  "licence": "© usagym.org; public post, evaluation only",
+  "author": "usagym.org",
+  "labels": [
+   "sport"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "a6b2e90a6d",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Smooches_(baby_and_child_kiss).jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "Yogi",
+  "labels": [],
+  "tag": "children",
+  "split": "dev"
+ },
+ {
+  "id": "a6d34e24e2",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/blairvadachoec.bsky.social/post/3myrbohrcwc2r",
+  "licence": "© blairvadachoec.bsky.social; public post, evaluation only",
+  "author": "blairvadachoec.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "a8a1397ef2",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Dog_walkers_on_a_footpath_-_geograph.org.uk_-_5978174.jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "Philip Halling",
+  "labels": [
+   "walks"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "a9befe916c",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:2014-_MV_Arcadia_Cruise_Ship,_Port_of_Barcelona,_Spain_(_Ank_Kumar_)_01.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Ank Kumar",
+  "labels": [
+   "travel"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "ace7ab8278",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/bluewaterskayaking.bsky.social/post/3lv2y7ebspk2x",
+  "licence": "© bluewaterskayaking.bsky.social; public post, evaluation only",
+  "author": "bluewaterskayaking.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "aee3759234",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Passengers_(boarding)_a_plane.jpg",
+  "licence": "CC BY 2.0",
+  "author": "Archives New Zealand",
+  "labels": [
+   "travel"
+  ],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "afd6c2c5e1",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/expeditionsbd.bsky.social/post/3mowcv5xwor2o",
+  "licence": "© expeditionsbd.bsky.social; public post, evaluation only",
+  "author": "expeditionsbd.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "b064439e1e",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/parkrunaustralia.bsky.social/post/3lb6dxuyrtk2f",
+  "licence": "© parkrunaustralia.bsky.social; public post, evaluation only",
+  "author": "parkrunaustralia.bsky.social",
+  "labels": [],
+  "tag": "children",
+  "split": "test"
+ },
+ {
+  "id": "b102f7f124",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Restaurant_room_of_Amantaka_luxury_Resort_%26_Hotel_in_Luang_Prabang_Laos.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Basile Morin",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "b38ec2ae21",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Tennis_forehand_by_random_dave.jpeg",
+  "licence": "CC BY 2.0",
+  "author": "Ben Lancaster from England",
+  "labels": [
+   "sport"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "b3afe3fbab",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Worker_putting_notice_on_construction_site_wall_in_Sakuragaokach%C5%8D.jpg",
+  "licence": "CC0",
+  "author": "Syced",
+  "labels": [
+   "other_job"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "b3c64ee46a",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Birthday_party_cake.jpg",
+  "licence": "CC0",
+  "author": "Abinayasekar357",
+  "labels": [],
+  "tag": "food",
+  "split": "test"
+ },
+ {
+  "id": "b512d628df",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/bramwellscaffoldi.bsky.social/post/3mbqpcyeukk2p",
+  "licence": "© bramwellscaffoldi.bsky.social; public post, evaluation only",
+  "author": "bramwellscaffoldi.bsky.social",
+  "labels": [
+   "other_job"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "b548c27a2a",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Crowd_at_Noam_Rotem_concert.jpg",
+  "licence": "CC BY 2.0",
+  "author": "Asaf antman",
+  "labels": [],
+  "tag": "crowd",
+  "split": "test"
+ },
+ {
+  "id": "ba333a0a2d",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/catfordparkrun.bsky.social/post/3my2vcxhyzk2s",
+  "licence": "© catfordparkrun.bsky.social; public post, evaluation only",
+  "author": "catfordparkrun.bsky.social",
+  "labels": [],
+  "tag": "group pose",
+  "split": "dev"
+ },
+ {
+  "id": "bab3bda48d",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:This_is_the_SECRET_ROOM_-_Old_Absinthe_House,_New_Orleans,_1950s.jpg",
+  "licence": "CC0",
+  "author": "Undetermined deceased relative of Infrogmation.",
+  "labels": [],
+  "tag": "old",
+  "split": "test"
+ },
+ {
+  "id": "bb3cae8591",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/expeditionsbd.bsky.social/post/3mowadugm6b2o",
+  "licence": "© expeditionsbd.bsky.social; public post, evaluation only",
+  "author": "expeditionsbd.bsky.social",
+  "labels": [
+   "travel"
+  ],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "bbecabb82d",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Farmer_working_in_the_field_with_their_tractor.jpg",
+  "licence": "CC0",
+  "author": "Gillsaab1998",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "bd39101619",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/physiopainassoc.bsky.social/post/3ma4tahg6zs2s",
+  "licence": "© physiopainassoc.bsky.social; public post, evaluation only",
+  "author": "physiopainassoc.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "bd60c5341c",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:P%5EO_Britannia,_St._Lucia_-_Flickr_-_A_Guy_Named_Nyal.jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "A Guy Named Nyal",
+  "labels": [
+   "travel"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "be2d4a1a24",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Baird_Television_Receiver,_1928.jpg",
+  "licence": "Public domain",
+  "author": "Baird Television",
+  "labels": [],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "c09066314a",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Hadley_Green_Garage_-_geograph.org.uk_-_369859.jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "Martin Addison",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "c0a36072cd",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/thecsp.bsky.social/post/3myjpjzxeq52y",
+  "licence": "© thecsp.bsky.social; public post, evaluation only",
+  "author": "thecsp.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "c0a6be66bf",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/ancrumcentre.bsky.social/post/3lqwrukw6us2x",
+  "licence": "© ancrumcentre.bsky.social; public post, evaluation only",
+  "author": "ancrumcentre.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "c16b6a7d71",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Electrician_at_the_Eletrotecnica_Bene_workshop,_Sao_Paulo.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Wilfredor",
+  "labels": [],
+  "tag": "old",
+  "split": "test"
+ },
+ {
+  "id": "c5a43cc18a",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:President_Bill_Clinton_paints_a_wall_with_a_roller_paint_brush_during_the_renovation_of_Cardozo_High_School_in_Washington,_DC.jpg",
+  "licence": "Public domain",
+  "author": "Sharon Farmer\n\nWhite House Photograph Office",
+  "labels": [
+   "activity"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "c6005071d7",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/msmdrivingschool.bsky.social/post/3lindzm2lss2i",
+  "licence": "© msmdrivingschool.bsky.social; public post, evaluation only",
+  "author": "msmdrivingschool.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "c66d1dd8f6",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:A_boy_carrying_firewood_02.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Denis kasozi",
+  "labels": [
+   "lifting"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "c686e14f3f",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Hand_20_days_after_hand_transplant.jpg",
+  "licence": "CC BY 3.0",
+  "author": "A. Kalantar-Hormozi, F. Firoozi, M. Yavari, E. Arasteh, K. Najafizadeh, and F. Rashid-Farokhi",
+  "labels": [
+   "injury"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "ca497ec532",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/blairvadachoec.bsky.social/post/3my7o7qxx222p",
+  "licence": "© blairvadachoec.bsky.social; public post, evaluation only",
+  "author": "blairvadachoec.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "ca94b5575b",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:A_man_carrying_bags_of_joss_paper_goods_in_a_shopping_mall_Tai_Po_HK.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Dustfreeworld",
+  "labels": [
+   "lifting"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "cb3415f929",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:LateralCollar.JPG",
+  "licence": "CC BY-SA 3.0",
+  "author": "James Heilman, MD",
+  "labels": [
+   "injury"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "cba939ff3d",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Jan_Steen_-_The_Dancing_Couple_-_Google_Art_Project.jpg",
+  "licence": "Public domain",
+  "author": "Jan Steen",
+  "labels": [],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "cbdf7711ea",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Old_woman_driving_blue_car_(Unsplash).jpg",
+  "licence": "CC0",
+  "author": "Mick Tinbergen tintels",
+  "labels": [
+   "driving"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "cc7fbb1867",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/bluewaterskayaking.bsky.social/post/3lxcwe7iy3c2w",
+  "licence": "© bluewaterskayaking.bsky.social; public post, evaluation only",
+  "author": "bluewaterskayaking.bsky.social",
+  "labels": [],
+  "tag": "pet",
+  "split": "dev"
+ },
+ {
+  "id": "ccf9560883",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Porters_carrying_luggage_on_station_platform,_Uganda_railroad,_ca._1919_LCCN2001705710.jpg",
+  "licence": "Public domain",
+  "author": "Frank and Frances Carpenter Collection",
+  "labels": [
+   "lifting"
+  ],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "cda62439fd",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/ancrumcentre.bsky.social/post/3lslmvit7is2y",
+  "licence": "© ancrumcentre.bsky.social; public post, evaluation only",
+  "author": "ancrumcentre.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "cda844a540",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Nude_woman_hiking_in_the_desert_with_a_backpack.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Truenudists",
+  "labels": [
+   "walks"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "cfae4ba3ec",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Children%27s_playground_in_the_playing_field,_Newent_-_geograph.org.uk_-_604383.jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "Pauline Eccles",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "d006af07a8",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Luggage_porter_Ponte_della_Costituzione_07_2017_4249.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Mariordo (Mario Roberto Durán Ortiz)",
+  "labels": [
+   "other_job"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "d17548fe3a",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/3countiesrubbish.bsky.social/post/3lihhp7z4422m",
+  "licence": "© 3countiesrubbish.bsky.social; public post, evaluation only",
+  "author": "3countiesrubbish.bsky.social",
+  "labels": [],
+  "tag": "pet",
+  "split": "test"
+ },
+ {
+  "id": "d371aabbc8",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Reception_lounge_at_Amantaka_luxury_Resort_%26_Hotel_at_blue_hour_in_Luang_Prabang_Laos.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Basile Morin",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "d3f563ebe9",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:A_Dog-Walker%27s_Delight_-_geograph.org.uk_-_278740.jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "Roger Gilbertson",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "d3faf7a188",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Hairdresser_cutting_hair.jpg",
+  "licence": "CC0",
+  "author": "Wilfredor",
+  "labels": [
+   "other_job"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "d408e8183e",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/physiopainassoc.bsky.social/post/3m4tdpoxab22k",
+  "licence": "© physiopainassoc.bsky.social; public post, evaluation only",
+  "author": "physiopainassoc.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "d4d5d3157a",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/level-ground.bsky.social/post/3liiuaaknzc2h",
+  "licence": "© level-ground.bsky.social; public post, evaluation only",
+  "author": "level-ground.bsky.social",
+  "labels": [],
+  "tag": "selfie",
+  "split": "dev"
+ },
+ {
+  "id": "d613945c47",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/balancedetroit.bsky.social/post/3lhxabjjtrc2f",
+  "licence": "© balancedetroit.bsky.social; public post, evaluation only",
+  "author": "balancedetroit.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "d7fd2f99f2",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:A_black_woman_holding_a_mug_representing_a_woman_whose_Wellcome_L0052341.jpg",
+  "licence": "Public domain",
+  "author": "",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "d814a362c1",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:GD_%E5%BB%A3%E6%9D%B1_Guangdong_%E6%83%A0%E5%B7%9E%E5%B8%82_Huizhou_%E6%97%85%E9%81%8A%E5%B7%B4%E5%A3%AB_coach_bus_%E5%8F%B8%E6%A9%9F%E5%BA%A7%E4%BD%8D_driver_seat_n_%E6%96%B9%E5%90%91%E8%BB%9A%E7%9B%A4_control_Steering_wheel_December_2025_N13P_01.jpg",
+  "licence": "CC0",
+  "author": "HAbdu MEW Lmsio 9Dewlm",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "d877ed0dad",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Camino_de_Santiago_(5364961214).jpg",
+  "licence": "CC BY 2.0",
+  "author": "Rocco Rossi",
+  "labels": [
+   "walks"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "d87bf6abab",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Isometric_walking_exercises.jpg",
+  "licence": "CC0",
+  "author": "Vlad Kozh",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "dccf9883bd",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Johnnie_Walker_Splash.JPG",
+  "licence": "CC BY-SA 3.0 at",
+  "author": "Feel free to use my photos, but please mention me as the author and if you want send me a  message. or (rufre@lenz-nenning.at)",
+  "labels": [],
+  "tag": "food",
+  "split": "dev"
+ },
+ {
+  "id": "dcf193b4d2",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/level-ground.bsky.social/post/3lhzukg2ys22s",
+  "licence": "© level-ground.bsky.social; public post, evaluation only",
+  "author": "level-ground.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "dcffdab409",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Loading_Rounds_(8769187754).jpg",
+  "licence": "Public domain",
+  "author": "Marines from Arlington, VA, United States",
+  "labels": [],
+  "tag": "small item",
+  "split": "test"
+ },
+ {
+  "id": "dd40ee642f",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:The_Royal_Navy_during_the_Second_World_War_A28203.jpg",
+  "licence": "Public domain",
+  "author": "Royal Navy official photographer",
+  "labels": [],
+  "tag": "old",
+  "split": "test"
+ },
+ {
+  "id": "dd67f8087d",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/msmdrivingschool.bsky.social/post/3livvusx5sk2y",
+  "licence": "© msmdrivingschool.bsky.social; public post, evaluation only",
+  "author": "msmdrivingschool.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "dedc202954",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Joos_van_Craesbeeck_-_A_peasant_grimacing_with_his_arm_in_a_sling.jpg",
+  "licence": "Public domain",
+  "author": "Circle of Adriaen Brouwer / Attributed to Joos van Craesbeeck",
+  "labels": [],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "e3d723397f",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:A_man_in_uniform_is_carrying_a_large_sack_over_his_shoulder_Wellcome_V0039925.jpg",
+  "licence": "CC BY 4.0",
+  "author": "",
+  "labels": [],
+  "tag": "old",
+  "split": "test"
+ },
+ {
+  "id": "e4a795ec55",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Sony_Playstation_2_SCPH-5001_V9_-_Caixa_Original_(frente)_Original_box_(front)_(18857576203).jpg",
+  "licence": "CC BY 2.0",
+  "author": "Deni Williams from São Paulo, Brasil / Brazil",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "e59d1334a2",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:CH-54_carries_sandbags_at_An_Khe.jpg",
+  "licence": "Public domain",
+  "author": "SSG Howard C.Breedlove",
+  "labels": [],
+  "tag": "old",
+  "split": "dev"
+ },
+ {
+  "id": "e65d181635",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/kayak-nomad.bsky.social/post/3malcqjxcd227",
+  "licence": "© kayak-nomad.bsky.social; public post, evaluation only",
+  "author": "kayak-nomad.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "e6f6824fd3",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/worldphysio1951.bsky.social/post/3mytocpo2pl26",
+  "licence": "© worldphysio1951.bsky.social; public post, evaluation only",
+  "author": "worldphysio1951.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "e7179f26d0",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Handbag,_woman%27s_(AM_5756-1).jpg",
+  "licence": "CC BY 4.0",
+  "author": "",
+  "labels": [],
+  "tag": "small item",
+  "split": "dev"
+ },
+ {
+  "id": "e7fb7aaad7",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/cspscotland.bsky.social/post/3m24tiwowus2a",
+  "licence": "© cspscotland.bsky.social; public post, evaluation only",
+  "author": "cspscotland.bsky.social",
+  "labels": [],
+  "tag": "group pose",
+  "split": "test"
+ },
+ {
+  "id": "e8b9a575ae",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Orthotics_-_Knee_Brace_(36209261475).jpg",
+  "licence": "CC BY 2.0",
+  "author": "grace.jun719",
+  "labels": [
+   "injury"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "e956ddebbd",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/bromsgroverugby.bsky.social/post/3myn2uk7tbk2w",
+  "licence": "© bromsgroverugby.bsky.social; public post, evaluation only",
+  "author": "bromsgroverugby.bsky.social",
+  "labels": [],
+  "tag": "selfie",
+  "split": "test"
+ },
+ {
+  "id": "e96c9edad5",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:WikiProject_Writing_(@WP_Writing)_Tweet_-_Why_edit_Wikipedia%3F_(2).jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Breadyornot",
+  "labels": [],
+  "tag": "screenshot",
+  "split": "dev"
+ },
+ {
+  "id": "e99dc86654",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Backpacker-Travel-Uluda%C4%9F-Turkey.jpg",
+  "licence": "CC BY-SA 3.0 de",
+  "author": "Backpacker-Dude.com",
+  "labels": [
+   "travel"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "e9bfd85625",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Liang_Jun_in_1957.jpg",
+  "licence": "Public domain",
+  "author": "新华社记者 楚英",
+  "labels": [],
+  "tag": "old",
+  "split": "test"
+ },
+ {
+  "id": "ec7f85a689",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Toddler_wearing_nappy.jpg",
+  "licence": "CC BY 2.0",
+  "author": "Kyle Peyton",
+  "labels": [],
+  "tag": "children",
+  "split": "dev"
+ },
+ {
+  "id": "ecdc3861d4",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Wheelchair_user_at_Star_Cafe_69_Ann_Street_Brisbane.jpg",
+  "licence": "CC0",
+  "author": "John Robert McPherson",
+  "labels": [
+   "injury"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "ee37052136",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Kitesurfer_at_sunset,_Workum,_may_2017.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Villy Fink Isaksen",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "ef90bc79ae",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/officialcpfc.bsky.social/post/3lfjv2am4ms2p",
+  "licence": "© officialcpfc.bsky.social; public post, evaluation only",
+  "author": "officialcpfc.bsky.social",
+  "labels": [
+   "sport"
+  ],
+  "tag": "graphic",
+  "split": "dev"
+ },
+ {
+  "id": "f0b7947588",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Porsche_356_Carrera_(12952727464).jpg",
+  "licence": "CC BY 2.0",
+  "author": "Pedro Ribeiro Simões from Lisboa, Portugal",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "f10a89b587",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/bluewaterskayaking.bsky.social/post/3lugli3par224",
+  "licence": "© bluewaterskayaking.bsky.social; public post, evaluation only",
+  "author": "bluewaterskayaking.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "f18fc76914",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/bromsgroverugby.bsky.social/post/3myorcx47z227",
+  "licence": "© bromsgroverugby.bsky.social; public post, evaluation only",
+  "author": "bromsgroverugby.bsky.social",
+  "labels": [],
+  "tag": "screenshot",
+  "split": "test"
+ },
+ {
+  "id": "f2fb91617d",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:TWC_Hokitika_Gorge_%E2%80%A2_Stewart_Nimmo_%E2%80%A2_MRD_1.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Stewart Nimmo",
+  "labels": [],
+  "tag": "selfie",
+  "split": "dev"
+ },
+ {
+  "id": "f5c262f9dd",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/shahdrivingschool.bsky.social/post/3lkpnx4kwss2a",
+  "licence": "© shahdrivingschool.bsky.social; public post, evaluation only",
+  "author": "shahdrivingschool.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "split": "test"
+ },
+ {
+  "id": "f5ea567032",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:New_York_City_(10226446684).jpg",
+  "licence": "CC BY 2.0",
+  "author": "FaceMePLS from The Hague, The Netherlands",
+  "labels": [
+   "lifting",
+   "other_job"
+  ],
+  "tag": "",
+  "split": "test"
+ },
+ {
+  "id": "f84d940d0c",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:A_man_on_a_motorcycle_carrying_a_ladder_in_Agadir_by_AmalouMed.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Amaloumed",
+  "labels": [],
+  "tag": "nobody",
+  "split": "test"
+ },
+ {
+  "id": "f9e13255ae",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Lawn_Mowing_DVIDS119604.jpg",
+  "licence": "Public domain",
+  "author": "Staff Sgt. Brian Jopek",
+  "labels": [
+   "activity"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "fa36ea95cf",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Felis_catus-cat_on_snow.jpg",
+  "licence": "CC BY-SA 3.0",
+  "author": "Von.grzanka",
+  "labels": [],
+  "tag": "pet",
+  "split": "dev"
+ },
+ {
+  "id": "fad108945e",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Hikers_%5E_Summit_Cairn_-_geograph.org.uk_-_2653272.jpg",
+  "licence": "CC BY-SA 2.0",
+  "author": "kevin higgins",
+  "labels": [
+   "walks"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "fcd3fa57fe",
+  "kind": "photo",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Check-in_on_terminal_2_of_the_V%C3%A1clav_Havel_Airport_in_Prague.jpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "Filip Troníček",
+  "labels": [
+   "travel"
+  ],
+  "tag": "",
+  "split": "dev"
+ },
+ {
+  "id": "fd9b037678",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/usagym.org/post/3mwqmsuwbqs2f",
+  "licence": "© usagym.org; public post, evaluation only",
+  "author": "usagym.org",
+  "labels": [],
+  "tag": "screenshot",
+  "split": "dev"
+ },
+ {
+  "id": "fe2a7fd838",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/studiozcincy.bsky.social/post/3lhbfgxsa3c2c",
+  "licence": "© studiozcincy.bsky.social; public post, evaluation only",
+  "author": "studiozcincy.bsky.social",
+  "labels": [],
+  "tag": "portrait",
+  "split": "test"
+ },
+ {
+  "id": "ff3306289e",
+  "kind": "photo",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/bcphysio.bsky.social/post/3lsvtokkpeb2b",
+  "licence": "© bcphysio.bsky.social; public post, evaluation only",
+  "author": "bcphysio.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "split": "dev"
+ },
+ {
+  "id": "0212a095fd",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/blairvadachoec.bsky.social/post/3muk6weep222x",
+  "licence": "© blairvadachoec.bsky.social; public post, evaluation only",
+  "author": "blairvadachoec.bsky.social",
+  "labels": [
+   "activity",
+   "walks"
+  ],
+  "tag": "children",
+  "duration": 93.5,
+  "ranges": {
+   "activity": [
+    [
+     0,
+     4
+    ],
+    [
+     24,
+     30
+    ],
+    [
+     44,
+     48
+    ],
+    [
+     66,
+     72
+    ]
+   ],
+   "walks": [
+    [
+     30,
+     36
+    ]
+   ]
+  },
+  "split": "dev"
+ },
+ {
+  "id": "0a190031d6",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/sk-removals.bsky.social/post/3lj6i4spgj22t",
+  "licence": "© sk-removals.bsky.social; public post, evaluation only",
+  "author": "sk-removals.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "duration": 36.8,
+  "ranges": {},
+  "split": "dev"
+ },
+ {
+  "id": "12d1eb7880",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Walk_in_a_winter_forest.mpg",
+  "licence": "CC BY-SA 4.0",
+  "author": "LKorhonen",
+  "labels": [
+   "walks"
+  ],
+  "tag": "",
+  "duration": 12.6,
+  "ranges": {
+   "walks": [
+    [
+     0,
+     13
+    ]
+   ]
+  },
+  "split": "dev"
+ },
+ {
+  "id": "143eba81d5",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:(2)_BASKETBALL_GAME_IN_TOWN_OF_BAR_REGION_OF_VINNYTSIA_STATE_OF_UKRAINE_VIDEO_BY_VIKTOR_O_LEDENYOV_20160507.ogv",
+  "licence": "CC BY-SA 4.0",
+  "author": "Viktor O. Ledenyov",
+  "labels": [],
+  "tag": "nobody",
+  "duration": 20.7,
+  "ranges": {},
+  "split": "test"
+ },
+ {
+  "id": "37313e2925",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Horan_Free_League_Driving_through_Damascus_during_its_capture_by_Syrian_Rebels.webm",
+  "licence": "CC BY 3.0",
+  "author": "تجمع أحرار حوران",
+  "labels": [
+   "driving"
+  ],
+  "tag": "",
+  "duration": 42.4,
+  "ranges": {
+   "driving": [
+    [
+     0,
+     42
+    ]
+   ]
+  },
+  "split": "dev"
+ },
+ {
+  "id": "37c7466ff2",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Recipe_of_mutton_and_fish_curry_in_Achami_dialect_of_Doteli_language.webm",
+  "licence": "CC BY-SA 4.0",
+  "author": "Subhashish Panigrahi",
+  "labels": [],
+  "tag": "children",
+  "duration": 113.4,
+  "ranges": {},
+  "split": "dev"
+ },
+ {
+  "id": "3dcf51e3cf",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/thecsp.bsky.social/post/3mx2yl6usgs2z",
+  "licence": "© thecsp.bsky.social; public post, evaluation only",
+  "author": "thecsp.bsky.social",
+  "labels": [],
+  "tag": "talking",
+  "duration": 78.1,
+  "ranges": {},
+  "split": "dev"
+ },
+ {
+  "id": "481d7cd104",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/guelphgrotto.bsky.social/post/3myhp35szps2n",
+  "licence": "© guelphgrotto.bsky.social; public post, evaluation only",
+  "author": "guelphgrotto.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "duration": 10.0,
+  "ranges": {},
+  "split": "dev"
+ },
+ {
+  "id": "4873a05946",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/thecsp.bsky.social/post/3mxsxz3dh762z",
+  "licence": "© thecsp.bsky.social; public post, evaluation only",
+  "author": "thecsp.bsky.social",
+  "labels": [],
+  "tag": "talking",
+  "duration": 91.3,
+  "ranges": {},
+  "split": "test"
+ },
+ {
+  "id": "53f457f79f",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:P%C3%A4rnu_coastal_meadow_hiking_trail,_beach_and_town_in_Estonia.webm",
+  "licence": "CC BY-SA 4.0",
+  "author": "Sillerkiil",
+  "labels": [],
+  "tag": "nobody",
+  "duration": 60.2,
+  "ranges": {},
+  "split": "dev"
+ },
+ {
+  "id": "5897f82b55",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Double_Kettlebell_Clean_and_Jerk.webm",
+  "licence": "CC BY-SA 4.0",
+  "author": "Taco fleur",
+  "labels": [
+   "lifting",
+   "sport"
+  ],
+  "tag": "",
+  "duration": 28.7,
+  "ranges": {
+   "lifting": [
+    [
+     0,
+     29
+    ]
+   ],
+   "sport": [
+    [
+     0,
+     29
+    ]
+   ]
+  },
+  "split": "dev"
+ },
+ {
+  "id": "5e9d37ac7c",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Ant_carrying_cicada_wing.webm",
+  "licence": "CC BY 4.0",
+  "author": "The Nature Box",
+  "labels": [],
+  "tag": "pet",
+  "duration": 63.5,
+  "ranges": {},
+  "split": "dev"
+ },
+ {
+  "id": "612dfba3bb",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/broadleaftreecare.bsky.social/post/3misnq62cq42f",
+  "licence": "© broadleaftreecare.bsky.social; public post, evaluation only",
+  "author": "broadleaftreecare.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "duration": 29.9,
+  "ranges": {},
+  "split": "test"
+ },
+ {
+  "id": "65d160a97f",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Iwan_Jones_Gwarddol_-_Story_of_local_people_speculating_for_minerals_in_their_gardens.webm",
+  "licence": "CC0",
+  "author": "Rupertmaesglas",
+  "labels": [],
+  "tag": "talking",
+  "duration": 114.1,
+  "ranges": {},
+  "split": "dev"
+ },
+ {
+  "id": "7c638cecaa",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/sk-removals.bsky.social/post/3muetmlsyb223",
+  "licence": "© sk-removals.bsky.social; public post, evaluation only",
+  "author": "sk-removals.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "duration": 10.4,
+  "ranges": {},
+  "split": "test"
+ },
+ {
+  "id": "83fe4d1c09",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Levitstown_Lifting_Bridge.webm",
+  "licence": "CC BY-SA 4.0",
+  "author": "A.-K. D.",
+  "labels": [],
+  "tag": "nobody",
+  "duration": 38.5,
+  "ranges": {},
+  "split": "dev"
+ },
+ {
+  "id": "86a1136787",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Cat_playing_with_a_lizard.webm",
+  "licence": "CC BY-SA 4.0",
+  "author": "Basile Morin",
+  "labels": [],
+  "tag": "pet",
+  "duration": 14.0,
+  "ranges": {},
+  "split": "test"
+ },
+ {
+  "id": "88878afc35",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/expeditionsbd.bsky.social/post/3moxfbmhdlc2m",
+  "licence": "© expeditionsbd.bsky.social; public post, evaluation only",
+  "author": "expeditionsbd.bsky.social",
+  "labels": [
+   "travel"
+  ],
+  "tag": "",
+  "duration": 37.1,
+  "ranges": {
+   "travel": [
+    [
+     0,
+     37
+    ]
+   ]
+  },
+  "split": "dev"
+ },
+ {
+  "id": "8cb71a049c",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:How_to_paint_over_a_bare_pebble_dashing_wall.webm",
+  "licence": "CC BY-SA 4.0",
+  "author": "Roryconnollyqs",
+  "labels": [],
+  "tag": "nobody",
+  "duration": 112.6,
+  "ranges": {},
+  "split": "test"
+ },
+ {
+  "id": "919098e1d5",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Running_Creek.ogv",
+  "licence": "CC0",
+  "author": "Shiftchange",
+  "labels": [],
+  "tag": "nobody",
+  "duration": 60.0,
+  "ranges": {},
+  "split": "dev"
+ },
+ {
+  "id": "91ec1f8471",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Football_training_video.webm",
+  "licence": "CC BY-SA 2.0",
+  "author": "Norsensus Mediaforum",
+  "labels": [],
+  "tag": "toy",
+  "duration": 14.1,
+  "ranges": {},
+  "split": "dev"
+ },
+ {
+  "id": "962239ec9c",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Video_of_man_kayaking_at_Regattastrecke_Oberschlei%C3%9Fheim_in_Germany.webm",
+  "licence": "CC BY-SA 4.0",
+  "author": "Pittigrilli",
+  "labels": [],
+  "tag": "nobody",
+  "duration": 13.0,
+  "ranges": {},
+  "split": "test"
+ },
+ {
+  "id": "a4cf716536",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/mountcookadventure.bsky.social/post/3mfbr4rhe222g",
+  "licence": "© mountcookadventure.bsky.social; public post, evaluation only",
+  "author": "mountcookadventure.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "duration": 7.0,
+  "ranges": {},
+  "split": "dev"
+ },
+ {
+  "id": "a767d144e3",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/balancedetroit.bsky.social/post/3lk25igvu2s2y",
+  "licence": "© balancedetroit.bsky.social; public post, evaluation only",
+  "author": "balancedetroit.bsky.social",
+  "labels": [],
+  "tag": "screen",
+  "duration": 6.2,
+  "ranges": {},
+  "split": "dev"
+ },
+ {
+  "id": "b09ab045e1",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Fireworks_Naperville_2022.webm",
+  "licence": "CC BY-SA 4.0",
+  "author": "Sea Cow",
+  "labels": [],
+  "tag": "nobody",
+  "duration": 41.3,
+  "ranges": {},
+  "split": "dev"
+ },
+ {
+  "id": "b1d81ca4be",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Burgemeester_houdt_zijn_intocht-520140.ogv",
+  "licence": "CC BY-SA 3.0 nl",
+  "author": "Polygoon-Profilti (producent) / Nederlands Instituut voor Beeld en Geluid (beheerder)",
+  "labels": [],
+  "tag": "old",
+  "duration": 85.6,
+  "ranges": {},
+  "split": "dev"
+ },
+ {
+  "id": "b1e2ec6a4b",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/3countiesrubbish.bsky.social/post/3leojho6zt22l",
+  "licence": "© 3countiesrubbish.bsky.social; public post, evaluation only",
+  "author": "3countiesrubbish.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "duration": 28.2,
+  "ranges": {},
+  "split": "test"
+ },
+ {
+  "id": "b2d119f5a9",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Heathrow_Airport_Terminal_2_baggage_carousel_-_2017-08-18_-_Andy_Mabbett.ogv",
+  "licence": "CC BY-SA 4.0",
+  "author": "Andy Mabbett",
+  "labels": [
+   "travel"
+  ],
+  "tag": "",
+  "duration": 56.9,
+  "ranges": {
+   "travel": [
+    [
+     0,
+     57
+    ]
+   ]
+  },
+  "split": "test"
+ },
+ {
+  "id": "b4ef937593",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Distracted_woman_driver_crashes_Turo_rental_car_into_mailbox_in_Snohomish_County,_Washington_(August_2025).webm",
+  "licence": "Public domain",
+  "author": "CCTV",
+  "labels": [
+   "driving"
+  ],
+  "tag": "",
+  "duration": 49.5,
+  "ranges": {
+   "driving": [
+    [
+     0,
+     50
+    ]
+   ]
+  },
+  "split": "test"
+ },
+ {
+  "id": "c4d46e3698",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/islandkayaktours.bsky.social/post/3mn6atxyq7c2q",
+  "licence": "© islandkayaktours.bsky.social; public post, evaluation only",
+  "author": "islandkayaktours.bsky.social",
+  "labels": [
+   "activity"
+  ],
+  "tag": "",
+  "duration": 63.6,
+  "ranges": {
+   "activity": [
+    [
+     56,
+     64
+    ]
+   ]
+  },
+  "split": "test"
+ },
+ {
+  "id": "d01ccecf2b",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Peso_Muerto_sumo.webm",
+  "licence": "CC BY-SA 3.0",
+  "author": "Martars022 Obra derivada de / Derivative work: \nSandeep 2022 \nstorque12 2022 \nwollieson 2022 \n\naaravanimates 2022",
+  "labels": [
+   "lifting"
+  ],
+  "tag": "graphic",
+  "duration": 22.1,
+  "ranges": {
+   "lifting": [
+    [
+     0,
+     22
+    ]
+   ]
+  },
+  "split": "test"
+ },
+ {
+  "id": "d7a92b7db6",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Blacksmith_Scene.ogv",
+  "licence": "Public domain",
+  "author": "William Kennedy Dickson",
+  "labels": [
+   "other_job"
+  ],
+  "tag": "old",
+  "duration": 39.5,
+  "ranges": {
+   "other_job": [
+    [
+     12,
+     36
+    ]
+   ]
+  },
+  "split": "dev"
+ },
+ {
+  "id": "dfabf5c37e",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/tectaamerica.bsky.social/post/3law73nhz3k2m",
+  "licence": "© tectaamerica.bsky.social; public post, evaluation only",
+  "author": "tectaamerica.bsky.social",
+  "labels": [
+   "other_job"
+  ],
+  "tag": "",
+  "duration": 59.3,
+  "ranges": {
+   "other_job": [
+    [
+     0,
+     34
+    ],
+    [
+     44,
+     46
+    ]
+   ]
+  },
+  "split": "test"
+ },
+ {
+  "id": "e181173795",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/broadleaftreecare.bsky.social/post/3mka2lrpemw2z",
+  "licence": "© broadleaftreecare.bsky.social; public post, evaluation only",
+  "author": "broadleaftreecare.bsky.social",
+  "labels": [],
+  "tag": "nobody",
+  "duration": 18.3,
+  "ranges": {},
+  "split": "test"
+ },
+ {
+  "id": "e95e805f4c",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:First_Hatvanpuszta_Protest_Videos_(22)_-_%C3%81kos_Hadh%C3%A1zy_interview_part_2_(partial).webm",
+  "licence": "CC BY-SA 4.0",
+  "author": "Envagyokabela",
+  "labels": [],
+  "tag": "talking",
+  "duration": 82.1,
+  "ranges": {},
+  "split": "test"
+ },
+ {
+  "id": "ec215aa1c5",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/islandkayaktours.bsky.social/post/3msr2f6uf2s2l",
+  "licence": "© islandkayaktours.bsky.social; public post, evaluation only",
+  "author": "islandkayaktours.bsky.social",
+  "labels": [
+   "activity"
+  ],
+  "tag": "children",
+  "duration": 58.4,
+  "ranges": {
+   "activity": [
+    [
+     36,
+     52
+    ]
+   ]
+  },
+  "split": "dev"
+ },
+ {
+  "id": "f2c96dd17c",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/officialcpfc.bsky.social/post/3lffv2qbf4s2g",
+  "licence": "© officialcpfc.bsky.social; public post, evaluation only",
+  "author": "officialcpfc.bsky.social",
+  "labels": [
+   "sport"
+  ],
+  "tag": "",
+  "duration": 27.9,
+  "ranges": {
+   "sport": [
+    [
+     0,
+     28
+    ]
+   ]
+  },
+  "split": "dev"
+ },
+ {
+  "id": "fb026b578c",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Dragoon_Week_2025_Weightlifting_Competition_(963715).webm",
+  "licence": "Public domain",
+  "author": "U.S. Army video by 1st Sgt. Jacob Connor",
+  "labels": [
+   "lifting",
+   "sport"
+  ],
+  "tag": "",
+  "duration": 30.8,
+  "ranges": {
+   "lifting": [
+    [
+     0,
+     28
+    ]
+   ],
+   "sport": [
+    [
+     0,
+     28
+    ]
+   ]
+  },
+  "split": "dev"
+ },
+ {
+  "id": "fb891249f1",
+  "kind": "video",
+  "source": "commons",
+  "url": "https://commons.wikimedia.org/wiki/File:Front_loading_garbage_truck_loading_a_dumpster.webm",
+  "licence": "CC BY-SA 4.0",
+  "author": "Grendelkhan",
+  "labels": [],
+  "tag": "machine",
+  "duration": 47.0,
+  "ranges": {},
+  "split": "dev"
+ },
+ {
+  "id": "ff28db4ae3",
+  "kind": "video",
+  "source": "bluesky",
+  "url": "https://bsky.app/profile/mountcookadventure.bsky.social/post/3mka3ndgh322a",
+  "licence": "© mountcookadventure.bsky.social; public post, evaluation only",
+  "author": "mountcookadventure.bsky.social",
+  "labels": [],
+  "tag": "graphic",
+  "duration": 5.0,
+  "ranges": {},
+  "split": "dev"
+ }
+]
