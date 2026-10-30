@@ -20,7 +20,7 @@ Your cases, evidence and the AI that reads photos and videos stay on your Mac.
 |---|---|
 | **Find a person** | Checks over a thousand sites and public records at once (including federal and some state and city court records), and logs every source asked, including the empty ones |
 | **Is it them?** | Scores each account against everything the case knows, explains every point, and sets namesakes aside. The investigator decides |
-| **Posts** | Reads public posts logged out (Bluesky, Mastodon, YouTube, TikTok's public pages). Takes in what the investigator views in the **Hunt Browser** and the files they saved, and optionally public Instagram and Facebook posts through Apify on their own paid account. Scans every photo and video on the Mac with a local vision model for the case's look-for list, dated before or after the injury |
+| **Posts** | Reads public posts logged out (Bluesky, Mastodon, TikTok's public pages, and YouTube with a free key). Takes in what the investigator views in the **Hunt Browser** and the files they saved, and optionally public Instagram and Facebook posts through Apify on their own paid account. Scans every photo and video on the Mac with a local vision model for the case's look-for list, dated before or after the injury |
 | **Report** | Written from the case's records, with no language model. Every sentence is cited; ICD 203 confidence wording; a screening version for employment (FCRA); a hashed evidence bundle anyone can check with `shasum -c` |
 
 **Everyday helpers:**
@@ -41,14 +41,16 @@ Built in, not bolted on. The full list, with the reasoning behind each, is [Hunt
 - **The investigator's own real account only:** no fake accounts, sock puppets or pretexting.
 - **The subject and their associates are never contacted or notified:** no following, friending, liking or messaging, and no checks that could notify anyone. All 220 email-check modules were read and classified.
 - **No getting around a limit:** no CAPTCHA solving, and no proxies, IP rotation or spoofing to get past a block. Hunt stops at the first refusal, and on any sign that a platform has revoked access.
-- **No face search.** A one-to-one face check against the investigator's own reference photo is built, opt-in and allowed only where the subject's home state or country permits it; its screen is coming.
-- **Nothing fetched from Instagram or Facebook by Hunt itself** (except an Apify run on the investigator's own account). TikTok videos are fetched only from public pages TikTok lets software read, and only when the uploader allows downloads.
+- **No face search.** A one-to-one face check against the investigator's own reference photo is built and opt-in; its screen is coming. It runs only for a subject whose recorded home is a place it recognises and doesn't block: unknown places are blocked, and California always is.
+- **Nothing fetched from Instagram or Facebook by Hunt itself** (except an Apify run on the investigator's own account). Facebook's logged-out profile preview is read one profile at a time, on the investigator's click, never in a batch search. TikTok videos are fetched only from public pages TikTok lets software read, and only when the uploader allows downloads.
 - **Machine verdicts stop at "likely",** and a handle alone can't pass "roughly even chance" (two-identifier rule).
 - **Employment screening mode** drops protected traits, sensitive records and relationships, and background cases always get it. Screenings are kept apart from other investigations.
 - **Associates are a name and a citation:** never searched, never contacted, never labelled ("mother", "brother"); Hunt quotes what was observed. A child is never named.
 - **Retention is a reminder:** at 90 days from opening Hunt asks you to delete, hold or trim the case. Deleting moves files to the Trash; Hunt never deletes them.
 - **Flagged media where a child may be visible** are blurred in the app and the report. The evidence bundle keeps originals for chain of custody.
 - **Guided mode** (one key press, one step on the subject's profile) is off until you turn it on and acknowledge the trade-off.
+
+Two of these are decided and still being built: background cases always getting the screening version, and guided mode's off switch with its acknowledgement. Until then, choose the screening version yourself, and leave guided mode alone. [CHANGELOG.md](CHANGELOG.md) tracks both.
 
 If you furnish reports for employment, tenancy, credit or insurance decisions, you are likely a consumer reporting agency under the FCRA, whatever software you use. Hunt helps you comply; it does not exempt you. Hunt runs free on public sources; the only paid option is an Apify connector on the investigator's own account. It **complements** licensed data-broker tools (TLOxp, Accurint and the like); it doesn't replace them. Why each line is where it is: [legal.md](docs/research/legal.md).
 

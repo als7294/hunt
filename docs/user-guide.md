@@ -81,14 +81,17 @@ Hunt reads public pages **logged out**. Facebook, Instagram, TikTok, X and Linke
 - **Use your own, real accounts.** Never fake ones.
 - **Never interact with the person you're looking into:** no follows, likes, messages or friend requests. Hunt can't stop a click for you.
 - **The checklist:** for each account you've confirmed, it lists the sections to open (posts, photos, tagged, videos, about…) and ticks each one off once you've captured it.
-- **Guided mode is coming:** how much of each profile you've covered, and what's left to open.
+- **Guided mode is coming:** Hunt Capture showing how much of each profile you've covered and opening the next thing for you.
+  - It will be **off until you turn it on in Hunt**.
+  - **Turning it on asks you to acknowledge what it does:** each press of Next scrolls one screen or opens the next item for you. That's the one time Hunt Capture moves the page instead of just recording it.
+  - **Ask your firm's counsel** before using it in casework.
 
 ### Free keys (optional)
 
 Hunt works fully without keys. A few sources give more with a free key of your own. The **Keys** screen links to each sign-up page, and the keys are kept on this Mac only:
 - **GitHub, Gravatar, OpenFEC and state open-data portals:** more lookups each hour.
 - **CourtListener:** federal court records only run with a key.
-- **YouTube:** every upload of a channel instead of the latest 15.
+- **YouTube:** needed for YouTube. YouTube's rules don't let software read its feed, so Hunt reads a channel's uploads only through the official API, with your free key.
 - **SEC EDGAR:** asks for your firm's name and a contact email instead of a key.
 
 One option costs money, on your own account: **Apify**, for public Instagram and Facebook posts. Hunt shows the estimated cost before each run, stops at the caps you set, and marks every post it fetched as obtained through Apify.
@@ -128,7 +131,9 @@ People with the same name who are probably someone else are listed separately, w
 
 ### Posts
 
-Hunt reads the confirmed accounts' public posts by itself where it can do so logged out: Bluesky, Mastodon, YouTube, and TikTok's public pages. On TikTok it reads where TikTok allows it, and stops at the first refusal. For Facebook, Instagram and X, the posts come from you:
+Hunt reads the confirmed accounts' public posts by itself where it can do so logged out: Bluesky, Mastodon, TikTok's public pages, and YouTube with your free key. On TikTok it reads where TikTok allows it, and stops at the first refusal.
+
+**Facebook is read one profile at a time,** only when you click **Read public preview** on that account, never as part of a search. For Facebook, Instagram and X, the posts come from you:
 - what you viewed in the Hunt Browser with Hunt Capture on
 - **Read public preview** on the worklist: one logged-out read of a confirmed account, on your click
 - Facebook pages you saved
@@ -142,9 +147,11 @@ Then Hunt's **media scan** looks through every photo and video, on your Mac, for
 - for videos, the exact seconds
 
 **Review each flag:**
-- **Keep** it.
+- **Keep** it for the case file.
+- **Add to report**: only these are reported.
 - Mark it **Not relevant**.
-- Put it **In the report**.
+
+Today the report also lists flags you kept. From the next update it lists only those you added, so choose **Add to report** for anything the report should show.
 
 A flag nobody reviewed is not a finding.
 
@@ -157,7 +164,7 @@ The report is written from the case's own records, with no AI writing:
 
 Download it as **PDF**, **HTML** or **JSON**.
 
-**For employment screening, download the screening version.** It drops protected traits (age, health, religion, politics and the like) and records about them. An employment screening may make you a consumer reporting agency under the FCRA; the report says so.
+**For a background check, the report is the screening version.** Until that's automatic (it's being built), choose it yourself for every employment screening. It drops protected traits (age, health, religion, politics and the like) and records about them. An employment screening may make you a consumer reporting agency under the FCRA; the report says so.
 
 ## 5. What the verdicts mean
 
@@ -239,7 +246,8 @@ Hunt is built for lawful, purpose-bound investigations:
 - **It never contacts or notifies the person:** no follows, messages or email checks that could alert them.
 - **It never fetches anything from Instagram or Facebook by itself.** The one exception is an Apify run you start on your own account.
 - **TikTok videos** are fetched only from public pages TikTok lets software read, and only when the uploader allows downloads. Otherwise Hunt keeps just the cover picture.
-- **No face search.** A one-to-one check of your own reference photo against candidate profile photos is built, but it isn't in the app yet. When it is, it will be off unless you turn it on, and allowed only where the subject's home state or country permits it.
+- **No face search.** A one-to-one check of your own reference photo against candidate profile photos is built, but it isn't in the app yet. When it is, it will be off unless you turn it on, and it runs only when you've recorded where the subject lives. A place it doesn't recognise, or no place at all, blocks it. **California is always blocked**, and so are Illinois, Texas, Washington, Colorado, the EU, the UK and Canada.
+- **Children are never named.** When a post mentions a child ("my son Leo"), Hunt shows them only as "a child", never by name, in the people it notices around the subject, in the report, and in the evidence bundle's log. Your own notes are kept as you write them, so leave children's names out of them.
 - **It never sends your cases anywhere.** If you use Apify, Apify receives the addresses of the accounts you ask it to read, and nothing else from the case.
 
 Logged-in viewing is something **you** do, as yourself, in the Hunt Browser. Scraping with sock-puppet accounts is the pattern that has lost in court, and employment and insurance reports carry FCRA and state-law duties that Hunt helps you meet but can't lift.
