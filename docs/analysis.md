@@ -10,6 +10,7 @@ Today Hunt ranks each found profile on its own (`match.score`). These modules ad
 | `hunt/similar.py` | decides whether two profile photos are the same picture | none | CLIP ViT-L/14, local cache |
 | `hunt/face.py` | opt-in 1:1 check: is the face in this picture the one in the case's reference photo? | `download()` once | YuNet + AuraFace via OpenCV; CLIP for the child gate |
 | `hunt/learning.py` | learns face calibration and matcher weights from the investigator's decisions | none | none |
+| `graph.associates` | family and associates named in the case's own posts, bios, records and photo marks | none | none |
 
 **Dependencies:** `similar.py` imports `scipy`, `torch`, `transformers` and `huggingface_hub` (the test only).
 All are installed today only as dependencies of `reverse-geocoder` and `geoclip`; declare `scipy` and
@@ -511,6 +512,62 @@ for each record, its verdict and top reasons ("kept: date of birth 1981-04-12 ma
 doesn't fit the subject's birth year 1981"). The fixture records in `test_report.py` and `test_e2e.py` now each carry
 an employer that the case knows, because a name alone no longer makes them the subject's.
 
+## 8. Family and associates
+
+`graph.associates(posts, candidates, subject, photo_labels) -> {notice, people}` connects the people the case already
+names. It runs on what's stored and searches nothing. `GET /api/cases/{slug}/people` serves it; see
+[api.md](api.md).
+
+**Where associates come from:**
+
+| from | example | type | confidence |
+|---|---|---|---|
+| the subject's own posts (the person's accounts, or posts the investigator added) | "my brother Dan", "mi esposa Ines", "with mom", "con mi mamá" | sibling, parent, child, grandparent, grandchild, partner, relative, friend, co-worker | 0.9 named, 0.8 unnamed, 0.7 "with mom" |
+| post tags | `extra.with`, `extra.tagged`, "— with Rafa Ortiz", "is with…" | tagged with | 0.8 |
+| a plain caption | "Gym with Rafa Ortiz and Kim Vell" (two-word names only; could be a place) | tagged with | 0.6 |
+| the person's bios | "Married to Ines Vell", "Proud dad of 2", "esposa de…" | partner, child | 0.9 / 0.8 |
+| the person's public records | "Vell v. Example Builders LLC", `parties` | co-party | 0.9 |
+| any record of someone else at the subject's `address` seed | "Marta Ruiz, 12 Alder Lane" | same address | 0.6 |
+| the investigator's marks on kept photos (`label_photo`; the same label = one person; no face search) | "Dan" in two photos | in photo with | 1.0 |
+| a shared surname with the subject, added to someone already found | "Kim Vell" | possible relative | 0.3 (a hint) |
+
+There are 125 relationship words, in English and Spanish. A first name merges into the one full name that fits ("Ines" →
+"Ines Vell"). Unnamed relatives merge by role (one "mother"). The subject is never listed as their own associate, and
+posts from accounts that aren't the subject's are ignored.
+
+**Minimisation** (`legal.md` C4 and C13):
+- **Name and citation only:** an associate is a name, the relationship, and the exact sentence that implied it, with its
+  post, bio, record or photo reference.
+- **No collection on associates:** Hunt never searches or collects on them. The screen offers "Open as a new case…",
+  which starts the wizard with its own purpose field. Nothing is prefilled except the name.
+- **Possible minors:** a child, grandchild, niece or nephew, or anyone given an age under 18 ("9 años"), is `minor:
+  true`. The name is dropped everywhere, the quote reads "mi hijo [name withheld]", and the person is shown by
+  relationship only.
+
+**The screen** ("People around the subject", a tab beside "Is it them?"):
+- **Header:** the `notice`.
+- **Card list,** most confident first:
+  - each card shows the name, or the relationship for a minor ("son (name withheld)"), plus the relationship chips,
+    with confidence as words (0.9+ stated, 0.6–0.8 likely, below 0.6 hint)
+  - and the citations: each quote with a link to its exhibit (post `E-…`, record, bio URL, kept photo)
+  - no profile links or photos of associates
+- **Actions per card:**
+  - "Not relevant" hides it, audited.
+  - "Open as a new case…" isn't offered for minors.
+- **"Mark people in this photo"** sits on kept photos in the posts screen: a free-text label, posted to
+  `POST /api/cases/{slug}/people/photo`.
+
+**Report sentences** (for `report.py`, a "People around the subject" section, each sentence cited):
+> The subject's own posts, bios and public records name 6 people around them; none of them was searched. [method]
+> Brother: Dan, in a post of 2026-06-01 ("Lake day with my brother Dan…") and marked by the investigator in a kept
+> photo. [E-1]
+> Partner: Ines Vell, in the Facebook bio ("Married to Ines Vell") and a post. [A-3] [E-2]
+> A child (name withheld), in a post of 2026-05-12. [E-2]
+> Co-party: Example Builders LLC, in Vell v. Example Builders LLC. [Rec. 2]
+
+In screening mode, leave the section out: family status is a protected characteristic, as the screening rules say.
+In MHMDA mode, keep relationships as stated and never infer health from them.
+
 ## Not yet
 
 - **Face thresholds are provisional.**
@@ -533,5 +590,11 @@ an employer that the case knows, because a name alone no longer makes them the s
   details route accepts `subject_residence` and `mhmda_basis`.
 - **Report wording:** MHMDA mode (observed activity, not physical condition) and "kept or set aside because…" for records
   belong to the report session. `case.mhmda` and each record's `reasons` are ready for it.
+- **Associates:**
+  - Facebook's parser reads "is with Mara Quill" out of post headers but doesn't keep the names. Storing them as
+    `post_extra.with` (facebook session) lets `associates` cite them as tags.
+  - Comments aren't stored, only counted, so "tagged or named in comments" waits on that.
+  - The "People around the subject" screen and its report section are for the app-screens and report sessions.
+    The API is wired.
 - **Name commonness:** a searched name always counts +0.1, whatever the name. A name-frequency table would let a rare name
   count for more.
