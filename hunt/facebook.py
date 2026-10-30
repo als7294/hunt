@@ -298,6 +298,12 @@ UI = re.compile(  # lines of Facebook chrome, never post text
     r"[^\w]{0,3}|\d[\d.,]*\s?[km]?|\W*\w\W*")
 SEE_MORE = re.compile(r"(?:…|\.\.\.)\s*(?:more|mas|plus)$|(?:…|\.\.\.)?\s*(?:see more|ver mas|voir plus|afficher la suite)$")
 COMMENT_LABEL = re.compile(r"^(?:comment|reply|comentario|respuesta|commentaire|reponse)\b")
+# A comment's own label (live QA, NASA's Page): "Comment by Dana Vell 2 days ago", "Reply by Mara Quill to Dana
+# Vell's comment 1 day ago"; "Comentario de …", "Respuesta de … al comentario de … hace 1 día"; "Commentaire de …",
+# "Réponse de … au commentaire de … il y a 1 jour". Groups: author, then the name replied to (one per language).
+COMMENT_BY = re.compile(r"(?:Comment|Reply|Comentario|Respuesta|Commentaire|R[ée]ponse) (?:by|de) (.+?)"
+                        r"(?: to (.+?)['’]s comment| al comentario de (.+?)| au commentaire de (.+?))?"
+                        r"(?: (?:\d.*|an? \w+ ago|just now|hace .*|il y a .*|yesterday.*|ayer.*|hier.*))?", re.I)
 NUM = r"(\d(?:[\d.,]|[\xa0\N{NARROW NO-BREAK SPACE}])*\d(?: ?[km]\b)?|\d(?: ?[km]\b)?)"  # 1,234 · 1.2K · French 1 234 (no-break space; a plain space would join two counts)
 COUNTS = {
     "reactions": [re.compile(rf"(?:all reactions|todas las reacciones|toutes les reactions)\s*:?\s*{NUM}"),
@@ -343,7 +349,13 @@ def _post(**fields) -> dict:
     blank = dict.fromkeys(["url", "post_id", "posted_at", "posted_at_precision", "posted_at_text", "author",
                            "account_url", "fb_id", "text", "place", "activity", "life_event", "reactions", "comments",
                            "shares"])
-    return {"source": "Facebook"} | blank | {"truncated": False, "media": []} | fields
+    return {"source": "Facebook"} | blank | {"truncated": False, "media": [], "visible_comments": []} | fields
+
+
+def _comment(**fields) -> dict:
+    """One comment as a post showed it (posts.COMMENT_KEYS); reply_to is the name or handle it answers."""
+    return dict.fromkeys(["author", "handle", "account_url", "text", "posted_at", "posted_at_precision",
+                          "posted_at_text", "reply_to", "likes", "url"]) | fields
 
 
 # --- saved pages ---
@@ -412,6 +424,8 @@ def _posts(html, page_url, resources, base_dir, ref) -> list[dict]:
     ctx = {"base": page_url or FB + "/", "resources": resources, "dir": base_dir, "ref": ref,
            "parents": {c: p for p in root.iter() for c in p}}
     posts = [p for el in _containers(root, ctx["parents"]) if (p := _one(el, ctx))]
+    if len(posts) == 1:  # a photo viewer or single post: its comments may sit beside the post, not inside it
+        posts[0]["visible_comments"] = _comments(root, ctx)
     _merge(posts, _stories(root))
     if not posts and (url := meta.get("og:url")) and _is_post(url) and meta.get("og:description"):
         # a single public post saved logged-out: only its link-preview tags are certain
@@ -522,7 +536,43 @@ def _one(el, ctx) -> dict | None:
     p["audience"] = _audience(nodes, p["url"])
     labels = "\n".join(n.get("aria-label") for n in nodes if n.get("aria-label"))
     p |= _counts("\n".join(others) + "\n" + labels)
+    p["visible_comments"] = _comments(el, ctx)
     return p if p["text"] or p["url"] or p["media"] or p["life_event"] else None
+
+
+def _comments(el, ctx) -> list[dict]:
+    """The comments and replies shown under a post, in page order: only what the page had rendered, so the
+    first few unless she opened more herself. Signed out, a commenter's name has no profile link."""
+    out = []
+    for c in el.iter():
+        if c.get("role") != "article" or not (m := COMMENT_BY.fullmatch(c.get("aria-label", "").strip())):
+            continue
+        nested = {d for d in c.iter() if d is not c and d.get("role") == "article"}  # a reply inside its comment
+        own = set(c.iter()) - {n for r in nested for n in r.iter()}
+        link = next((a for a in c.iter("a") if a in own and account(_abs(a.get("href"), ctx))), None)
+        acct = account(_abs(link.get("href"), ctx)) if link is not None else None
+        author = (_text(link).split("\n")[0] if link is not None else "") or m[1]
+        texts = [t for n in c.iter() if n in own and n.get("dir") == "auto" and (t := _text(n).strip())
+                 and t != author and not UI.fullmatch(_fold(t)) and not parse_date(t, ctx["ref"])]
+        stamp = next(((a, d) for a in c.iter("a") if a in own and len(t := _text(a).strip()) <= 30
+                      and (d := parse_date(t, ctx["ref"]))), (None, None))
+        likes = _counts("\n".join(n.get("aria-label") for n in c.iter() if n in own and n.get("aria-label")
+                                   and n is not c))["reactions"]
+        out.append(_comment(author=author, account_url=acct and acct[0],
+                            handle=acct and acct[0].removeprefix(FB + "/"), text=max(texts, key=len) if texts else None,
+                            posted_at=stamp[1] and stamp[1][0], posted_at_precision=stamp[1] and stamp[1][1],
+                            posted_at_text=stamp[0] is not None and _text(stamp[0]).strip() or None,
+                            reply_to=m[2] or m[3] or m[4], likes=likes,
+                            url=stamp[0] is not None and "comment_id=" in stamp[0].get("href", "")
+                            and _comment_url(_abs(stamp[0].get("href"), ctx)) or None))
+    return out
+
+
+def _comment_url(url: str) -> str:
+    """A comment's link: its post's, plus comment_id (and reply_comment_id), without the tracking."""
+    base, q = _canon(url), parse_qs(urlparse(url).query)
+    return base + ("&" if "?" in base else "?") + "&".join(f"{k}={q[k][0]}" for k in ("comment_id", "reply_comment_id")
+                                                            if k in q)
 
 
 AUDIENCES = {"public": "Public", "publico": "Public", "friends of friends": "Friends of friends",

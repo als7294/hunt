@@ -236,7 +236,7 @@ Anything else gets 403, 405 or 415. The key opens no other route.
 | `/api/capture/signins` | `{facebook?, instagram?, tiktok?, linkedin?, x?: "signed_in"\|"signed_out"\|"unknown", pinned?: bool}` → as `GET /api/browser/status`. Anything that isn't one of those states is refused (400) |
 | `/api/capture/checklist` | `{case}` → as `GET /api/cases/{slug}/checklist` |
 | `/api/capture/view` | multipart `case, url, viewed_at?, title?, kind? (view\|frame\|manual), screenshot` (JPEG or PNG) → `{post, file}`. `post` is null when that picture was already in the case |
-| `/api/capture/page` | multipart `case, url, viewed_at?, capture_version?, session?, archive` (MHTML) → `{posts, added, upgraded, file, stopped, changes}`. `upgraded`: grid-only posts now captured in full. `stopped`: the hard stop, if the page showed a checkpoint or block. `changes`: Check again's comparison with the last capture of this page (once QOL's `recheck.diff_captures` is merged; `[]` until then) |
+| `/api/capture/page` | multipart `case, url, viewed_at?, capture_version?, session?, archive` (MHTML) → `{posts, added, upgraded, comments, file, stopped, changes}`. `upgraded`: grid-only posts now captured in full. `comments`: how many comments the page showed under its posts (stored with them; see [capture.md](capture.md#comments)). `stopped`: the hard stop, if the page showed a checkpoint or block. `changes`: Check again's comparison with the last capture of this page (once QOL's `recheck.diff_captures` is merged; `[]` until then) |
 | `/api/capture/recording` | multipart `case, url, started_at?, video` (WebM or MP4) → `{post, file}` |
 
 Capture uploads also share these rules:

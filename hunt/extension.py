@@ -23,7 +23,7 @@ import os
 import re
 import secrets
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -362,8 +362,9 @@ def add_view(case, url: str, image: Path, viewed_at: str | None, title: str = ""
 def add_page(case, url: str, archive: Path, viewed_at: str | None, media_dir: Path, rec: dict | None = None) -> dict:
     """A page archive (MHTML from chrome.pageCapture): kept whole as evidence, then read for posts, whose pictures
     come out of the archive (what her browser had already loaded). Grid thumbnails become posts marked "grid", which
-    a later full capture upgrades. If the page shows a checkpoint, challenge, block or "account disabled", that
-    platform is stopped (returned as `stopped`)."""
+    a later full capture upgrades. The comments each post showed are kept with it (`comments`: how many the page
+    showed). If the page shows a checkpoint, challenge, block or "account disabled", that platform is stopped
+    (returned as `stopped`)."""
     site, rec = platform(url), rec or {}
     file, sha = posts.store(case, archive, "mhtml")
     page = fb._load(Path(archive), _local(viewed_at), media_dir)
@@ -374,15 +375,18 @@ def add_page(case, url: str, archive: Path, viewed_at: str | None, media_dir: Pa
     upgraded = []
     ids = posts.add_posts(case, items, evidence=file, origin="captured", upgraded=upgraded)
     total = _profile_posts(site, text) if account_of(url) and where(account_of(url)) == where(url) else None
+    comments = sum(len(it.get("visible_comments") or []) for it in items)
     case.audit("capture page", {"url": url, "extension": (_paired() or {}).get("origin"), "where": where(url),
                                 "platform": site, "file": file, "sha256": sha, "viewed_at": viewed_at,
                                 "posts": len(items), "added": len(ids), "upgraded": len(upgraded),
-                                "grid": sum(it.get("from") == "grid" for it in items), "profile_posts": total} | rec)
+                                "grid": sum(it.get("from") == "grid" for it in items), "profile_posts": total,
+                                "comments": comments} | rec)
     stopped = None
     if reason := revoked(site, url, text):
         from . import browser
         stopped = browser.stop(site, reason, url, case)
-    return {"posts": len(items), "added": len(ids), "upgraded": len(upgraded), "file": file, "stopped": stopped}
+    return {"posts": len(items), "added": len(ids), "upgraded": len(upgraded), "comments": comments, "file": file,
+            "stopped": stopped}
 
 
 def add_recording(case, url: str, video: Path, started_at: str | None, rec: dict | None = None) -> dict:
@@ -499,7 +503,57 @@ def _testid(el, *names):
     return [n for n in el.iter() if n.get("data-testid") in names or n.get("data-e2e") in names]
 
 
+def _boxes(root, marks: list, stop) -> list:
+    """Each comment mark's comment: the largest element around it that holds no other mark and nothing for which
+    `stop` is true (the post itself: its header, caption, counts or video)."""
+    parents, marked = {c: p for p in root.iter() for c in p}, set(marks)
+    out = []
+    for mark in marks:
+        box = mark
+        while (up := parents.get(box)) is not None and not any(n in marked and n is not mark or stop(n) for n in up.iter()):
+            box = up
+        out.append(box)
+    return out
+
+
+def _likes(box) -> int | None:
+    """A comment's like count, from a line that says only that ("12 likes", "1 like")."""
+    return next((fb._num(m[1]) for n in box.iter() if (m := re.fullmatch(rf"{fb.NUM} likes?", fb._fold(fb._text(n)).strip()))),
+                None)
+
+
 ALT = re.compile(r"(?:Photo|Video|Reel) (?:by|shared by) (.+?) on ((?:\w+ \d{1,2}, \d{4})|(?:\d{1,2} \w+ \d{4}))")
+IG_COMMENT = re.compile(r"/(?:p|reel)/([\w-]+)/c/(\d+)(?:/r/(\d+))?")  # a comment's own link; /r/ is a reply's
+
+
+def _ig_handle(a) -> str | None:
+    m = re.fullmatch(r"(?:https://www\.instagram\.com)?/([\w.]+)/?", a.get("href", ""))
+    return m[1] if m and m[1] not in RESERVED["Instagram"] else None
+
+
+def _ig_comments(root) -> tuple[dict[str, list], set]:
+    """({post code: comments}, the comments' elements) from a post page's comment list. Each comment's time links
+    to /p/<code>/c/<id>/ (a reply's to /c/<parent>/r/<id>/), which says which post and which comment it is."""
+    stamps = [(a, m) for a in root.iter("a") if (m := IG_COMMENT.search(a.get("href", "")))]
+    post_link = lambda n: n.tag in ("header", "h1") or n.tag == "a" and re.search(r"/(?:p|reel)/[\w-]+/?$", n.get("href", ""))
+    by_code, nodes, who = {}, set(), {}
+    for (a, m), box in zip(stamps, _boxes(root, [a for a, _ in stamps], post_link)):
+        nodes |= set(box.iter())
+        link = next((n for n in box.iter("a") if _ig_handle(n)), None)
+        handle = link is not None and _ig_handle(link) or None
+        who[m[3] or m[2]] = handle
+        inside = {n for x in box.iter("a") for n in x.iter()}
+        texts = [t for n in box.iter("span") if n not in inside and link not in list(n.iter())
+                 and (t := fb._text(n).replace("\n", " ").strip())
+                 and t != handle and not re.fullmatch(r"(?:reply|see translation|hide replies|view (?:all )?replies.*|"
+                                                      rf"{fb.NUM} likes?|\d+[smhdw])", fb._fold(t))]
+        t = a.find(".//time")
+        by_code.setdefault(m[1], []).append(fb._comment(
+            author=handle, handle=handle, account_url=handle and f"https://www.instagram.com/{handle.lower()}/",
+            text=max(texts, key=len) if texts else None, posted_at=_iso(t.get("datetime")) if t is not None else None,
+            posted_at_precision="second" if t is not None else None, posted_at_text=fb._text(t) if t is not None else None,
+            reply_to=who.get(m[2]) if m[3] else None, likes=_likes(box), url=urljoin("https://www.instagram.com/", a.get("href"))))
+    return by_code, nodes
 
 
 def parse_instagram(page: dict) -> list[dict]:
@@ -508,6 +562,7 @@ def parse_instagram(page: dict) -> list[dict]:
     taken_at, caption, owner, location, counts)."""
     root, ctx = _page(page)
     found: dict[str, dict] = {}
+    comments, said = _ig_comments(root)
 
     def post(code, reel=False):
         return found.setdefault(code, fb._post(source="Instagram", post_id=code,
@@ -526,7 +581,7 @@ def parse_instagram(page: dict) -> list[dict]:
                      user_id=str(user.get("pk") or user.get("id") or "") or None, place=place.get("name"),
                      reactions=d.get("like_count"), comments=d.get("comment_count"))
     for art in root.iter("article"):
-        links = [m for a in art.iter("a") if (m := re.search(r"/(p|reel)/([\w-]+)", a.get("href", "")))]
+        links = [m for a in art.iter("a") if a not in said and (m := re.search(r"/(p|reel)/([\w-]+)", a.get("href", "")))]
         own = re.search(r"/(p|reel)/([\w-]+)", ctx["base"])
         m = links[0] if links else own
         if not m:
@@ -539,18 +594,18 @@ def parse_instagram(page: dict) -> list[dict]:
         if author is not None and not p["account_url"]:
             handle = author.get("href").strip("/")
             p["account_url"], p["author"] = f"https://www.instagram.com/{handle.lower()}/", p["author"] or handle
-        if (t := next(art.iter("time"), None)) is not None and not p["posted_at"]:
+        if (t := next((t for t in art.iter("time") if t not in said), None)) is not None and not p["posted_at"]:
             p["posted_at"], p["posted_at_precision"] = _iso(t.get("datetime")), "second"
         if (place := next((a for a in art.iter("a") if "/explore/locations/" in a.get("href", "")), None)) is not None:
             p["place"] = p["place"] or fb._text(place)
         if (h1 := next(art.iter("h1"), None)) is not None:  # a post page's caption
             p["text"] = p["text"] or fb._text(h1)
-        hset = set(header.iter()) if header is not None else set()
+        hset = (set(header.iter()) if header is not None else set()) | said
         spans = [fb._text(n).replace("\n", " ") for n in art.iter("span") if n.get("dir") == "auto" and n not in hset]
         if not p["text"] and spans:  # a feed item's caption: the longest text, after the author's handle
             handle = (p["account_url"] or "").rstrip("/").rsplit("/", 1)[-1]
             p["text"] = re.sub(rf"^{re.escape(handle)}\s+", "", max(spans, key=len)) if handle else max(spans, key=len)
-        text = fb._fold(fb._text(art))
+        text = fb._fold(fb._text(art, said))
         if p["reactions"] is None and (n := re.search(rf"{fb.NUM} likes?\b", text)):
             p["reactions"] = fb._num(n[1])
         if p["comments"] is None and (n := re.search(rf"view all {fb.NUM} comments", text)):
@@ -559,7 +614,7 @@ def parse_instagram(page: dict) -> list[dict]:
     tiles = 0
     for a in root.iter("a"):  # profile grid tiles
         m = re.search(r"/(p|reel)/([\w-]+)", a.get("href", ""))
-        if not m:
+        if not m or a in said:
             continue
         p = post(m[2], m[1] == "reel")
         if p.get("from") != "full" and "position" not in p:
@@ -572,6 +627,9 @@ def parse_instagram(page: dict) -> list[dict]:
                 p["posted_at"], p["posted_at_precision"] = fb.parse_date(alt[2], page["ref"]) or (None, None)
                 p["author"] = p["author"] or alt[1]
             p.setdefault("alt", img.get("alt") or None)
+    for code, shown in comments.items():
+        if code in found:
+            found[code]["visible_comments"] = shown
     audience = _audience(root, r"this account is private")
     for p in found.values():  # a profile page's own posts belong to that profile
         p["account_url"] = p["account_url"] or account_of(ctx["base"])
@@ -610,8 +668,11 @@ def parse_tiktok(page: dict) -> list[dict]:
         p["media"] = list(dict.fromkeys(p["media"] + _media(a, ctx)))
         p["text"] = p["text"] or next((img.get("alt") for img in a.iter("img") if img.get("alt")), None)
     own = re.search(r"/@([\w.-]+)/video/(\d+)", ctx["base"])
-    if own and own[2] in found:  # a video page: its own description, counts and poster
-        p = found[own[2]]
+    if own:  # a video page: its own description, counts, poster and comments (pageCapture keeps no JSON to say so)
+        p = found.setdefault(own[2], fb._post(source="TikTok", post_id=own[2], posted_at=fb._unix(int(own[2]) >> 32),
+                                              posted_at_precision="second"))
+        p["url"] = p["url"] or f"https://www.tiktok.com/@{own[1]}/video/{own[2]}"
+        p["account_url"] = p["account_url"] or f"https://www.tiktok.com/@{own[1].lower()}"
         p["from"] = "full"
         p.pop("position", None)
         for key, names in (("text", ("browse-video-desc", "video-desc")), ("reactions", ("like-count", "browse-like-count")),
@@ -620,10 +681,50 @@ def parse_tiktok(page: dict) -> list[dict]:
                 value = fb._text(el[0]).replace("\n", " ")
                 p[key] = value if key == "text" else (fb._num(value) if re.fullmatch(fb.NUM, fb._fold(value)) else None)
         p["media"] = list(dict.fromkeys(p["media"] + [m for v in root.iter("video") if (m := fb._local(v.get("poster"), ctx))]))
+        p["visible_comments"] = _tt_comments(root, page["ref"])
     audience = _audience(root, r"this account is private")
     for p in found.values():
         p["video"], p["audience"] = True, p.get("audience") or audience
     return list(found.values())
+
+
+TT_POST = {"browse-video-desc", "video-desc", "like-count", "browse-like-count", "comment-count", "browse-comment-count",
+           "share-count"}
+
+
+def _tt_comments(root, ref) -> list[dict]:
+    """A video page's comments: data-e2e="comment-level-1" is a comment's words, "comment-level-2" a reply's (to
+    the comment above it), with the commenter's /@handle link, name, date and like count around them."""
+    marks = [n for n in root.iter() if re.fullmatch(r"comment-level-\d", n.get("data-e2e", ""))]
+    out, last = [], None
+    for mark, box in zip(marks, _boxes(root, marks, lambda n: n.tag == "video" or n.get("data-e2e") in TT_POST)):
+        handle = next((m[1] for a in box.iter("a") if (m := re.fullmatch(r"(?:https://www\.tiktok\.com)?/@([\w.-]+)/?",
+                                                                          a.get("href", "")))), None)
+        name = next((fb._text(n) for n in box.iter() if n.get("data-e2e", "").startswith("comment-username")), None)
+        words = set(mark.iter())
+        when = next(((t, d) for n in box.iter("span") if n not in words and (d := _tt_date(t := fb._text(n).strip(), ref))),
+                    (None, None))
+        likes = next((fb._num(t) for n in box.iter() if n.get("data-e2e") == "comment-like-count"
+                      and re.fullmatch(fb.NUM, t := fb._fold(fb._text(n)).strip())), None)
+        reply = mark.get("data-e2e") != "comment-level-1"
+        out.append(fb._comment(author=name or handle, handle=handle, account_url=handle and f"https://www.tiktok.com/@{handle.lower()}",
+                               text=fb._text(mark).replace("\n", " ").strip() or None, posted_at=when[1] and when[1][0],
+                               posted_at_precision=when[1] and when[1][1], posted_at_text=when[0],
+                               reply_to=last if reply else None, likes=likes))
+        last = last if reply else handle
+    return out
+
+
+def _tt_date(s: str, ref: datetime | None) -> tuple[str, str] | None:
+    """TikTok's comment dates: "2d ago" and the like, "10-24" (the latest 24 October), "2025-10-24"."""
+    if m := re.fullmatch(r"(?:(\d{4})-)?(\d{1,2})-(\d{1,2})", s):
+        ref = ref or datetime.now()
+        try:
+            when = date(int(m[1] or ref.year), int(m[2]), int(m[3]))
+        except ValueError:
+            return None
+        return (when.replace(year=when.year - 1) if not m[1] and when > ref.date() else when).isoformat(), "day"
+    return fb.parse_date(s, ref) if 0 < len(s) <= 20 else None
 
 
 def parse_x(page: dict) -> list[dict]:
@@ -670,6 +771,8 @@ def parse_x(page: dict) -> list[dict]:
                 p[key] = fb._num(n[1])
         if ctxs := _testid(art, "socialContext"):
             p["reposted_by"] = fb._text(ctxs[0]).replace("\n", " ")
+        if m := re.search(r"Replying to\s+@(\w+)", fb._text(art).replace("\n", " ")):
+            p["replying_to"] = m[1]
         p["video"] = bool(_testid(art, "videoPlayer", "videoComponent") or next(art.iter("video"), None) is not None)
         out.append(p)
     inside = {n for art in root.iter("article") for n in art.iter()}
@@ -683,6 +786,17 @@ def parse_x(page: dict) -> list[dict]:
                      posted_at_precision="second", media=_media(a, ctx))
         p.update({"from": "grid", "position": sum(q.get("from") == "grid" for q in out), "video": m[3] == "video"})
         out.append(p)
+    own = re.search(r"/status/(\d+)", ctx["base"])
+    at = next((i for i, p in enumerate(out) if own and p["post_id"] == own[1]), None)
+    if at is not None:  # a post's own page: the posts under it are its replies, which she sees as its comments
+        top, rest = out[at], out[at + 1:]
+        mine = top["url"].split("/")[3].lower()
+        top["visible_comments"] = [fb._comment(
+            author=r["author"], handle=r["url"].split("/")[3], account_url=r["account_url"], text=r["text"],
+            posted_at=r["posted_at"], posted_at_precision="second", posted_at_text=r["posted_at_text"],
+            reply_to=r.get("replying_to") if (r.get("replying_to") or mine).lower() != mine else None,
+            likes=r["reactions"], url=r["url"]) for r in rest]
+        out = out[:at + 1] + [r for r in rest if r["account_url"] == top["account_url"]]  # her own thread stays hers
     audience = _audience(root, r"protected account|these posts are protected|estos posts estan protegidos")
     for p in out:
         p["audience"] = audience

@@ -51,6 +51,9 @@ Why this is lawful, and what risk remains, is in [legal.md](research/legal.md#hu
 - Record video
 - the Story warning, and captures made signed in ("logged in as {handle}")
 - X's media-tab grid
+- the comments she could see under a post (Instagram, Facebook, TikTok, X; see "Comments"). Facebook's
+  comment labels are from the live NASA capture; the other three platforms show comments only when
+  signed in, which QA doesn't do
 
 **Coming (not built):**
 - a Reddit post parser, and a Facebook photos-tab grid
@@ -382,6 +385,59 @@ Every capture, and every captured post, carries these fields. They're in the aud
 | `capture_sha256` | SHA-256 of the archive as received, before anything is parsed or transcoded. The archive is stored under that hash (`evidence`), and each picture under its own |
 | `posted_at`, `posted_at_precision`, `posted_at_text` | the post's own time, and how it was known |
 
+## Comments
+
+When a post she opened shows comments, **each comment she could see is kept with the post**: the
+default few, or more she opened herself ("View more comments", "View replies"). Nothing opens them for
+her, and nothing scrolls. They come out of the same page archive, so they're as passive as the post.
+They feed the family-and-associates map (who comments, how often, with what words) and the scan.
+
+**Where they go.** Table `comments`, one row per comment, created by `posts.add_posts` from each
+item's `visible_comments`:
+
+| Column | What |
+|---|---|
+| `post_id` | the post it was under |
+| `author`, `handle`, `account_url` | the commenter's name as shown, handle and profile link. Instagram shows only handles (`author` = `handle`). A Facebook name with no profile link (signed out, or a deactivated account) has `author` only. Facebook handles are the profile path, `profile.php?id=…` included |
+| `text` | the comment's words, emoji included; a reply keeps its "@name" |
+| `posted_at`, `posted_at_precision`, `posted_at_text` | its time as shown: exact on Instagram and X (`<time datetime>`), else from "2d", "20h", "09-29" (TikTok's month-day) against the capture time |
+| `reply_to` | for a reply, who it answers: the parent comment's handle (Instagram, TikTok, X) or name (Facebook, from "Reply by A to B's comment"). `null` for a comment on the post itself |
+| `likes` | its like or reaction count, when shown |
+| `url` | its own link where the platform has one: Instagram `/p/<code>/c/<id>/`, Facebook `?comment_id=` (tracking removed), X the reply's status link |
+| `evidence`, `seen_at` | the archive it was read from, and the capture time (`captured_at`) |
+
+- **Once per commenter and words, per post** (a unique index). Capturing the page again after she
+  opened more adds only the new ones, and keeps the rest as first seen. This works for a post already in
+  the case, a grid post being upgraded, and a vendor's copy alike. Each capture that adds any audits
+  `comments recorded` `{post, url, added, evidence}`.
+- **Reading them:** `posts.list_posts(case)` gives each post `visible_comments`, in page order, with
+  every column above plus `id`. `POST /api/capture/page` returns `comments` (how many the page
+  showed), also in the `capture page` audit detail.
+- **The scan reads them,** in its text pass with the captions: a keyword in a comment is a hit on the
+  post, "Comment by Owen Marsh: “…see you at the gym Monday…”". A caption hit for the same category
+  wins. Comments have no pictures of their own.
+- **Saved pages too.** Facebook pages she saves by hand and imports (`/facebook`) get their comments
+  the same way.
+
+**How each platform's are read** (no class names):
+
+| Platform | Anchors |
+|---|---|
+| Facebook | `role="article"` with `aria-label` "Comment by {name} {time}" / "Reply by {name} to {name}'s comment {time}" (also "Comentario de…", "Respuesta de… al comentario de…", "Commentaire de…", "Réponse de… au commentaire de…"); the name's profile link (`?comment_id=`), the longest `dir=auto` text, the time link, "N reactions; see who reacted" for likes. A reply nested inside its comment is kept apart. On a single post's page, comments beside the post count as its own |
+| Instagram | each comment's time links to `/p/<code>/c/<id>/` (a reply's to `/c/<parent>/r/<id>/`), which says which post and which comment; the commenter's `/<handle>/` link, the longest `<span>` outside links, "N likes". The post's own time, caption, likes and pictures skip the comments (on the desktop layout its time comes after them) |
+| TikTok | a video's own page: `data-e2e="comment-level-1"` (a comment's words) or `comment-level-2` (a reply to the comment above), `comment-username-N`, the `/@handle` link, `comment-like-count`, and the date text. The video itself comes from the page's address, since archives carry no JSON |
+| X | a post's own page (`/status/<id>`): the posts under it are its replies, kept as its comments (author, handle, words, exact time, likes, status link; "Replying to @x" when it answers someone else). Replies by others aren't stored as posts; the author's own replies are, too. The thread above the post stays posts |
+
+**Who they are.** Commenters are other people, not subjects. Hunt keeps only what appeared under the
+subject's post, looks nothing up about them, and never contacts them. A report should quote a
+comment only when it's material.
+
+**Not covered:** comments in the embedded JSON of pages saved with Save Page As (Instagram, TikTok; the
+DOM's are read), the mobile site's (m.facebook.com) comments, and TikTok's replies to replies (shown as
+replies to the comment above). Instagram, TikTok and X markup is from the signed-in web apps and is
+tested on fictional pages only, so it needs one signed-in look in the Hunt Browser: open a public post
+with comments, capture it, and compare `visible_comments` with the screen.
+
 ## Guided mode
 
 One press of **Next** does one step. Next is Alt+Shift+N, or the popup's button; it's never on the
@@ -546,14 +602,17 @@ scripts. On captures, times come from what the page shows, `<time>`, or a post i
 | Facebook | `hunt.facebook.parse_saved` ([facebook.md](facebook.md)) | everything listed there; on captures, times as displayed ("1h" → hour precision) |
 | Instagram | `<article>` with `<time datetime>`, `/explore/locations/` links, `h1` or the longest `dir=auto` caption; profile grid links to `/p/` and `/reel/`, whose alt text carries "Photo by X on October 25, 2026"; embedded API JSON on saved pages | URL, exact or day time, caption, author, account, user id, place, likes, comments, pictures, `alt` (Instagram's own image description, which `facebook.categories` maps to scan categories) |
 | TikTok | profile tiles linking `/@user/video/<id>` (the id's high 32 bits are its posting time); covers from `<picture><source srcset>` (what the browser actually loads), else `<img src>`; video pages' `data-e2e` description and counts; `__UNIVERSAL_DATA_FOR_REHYDRATION__` JSON on saved pages | URL, exact time, description, author, place, likes, comments, shares, cover |
-| X | **Signed in:** `article[data-testid=tweet]`, with `User-Name`, `<time datetime>` on the `/status/` link, `tweetText`, `tweetPhoto`, video posters, `reply`/`retweet`/`like` aria-labels, and `socialContext` ("reposted"). **Signed out**, a different markup: plain `<article>`, the text in `dir=auto`, counts in one `role=group` aria-label ("98 replies, 269 reposts, 1042 likes…"), pictures from `pbs.twimg.com/media/`. Either way the status id is a snowflake, so the time is exact without `<time>` | URL, exact time, text, author, pictures, counts, `reposted_by` |
+| X | **Signed in:** `article[data-testid=tweet]`, with `User-Name`, `<time datetime>` on the `/status/` link, `tweetText`, `tweetPhoto`, video posters, `reply`/`retweet`/`like` aria-labels, and `socialContext` ("reposted"). **Signed out**, a different markup: plain `<article>`, the text in `dir=auto`, counts in one `role=group` aria-label ("98 replies, 269 reposts, 1042 likes…"), pictures from `pbs.twimg.com/media/`. Either way the status id is a snowflake, so the time is exact without `<time>` | URL, exact time, text, author, pictures, counts, `reposted_by`, `replying_to` |
 | LinkedIn | `data-urn="urn:li:activity:<id>"` (the id's top 41 bits are the posting time in ms), the actor's `/in/` link, the longest `dir=ltr` text, `aria-label` counts. For pages she saves by hand; Hunt Capture never records LinkedIn | URL, exact time, text, author, pictures, reactions, comments, reposts; "starting a new position…" as `life_event` (→ `other_job`) |
 | YouTube | none: uploads come from its RSS (`posts.collect`) | the archive is still evidence |
+
+Facebook, Instagram, TikTok and X also give each post's `visible_comments` (see "Comments").
 
 **Tested on** `fixtures/capture/`:
 - **Fictional pages** (`instagram_*`, `tiktok_*`, `x_profile`, `linkedin_activity`) in the format
   `chrome.pageCapture` writes. They include posts known only from JSON, only from DOM, or only from
-  an id.
+  an id. The four `*_comments` pages (`facebook_post`, `instagram_post`, `tiktok_video`, `x_status`)
+  are posts' own pages with comments and replies open, and no scripts, as a capture has none.
 - **Real markup** (`nasa_instagram`, `nasa_tiktok`, `nasa_x`, `nasa_facebook`). These are NASA's
   public accounts as the Hunt Browser captured them signed out on 2026-10-29, trimmed to the post
   elements the parsers read:
