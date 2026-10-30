@@ -81,9 +81,11 @@ Hunt reads public pages **logged out**. Facebook, Instagram, TikTok, X and Linke
 - **Use your own, real accounts.** Never fake ones.
 - **Never interact with the person you're looking into:** no follows, likes, messages or friend requests. Hunt can't stop a click for you.
 - **The checklist:** for each account you've confirmed, it lists the sections to open (posts, photos, tagged, videos, about…) and ticks each one off once you've captured it.
-- **Guided mode is coming:** Hunt Capture showing how much of each profile you've covered and opening the next thing for you.
-  - It will be **off until you turn it on in Hunt**.
-  - **Turning it on asks you to acknowledge what it does:** each press of Next scrolls one screen or opens the next item for you. That's the one time Hunt Capture moves the page instead of just recording it.
+- **Guided mode:** one key press in the Hunt Browser scrolls the subject's own profile or opens their next post, so you capture without clicking through.
+  - **It's off until you turn it on,** on the **Accounts** screen.
+  - **Turning it on asks you to tick that you understand what it does.** Each press is your own input, and it's the one time Hunt Capture moves the page instead of only recording it.
+  - **You can add a note,** for example that your firm's counsel agreed. The switch, your acknowledgement and your note are logged.
+  - **It runs only on accounts you've confirmed,** and every press is logged.
   - **Ask your firm's counsel** before using it in casework.
 
 ### Free keys (optional)
@@ -151,8 +153,6 @@ Then Hunt's **media scan** looks through every photo and video, on your Mac, for
 - **Add to report**: only these are reported.
 - Mark it **Not relevant**.
 
-Today the report also lists flags you kept. From the next update it lists only those you added, so choose **Add to report** for anything the report should show.
-
 A flag nobody reviewed is not a finding.
 
 ### Report
@@ -164,7 +164,7 @@ The report is written from the case's own records, with no AI writing:
 
 Download it as **PDF**, **HTML** or **JSON**.
 
-**For a background check, the report is the screening version.** Until that's automatic (it's being built), choose it yourself for every employment screening. It drops protected traits (age, health, religion, politics and the like) and records about them. An employment screening may make you a consumer reporting agency under the FCRA; the report says so.
+**For a background check, the report is always the screening version.** It drops protected traits (age, health, religion, politics and the like) and records about them. An employment screening may make you a consumer reporting agency under the FCRA; the report says so.
 
 ## 5. What the verdicts mean
 
@@ -265,7 +265,7 @@ The reasoning, with sources, is in [legal.md](research/legal.md). It's engineeri
   - the account addresses you send to Apify, if you use it
   - the downloads you approve in setup
 - **Retention:** cases are due for deletion **90 days** after you open them, unless you put them on **legal hold**. Hunt reminds you, and offers three choices:
-  - **Delete the case:** it goes to the Trash.
+  - **Delete the case:** it goes to the Trash. Hunt keeps only a minimal record that a case was deleted, never its name or purpose.
   - **Put it on legal hold:** nothing is removed.
   - **Remove unused media and keep the case:** the photos and videos nobody kept, reported or noted go to the Trash. Empty the Trash to finish removing them.
 

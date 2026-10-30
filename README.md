@@ -50,8 +50,6 @@ Built in, not bolted on. The full list, with the reasoning behind each, is [Hunt
 - **Flagged media where a child may be visible** are blurred in the app and the report. The evidence bundle keeps originals for chain of custody.
 - **Guided mode** (one key press, one step on the subject's profile) is off until you turn it on and acknowledge the trade-off.
 
-Two of these are decided and still being built: background cases always getting the screening version, and guided mode's off switch with its acknowledgement. Until then, choose the screening version yourself, and leave guided mode alone. [CHANGELOG.md](CHANGELOG.md) tracks both.
-
 If you furnish reports for employment, tenancy, credit or insurance decisions, you are likely a consumer reporting agency under the FCRA, whatever software you use. Hunt helps you comply; it does not exempt you. Hunt runs free on public sources; the only paid option is an Apify connector on the investigator's own account. It **complements** licensed data-broker tools (TLOxp, Accurint and the like); it doesn't replace them. Why each line is where it is: [legal.md](docs/research/legal.md).
 
 ## Install
@@ -92,7 +90,6 @@ Every hit is scored against everything the case knows, Fellegi-Sunter style. Eac
 ## Status
 
 **0.1.0, the first release.** [CHANGELOG.md](CHANGELOG.md) lists what it does and what isn't built yet. Coming next:
-- **Guided mode:** how much of each profile you've covered, and what's left to open. Built; held back until tried live.
 - **The reference-photo screen** for the face check.
 - **Locate a photo:** photo geolocation. It works and is benchmarked, but is on hold.
 
