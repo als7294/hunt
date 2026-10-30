@@ -5,6 +5,7 @@ Sources, logged out and through HUNT_PROXY:
   mastodon  /api/v1/accounts/lookup + /statuses: text (HTML stripped), images, video
   youtube   the channel's RSS feed: titles, descriptions and thumbnails of the latest 15 uploads only,
             not the videos (no logged-out download API; YouTube's terms forbid scraping them)
+  tiktok, facebook, instagram  see public.py: yt-dlp and gallery-dl, run logged out as subprocesses
 Reddit answers 403 logged out, so it isn't read. Media are hashed as they stream into the
 evidence locker, so a multi-GB video is never held in memory.
 
@@ -282,6 +283,8 @@ def _site(account: dict) -> str | None:
         return "bluesky" if "/profile/" in url else None
     if host.endswith("youtube.com") or "youtube" in site:
         return "youtube"
+    if known := public.site(url, site):  # before the Mastodon rule: tiktok.com/@user isn't a Mastodon handle
+        return known
     if "mastodon" in site or re.match(r"https?://[^/]+/@[^/?#]+/?$", url):
         return "mastodon"
     return None
@@ -317,6 +320,8 @@ async def _save(case, client, site, account_url, item) -> int:
 
 async def _download(case, client, url) -> tuple[str, str]:
     """Stream one media URL into the evidence locker. HLS playlists are fetched segment by segment."""
+    if public.handles(url):  # a TikTok or Facebook video page: yt-dlp fetches it
+        return await public.download(case, url)
     if ".m3u8" in url:
         return await _hls(case, client, url)
     async with client.stream("GET", url) as r:
@@ -405,3 +410,6 @@ def _taken(path: Path) -> str | None:
         return datetime.strptime(str(raw), "%Y:%m:%d %H:%M:%S").isoformat() if raw else None
     except (OSError, ValueError):
         return None
+
+
+from . import public  # noqa: E402  TikTok, Facebook Pages and Instagram; it adds itself to FETCHERS and NAMES

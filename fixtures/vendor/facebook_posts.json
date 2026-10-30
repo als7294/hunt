@@ -1,0 +1,35 @@
+[
+ {
+  "postId": "1671214091040627",
+  "url": "https://www.facebook.com/NASA/posts/pfbid0example1",
+  "topLevelUrl": "https://www.facebook.com/NASA/posts/pfbid0example1",
+  "time": "2026-10-29T21:45:00.000Z",
+  "text": "Welcome to the Artemis Accords, Vietnam. Vietnam has become the 78th nation to sign the Artemis Accords.",
+  "user": {"id": "100044561550831", "name": "NASA - National Aeronautics and Space Administration", "profileUrl": "https://www.facebook.com/NASA"},
+  "media": [
+   {
+    "__typename": "Photo",
+    "thumbnail": "https://scontent-example.xx.fbcdn.net/v/t39.30808-6/868627006_s.jpg",
+    "url": "https://www.facebook.com/photo/?fbid=1671214091040627",
+    "photo_image": {"uri": "https://scontent-example.xx.fbcdn.net/v/t39.30808-6/868627006_n.jpg", "height": 1162, "width": 2048}
+   }
+  ],
+  "likes": 1200,
+  "comments": 40,
+  "shares": 15
+ },
+ {
+  "postId": "1670177694477600",
+  "url": "https://www.facebook.com/NASA/videos/1670177694477600/",
+  "time": "2026-10-28T20:19:23.000Z",
+  "text": "What would it be like to live on Mars? The CHAPEA 2 crew share their final thoughts.",
+  "user": {"id": "100044561550831", "name": "NASA - National Aeronautics and Space Administration", "profileUrl": "https://www.facebook.com/NASA"},
+  "media": [
+   {
+    "__typename": "Video",
+    "thumbnail": "https://scontent-example.xx.fbcdn.net/v/t15.5256-10/877179114_n.jpg",
+    "url": "https://www.facebook.com/NASA/videos/1670177694477600/"
+   }
+  ]
+ }
+]

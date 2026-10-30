@@ -18,6 +18,7 @@ dependencies = [
     "starlette>=1.10.0",
     "user-scanner>=1.5.2.3",
     "uvicorn>=0.54.0",
+    "yt-dlp==2026.8.19",
 ]
 
 [project.scripts]
