@@ -94,7 +94,7 @@ const lifeLine = st => [st.closed ? `Closed ${longDay(st.closed)}` : 'Open', st.
   : st.retention_due ? 'past its 90 days: hold it or delete it' : st.retention_ends ? `kept until ${longDay(st.retention_ends)}` : ''].filter(Boolean).join(' · ');
 function caseMenu(c) {
   const st = c.status || {}, slug = c.slug, item = (act, mode, label, cls = '') => html`<button class="menu-item ${cls}" data-act="${act}" data-mode="${mode}" data-slug="${slug}">${label}</button>`;
-  return html`<details class="menu"><summary class="chip-btn" title="Case menu"><span class="dot ${st.closed ? '' : 'ok'}"></span><span>${c.details?.label || slug}</span>${st.closed ? html`<span class="muted">· closed</span>` : ''}${st.legal_hold ? html`<span class="tag hold">Hold</span>` : ''}<span class="muted">▾</span></summary>
+  return html`<details class="menu"><summary class="chip-btn" title="Case menu"><span class="dot ${st.closed ? '' : 'ok'}"></span><span class="case-name">${c.details?.label || slug}</span>${st.closed ? html`<span class="muted pill-extra">· closed</span>` : ''}${st.legal_hold ? html`<span class="tag hold pill-extra">Hold</span>` : ''}<span class="muted">▾</span></summary>
     <div class="menu-pop panel"><div class="muted" style="font-size:13.5px;padding:4px 10px 8px">${lifeLine(st)}</div>
       <a class="menu-item" href="#/">All cases</a>
       <div class="life" style="display:flex;flex-direction:column;gap:2px">
