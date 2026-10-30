@@ -273,6 +273,9 @@ assert len(said) == 2 and "The backpack looks heavy" in said[0]["text"], said
 assert f"[Note {n1['id']}]" in report.to_html(case, rep) or f"Note {n1['id']}" in report.to_html(case, rep)
 assert not any(n2["cite"] in x["cites"] for x in compose(screening=True)["sentences"])
 
+one = compose(hs=[h for h in hits if h["status"] in ("kept", "in report")][:1])  # singular: "was", "Exhibit"
+assert "1 item relating to the listed activities was kept for this report (Exhibit " in text(one), text(one)
+
 # A case known only by a username: no "the subject, the subject", the header names the case, and accounts she
 # ruled out are cited to her decisions (they're in no table, so an account id couldn't be looked up)
 handle = Case.create("example handle", "Test: a public organisation's handle", kind="background", tool="person")

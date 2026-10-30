@@ -322,8 +322,9 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     elif runs:
         doc.say("summary", f"The search found no account likely to belong to {who}.", runs)
     if kept:
-        doc.say("summary", f"{_many(len(kept), 'item')} relating to the listed activities were kept for this report "
-                           f"(Exhibits {_span([numbered[x] for x in ev(kept)])}).", ev(kept))
+        one = len(kept) == 1
+        doc.say("summary", f"{_many(len(kept), 'item')} relating to the listed activities {'was' if one else 'were'} kept for "
+                           f"this report (Exhibit{'' if one else 's'} {_span([numbered[x] for x in ev(kept)])}).", ev(kept))
     elif scanned:
         doc.say("summary", "No public posts or media relating to the listed activities were kept for this report.",
                 log.get("scan finished", log.get("scan", opened)))
@@ -713,6 +714,7 @@ def _log_entry(cid: str, methodology: list[dict], audit: dict, tz: str) -> dict:
 
 CSS = """
 :root{--ink:#16181d;--mute:#5b6270;--line:#d4d8df;--soft:#f3f5f8}
+html{background:#fff;color-scheme:light}
 body{font:10.5pt/1.5 "Helvetica Neue",Arial,sans-serif;color:var(--ink);max-width:7.2in;margin:0 auto;padding:0.3in 0}
 h1{font-size:17pt;margin:0 0 4pt}h2{font-size:12.5pt;margin:20pt 0 6pt;padding-bottom:3pt;border-bottom:1.5px solid var(--ink)}
 h3{font-size:11pt;margin:12pt 0 4pt}p{margin:0 0 6pt}.mute{color:var(--mute)}
