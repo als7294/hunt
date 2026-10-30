@@ -1392,8 +1392,8 @@ screens.report = async slug => {
           ${r.checks.missing.includes('mhmda_basis') ? html`<div class="reason warn"><span class="ic">!</span>The subject lives in Washington: write down the fraud basis before exporting. <button data-act="details-edit" style="color:var(--ac)">Edit the case details →</button></div>`
             : bg && !r.presence.length ? html`<div class="reason warn"><span class="ic">!</span>A background report covers only accounts you confirmed. <a href="#/case/${slug}/identity" style="color:var(--ac)">Confirm one on Is it them? →</a></div>` : html`
           <a class="btn primary" href="${base}.pdf${q}">Export PDF</a><a class="btn" href="${base}.html${q}&view=1" target="_blank" rel="noopener" title="Opens in a new tab; print it from there">Web page</a><a class="btn ghost" href="${base}.json${q}">Data file</a>
-          <a class="btn ghost" href="/api/cases/${encodeURIComponent(slug)}/evidence.zip" download>Evidence bundle (.zip)</a>`}
-          <div class="muted" style="font-size:13px">Every evidence file under a readable name, with a SHA-256 manifest anyone can check with <span class="mono">shasum -c</span>.</div></div>
+          <a class="btn ghost" href="/api/cases/${encodeURIComponent(slug)}/evidence.zip" download>Evidence bundle (.zip)</a>
+          <div class="muted" style="font-size:13px">Every evidence file under a readable name, with a SHA-256 manifest anyone can check with <span class="mono">shasum -c</span>.</div>`}</div>
         <div class="panel" style="padding:14px 18px;display:flex;flex-direction:column;gap:4px;font-size:14.5px">
           <button data-act="details-edit" style="text-align:left;color:var(--ac)">Edit the case details →</button>
           <a href="#/settings" style="color:var(--ac)">Your firm, licence and logo →</a></div>
