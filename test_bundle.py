@@ -63,6 +63,8 @@ frame_sha, frame = case._store(image("gray", "JPEG"), "jpg")
 video_id = case.rows("select id from media where post_id = ?", run_post)[0]["id"]
 case.db.execute("insert into hits (post_id, media_id, category, what, t0, t1, verdict, status, file) "
                 "values (?, ?, 'sport', 'running', 3, 8, 'likely', 'kept', ?)", (run_post, video_id, frame))
+from hunt import graph  # noqa: E402
+graph.label_photo(case, video_id, "my son Leo")  # Q1: who's in a photo stays in the case, never in the bundle
 bad_sha, bad = case._store(b"original bytes", "txt")
 (case.dir / bad).write_bytes(b"edited later")  # tampered after it was saved
 
@@ -80,8 +82,11 @@ with zipfile.ZipFile(zip_path) as z:
     readme = z.read("README.txt").decode()
     log = list(csv.DictReader(io.StringIO(z.read("audit-log.csv").decode())))
     noted = list(csv.DictReader(io.StringIO(z.read("notes.csv").decode())))
+    shared_log = z.read("audit-log.csv").decode()
     dated = {i.filename: i.date_time for i in z.infolist()}
     z.extractall(unzipped := Path(tempfile.mkdtemp()))
+assert "Leo" not in shared_log and bundle.WITHHELD in shared_log
+assert any("Leo" in r["detail"] for r in case.rows("select detail from audit where action = 'person marked in photo'"))
 evidence = [f for f in (case.dir / "evidence").iterdir() if not f.name.startswith(".")]
 assert len(rows) == made["exhibits"] == len(evidence) == len([n for n in names if n.startswith("exhibits/")])
 by_sha = {r["sha256"]: r for r in rows}

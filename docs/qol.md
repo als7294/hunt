@@ -95,6 +95,8 @@ The zip's own SHA-256 is printed, sent as the `x-bundle-sha256` header, and logg
 - **The capture record.** Its sentence ("the account it was viewed from, the audience…, the versions of Hunt and Hunt Capture") appears only when every captured exhibit carries all three fields. Otherwise the README says how many captured files lack them. Today none carry them: Hunt Capture doesn't send them yet (integration point 18), and K5 is still partly built.
 - **User-Agents.** The Appendix's "a User-Agent naming Hunt" isn't true for every request, so the README says which: public APIs and post feeds name Hunt; the site-existence checks, profile-photo fetches and screenshots present a common browser's (integration point 19).
 - **Leads.** Frames the automatic scan saved from a video are `role: lead`, described as "a lead, not evidence; the video is the evidence". Every other file is `evidence`.
+- **Who's in a photo.** The labels the investigator gives people in photos ("Dan", "my son") stay in the case. The bundle's `audit-log.csv` keeps the row, its time and media id, but the label reads "(withheld: kept in the case)". A label can name a child or another third party, and a minor check can miss one (compliance-audit.md Q1). `notes.csv` still carries notes as written.
+- **Originals, not blurred copies** (decision D11(a)): the bundle carries every file as it was saved, for chain of custody. The report and the app blur.
 - **Not built:** the separate attribution section per account (numeric ID, matching details; *Vayner*). The report owner may prefer it in the report; see integration point 20.
 
 `hunt export` writes to `~/Hunt/exports/` by default. The app builds the zip in a temporary folder inside the case, streams it, then removes that temporary copy.
@@ -112,7 +114,8 @@ Insurance cases run for months, and posts vanish or accounts change. A job looks
    - An account that now shows no posts at all is flagged `none_left`.
    - A post that reappears is `post back`.
    - A failed read judges nothing.
-3. **Screenshots:** a fresh, dated, logged-out capture of every account (`recapture`), **except Instagram, Facebook, X and LinkedIn**, whose robots.txt denies unnamed bots. Hunt never sends those platforms a request of its own.
+3. **Screenshots:** a fresh, dated, logged-out capture (`recapture`), **only of TikTok, YouTube, Bluesky and Mastodon accounts** (`recheck.RECAPTURE`, an allowlist). Instagram, Facebook, X, LinkedIn, Reddit, Threads, Strava and Snapchat (`recheck.NO_BOTS`, decision D2(b)) and any other host get no request from Hunt at all.
+   - Profiles are read only for Bluesky, and for Mastodon accounts whose site or host says Mastodon. A `/@handle` URL alone isn't enough, since TikTok, Threads, YouTube and Medium use it too, so none of those get a WebFinger request (compliance-audit.md Q2).
 
 **On Instagram, Facebook, X, LinkedIn and logged-in TikTok, Check again is a worklist** (automation-legal.md §4.3):
 - **The worklist** (`GET /api/cases/{slug}/worklist`) lists the subject's confirmed accounts there, with when each was last opened or captured.
@@ -225,7 +228,8 @@ Investigators re-encounter subjects and do the work twice. When a case is create
 - **What's compared:**
   - seeds (username, email, phone, profile URL, address, name), normalised: case, `@` and spacing don't matter, and URLs are normalised as decisions are
   - the URLs and handles of accounts marked as the subject's
-  - the SHA-256 of the photos and videos in the case
+  - the SHA-256 of **the subject's** photos and videos: media from an account marked as theirs, or files the investigator added herself
+- **Not compared:** a friend's post captured in passing, and the names of people around the subject (photo labels, "my brother Dan"). They'd link two cases through a third party (compliance-audit.md Q3).
 - **Not compared:** page sources and screenshots. A site serves the same "not found" page to everyone.
 - **Strength:** a name alone is a **weak** match (namesakes); everything else is strong.
 - **What a match shows:** the other case's label, kind and opening date, and what matched. Nothing more.
@@ -375,6 +379,17 @@ Fixed along the way:
 - resolves every `A-`, `E-`, `M-`, `M-a` and `N-` citation anywhere in the report to a row of the case
 - checks the exports
 - checks that `--reset` sends the old case to the Trash
+
+### Compliance-audit fixes (§3.3, Q1–Q4)
+
+| Item | What changed | Test |
+|---|---|---|
+| Q1 | Photo labels are withheld from the bundle's audit log. This is the audit's "keep labels in the case db only" option: it doesn't depend on AN1's minor check, which isn't on main yet and misses cases | `test_bundle.py` |
+| Q2 | `recheck._read` reads Mastodon only for accounts whose site or host says Mastodon. No WebFinger goes to Threads, TikTok, YouTube or Medium | `test_recheck.py` |
+| Q3 | `seen.identifiers` hashes only the subject's media (confirmed accounts' posts, or her own added files). Names of people around the subject never count | `test_seen.py` |
+| Q4 | The recapture is an allowlist (TikTok, YouTube, Bluesky, Mastodon). `NO_BOTS` gains Reddit, Threads, Strava and Snapchat (D2(b)) | `test_recheck.py` |
+
+Q2 and Q3 are mutation-checked. **Q5** (the bundle README's wording: vendor media, signed-out captures, guided-mode steps, "leads for the investigator to review", the User-Agent) wasn't in this round.
 
 ### Self-checks
 
