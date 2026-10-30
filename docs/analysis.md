@@ -76,7 +76,7 @@ Mines the person's profiles for seeds the case doesn't have, strongest first:
 | 1 | a link to a social profile (31 hosts, plus `*.github.io`, `*.substack.com`…) | GitHub (very likely) links to the LinkedIn account https://www.linkedin.com/in/jane-doe-42/ |
 | 2 | Maigret's `other_usernames` | GitHub (very likely) lists the other username 'janed' |
 | 2 | a website that isn't a social profile | GitHub (very likely) lists the website https://janedoe.dev |
-| 3 | an @mention in the bio | GitHub (very likely) mentions @janed_codes in the bio |
+| – | ~~an @mention in the bio~~ | dropped (AN8): it names someone else, never a lead to search |
 
 "The person" follows `search.in_person`: `min_p` (0.55, "likely") or better, minus accounts marked `not him`, plus
 those marked `him`. The function leaves out:
@@ -269,8 +269,10 @@ Opt-in, 1:1, nothing kept: the guardrails and their legal reasoning are in
 whole-image only: a reference photo that literally appears as an avatar is found by `similar`, not by `face`.
 
 **Gate first** (rules F1–F2 in [legal.md](research/legal.md#hunts-rules)): `face.gate(case) -> (allowed, rule)` reads the
-case detail `subject_residence` (ISO 3166). An unknown residence is blocked. So are IL, TX, WA, CO and CA, and the EU/EEA,
-UK and Canada. Each decision is audited as `face gate {allowed, residence, rule}`. `enable()` and every
+case detail `subject_residence` (ISO 3166) against an allow-list (AN2). Only a known ISO 3166-1 code, or `US-` plus a
+state, DC or a territory, can pass. An unknown or unrecognised code (`EU`, `XX`, `US-ZZ`) is blocked, and so are IL, TX,
+WA, CO and CA (always, decision D5), and the EU/EEA with its outermost regions, the UK (`UK` means GB), Canada and the
+Crown dependencies. `face.verify_all` is the only public way to compare faces (AN11). Each decision is audited as `face gate {allowed, residence, rule}`. `enable()` and every
 `verify_all()` refuse with `PermissionError("face comparison is blocked for this subject: <rule>")`.
 A `US-WA` subject also sets `case.mhmda` (the report words findings as observed activity; `mhmda_basis` records the fraud
 basis). Face results are **leads, never evidence**.
@@ -287,7 +289,6 @@ face.verify(case, image_path, url=None) -> {result, score, quality, reason, matc
 face.verify_all(case, [(url, image_path)]) -> [same]   # many images, one load of each model
 face.results(case) -> {url: latest result}             # stored in the case's face_checks table
 face.reason(result) -> (bits, "face", why)             # match.score `extra`
-face.compare(references, images) -> [result]           # no case: the bare pipeline
 face.download()                                        # the models, 261 MB, pinned revisions
 ```
 
@@ -515,59 +516,68 @@ an employer that the case knows, because a name alone no longer makes them the s
 
 ## 8. Family and associates
 
-`graph.associates(posts, candidates, subject, photo_labels) -> {notice, people}` connects the people the case already
-names. It runs on what's stored and searches nothing. `GET /api/cases/{slug}/people` serves it; see
+`graph.associates(posts, candidates, subject, photo_labels, case_key) -> {notice, people}` connects the people the case
+already names. It runs on what's stored and searches nothing. `GET /api/cases/{slug}/people` serves it; see
 [api.md](api.md).
 
-**Where associates come from:**
+_Rewritten 2026-10-30 for decision D7 in [legal.md](research/legal.md#decisions-provisional-2026-10-30): observed wording everywhere. The rules are C13 and A1–A10 in [legal.md](research/legal.md#associates-and-family). Where the code still differs, the gaps are listed under "Not yet enforced" there._
 
-| from | example | type | confidence |
+**Where associates come from**, as observed wording, never a generated relationship (legal.md A6, decision D7(a)):
+
+| from | example | `labels` (observed) | confidence |
 |---|---|---|---|
-| the subject's own posts (the person's accounts, or posts the investigator added) | "my brother Dan", "mi esposa Ines", "with mom", "con mi mamá" | sibling, parent, child, grandparent, grandchild, partner, relative, friend, co-worker | 0.9 named, 0.8 unnamed, 0.7 "with mom" |
-| post tags | `extra.with`, `extra.tagged`, "— with Rafa Ortiz", "is with…" | tagged with | 0.8 |
-| a plain caption | "Gym with Rafa Ortiz and Kim Vell" (two-word names only; could be a place) | tagged with | 0.6 |
-| the person's bios | "Married to Ines Vell", "Proud dad of 2", "esposa de…" | partner, child | 0.9 / 0.8 |
-| the person's public records | "Vell v. Example Builders LLC", `parties` | co-party | 0.9 |
-| any record of someone else at the subject's `address` seed | "Marta Ruiz, 12 Alder Lane" | same address | 0.6 |
-| the investigator's marks on kept photos (`label_photo`; the same label = one person; no face search) | "Dan" in two photos | in photo with | 1.0 |
-| a shared surname with the subject, added to someone already found | "Kim Vell" | possible relative | 0.3 (a hint) |
+| the subject's own posts (the person's accounts, or posts the investigator added) | "my brother Dan", "mi esposa Ines", "with mom" | "my brother", "mi esposa", "with mom" | 0.9 named, 0.8 unnamed, 0.7 "with mom" |
+| post tags | `extra.with`, `extra.tagged`, "— with Rafa Ortiz" | "tagged" | 0.8 |
+| a plain caption | "Gym with Rafa Ortiz and Kim Vell" (two-word names; could be a place) | "tagged" | 0.6 |
+| the person's bios | "Married to Ines Vell", "Proud dad of 2", "Dad to Leo and Emma" | "Married to", or a child | 0.9 / 0.8 |
+| the person's public records | "Vell v. Example Builders LLC", `parties` | "co-party" | 0.9 |
+| the investigator's marks on kept photos (`label_photo`; the same label = one person; no face search) | "Dan" in two photos | "marked in a photo" | 1.0 |
+| a shared surname with the subject, for someone found by a tag or a photo only | "Kim Vell" | "shares the surname" | 0.3 (a hint) |
 
-There are 125 relationship words, in English and Spanish. A first name merges into the one full name that fits ("Ines" →
-"Ines Vell"). Unnamed relatives merge by role (one "mother"). The subject is never listed as their own associate, and
-posts from accounts that aren't the subject's are ignored.
+There are about 130 English and Spanish relationship words. They're used to find the wording and to merge mentions of one
+person, and are never shown as a label. A first name merges into the one full name that fits ("Ines" → "Ines
+Vell"). The subject is never their own associate, and posts from accounts that aren't the subject's are ignored.
+Entry ids are salted with the case, so they mean nothing outside it (AN9).
 
-**Minimisation** (`legal.md` C4 and C13):
-- **Name and citation only:** an associate is a name, the relationship, and the exact sentence that implied it, with its
-  post, bio, record or photo reference.
-- **No collection on associates:** Hunt never searches or collects on them. The screen offers "Open as a new case…",
-  which starts the wizard with its own purpose field. Nothing is prefilled except the name.
-- **Possible minors:** a child, grandchild, niece or nephew, or anyone given an age under 18 ("9 años"), is `minor:
-  true`. The name is dropped everywhere, the quote reads "mi hijo [name withheld]", and the person is shown by
-  relationship only.
+**Minimisation** (`legal.md` C4 and C13; compliance audit AN1, AN6):
+- **Name and citation only:** an associate is a name, the observed wording and the exact sentence, with its post, bio,
+  record or photo reference. Nothing is searched or collected on them. The screen offers "Open as a new case…", which
+  starts the wizard with its own purpose field.
+- **Possible minors**, in two passes:
+  - **Who counts:** a child, son, daughter, grandchild, niece or nephew; boy, girl, toddler, teen, mijo or mija;
+    "dad to …" or "mom to …"; or anyone given an age under 18 ("age 9", "(16yo)", "is 15", "16th birthday",
+    "5-year-old", "9 años").
+  - **First pass:** collects every name tied to a minor, from posts, bios, tags and photo labels. That includes a name
+    beside the word ("Leo Vell, my stepson") and a lower-case one ("my daughter emma").
+  - **Second pass:** folds every other mention of those names into the minor's entry. The entry is labelled "a child",
+    with no name and no wording.
+  - **Every quote**, anyone's, has those names replaced with "[name withheld]", case-insensitively.
+- **No contact details, addresses or health in quotes:** emails, phone numbers, street addresses, links and health words
+  (hospital, surgery, chemo, therapy, pregnancy…, and the Spanish terms) become "[detail withheld]". There are no
+  "same address" entries: a record of someone else at the subject's address names a stranger.
+- **Pivots skip associates (AN8):** `pivot.suggestions` never suggests a bio @mention, or an email in a sentence that
+  names a relationship.
 
 **The screen** ("People around the subject", a tab beside "Is it them?"):
 - **Header:** the `notice`.
-- **Card list,** most confident first:
-  - each card shows the name, or the relationship for a minor ("son (name withheld)"), plus the relationship chips,
-    with confidence as words (0.9+ stated, 0.6–0.8 likely, below 0.6 hint)
-  - and the citations: each quote with a link to its exhibit (post `E-…`, record, bio URL, kept photo)
+- **Cards,** most confident first:
+  - the name, or "a child", with the observed wording as chips ("my brother", "tagged")
+  - and each citation: its quote, with a link to the exhibit
   - no profile links or photos of associates
-- **Actions per card:**
-  - "Not relevant" hides it, audited.
-  - "Open as a new case…" isn't offered for minors.
-- **"Mark people in this photo"** sits on kept photos in the posts screen: a free-text label, posted to
-  `POST /api/cases/{slug}/people/photo`.
+- **Actions:**
+  - "Not relevant" hides a card, audited.
+  - "Open as a new case…" is never offered for a child.
+- **"Mark people in this photo"** sits on kept photos: a free-text label, posted to `POST /api/cases/{slug}/people/photo`.
 
-**Report sentences** (for `report.py`, a "People around the subject" section, each sentence cited):
-> The subject's own posts, bios and public records name 6 people around them; none of them was searched. [method]
-> Brother: Dan, in a post of 2026-06-01 ("Lake day with my brother Dan…") and marked by the investigator in a kept
-> photo. [E-1]
-> Partner: Ines Vell, in the Facebook bio ("Married to Ines Vell") and a post. [A-3] [E-2]
-> A child (name withheld), in a post of 2026-05-12. [E-2]
-> Co-party: Example Builders LLC, in Vell v. Example Builders LLC. [Rec. 2]
+**Report sentences** (for `report.py`, a "People around the subject" section). Each is the observed wording with its
+citation, never a generated relationship:
+> The subject's own posts, bios and public records name 5 people; none of them was searched. [method]
+> A post of 2026-06-01 says "Lake day with my brother Dan…". [E-1] Dan was also marked by the investigator in a kept photo.
+> The Facebook bio says "Married to Ines Vell". [A-3]
+> A post of 2026-05-12 names a child (name withheld). [E-2]
+> Vell v. Example Builders LLC names Example Builders LLC as a party. [Rec. 2]
 
-In screening mode, leave the section out: family status is a protected characteristic, as the screening rules say.
-In MHMDA mode, keep relationships as stated and never infer health from them.
+In screening mode, leave the section out. In MHMDA mode, quote as observed, never inferring health.
 
 ## 9. The claim against the evidence: leads and timeline
 
@@ -580,9 +590,9 @@ far; not working"). Each clause maps to a restriction and to what would contradi
 
 | restriction | the claim says (en/es) | contradicted by |
 |---|---|---|
-| lifting | lift, carry, levantar, cargar | `lifting` hits; captions "moving day", "helped … move", "mudanza" |
+| lifting | lift, carry, levantar, cargar | `lifting` hits; published competition results after the injury (`activity`: OpenPowerlifting meets, with total and place); captions "moving day", "helped … move", "mudanza" |
 | walking | walk, stand, hike, caminar | `walks` hits; "hike", "10 km walk", "caminata" |
-| running / sport | run, jog, gym, exercise, correr, gimnasio | `sport` hits; "ran", "5k", "leg day", "workout" |
+| running / sport | run, jog, gym, exercise, correr, gimnasio | `sport` hits; competition results (sport); "ran", "5k", "leg day", "workout" |
 | bending | bend, kneel, squat, climb, agachar | `activity` hits |
 | driving | drive, manejar, conducir | `driving` hits; FMCSA carrier records registered or updated after the injury; "road trip", "drove" |
 | travel | travel, fly, viajar | `travel` hits; "flight to", "vacation" |
@@ -600,6 +610,7 @@ lifting or carrying").
 **Confidence:**
 - scan hits: the scan's `p`, × 0.6 while who it shows isn't confirmed, × 0.8 until the investigator keeps it
 - the subject's own captions: 0.7
+- a published competition result: 0.8
 - a licence or business event: 0.7 (a renewal 0.6)
 - a carrier record: 0.5
 - a co-worker named in a post, or a court filing naming an employer: 0.5
@@ -608,6 +619,8 @@ One lead per piece of evidence per restriction, ranked by confidence. Each lead 
 "Wording"):
 > **Claim:** No lifting over 5 kg. **Evidence:** A photo posted on 2026-04-02 (32 days after the injury) appears to show
 > carrying a couch (scan: likely). [E-2]
+> **Claim:** No lifting over 5 kg. **Evidence:** A post on 2026-04-18 (48 days after the injury) has the caption "Carried
+> the sofa down three flights" (scan: likely). [E-9]
 > **Claim:** Not working. **Evidence:** Texas TDLR licence (Electrician) issued on 2026-04-15 (45 days after the injury).
 > [A-7]
 
@@ -617,6 +630,8 @@ Never "fraud", "lied", "faked" or "exaggerated": the self-check enforces it.
 - The injury date is one event.
 - Each post appears with the categories of its live scan hits.
 - The person's public records add their dated fields (issued, renewed, registered, formed, filed, carrier updated).
+- Each competition result in `attrs.meets` is its own event: "OpenPowerlifting: competed in Spring Open (deadlift
+  only), total 182.5 kg, place 1".
 - Life events stated in captions or by the importer are listed separately ("Stated in a post: 'first day at the new
   job'").
 - `after_injury` lets the screen shade everything after the line.

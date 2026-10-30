@@ -17,11 +17,12 @@ from user_scanner.core.helpers import get_site_name, is_loud, load_categories, l
 from user_scanner.core.result import Status
 
 from ..seed import Finding
+from ._api import denied
 
 NAME = "user-scanner"
 KINDS = {"email"}
 HEALTH_NOTE = "checks its own sites; nothing single to probe"
-AUDITED = "1.5.2.3"  # user-scanner release the two sets below were read against
+AUDITED = "1.5.2.3"  # user-scanner release the two sets below were read against; pinned in pyproject.toml
 
 # Never run. A login attempt with a password counts (failed-login alerts, lockouts).
 # A sign-up counts unless a field it can't succeed without is blank or absurdly short.
@@ -199,10 +200,13 @@ AUDITED_SILENT = {
     "zoho",  # signin lookup
 }
 
-# Fallback for modules the audit hasn't seen: skip anything that looks like a reset,
-# code, sign-up or login until someone reads it.
+# What an unread module looks like when it would notify: a reset, code, sign-up or login. Only a
+# count in the note; nothing unread runs either way (compliance audit DS1: fail closed).
 MAY_NOTIFY = re.compile(r"forgot|reset|recover|otp|send-?code|verif|magic|passwordless|invite|subscri"
                         r"|regist|sign.?up|join|creat|login|password|mutation", re.I)
+EVADES = re.compile(r"impersonat|curl_cffi")  # user-scanner's browser-TLS impersonation, which clears bot walls (legal.md C7)
+URLS = re.compile(r"https?://[^\s\"'<>)]+")
+REASONS = ("upstream", "audit", "unaudited", "robots", "evades bot checks")
 
 
 def _modules():
@@ -210,15 +214,21 @@ def _modules():
 
 
 def _skip(module) -> str | None:
-    """Why this module must not run, or None if it may."""
+    """Why this module must not run, or None if it may: only a module read at AUDITED and judged silent,
+    that names no deny-list host and doesn't impersonate a browser."""
     name = module.__name__  # the file stem, e.g. "alza_cz"
     if is_loud(get_site_name(module), is_email=True):
         return "upstream"
     if name in NOTIFIES:
         return "audit"
-    if name in AUDITED_SILENT and version("user-scanner") == AUDITED:
-        return None
-    return "heuristic" if MAY_NOTIFY.search(Path(module.__file__).read_text()) else None
+    if version("user-scanner") != AUDITED or name not in AUDITED_SILENT:
+        return "unaudited"
+    source = Path(module.__file__).read_text()
+    if any(denied(u) for u in URLS.findall(source)):
+        return "robots"
+    if EVADES.search(source):
+        return "evades bot checks"
+    return None
 
 
 async def search(seed):
@@ -243,11 +253,13 @@ async def search(seed):
              for r in results if r.status == Status.TAKEN]
     errors = sum(r.status == Status.ERROR for r in results) + len(quiet) - len(results)
     checked = sum(r.status in (Status.TAKEN, Status.AVAILABLE) for r in results)
-    n = {k: sum(w == k for w in why.values()) for k in ("upstream", "audit", "heuristic")}
-    stale = "" if version("user-scanner") == AUDITED else f"; user-scanner {version('user-scanner')} is unaudited"
-    return found, checked, (f"checked {len(quiet)} sites, {errors} errors; skipped {len(modules) - len(quiet)} "
-                            f"that may notify the subject ({n['upstream']} flagged by user-scanner, "
-                            f"{n['audit']} by Hunt's audit, {n['heuristic']} unaudited){stale}")
+    n = {k: sum(w == k for w in why.values()) for k in REASONS}
+    loud_looking = sum(1 for m in modules if why[m] == "unaudited" and MAY_NOTIFY.search(Path(m.__file__).read_text()))
+    stale = "" if version("user-scanner") == AUDITED else f"; user-scanner {version('user-scanner')} is unaudited (read at {AUDITED})"
+    return found, checked, (f"checked {len(quiet)} sites, {errors} errors; skipped {len(modules) - len(quiet)}: "
+                            f"{n['upstream']} flagged by user-scanner, {n['audit']} by Hunt's audit, {n['unaudited']} unread "
+                            f"({loud_looking} of them look like resets or sign-ups), {n['robots']} on deny-list hosts, "
+                            f"{n['evades bot checks']} that impersonate a browser{stale}")
 
 
 if __name__ == "__main__":  # audit coverage check; executes no module
@@ -256,7 +268,10 @@ if __name__ == "__main__":  # audit coverage check; executes no module
     assert len(names) == len(mods) and not NOTIFIES & AUDITED_SILENT
     loud = {m.__name__ for m in mods if is_loud(get_site_name(m), is_email=True)}
     assert all(_skip(m) for m in mods if m.__name__ in NOTIFIES)
+    why = {m.__name__: _skip(m) for m in mods}
     print(f"user-scanner {version('user-scanner')} (audited {AUDITED}), {len(mods)} modules: "
           f"{len(loud)} upstream-loud, {len(NOTIFIES - loud)} noisy, {len(AUDITED_SILENT - loud)} silent; "
+          f"run {sum(w is None for w in why.values())}; "
+          + "; ".join(f"{k} {sorted(m for m, w in why.items() if w == k)}" for k in ("robots", "evades bot checks")) + "; "
           f"unaudited {sorted(names - loud - NOTIFIES - AUDITED_SILENT) or 'none'}; "
           f"gone {sorted((NOTIFIES | AUDITED_SILENT) - names) or 'none'}")

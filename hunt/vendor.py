@@ -10,7 +10,7 @@ of an account fetched within fresh_days unless asked, the estimate and the credi
 (plan(), with a warning from 80% of the cap), a hard per-run charge cap (Apify's maxTotalChargeUsd) and a monthly
 cap. Prices are what the Actors charged on 2026-10-30; terms and sources: docs/research/vendors.md.
 
-The key is HUNT_APIFY_TOKEN, pasted on the app's "Connect free keys" screen (hunt/keys.py keeps it in HUNT_HOME/keys.json
+The key is HUNT_APIFY_TOKEN, pasted on the app's "Connect free keys" screen (hunt/keys.py keeps it in HUNT_HOME/keys.env
 and in this process's environment); it is read at call time, never shipped, never shown back. The other settings live in
 HUNT_HOME/vendor.json, never in a case:
   actors           {"instagram": "apify~instagram-post-scraper", "facebook": "apify~facebook-posts-scraper"}

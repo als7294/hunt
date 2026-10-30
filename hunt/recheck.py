@@ -43,6 +43,7 @@ import re
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 from PIL import Image
@@ -64,8 +65,10 @@ create table if not exists capture_gone (place text, url text, noticed text, pri
 """
 CHANGES = ("account gone", "account back", "profile changed", "posts gone", "post back")  # audit actions
 FIELDS = {"fullname": "name", "bio": "bio"}  # source attr → how a change is named
-MASTODON = re.compile(r"https?://([^/]+)/@([^/?#@]+)/?$")
-NO_BOTS = {"Facebook", "Instagram", "X", "LinkedIn"}  # robots.txt denies unnamed bots: never captured headless
+MASTODON = re.compile(r"https?://([^/]+)/@([^/?#@]+)/?$")  # only for an account whose site says Mastodon (_mastodon)
+# Login-walled or default-deny for unnamed bots (C1, C6, decision D2(b)): Hunt never sends them a request of its own
+NO_BOTS = {"Facebook", "Instagram", "X", "LinkedIn", "Reddit", "Threads", "Strava", "Snapchat"}
+RECAPTURE = {"TikTok", "YouTube", "Bluesky", "Mastodon"}  # the only accounts retaken headless (compliance-audit.md Q4)
 WORKLIST = NO_BOTS | {"TikTok"}  # what she opens herself, logged in (TikTok's public pages are also read automatically)
 LINKEDIN_GAP = timedelta(days=7)  # re-viewing a profile sooner can show in "who viewed your profile"
 GONE_PAGE = re.compile(r"this page isn.t available|page not found|this content isn.t available|couldn.t find this "
@@ -91,7 +94,7 @@ async def run(case, accounts: list[dict], emit, pause=None) -> dict:
         emit({"type": "log", "message": f"{', '.join(walled)}: open them from the worklist in the Hunt Browser; "
                                         "Hunt compares each new capture with the last"})
     for a in accounts:
-        changes += await _profile(case, a["url"], emit)
+        changes += await _profile(case, a["url"], emit, a.get("site") or "")
     if pause:
         await pause.wait()
     last_run = case.db.execute("select coalesce(max(rowid), 0) from runs").fetchone()[0]
@@ -110,8 +113,8 @@ async def run(case, accounts: list[dict], emit, pause=None) -> dict:
     return summary
 
 
-async def _profile(case, url: str, emit) -> int:
-    source, status, attrs, note = await _read(url)
+async def _profile(case, url: str, emit, site: str = "") -> int:
+    source, status, attrs, note = await _read(url, site)
     sha = await _avatar(case, attrs.get("image"))
     before = _last(case, url, source)
     case.db.execute("insert into profile_checks values (null, ?, ?, ?, ?, ?)",
@@ -143,12 +146,14 @@ async def _profile(case, url: str, emit) -> int:
     return len(found)
 
 
-async def _read(url: str) -> tuple[str | None, str, dict, str]:
-    """(source name, 'ok'|'gone'|'unreadable'|'failed', {fullname, bio, image}, note), read the way the search reads it."""
+async def _read(url: str, site: str = "") -> tuple[str | None, str, dict, str]:
+    """(source name, 'ok'|'gone'|'unreadable'|'failed', {fullname, bio, image}, note), read the way the search reads it.
+    Only Bluesky and Mastodon profiles are read; any other account gets no request at all."""
     link = from_url(url)
     if link["platform"] == "Bluesky" and link["handle"]:
         source, seed = bluesky, Seed("username", link["handle"])
-    elif m := MASTODON.match(url):
+    elif _mastodon(url, site):
+        m = MASTODON.match(url)
         source, seed = mastodon, Seed("username", f"{m[2]}@{m[1]}")
     else:
         return None, "unreadable", {}, "Hunt doesn't read this site's profiles itself"
@@ -221,9 +226,9 @@ def _posts_gone(case, url: str, started: str, last_run: int, emit) -> int:
 
 
 async def _recapture(case, accounts: list[dict], emit) -> int:
-    """A fresh, dated screenshot of every account, logged out, except where robots.txt denies unnamed bots
-    (those are the worklist's)."""
-    todo = {a["url"]: a["finding_id"] for a in accounts if a.get("finding_id") and extension.platform(a["url"]) not in NO_BOTS}
+    """A fresh, dated, logged-out screenshot of each account on an allowed platform (RECAPTURE). Everything else,
+    the login-walled and default-deny hosts above all, is never fetched headless: those are the worklist's."""
+    todo = {a["url"]: a["finding_id"] for a in accounts if a.get("finding_id") and _platform(a) in RECAPTURE}
     if not todo:
         return 0
     emit({"type": "log", "message": f"capturing {len(todo)} accounts again"})
@@ -241,6 +246,22 @@ async def _recapture(case, accounts: list[dict], emit) -> int:
             saved += 1
     case.audit("recapture", {"attempted": len(todo), "saved": saved})
     return saved
+
+
+def _mastodon(url: str, site: str) -> bool:
+    """A Mastodon account: one whose site, or host, says so. '/@handle' alone isn't enough: TikTok, Threads, YouTube
+    and Medium use it too, and a WebFinger request to them is a request Hunt has no business making (C6)."""
+    return bool(MASTODON.match(url)) and ("mastodon" in site.lower() or "mastodon" in urlparse(url).netloc.lower())
+
+
+def _platform(account: dict) -> str | None:
+    """Which allowed reader an account belongs to, if any: TikTok, YouTube, Bluesky or Mastodon."""
+    url = account["url"]
+    if (known := extension.platform(url)) in ("TikTok", "YouTube"):
+        return known
+    if from_url(url)["platform"] == "Bluesky":
+        return "Bluesky"
+    return "Mastodon" if _mastodon(url, account.get("site") or "") else None
 
 
 # --- Check again on login-walled platforms: the worklist and capture comparison ---------------------

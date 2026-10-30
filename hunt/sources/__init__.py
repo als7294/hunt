@@ -20,9 +20,10 @@ from . import (activity, bluesky, businesses, courtlistener, courts, edgar, face
                keybase, licences, maigret, mastodon, npi, openpgp, phone, stackexchange, user_scanner, wayback, wmn)
 from ._api import client, probe
 
+# `facebook` is not here (compliance audit DS5): batch search never requests Facebook; the app calls
+# sources.facebook.search for one profile when the investigator asks (docs/facebook.md).
 SOURCES = [maigret, wmn, user_scanner, phone,
            github, keybase, bluesky, mastodon, stackexchange, wayback,  # username / name → profiles
-           facebook,  # username / Facebook URL → what the profile shows logged out (docs/facebook.md)
            gravatar, openpgp,  # email → verified name and accounts
            fec, edgar, npi, courtlistener, courts,  # name → public records (courts.search_links: portals opened by hand)
            licences, businesses, fmcsa,  # name → work and driving records

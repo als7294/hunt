@@ -148,7 +148,9 @@ async def run(case, look_for: list[str], limits: str, injury_date: str | None, e
     case.db.executescript(SCHEMA)
     emit({"type": "stage", "stage": "scanning"})
     cats = categories(look_for)
-    todo = order(posts.list_posts(case), injury_date)
+    if getattr(case, "mhmda", False):  # Washington: nothing that reads as the subject's health (legal.md F3)
+        cats.pop("injury", None)
+    todo = order([p for p in posts.list_posts(case) if not (p.get("extra") or {}).get("not_subject")], injury_date)
     seen = {(r["media_id"], r["category"]) for r in case.rows("select media_id, category from scanned")}
     media = [(p, m) for p in todo for m in p["media"]
              if check_everything or any((m["id"], c) not in seen for c in cats)]
@@ -249,7 +251,7 @@ async def run(case, look_for: list[str], limits: str, injury_date: str | None, e
                     if said == "unclear" and unavailable is not None:
                         what = f"Possibly {cats[c]['label']}: {what}"
                     progress.found += _hit(case, emit, p, m, c, what, t0, t1, p_hit, injury_date, file,
-                                           blur=answer.get("child_visible", False))
+                                           blur=answer.get("child_visible", unavailable is not None))
                 progress.step(m)
         finally:
             await vlm.unload()
@@ -268,7 +270,8 @@ def hits(case) -> list[dict]:
 def _query(case, where: str = "", *args) -> list[dict]:
     return [_shape(h) for h in case.rows(
         "select h.*, p.source, p.posted_at, p.url, p.text as caption, m.kind as media_kind, "
-        "json_extract(e.extra, '$.from') as seen_from from hits h join posts p on p.id = h.post_id "
+        "json_extract(e.extra, '$.from') as seen_from, json_extract(e.extra, '$.audience') as audience, "
+        "json_extract(e.extra, '$.audience_flag') as audience_flag from hits h join posts p on p.id = h.post_id "
         "left join media m on m.id = h.media_id left join post_extra e on e.post_id = h.post_id "
         f"{where} order by p.posted_at is null, p.posted_at desc, h.t0, h.id", *args)]
 
@@ -413,8 +416,9 @@ def _tag_hits(case, emit, post, cats: dict, injury_date: str | None) -> int:
                for key, why in facebook.categories(post["extra"] | {"source": post["source"]}) if key in cats)
 
 
-def _hit(case, emit, post, media, category, what, t0, t1, p, injury_date, file, blur=False) -> bool:
-    """Record a hit and emit it; False if this exact one was already found by an earlier scan."""
+def _hit(case, emit, post, media, category, what, t0, t1, p, injury_date, file, blur=True) -> bool:
+    """Record a hit and emit it; False if this exact one was already found by an earlier scan. Its picture is
+    blurred unless the vision model looked at it and saw no child (caption, tag and OCR hits never were)."""
     p, said = capped(p)
     when, days = timing(post["posted_at"], injury_date)
     cur = case.db.execute(
@@ -576,4 +580,4 @@ def _shape(h: dict) -> dict:
         h[k] = None if h[k] is None else round(h[k], 1)
     return {k: h[k] for k in ("id", "post_id", "media_id", "category", "what", "t0", "t1", "verdict", "p", "timing",
                               "days_after", "status", "who", "file", "source", "posted_at", "url", "caption", "blur",
-                              "from_grid")}
+                              "from_grid", "audience", "audience_flag")}

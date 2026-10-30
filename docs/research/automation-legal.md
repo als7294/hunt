@@ -526,7 +526,7 @@ This is a bright line chosen to be defensible, not the minimum the law compels [
 
 On any of these, Hunt stops capture and automatic reads for that platform. It audits the event, tells her not to use that account for casework, and tells her to tell Ethos:
 - Account disabled or restricted, a checkpoint or login challenge, "suspected automated behaviour", or an action block.
-- A CAPTCHA, or an IP block or 429 on any automatic source. Back off. Never retry from a new IP.
+- A CAPTCHA, an IP block or a login wall on any automatic source. Never retry from a new IP. A 429 alone ends that platform's automatic reads for the run without a hard stop (decision D8 in [legal.md](legal.md#decisions-provisional-2026-10-30)).
 - A cease-and-desist letter or platform email to Laura, Ethos or Aaron.
 - A platform's notice withdrawing permission for a tool.
 
@@ -719,6 +719,8 @@ Wherever the copy says `{platform}`, put the platform's name. Wherever it says `
 
 Audited as `hard stop lifted` `{platform, approved_by, note}`.
 
-**When an automatic logged-out read is refused** (HTTP 429, a CAPTCHA, or a block), there's no dialog. The job log and the source's note say:
+**When an automatic logged-out read is refused** (decision D8 in [legal.md](legal.md#decisions-provisional-2026-10-30)):
+- **A CAPTCHA, an IP block or a login wall** is a hard stop for that platform. The dialog above appears, with `{trigger}` set to "a check that you're not a robot (a CAPTCHA)", "a block on Hunt's address", or "a login wall".
+- **A 429 alone** ends that platform's automatic reads for the run, with no dialog. The job log and the source's note say:
 
-> {source} refused Hunt's request ({too many requests | a CAPTCHA | a block}). Hunt has stopped reading {source} automatically for 24 hours and won't retry from another address. You can still open it yourself in the Hunt Browser.
+> {source} asked Hunt to slow down (too many requests). Hunt has stopped reading {source} automatically for this run and won't retry from another address. You can still open it yourself in the Hunt Browser.

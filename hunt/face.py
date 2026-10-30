@@ -22,6 +22,7 @@ Install the extra first: uv sync --extra face
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 
 import numpy as np
@@ -70,11 +71,18 @@ BLOCKED = {
     "US-TX": "Texas CUBI: blocked although TRAIGA (e)(3) may exempt fraud investigation (untested)",
     "US-WA": "Washington My Health My Data Act: data derived by algorithms can be consumer health data",
     "US-CO": "Colorado HB 24-1130: prior consent for biometric identifiers",
-    "US-CA": "California CCPA: blocked unless counsel accepts the legal-claims exemption, §1798.145(a)(1)(E)",
+    "US-CA": "California CCPA: always blocked (compliance decision D5)",
     "GB": "UK GDPR: needs a per-case basis and notice-exemption record, which Hunt doesn't keep yet",
     "CA": "Canada PIPEDA: needs a per-case basis record, which Hunt doesn't keep yet",
+    **{c: "Crown dependency data-protection law (GDPR-like): needs a per-case basis record, which Hunt doesn't keep yet"
+       for c in ("GG", "JE", "IM")},
 }
-EEA = set("AT BE BG HR CY CZ DK EE FI FR DE GR IE IT LV LT LU MT NL PL PT RO SK SI ES SE IS LI NO".split())
+# The EU/EEA, with the outermost regions and Åland that ISO codes separately
+EEA = set("AT BE BG HR CY CZ DK EE FI FR DE GR IE IT LV LT LU MT NL PL PT RO SK SI ES SE IS LI NO "
+          "GP MQ GF RE YT MF AX".split())
+US_STATES = set("AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR "
+                "PA RI SC SD TN TX UT VT VA WA WV WI WY DC PR GU VI AS MP UM".split())
+ALIASES = {"UK": "GB", "EL": "GR"}  # the codes people type for the UK and Greece
 
 
 class FaceUnavailable(RuntimeError):
@@ -87,7 +95,7 @@ def download() -> list[str]:
     return [hf_hub_download(repo, f, revision=rev) for repo, rev, f in (DETECTOR, EMBEDDER)]
 
 
-def compare(references: list, images: list) -> list[dict]:
+def _compare(references: list, images: list) -> list[dict]:
     """Each image against the reference photos (best of them), in order:
     [{image, faces_found, match: "yes"|"no"|"unclear", score, why, quality, model}].
     score is the cosine similarity, or None when the faces weren't compared."""
@@ -115,12 +123,18 @@ def compare(references: list, images: list) -> list[dict]:
 
 def gate(case) -> tuple[bool, str]:
     """(allowed, the rule that decided) for this case's subject, from where they live. Audited."""
+    import phonenumbers  # its region list is ISO 3166-1 alpha-2, as shipped: an allow-list, never a guess
     r = (case.meta("subject_residence") or "").strip().upper()
+    country, _, sub = r.partition("-")
+    country = ALIASES.get(country, country)
     rule = ("the subject's residence is unknown" if not r else
-            "the subject's US state is unknown" if r == "US" else
-            BLOCKED.get(r) or BLOCKED.get(r.split("-")[0]) or
+            "the subject's residence isn't a known ISO 3166 code" if country not in phonenumbers.SUPPORTED_REGIONS
+            or (sub and not re.fullmatch(r"[A-Z0-9]{1,3}", sub)) or (country == "US" and sub and sub not in US_STATES) else
+            "the subject's US state is unknown" if country == "US" and not sub else
+            BLOCKED.get(f"US-{sub}") if country == "US" else
+            BLOCKED.get(country) or
             ("EU/EEA GDPR Art. 9: needs a per-case basis and notice-exemption record, which Hunt doesn't keep yet"
-             if r.split("-")[0] in EEA else None))
+             if country in EEA else None))
     allowed, rule = rule is None, rule or f"no biometric-law block for {r}"
     case.audit("face gate", {"allowed": allowed, "residence": r or None, "rule": rule})
     return allowed, rule
@@ -190,7 +204,7 @@ def verify_all(case, items: list[tuple[str | None, object]]) -> list[dict]:
         raise ValueError("this case has no reference photo")
     _table(case)
     out = []
-    for (url, path), r in zip(items, compare(refs, [p for _, p in items])):
+    for (url, path), r in zip(items, _compare(refs, [p for _, p in items])):
         r.update(url=url, result=r["match"], reason=r["why"])
         sha = hashlib.sha256(Path(path).read_bytes()).hexdigest() if Path(str(path)).is_file() else None
         case.db.execute("insert into face_checks values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
