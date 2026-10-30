@@ -339,6 +339,12 @@ function refreshStart() {
   if (b) b.disabled = step < 3;
   $('#wiz-steps').innerHTML = fmt(wizPills(step)); $('#wiz-hint').textContent = wizHint(step);
 }
+// An evidence picture that no longer loads (removed at retention, docs/qol.md point 21) shows as such, not as a broken image
+document.addEventListener('error', e => {
+  const el = e.target; if (el.tagName !== 'IMG' || !/\/evidence\//.test(el.src)) return;
+  const box = document.createElement('span'); box.className = 'thumb gone'; box.style.cssText = el.style.cssText; box.title = 'This file is no longer in the case; the case log says when and why';
+  box.textContent = 'Removed from the case'; el.replaceWith(box);
+}, true);
 const keepOpen = new Set(); // sections she opened stay open when the screen redraws after a decision
 document.addEventListener('toggle', e => {
   if (['acct-details', 'rej-details'].includes(e.target.id)) keepOpen[e.target.open ? 'add' : 'delete'](e.target.id);
@@ -592,7 +598,7 @@ function hitCard(slug, h) {
   const flagged = h.status !== 'not relevant', src = evidenceUrl(slug, h.file), blur = h.blur || h.child_visible;
   const range = h.t0 == null ? '' : h.t1 != null && h.t1 !== h.t0 ? `${mmss(h.t0)}–${mmss(h.t1)}` : `at ${mmss(h.t0)}`;
   return html`<div class="card" style="padding:12px;display:flex;gap:12px;${h.status === 'not relevant' ? 'opacity:.45' : ''}" data-hit="${h.id}">
-    ${src ? html`<img class="thumb ${blur ? 'blur' : ''}" src="${src}" alt="" style="width:84px;height:84px;flex:none">` : html`<div class="thumb" style="width:84px;height:84px;flex:none"></div>`}
+    ${src ? html`<img class="thumb ${blur ? 'blur' : ''}" src="${src}" alt="" style="width:84px;height:84px;flex:none">` : html`<span class="tile-ic" style="font-size:22px" title="Found in the post’s words">“</span>`}
     <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
       <div class="muted" style="font-size:13px">${[lookLabel(h.category), h.source, h.posted_at ? 'posted ' + day(h.posted_at) : '', range].filter(Boolean).join(' · ')}</div>
       <div style="font-weight:500">${h.what}</div>
@@ -1126,7 +1132,7 @@ screens.report = async slug => {
         <label class="panel" style="padding:16px 18px;display:flex;gap:12px;align-items:center;cursor:pointer"><input type="checkbox" data-act="screening" ${screening ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--ac)">
           <span><b>Job screening mode</b><br><span class="muted" style="font-size:13.5px">Hides protected details (age, health, religion, family…)</span></span></label>
         <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px">
-          <a class="btn primary" href="${base}.pdf${q}">Export PDF</a><a class="btn" href="${base}.html${q}" target="_blank" rel="noopener">Web page</a><a class="btn ghost" href="${base}.json${q}">Data file</a>
+          <a class="btn primary" href="${base}.pdf${q}">Export PDF</a><a class="btn" href="${base}.html${q}&view=1" target="_blank" rel="noopener" title="Opens in a new tab; print it from there">Web page</a><a class="btn ghost" href="${base}.json${q}">Data file</a>
           <a class="btn ghost" href="/api/cases/${encodeURIComponent(slug)}/evidence.zip" download>Evidence bundle (.zip)</a>
           <div class="muted" style="font-size:13px">Every evidence file under a readable name, with a SHA-256 manifest anyone can check with <span class="mono">shasum -c</span>.</div></div>
         <div class="panel" style="padding:14px 18px;display:flex;flex-direction:column;gap:4px;font-size:14.5px">

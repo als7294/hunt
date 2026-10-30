@@ -289,6 +289,9 @@ assert r.status_code == 200 and r.json()["status"] == "failed" and "Hunt Browser
 rep = c.get("/api/cases/vance-claim/report").json()
 assert rep["checks"]["every_sentence_cited"] and rep["checks"]["tampered"] == [], rep["checks"]
 assert rep["evidence"][0]["id"] == "E-7" and any("running a race" in s["text"] for s in rep["sentences"])
+r = c.get("/api/cases/vance-claim/report.html?view=1")  # "Web page": inline, sandboxed
+assert r.headers["content-disposition"].startswith("inline") and "sandbox" in r.headers["content-security-policy"], r.headers
+assert "script-src" not in r.headers["content-security-policy"] and "default-src 'none'" in r.headers["content-security-policy"]
 r = c.get("/api/cases/vance-claim/report.html")
 assert r.headers["content-disposition"].startswith("attachment") and "&lt;" not in r.text.split("<h1>")[0], r.headers
 r = c.get("/api/cases/vance-claim/report.json?screening=1").json()

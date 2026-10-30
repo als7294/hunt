@@ -907,8 +907,14 @@ async def export_report(req: Request):
     else:
         async with search.HEAVY:
             body, media = await report.to_pdf(html, rep), "application/pdf"
-    c.audit("report exported", {"format": fmt, "screening": rep["screening"], "tampered": rep["checks"]["tampered"]})
+    view = fmt == "html" and req.query_params.get("view") == "1"  # "Web page": shown in a tab, not downloaded
+    c.audit("report exported", {"format": fmt, "screening": rep["screening"], "tampered": rep["checks"]["tampered"]}
+            | ({"view": True} if view else {}))
     name = f"{c.name}-report{'-screening' if rep['screening'] else ''}.{fmt}"
+    if view:  # sandboxed: no script, no requests, not this origin; it prints as the download does
+        return Response(body, media_type=media, headers={
+            "content-disposition": f'inline; filename="{name}"',
+            "content-security-policy": "sandbox allow-modals; default-src 'none'; img-src data:; style-src 'unsafe-inline'"})
     return Response(body, media_type=media, headers={"content-disposition": f'attachment; filename="{name}"'})
 
 
