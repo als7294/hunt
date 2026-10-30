@@ -754,7 +754,10 @@ async def hide_person(req: Request):
 
 async def _evidence(c: Case) -> tuple:
     snap = await search.snapshot(c)
-    return c.details(), await _posts(c), await _hits(c), snap["candidates"]
+    hits = [{"who": "unknown", "post_id": None, "p": None, **h,  # the keys leads reads; machine readings stop at "likely"
+             "verdict": report.cap(h["verdict"]) if h.get("verdict") in report.VERDICTS else h.get("verdict")}
+            for h in await _hits(c)]
+    return c.details(), await _posts(c), hits, snap["candidates"]
 
 
 async def get_timeline(req: Request):
