@@ -570,9 +570,13 @@ const vendorLine = v => !v?.key_set ? '' : html`<div style="display:flex;flex-di
   ${(v.skipped || []).map(x => html`<span class="muted">${platformOf(x.url)} ${handleOf(x.url)}: ${x.why}</span>`)}</div>`;
 // The scan's own sources as they report (posts.collect, the public collectors, Apify): one row each
 const SOURCE_DOT = { running: 'var(--am)', found: 'var(--gr)', 'nothing found': 'var(--dim)', failed: 'var(--rd)' };
-const sourceRows = rows => html`${rows.map(r => html`<div style="display:flex;gap:10px;align-items:baseline;font-size:13.5px">
-  <span class="dot" style="background:${SOURCE_DOT[r.status] || 'var(--dim)'};align-self:center"></span><b style="font-weight:500">${r.source}</b><span class="muted">${/^https?:/.test(r.seed || '') ? handleOf(r.seed) : r.seed}</span>
-  <span class="t2">${r.status === 'running' ? 'reading…' : r.status === 'failed' ? 'failed' : `${r.found ?? 0} found`}</span>${r.note ? html`<span class="dim" style="font-size:12.5px">${r.note}</span>` : ''}</div>`)}`;
+const TECHNICAL = /^[A-Z]\w*(Error|Exception)\b|Traceback|\[SSL|ssl\.c:/; // a raw exception: said plainly, kept on hover
+const sourceRows = rows => html`${rows.map(r => { const url = /^https?:/.test(r.seed || '') ? r.seed : null, host = url && new URL(url).hostname.replace(/^www\./, ''), raw = TECHNICAL.test(r.note || '');
+  return html`<div style="display:flex;gap:10px;align-items:baseline;font-size:13.5px;min-width:0">
+  <span class="dot" style="background:${SOURCE_DOT[r.status] || 'var(--dim)'};align-self:center"></span><b style="font-weight:500;white-space:nowrap">${r.source}</b>
+  <span class="muted" style="white-space:nowrap">${url ? handleOf(url) : r.seed}${host && !r.source.toLowerCase().includes(host) ? html` <span class="dim">on ${host}</span>` : ''}</span>
+  <span class="t2" style="white-space:nowrap">${r.status === 'running' ? 'reading…' : r.status === 'failed' ? 'couldn’t read' : `${r.found ?? 0} found`}</span>
+  ${r.note ? html`<span class="dim" style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.note}">${raw ? 'the site didn’t answer as expected (details on hover)' : r.note}</span>` : ''}</div>`; })}`;
 
 /* Find a person, 3a: analysing photos and videos. Starts by itself once the investigator confirms it's them */
 let queuedScan = null; // a case whose new files arrived while its scan was running
