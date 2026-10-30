@@ -270,4 +270,17 @@ assert runs["slow", "first_one"] == ("failed", "rate limit reached: api.example 
 assert runs["slow", "second_one"] == ("skipped", "skipped: slow was rate-limited earlier in this search"), runs
 assert runs["facebook", "first_one"] == ("skipped", "Facebook is stopped: a login wall"), runs
 
+# A new case from the CLI needs a kind, as from the app (K1); an existing one doesn't
+import sys  # noqa: E402
+argv = sys.argv
+for extra, ok in (([], False), (["--kind", "diligence"], True)):
+    sys.argv = ["hunt", "export", "--case", "cli kind check", "--purpose", "Test: kinds", *extra, "--out", tempfile.mkdtemp()]
+    try:
+        cli.main()
+        assert ok
+    except SystemExit as e:
+        assert not ok and "--kind is required" in str(e), e
+sys.argv = argv
+assert Case.open("cli-kind-check").details()["kind"] == "diligence"
+
 print("ok")

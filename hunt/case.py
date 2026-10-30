@@ -48,6 +48,7 @@ def residence(code: str) -> str | None:
     return f"{country}-{sub}" if sub else country
 
 
+KINDS = ("insurance", "background", "diligence", "journalism")  # every new case has one (K1): background is employment
 DATES = ("injury_date", "assignment_date", "subject_dob")  # YYYY-MM-DD
 RETENTION_DAYS = 90  # from opening; then the case is due for deletion unless on legal hold (watch.py stops then too)
 DECISIONS = ("him", "not him", "unsure")

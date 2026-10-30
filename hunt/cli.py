@@ -40,7 +40,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 from . import bundle, demo, inbox, minimise, pack, photo, recheck, search, seen, setup, watch
-from .case import HOME, Case, all_cases
+from .case import HOME, KINDS, Case, all_cases, slugify
 from .search import build  # noqa: F401  (re-exported: tests and older callers import it from here)
 from .seed import detect, now
 
@@ -72,6 +72,8 @@ def main():
     common = argparse.ArgumentParser(add_help=False, parents=[proxy])
     common.add_argument("--case", required=True, help="case name; created on first use")
     common.add_argument("--purpose", help="why this investigation is lawful and necessary (required for a new case)")
+    common.add_argument("--kind", choices=KINDS, help="what the case is for (required for a new case); background is "
+                                                      "employment screening, and its report is always the screening version")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("search", parents=[common], help="search seeds within a case")
     s.add_argument("seeds", nargs="+", help="username, email, phone, name, address or profile URL; "
@@ -147,10 +149,15 @@ def main():
         if args.reset:
             learning.reset()
         return print(json.dumps(learning.status(), indent=2))
+    new = not (HOME / "cases" / slugify(args.case) / "case.db").exists()
+    if new and not args.kind:
+        raise SystemExit(f"'{slugify(args.case)}' is a new case: --kind is required ({', '.join(KINDS)})")
     try:
         case = Case(args.case, args.purpose)
     except ValueError as e:
         raise SystemExit(str(e).replace("a purpose is required", "--purpose is required"))
+    if new:
+        case.set_details(label=args.case, kind=args.kind)
     if args.cmd == "inbox":
         return file_inbox(case, args)
     if args.cmd == "export":

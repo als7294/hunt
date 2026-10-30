@@ -88,6 +88,7 @@ assert c.post("/api/cases", content=body, headers={**JSON, "origin": f"http://lo
                                                    "sec-fetch-site": "cross-site"}).status_code == 403
 assert c.post("/api/cases", content=body, headers={"origin": BASE, "content-type": "text/plain"}).status_code == 415
 assert c.post("/api/cases", content=json.dumps({**new, "purpose": " "}), headers=JSON).status_code == 400
+assert c.post("/api/cases", content=json.dumps({k: v for k, v in new.items() if k != "kind"}), headers=JSON).status_code == 400  # K1
 r = c.post("/api/cases", content=body, headers=JSON)
 assert r.status_code == 201 and r.json() == {"slug": "vance-claim"}, r.text
 assert c.post("/api/cases", content=body, headers=JSON).json() == {"slug": "vance-claim-2"}  # never merged

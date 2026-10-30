@@ -44,7 +44,7 @@ from . import graph, keys, leads, report, search, sources, vendor, vlm
 from . import bundle, demo, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
-from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, RETENTION_DAYS, Case, all_cases, residence  # watch.py reads RETENTION_DAYS here
+from .case import DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, KINDS, RETENTION_DAYS, Case, all_cases, residence  # watch.py reads RETENTION_DAYS here
 from .match import ICD203, norm_url
 from .seed import detect, now
 
@@ -52,7 +52,6 @@ STATIC = Path(__file__).parent / "static"
 COOKIE = "hunt"
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
        "media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
-KINDS = ("insurance", "background", "diligence", "journalism")
 HIT_STATUSES = ("kept", "not relevant", "in report")
 HEARTBEAT = 15  # seconds between SSE comments on a quiet job
 NOT_IN_SCREENING = "A background check leaves out the people around the subject: family and friends can't weigh in a hiring decision."
