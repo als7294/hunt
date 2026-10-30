@@ -555,6 +555,11 @@ Entry ids are salted with the case, so they mean nothing outside it (AN9).
 - **No contact details, addresses or health in quotes:** emails, phone numbers, street addresses, links and health words
   (hospital, surgery, chemo, therapy, pregnancy…, and the Spanish terms) become "[detail withheld]". There are no
   "same address" entries: a record of someone else at the subject's address names a stranger.
+- **Redacting minors elsewhere (AP1, Q1):** `graph.minor_names(posts, candidates, seeds, photo_labels) -> [str]` is every
+  name and first name tied to a possible minor, as written, longest first. It's server-side only: never put the list
+  itself in a response. `graph.redact(text, names)` replaces them with "[name withheld]", case-insensitively and as
+  whole words, so "Leonard" survives "Leo". The report, the app's responses and the bundle redact captions, post text,
+  comments, hit descriptions, lead `shows` and notes with it, the same rule the map uses.
 - **Pivots skip associates (AN8):** `pivot.suggestions` never suggests a bio @mention, or an email in a sentence that
   names a relationship.
 

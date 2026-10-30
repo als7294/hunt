@@ -326,6 +326,42 @@ def record(url: str, viewed_at: str | None, capture_version: str | None, session
             "captured_at": viewed_at, "time_source": "the browser's clock", "received_at": now()}
 
 
+def utc(when: str | None) -> str | None:
+    """A browser-sent time as UTC ISO ("…Z"), or None if it isn't a time with a zone."""
+    try:
+        t = datetime.fromisoformat(str(when).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t.astimezone(UTC).isoformat().replace("+00:00", "Z") if t.tzinfo else None
+
+
+def _subject(case) -> tuple[set[str], re.Pattern | None]:
+    """The subject's accounts (confirmed, or given as URL seeds), by where(), and a pattern for his names and handles
+    (name and username seeds, and the handles in those accounts)."""
+    accounts = confirmed(case) + [a for sd in case.seeds() if sd.kind == "url" and (a := account_of(sd.value))]
+    words = {sd.value for sd in case.seeds() if sd.kind in ("name", "username")}
+    words |= {urlparse(a).path.strip("/").split("/")[-1] for a in accounts}
+    words = {w.lstrip("@").strip() for w in words}
+    words = sorted((w for w in words if len(w) >= 3 and not w.endswith(".php")), key=len, reverse=True)
+    pattern = re.compile(rf"(?<![\w.])@?(?:{'|'.join(map(re.escape, words))})(?!\w)", re.I) if words else None
+    return {where(a) for a in accounts}, pattern
+
+
+def _about(it: dict, mine: set[str], named: re.Pattern | None) -> bool:
+    """Is this item about the subject: his own, or naming or tagging him (text, "with", tags, image description)?"""
+    if it.get("account_url") and where(it["account_url"]) in mine:
+        return True
+    said = " ".join(str(it.get(k) or "") for k in ("text", "with", "tagged", "alt"))
+    return bool(named and named.search(said))
+
+
+def _page_audience(case, url: str) -> str | None:
+    """The audience every post on this page's latest archive shared ("Public", "Followers"...), or None."""
+    rows = case.rows("select json_extract(detail, '$.audience') as a from audit where action = 'capture page' "
+                     "and json_extract(detail, '$.where') = ? order by rowid desc limit 1", where(url))
+    return rows[0]["a"] if rows else None
+
+
 def revoked(site: str | None, url: str | None = None, text: str | None = None) -> str | None:
     """What a platform showed that means it checked, challenged, blocked or disabled her account, or None."""
     if url and site in REVOKED_URL and (m := re.search(REVOKED_URL[site], urlparse(url).path)):
@@ -347,10 +383,12 @@ def _hunt_version() -> str | None:
 
 def add_view(case, url: str, image: Path, viewed_at: str | None, title: str = "", kind: str = "view",
              rec: dict | None = None) -> dict:
-    """A viewport screenshot: one 'captured' post holding it, tied to the page and its profile."""
+    """A viewport screenshot: one 'captured' post holding it, tied to the page and its profile. Its audience is the
+    one the page's archive showed (a later archive fills it in); on a page that isn't the subject's it's marked
+    not_subject, so the scan and the report leave it out."""
     site, rec = platform(url), rec or {}
     item = {"source": site, "account_url": account_of(url), "media": [str(image)], "viewed_url": url,
-            "viewed_at": viewed_at, "title": (title or "")[:300], "capture": kind} | rec
+            "viewed_at": viewed_at, "title": (title or "")[:300], "capture": kind} | rec | _seen_as(case, url)
     ids = posts.add_posts(case, [item], kind="screenshot", origin="captured")
     file, sha = posts.store(case, image)
     case.audit("capture view", {"url": url, "extension": (_paired() or {}).get("origin"), "where": where(url),
@@ -359,41 +397,66 @@ def add_view(case, url: str, image: Path, viewed_at: str | None, title: str = ""
     return {"post": ids[0] if ids else None, "file": file}
 
 
+def _seen_as(case, url: str) -> dict:
+    """A screenshot's or recording's audience (from the page's archive) and whether its page is the subject's."""
+    audience, (mine, _) = _page_audience(case, url), _subject(case)
+    acct = account_of(url)
+    return {"audience": audience, "audience_flag": audience not in (None, "Public"), "not_subject": not (acct and where(acct) in mine)}
+
+
 def add_page(case, url: str, archive: Path, viewed_at: str | None, media_dir: Path, rec: dict | None = None) -> dict:
     """A page archive (MHTML from chrome.pageCapture): kept whole as evidence, then read for posts, whose pictures
     come out of the archive (what her browser had already loaded). Grid thumbnails become posts marked "grid", which
     a later full capture upgrades. The comments each post showed are kept with it (`comments`: how many the page
-    showed). If the page shows a checkpoint, challenge, block or "account disabled", that platform is stopped
-    (returned as `stopped`)."""
+    showed). On a page that isn't the subject's (an associate's, a feed), the archive is still kept whole, but only
+    the posts that are his or name or tag him are stored (`not_subject`: how many weren't). If the page shows a
+    checkpoint, challenge, block or "account disabled", that platform is stopped (returned as `stopped`)."""
     site, rec = platform(url), rec or {}
     file, sha = posts.store(case, archive, "mhtml")
     page = fb._load(Path(archive), _local(viewed_at), media_dir)
     text = fb._text(fb._Tree(page["html"]).root)
     items = parse(site, archive, _local(viewed_at), media_dir)
+    shown = {it.get("audience") for it in items}
+    audience = shown.pop() if len(shown) == 1 else None  # one audience for the whole page, if it showed one
+    mine, named = _subject(case)
+    if not (account_of(url) and where(account_of(url)) in mine):
+        kept = [it for it in items if _about(it, mine, named)]
+        not_subject, items = len(items) - len(kept), kept
+    else:
+        not_subject = 0
     for it in items:
-        it |= rec | {"capture_sha256": sha, "audience_flag": it.get("audience") != "Public"}
+        it |= rec | {"capture_sha256": sha, "audience_flag": it.get("audience") not in (None, "Public")}  # D10
     upgraded = []
     ids = posts.add_posts(case, items, evidence=file, origin="captured", upgraded=upgraded)
+    if audience:  # screenshots and recordings of this page taken before its first archive learn its audience now
+        for row in case.rows("select post_id, extra from post_extra where json_extract(extra, '$.viewed_url') is not null "
+                             "and json_extract(extra, '$.audience') is null"):
+            extra = json.loads(row["extra"])
+            if where(extra["viewed_url"]) == where(url):
+                extra |= {"audience": audience} | ({"audience_flag": True} if audience != "Public" else {})
+                case.db.execute("update post_extra set extra = ? where post_id = ?",
+                                (json.dumps(extra, ensure_ascii=False), row["post_id"]))
     total = _profile_posts(site, text) if account_of(url) and where(account_of(url)) == where(url) else None
     comments = sum(len(it.get("visible_comments") or []) for it in items)
     case.audit("capture page", {"url": url, "extension": (_paired() or {}).get("origin"), "where": where(url),
                                 "platform": site, "file": file, "sha256": sha, "viewed_at": viewed_at,
                                 "posts": len(items), "added": len(ids), "upgraded": len(upgraded),
                                 "grid": sum(it.get("from") == "grid" for it in items), "profile_posts": total,
-                                "comments": comments} | rec)
+                                "comments": comments, "audience": audience, "not_subject": not_subject} | rec)
     stopped = None
     if reason := revoked(site, url, text):
         from . import browser
         stopped = browser.stop(site, reason, url, case)
-    return {"posts": len(items), "added": len(ids), "upgraded": len(upgraded), "comments": comments, "file": file,
-            "stopped": stopped}
+    return {"posts": len(items), "added": len(ids), "upgraded": len(upgraded), "comments": comments,
+            "not_subject": not_subject, "file": file, "stopped": stopped}
 
 
 def add_recording(case, url: str, video: Path, started_at: str | None, rec: dict | None = None) -> dict:
-    """A recording of the tab while she played a video (chrome.tabCapture), as one 'captured' post."""
+    """A recording of the tab while she played a video (chrome.tabCapture), as one 'captured' post, with an audience
+    and not_subject as add_view's."""
     site, rec = platform(url), rec or {}
     item = {"source": site, "account_url": account_of(url), "media": [str(video)], "viewed_url": url,
-            "viewed_at": started_at, "capture": "recording"} | rec
+            "viewed_at": started_at, "capture": "recording"} | rec | _seen_as(case, url)
     ids = posts.add_posts(case, [item], origin="captured")
     file, sha = posts.store(case, video)
     case.audit("capture recording", {"url": url, "extension": (_paired() or {}).get("origin"), "where": where(url),
@@ -402,9 +465,44 @@ def add_recording(case, url: str, video: Path, started_at: str | None, rec: dict
     return {"post": ids[0] if ids else None, "file": file}
 
 
-def guided(case, action: str, url: str, to: str | None = None) -> int:
-    """One press of Next in guided mode, audited: what it did ("scroll" or "open") and where."""
-    return case.audit("guided step", {"action": action, "url": url, "to": to, "extension": (_paired() or {}).get("origin")})
+SCROLL_TABS = {"", "posts", "reels", "media", "videos", "photos", "photos_of"}  # grids; never followers or friends
+
+
+def guided(case, url: str, at_bottom: bool, visited: list[str] = ()) -> dict:
+    """Guided mode's one gate: what one press of Next may do on this page, audited before the extension does it.
+    {action: "scroll" | "open" | "none", to, why, progress}. One screen down on a confirmed account's own grid, else
+    the next unopened item on its "open these" list. Raises PermissionError where it may do nothing at all."""
+    from . import browser  # here: browser imports this module
+    site = platform(url)
+    if not browser.guided()["on"]:
+        raise PermissionError("Guided mode is off. It's turned on in Hunt's settings.")
+    if not site or site in CAPTURE_OFF or browser.stopped(url):
+        raise PermissionError("Guided mode doesn't run where capture is off or stopped.")
+    here, acct = where(url), account_of(url)
+    seen = {where(v) for v in visited}
+    for a in checklist(case):
+        todo = [t for t in a["todo"] if where(t["url"]) != here and where(t["url"]) not in seen
+                and platform(t["url"]) == site and "/stories/" not in t["url"]]
+        if acct and where(acct) == where(a["account"]):
+            if here.removeprefix(where(a["account"])).lstrip("/").removeprefix("&sk=") in SCROLL_TABS and not at_bottom:
+                step = {"action": "scroll", "to": None}
+            else:
+                step = {"action": "open", "to": todo[0]["url"]} if todo else None
+        elif any(where(t["url"]) == here for t in a["todo"]):
+            step = {"action": "open", "to": todo[0]["url"]} if todo else None
+        else:
+            continue
+        if step is None:
+            return {"action": "none", "to": None, "why": "Everything on this account's \"open these\" list has been opened.",
+                    "progress": a["progress"]}
+        case.audit("guided step", step | {"url": url, "extension": (_paired() or {}).get("origin")})
+        return step | {"why": None, "progress": a["progress"]}
+    raise PermissionError("Guided mode works only on the subject's confirmed accounts and their \"open these\" list.")
+
+
+def guided_missed(case, url: str) -> int:
+    """A guided step whose capture never came back within the extension's 20 s, audited (legal.md: guided mode)."""
+    return case.audit("guided step not recorded", {"url": url, "extension": (_paired() or {}).get("origin")})
 
 
 def _profile_posts(site: str | None, text: str) -> int | None:

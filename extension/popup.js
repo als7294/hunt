@@ -52,8 +52,9 @@ async function render() {
   $("banner").textContent = stop ? stop[1].message
     : site && site.toLowerCase() === "linkedin" ? "Hunt Capture is off on LinkedIn: its terms name browser plugins. Save pages with Save Page As and import them. Consider browsing logged out, or set LinkedIn's profile viewing to private first."
     : site ? `Hunt Capture is off on ${site[0].toUpperCase()}${site.slice(1)}: its terms name extensions. Save pages with Save Page As and import them.` : "";
-  $("next").disabled = !s.on || s.guidedBusy || Boolean(site || stop);
+  $("next").disabled = !s.on || s.guidedBusy || Boolean(site || stop) || !hello.guided || s.mode === "manual";
   $("next").textContent = s.guidedBusy ? "Recording…" : "Next";
+  $("next").title = hello.guided ? "Alt+Shift+N" : "Guided mode is off. It's turned on in Hunt's settings.";
   await renderChecklist(s.tabUrl);
 }
 

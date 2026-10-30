@@ -227,7 +227,7 @@ c = Case("face test", "self-check")
 for where, ok in (("", False), ("US", False), ("US-IL", False), ("US-TX", False), ("US-WA", False), ("US-CO", False),
                   ("US-CA", False), ("GB", False), ("CA-ON", False), ("DE", False), ("NO", False), ("US-AZ", True), ("AU", True),
                   ("UK", False), ("EL", False), ("EU", False), ("XX", False), ("US-ZZ", False), ("GP", False), ("RE", False),
-                  ("JE", False), ("AU-NSW", True), ("US-PR", True), ("ZZ-1", False), ("U$", False)):  # AN2: allow-list only
+                  ("JE", False), ("AU-NSW", False), ("AU", True), ("US-PR", True), ("ZZ-1", False), ("U$", False)):  # AN2: allow-list only
     c.set_details(subject_residence=where)
     assert face.gate(c)[0] is ok, (where, face.gate(c))
     assert c.rows("select detail from audit where action = 'face gate' order by rowid desc limit 1")[0]["detail"].count("rule")
@@ -237,6 +237,13 @@ for where, ok in (("", False), ("US", False), ("US-IL", False), ("US-TX", False)
         face.disable(c)
     except PermissionError as e:
         assert not ok and "blocked for this subject" in str(e), (where, e)
+import hunt.case as cases  # noqa: E402
+
+cases.residence = lambda code: {"US-AZ": "US-AZ", "UK": "GB"}.get(code)  # as hunt-server's case.residence will
+for where, ok, rule in (("US-AZ", True, "no biometric-law block"), ("UK", False, "UK GDPR"), ("AU", False, "isn't a known")):
+    c.set_details(subject_residence=where)
+    assert face.gate(c)[0] is ok and rule in face.gate(c)[1], (where, face.gate(c))
+del cases.residence
 c.set_details(subject_residence="US-WA")
 assert c.mhmda and not Case("other", "self-check").mhmda  # Washington subjects: MHMDA mode for the report
 c.set_details(subject_residence="US-AZ")
@@ -400,6 +407,12 @@ for texts, labels in ((["my son Leo Vell turned 9", "Dinner with Leo Vell"], ())
     out, js = probe(*texts, labels=labels)
     assert "Leo" not in js and "leo" not in js.lower().replace("[name withheld]", ""), (texts, labels, js)
     assert any(p["minor"] and p["labels"] == ["a child"] for p in out["people"]), (texts, out)
+# AP1/Q1 hand-over: the minors' names for redacting elsewhere (server-side), and the one rule to redact them by
+names = graph.minor_names([{"id": 1, "account_url": fb, "url": None, "origin": "fetched", "extra": None,
+                            "text": "my son Leo Vell turned 9. Leonard came too"}], cands[:1], subject)
+assert names == ["Leo Vell", "Leo"], names
+assert graph.redact("LEO vell and leo ran; Leonard watched", names) == "[name withheld] and [name withheld] ran; Leonard watched"
+assert graph.redact(None, names) is None and "minor_names" not in json.dumps(r)
 out, js = probe("My son Leo and my brother Dan")
 assert "Dan" in [p["name"] for p in out["people"] if not p["minor"]] and "Leo" not in js
 assert not any(p["minor"] for p in probe("my brother Dan is 15 minutes late again")[0]["people"][:1])  # not an age

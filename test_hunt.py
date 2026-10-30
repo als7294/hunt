@@ -241,4 +241,46 @@ asyncio.run(search.compare_faces(fc, build(fc), logs.append))
 assert len(calls) == 2, calls
 face.disable(fc)
 assert "face" not in build(fc)["candidates"][0]  # off: results aren't used
+# fan_out: each source walks its seeds in turn; once it's rate-limited it isn't called again this search, and the
+# runs say why; Facebook isn't read while capture there is stopped (K8, C8)
+import types  # noqa: E402
+from hunt import browser  # noqa: E402
+from hunt.sources._api import Limited  # noqa: E402
+calls = []
+
+
+async def throttled(seed):
+    calls.append(seed.value)
+    raise Limited("api.example rate limit reached")
+
+
+async def fb_search(seed):
+    calls.append("facebook")
+    return [], 1, ""
+fan = Case("fan-out", "Test: pacing across seeds")
+seeds = [Seed("username", "first_one"), Seed("username", "second_one")]
+saved, search.SOURCES = search.SOURCES, [types.SimpleNamespace(NAME="slow", KINDS={"username"}, search=throttled),
+                                         types.SimpleNamespace(NAME="facebook", KINDS={"username"}, search=fb_search)]
+saved_stops, browser.stops = browser.stops, lambda: {"Facebook": {"reason": "a login wall"}}
+asyncio.run(search.fan_out(fan, seeds, lambda e: None))
+search.SOURCES, browser.stops = saved, saved_stops
+runs = {(r["source"], r["seed"]): (r["status"], r["note"]) for r in fan.rows("select source, seed, status, note from runs")}
+assert calls == ["first_one"], calls  # never the second seed, never Facebook
+assert runs["slow", "first_one"] == ("failed", "rate limit reached: api.example rate limit reached"), runs
+assert runs["slow", "second_one"] == ("skipped", "skipped: slow was rate-limited earlier in this search"), runs
+assert runs["facebook", "first_one"] == ("skipped", "Facebook is stopped: a login wall"), runs
+
+# A new case from the CLI needs a kind, as from the app (K1); an existing one doesn't
+import sys  # noqa: E402
+argv = sys.argv
+for extra, ok in (([], False), (["--kind", "diligence"], True)):
+    sys.argv = ["hunt", "export", "--case", "cli kind check", "--purpose", "Test: kinds", *extra, "--out", tempfile.mkdtemp()]
+    try:
+        cli.main()
+        assert ok
+    except SystemExit as e:
+        assert not ok and "--kind is required" in str(e), e
+sys.argv = argv
+assert Case.open("cli-kind-check").details()["kind"] == "diligence"
+
 print("ok")

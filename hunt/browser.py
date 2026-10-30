@@ -30,8 +30,12 @@ EXTENSION_DIR = ROOT / "extension"  # a copy of extension/, plus pairing.json fo
 STATUS = ROOT / "signins.json"
 STOPS = ROOT / "stops.json"  # hard stops from the revocation watcher; they outlive restarts
 ACCOUNTS = ROOT / "accounts.json"  # the handle she signed in as, per platform, for "logged in as <handle>"
+GUIDED = ROOT / "guided.json"  # guided mode's switch: off unless she turns it on in Hunt, acknowledging the trade-off
+LOG = ROOT / "audit.jsonl"  # this computer's own audit lines: hard stops, resumes, guided mode on/off, sign-ins after a stop
 STOP_MESSAGE = ("{platform} showed {reason}. Hunt Capture has stopped recording {platform}. Don't use this account for "
                 "casework, and tell Ethos. Don't switch to another account, browser profile or proxy.")
+AUTO_MESSAGE = ("{platform} showed {reason} to Hunt's own automatic reads. Hunt has stopped reading and recording "
+                "{platform} until you resume it. Tell Ethos first, and don't switch to another account, network or proxy.")
 SOURCE = Path(__file__).resolve().parent.parent / "extension"
 PLATFORMS = {  # key → (shown as, login page for onboarding's "Sign in")
     "facebook": ("Facebook", "https://www.facebook.com/login/"),
@@ -40,6 +44,7 @@ PLATFORMS = {  # key → (shown as, login page for onboarding's "Sign in")
     "linkedin": ("LinkedIn", "https://www.linkedin.com/login"),
     "x": ("X", "https://x.com/i/flow/login"),
 }
+NAMES = {k: label for k, (label, _) in PLATFORMS.items()} | {"youtube": "YouTube", "reddit": "Reddit"}
 STATES = ("signed_in", "signed_out", "unknown")
 BINARIES = ("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing", "Chromium.app/Contents/MacOS/Chromium",
             "chrome", "chrome.exe")
@@ -179,24 +184,36 @@ def accounts() -> dict:
 
 
 def set_accounts(handles: dict) -> dict:
+    """Her handles per platform. A stopped platform's handle can't change: no switching accounts after a hard stop."""
     clean = {p: str(h).strip().lstrip("@")[:100] for p, h in handles.items()
-             if p in PLATFORMS | {"youtube": 0, "reddit": 0} and isinstance(h, str) and h.strip()}
+             if p in NAMES and isinstance(h, str) and h.strip()}
+    old = accounts()
+    if moved := [NAMES[p] for p in old if NAMES.get(p) in stops() and clean.get(p) != old[p]]:
+        raise ValueError(f"{', '.join(moved)} is stopped: its account can't change. Don't switch accounts; tell Ethos.")
     _write(ACCOUNTS, clean)
     return clean
 
 
 def stops() -> dict:
-    """platform ("Facebook") → {ts, reason, url, message}: where the revocation watcher stopped capture."""
+    """platform ("Facebook") → {ts, reason, url, message}: where capture, and Hunt's automatic reads, are stopped."""
     return _read(STOPS)
 
 
-def stop(platform: str, reason: str, url: str | None = None, case=None) -> dict:
-    """Hard stop: capture off for that platform until she resumes it, audited in the case being captured."""
+def stopped(url: str | None) -> dict | None:
+    """The hard stop covering this address's platform, or None. The one check every reader and recorder makes."""
+    return stops().get(extension.platform(re.sub(r"^http://", "https://", str(url or ""))) or "")
+
+
+def stop(platform: str, reason: str, url: str | None = None, case=None, automatic: bool = False) -> dict:
+    """Hard stop: capture and automatic reads off for that platform until she resumes it. Always written to this
+    computer's log, and audited in `case` and in every open case with a confirmed account on that platform.
+    `automatic`: found by Hunt's own reads, not in her browser."""
     entry = {"ts": now(), "reason": reason, "url": url,
-             "message": STOP_MESSAGE.format(platform=platform, reason=reason)}
+             "message": (AUTO_MESSAGE if automatic else STOP_MESSAGE).format(platform=platform, reason=reason)}
     _write(STOPS, stops() | {platform: entry})
-    if case is not None:
-        case.audit("capture hard stop", {"platform": platform} | entry)
+    _log("capture hard stop", {"platform": platform} | entry)
+    for c in _cases(platform, case):
+        c.audit("capture hard stop", {"platform": platform} | entry)
     problem(entry["message"])
     return entry
 
@@ -204,9 +221,65 @@ def stop(platform: str, reason: str, url: str | None = None, case=None) -> dict:
 def resume(platform: str, case=None) -> dict:
     left = {k: v for k, v in stops().items() if k != platform}
     _write(STOPS, left)
+    _log("capture resumed", {"platform": platform})
     if case is not None:
         case.audit("capture resumed", {"platform": platform})
     return left
+
+
+def guided() -> dict:
+    """Guided mode's switch: {on, acknowledged, note, ts}. Off until she turns it on in Hunt with an acknowledgement
+    of the trade-off (legal.md "Guided mode", decision D3; not a counsel gate)."""
+    return {"on": False, "acknowledged": False, "note": None, "ts": None} | _read(GUIDED)
+
+
+def set_guided(on: bool, acknowledged: bool = False, note: str | None = None, case=None) -> dict:
+    if on and not acknowledged:
+        raise ValueError("turning guided mode on needs your acknowledgement of the trade-off (legal.md, \"Guided mode\")")
+    entry = {"on": bool(on), "acknowledged": bool(on and acknowledged), "note": str(note or "").strip()[:300] or None,
+             "ts": now()}
+    _write(GUIDED, entry)
+    _log(f"guided mode {'on' if on else 'off'}", entry)
+    if case is not None:
+        case.audit(f"guided mode {'on' if on else 'off'}", entry)
+    return entry
+
+
+def her_click(what: str, url: str) -> None:
+    """She confirmed one of her own contact clicks (follow, like, message...) that Hunt Capture asked about."""
+    detail = {"what": str(what)[:80], "url": str(url)[:500], "platform": extension.platform(url)}
+    _log("contact click allowed", detail)
+    if c := _capture_case():
+        c.audit("contact click allowed", detail)
+
+
+def _log(action: str, detail: dict) -> None:
+    ROOT.mkdir(parents=True, exist_ok=True)
+    with open(LOG, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"ts": now(), "action": action} | detail, ensure_ascii=False) + "\n")
+
+
+def _cases(platform: str, case=None) -> list:
+    """`case`, and every open case with a confirmed account on `platform`, each once."""
+    from .case import Case, all_cases
+    found = {case.name: case} if case is not None else {}
+    for slug in all_cases():
+        try:
+            c = found.get(slug) or Case.open(slug)
+        except LookupError:
+            continue
+        if slug not in found and not c.status()["closed"] and any(extension.platform(a) == platform
+                                                                 for a in extension.confirmed(c)):
+            found[slug] = c
+    return list(found.values())
+
+
+def _capture_case():
+    from .case import Case
+    try:
+        return Case.open(_capture["case"]) if _capture["case"] else None
+    except LookupError:
+        return None
 
 
 def _read(path: Path) -> dict:
@@ -235,6 +308,14 @@ def record(signins: dict) -> dict:
         raise ValueError(f"expected {{platform: {'|'.join(STATES)}}} for {', '.join(PLATFORMS)}")
     if isinstance(signins.get("pinned"), bool):  # is Hunt Capture on the toolbar, where its REC badge shows
         clean["pinned"] = signins["pinned"]
+    before = _read(STATUS)
+    for p in PLATFORMS:  # signed in again on a stopped platform: the same account, or another one; either way, say so
+        if NAMES[p] in stops() and before.get(p) == "signed_out" and clean.get(p) == "signed_in":
+            message = f"You signed in to {NAMES[p]} again after a hard stop. Use no other account, and tell Ethos."
+            problem(message)
+            _log("sign-in after hard stop", {"platform": NAMES[p]})
+            if c := _capture_case():
+                c.audit("sign-in after hard stop", {"platform": NAMES[p], "message": message})
     ROOT.mkdir(parents=True, exist_ok=True)
     tmp = STATUS.with_suffix(".part")
     tmp.write_text(json.dumps(clean | {"checked_at": now()}))
@@ -245,7 +326,8 @@ def record(signins: dict) -> dict:
 def status() -> dict:
     """{facebook…x: signed_in|signed_out|unknown, checked_at, browser: {available, running, version, profile, pinned},
     capture: {case, on, since}, problems: [{ts, message}], stopped: {platform: {ts, reason, url, message}},
-    accounts: {platform: handle}, logins: [{platform, label, url}]} for the onboarding and startup screens."""
+    accounts: {platform: handle}, guided: {on, note, ts}, logins: [{platform, label, url}]} for the onboarding and
+    startup screens."""
     try:
         saved = json.loads(STATUS.read_text())
     except (OSError, ValueError):
@@ -255,6 +337,7 @@ def status() -> dict:
             | {"browser": {"available": bool(exe), "running": running(), "version": _version(exe), "profile": PROFILE.exists(),
                            "pinned": saved.get("pinned")},
                "capture": capture(), "problems": list(_problems), "stopped": stops(), "accounts": accounts(),
+               "guided": guided(),
                "logins": [{"platform": p, "label": label, "url": url} for p, (label, url) in PLATFORMS.items()]})
 
 

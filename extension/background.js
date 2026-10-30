@@ -8,10 +8,11 @@
 //
 // Every request a platform receives is caused by one deliberate input of yours. The extension itself never
 // navigates, clicks, scrolls, types, searches, likes, follows or messages, with one exception you drive: in guided
-// mode, each press of Next (Alt+Shift+N, or the popup's button) does exactly one step, either one scroll of the
-// grid by a screen (guidedScroll, in content.js) or one navigation to the next item on Hunt's "open these" list
-// (guidedOpen, below). Nothing repeats, nothing runs on a timer, and the next press is locked until this step's
-// capture is recorded.
+// mode (off unless turned on in Hunt), each press of Next (Alt+Shift+N, or the popup's button) does exactly one
+// step, either one scroll of the grid by a screen (guidedScroll, in content.js) or one navigation to the next item
+// on Hunt's "open these" list (guidedOpen, below). Hunt decides the step and audits it before it happens. Nothing
+// repeats, nothing runs on a timer, and the next press is locked until this step's capture is recorded (or 20 s
+// pass, which Hunt audits as a step not recorded).
 //
 // In the Hunt Browser it pairs itself from pairing.json, which Hunt writes beside it, and it tells Hunt which
 // platforms you're signed in to: from whether each sign-in cookie exists. It never reads, keeps or sends a
@@ -36,9 +37,8 @@ const SIGN_IN = {  // platform → [site, the cookie that exists only while sign
   facebook: ["https://www.facebook.com/", "c_user"],
   instagram: ["https://www.instagram.com/", "sessionid"],
   tiktok: ["https://www.tiktok.com/", "sessionid"],
-  linkedin: ["https://www.linkedin.com/", "li_at"],
   x: ["https://x.com/", "auth_token"],
-};
+};  // not LinkedIn: Hunt's code stays off LinkedIn altogether, so Hunt shows its sign-in as unknown
 
 const DEFAULTS = { port: null, key: null, case: null, caseLabel: "", on: false, mode: "auto", recording: null, stopped: {} };
 chrome.storage.local.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" }).catch(() => {});  // the key: never to content scripts
@@ -48,6 +48,7 @@ const session = () => chrome.storage.session.get({ lastError: "", paused: [], vi
 const tabs = {};     // tabId → { shot, page, url, frames, busy, scrolled, retried, guided }
 const waits = {};    // tabId → timer for the next settled view
 const guiding = {};  // tabId → the lock on guided mode until the last step's capture is recorded
+const storyOk = {};  // tabId → whose Story she chose to open after the Story warning
 const tabState = (id) => (tabs[id] ||= { shot: 0, page: 0, url: "", frames: 0, busy: false });
 
 function siteOf(url) {  // "facebook", "x"... for any page, or null
@@ -214,7 +215,7 @@ async function archive(tab, force) {
     return done;
   } finally {
     t.busy = false;
-    if (t.guided) {  // the guided step's capture is recorded (or failed): the next press may go
+    if (t.guided && now >= t.guidedAt) {  // this step's capture (not one begun before it) is recorded, or failed
       t.guided = false;
       unlock(tab.id);
     }
@@ -269,26 +270,30 @@ async function watch(url) {
 }
 
 // --- guided mode: one press of Next, one step -------------------------------------------------------------------
+// Hunt decides each step and audits it before it happens (POST /api/capture/guided): this does only what Hunt said.
+
+let stepping = false;  // a press is being handled: another press now is refused, not queued
 
 function lock(tabId) {
-  guiding[tabId] = setTimeout(() => unlock(tabId), GUIDE_MAX);  // this timer only releases the lock; it moves nothing
+  clearTimeout(guiding[tabId]);
+  guiding[tabId] = setTimeout(() => missed(tabId), GUIDE_MAX);  // this timer only releases the lock; it moves nothing
 }
 function unlock(tabId) {
   clearTimeout(guiding[tabId]);
   delete guiding[tabId];
 }
-
-const norm = (url) => (url || "").toLowerCase().replace(/^https:\/\/(www\.|m\.)?/, "").replace(/twitter\.com/, "x.com").replace(/[?#].*$/, "").replace(/\/$/, "");
-
-async function account(s, tab) {  // the confirmed account this tab belongs to (its profile, or an item on its list)
-  const { accounts } = await api("checklist", { case: s.case });
-  const here = norm(tab.url);
-  return accounts.find((a) => here === norm(a.account) || here.startsWith(norm(a.account) + "/")
-    || (a.todo || []).some((t) => norm(t.url) === here)) || null;
+async function missed(tabId) {  // the step's capture never came back: release the lock, and tell Hunt
+  unlock(tabId);
+  const t = tabState(tabId);
+  t.guided = false;
+  const s = await get();
+  await problem(new Error("The last guided step wasn't recorded within 20 seconds. Check the page, then press Next again."));
+  if (s.case && t.guidedUrl) await api("guided", { case: s.case, url: t.guidedUrl, missed: true }).catch(problem);
 }
 
 async function guidedBlock(s, tab) {  // why Next can't step right now, or null
   if (!s.on || !s.case) return "Turn capture on first.";
+  if (s.mode === "manual") return "Guided mode records each step, so it needs \"Every page view I settle on\".";
   if (!tab || !SITE.test(tab.url || "")) return "Guided mode runs only on the sites Hunt Capture records.";
   if (s.stopped[nameOf(tab.url)]) return s.stopped[nameOf(tab.url)].message;
   if ((await session()).paused.includes(tab.id)) return "This tab is paused.";
@@ -298,37 +303,51 @@ async function guidedBlock(s, tab) {  // why Next can't step right now, or null
 }
 
 async function guidedNext() {
-  const s = await get();
-  const tab = await activeTab();
-  const why = await guidedBlock(s, tab);
-  if (why) throw new Error(why);
-  const mine = await account(s, tab);
-  if (!mine) throw new Error("Guided mode works on the subject's confirmed accounts and their \"open these\" list.");
-  const onProfile = norm(tab.url) === norm(mine.account) || norm(tab.url).startsWith(norm(mine.account) + "/");
-  const place = await chrome.tabs.sendMessage(tab.id, { type: "guided-where" }).catch(() => null);
-  if (!place) throw new Error("Wait: the page is still loading.");
-  lock(tab.id);
-  if (onProfile && !place.atBottom) {  // the grid isn't all seen yet: one screen further
-    tabState(tab.id).guided = true;
-    await chrome.tabs.sendMessage(tab.id, { type: "guided-scroll" });
-    api("guided", { case: s.case, action: "scroll", url: tab.url }).catch(problem);
-    return { did: "scroll", progress: mine.progress };
+  if (stepping) throw new Error("Wait: the last press is still being handled.");
+  stepping = true;
+  try {
+    const s = await get();
+    const tab = await activeTab();
+    const why = await guidedBlock(s, tab);
+    if (why) throw new Error(why);
+    const place = await chrome.tabs.sendMessage(tab.id, { type: "guided-where" }).catch(() => null);
+    if (!place || !place.loaded) throw new Error("Wait: the page is still loading.");
+    const { visited } = await session();
+    const step = await api("guided", { case: s.case, url: tab.url, at_bottom: place.atBottom, visited });  // Hunt's gate
+    if (step.action === "none") return { did: "nothing", why: step.why, progress: step.progress };
+    lock(tab.id);
+    Object.assign(tabState(tab.id), { guided: true, guidedAt: Date.now(), guidedUrl: tab.url });
+    try {
+      if (step.action === "scroll") {
+        await chrome.tabs.sendMessage(tab.id, { type: "guided-scroll" });
+        return { did: "scroll", progress: step.progress };
+      }
+      await guidedOpen(tab, step.to);
+      await chrome.storage.session.set({ visited: [...visited, step.to] });
+      return { did: "open", to: step.to, progress: step.progress };
+    } catch (error) {
+      tabState(tab.id).guided = false;
+      unlock(tab.id);
+      throw error;
+    }
+  } finally {
+    stepping = false;
   }
-  const { visited } = await session();
-  const next = (mine.todo || []).find((t) => norm(t.url) !== norm(tab.url) && !visited.includes(t.url));
-  if (!next) {
-    unlock(tab.id);
-    return { did: "nothing", why: "Everything on this account's \"open these\" list has been opened.", progress: mine.progress };
-  }
-  await chrome.storage.session.set({ visited: [...visited, next.url] });
-  await guidedOpen(tab.id, next.url);
-  api("guided", { case: s.case, action: "open", url: tab.url, to: next.url }).catch(problem);
-  return { did: "open", to: next.url, progress: mine.progress };
 }
 
-async function guidedOpen(tabId, url) {  // the one navigation a press of Next may make
-  tabState(tabId).guided = true;
-  await chrome.tabs.update(tabId, { url });
+async function guidedOpen(tab, url) {  // the one navigation a press of Next may make: the same site, never a Story
+  if (!SITE.test(url || "") || siteOf(url) !== siteOf(tab.url) || /\/stories\//.test(url)) {
+    throw new Error("Guided mode opens only posts on the site you're on.");
+  }
+  await chrome.tabs.update(tab.id, { url });
+}
+
+// A Story that opened by itself after the one she chose (Instagram and Facebook move on to the next): say so.
+const STORY_PATH = /^https:\/\/(?:www\.|m\.)?(instagram|facebook)\.com\/stories\/([^/?#]+)/i;
+async function storyCheck(tabId, url) {
+  const m = STORY_PATH.exec(url || "");
+  if (!m || (await signIns())[m[1].toLowerCase()] === "signed_out") return;
+  if (storyOk[tabId] !== m[2].toLowerCase()) await problem(new Error(`Now viewing ${m[2]}'s Story; they can see you.`));
 }
 
 // --- what the popup asks for -------------------------------------------------------------------------------------
@@ -434,16 +453,24 @@ chrome.runtime.onInstalled.addListener(async () => {
 // Also whenever this worker starts: when Hunt replaces the worker with new code, neither event above fires.
 autopair().then(badge).then(() => reportSignIns(), problem);
 const WATCHED = new Set(Object.values(SIGN_IN).map(([, name]) => name));
-chrome.cookies.onChanged.addListener(({ cookie }) => { if (WATCHED.has(cookie.name)) reportSignIns(); });
+chrome.cookies.onChanged.addListener(({ cookie }) => {
+  if (!WATCHED.has(cookie.name)) return;
+  reportSignIns();
+  badge().catch(() => {});  // open pages learn at once that she signed in (the Story and contact warnings)
+});
 
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   if (info.url) watch(info.url).catch(problem);
+  if (info.url) storyCheck(tabId, info.url).catch(problem);
   if ((info.status === "complete" || info.url) && SITE.test(tab.url || "")) {
     follow().catch(() => {}).finally(() => soon(tabId, "view", 2000));
   }
 });
 chrome.tabs.onActivated.addListener(({ tabId }) => soon(tabId, "view", 1000));
-chrome.tabs.onRemoved.addListener((tabId) => unlock(tabId));
+chrome.tabs.onRemoved.addListener((tabId) => {
+  unlock(tabId);
+  delete storyOk[tabId];
+});
 
 chrome.commands.onCommand.addListener((command, tab) => {
   if (command === "capture-this" && tab) view(tab.id, "manual").catch(problem);
@@ -452,7 +479,7 @@ chrome.commands.onCommand.addListener((command, tab) => {
 
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (sender.id !== chrome.runtime.id || msg.target === "offscreen") return false;
-  if (sender.tab) {  // a content script: it may only ask whether capture is on, or report a view
+  if (sender.tab) {  // a content script: it may only ask whether capture is on, report a view, or report her OK
     if (msg.type === "on?") {
       Promise.all([get(), signIns()]).then(([s, signedIn]) => reply({ on: s.on, signedIn }));
       return true;
@@ -462,8 +489,10 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       soon(sender.tab.id, "view", 300);
     }
     if (msg.type === "frame") view(sender.tab.id, "frame").catch(problem);
+    if (msg.type === "story-ok") storyOk[sender.tab.id] = (STORY_PATH.exec(msg.href || "") || [])[2]?.toLowerCase() || null;
+    if (msg.type === "contact-ok") api("override", { what: String(msg.what || ""), url: sender.tab.url }).catch(problem);
     return false;
   }
-  handle(msg).then((value) => reply(value ?? {}), (error) => reply({ error: error.message }));
+  handle(msg).then((result) => reply(result ?? {}), (error) => reply({ error: error.message }));
   return true;
 });

@@ -108,7 +108,9 @@ function caseMenu(c) {
         ${item('life-ask', 'pack', 'Move to another computer…')}
         ${st.legal_hold ? '' : c.demo ? item('demo-delete', '', 'Delete the demo', 'bad') : item('life-ask', 'delete', 'Move to the Trash…', 'bad')}</div></div></details>`;
 }
-const closedBar = c => c.demo ? demoBar(c) : c.status?.closed ? html`<div style="margin:0 20px 8px;padding:10px 12px 10px 16px;border-radius:var(--r);background:var(--raise);display:flex;gap:12px;align-items:center;font-size:14.5px;flex:none">
+const closedBar = c => c.demo ? demoBar(c) : !c.status?.closed && c.blocked ? html`<div style="margin:0 20px 8px;padding:10px 12px 10px 16px;border-radius:var(--r);background:var(--am-bg);display:flex;gap:12px;align-items:center;font-size:14.5px;flex:none;flex-wrap:wrap">
+  <span class="dot" style="background:var(--am)"></span><span class="t2" style="flex:1;min-width:240px">Nothing new can run: ${c.blocked}.</span>
+  <button class="btn ghost sm" data-act="details-edit-go" data-slug="${c.slug}">Edit the case details</button></div>` : c.status?.closed ? html`<div style="margin:0 20px 8px;padding:10px 12px 10px 16px;border-radius:var(--r);background:var(--raise);display:flex;gap:12px;align-items:center;font-size:14.5px;flex:none">
   <span class="dot"></span><span class="t2">Closed on ${longDay(c.status.closed)}. Searches, scans, checks and watching are off; the report and evidence stay as they are.</span>
   <button class="btn ghost sm" style="margin-left:auto" data-act="life-do" data-mode="reopen" data-slug="${c.slug}">Reopen</button></div>` : '';
 // The demo says so on every step (docs/qol.md L); rebuilding it is the reset
@@ -275,7 +277,8 @@ function drawWizard() {
           <span class="t2">What’s it for?</span>
           <div style="display:flex;gap:10px;flex-wrap:wrap">${KIND_CHOICES.map(([k, label, ic, col, bg]) => html`<button type="button" class="choice ${w.kind === k ? 'on' : ''}" data-act="wiz-kind" data-kind="${k}"><span class="ic" style="background:${bg};color:${col}">${ic}</span>${label}</button>`)}</div>
           <div class="field"><span class="label">Who asked, and why it’s lawful <span style="color:var(--am)">· required</span></span>
-            <input class="input" name="purpose" value="${w.purpose}" placeholder="e.g. Northgate Mutual, claim WC-88412: disputed injury claim, permissible purpose on file"></div>
+            <input class="input" name="purpose" value="${w.purpose}" placeholder="e.g. Northgate Mutual, claim WC-88412: disputed injury claim, permissible purpose on file">
+            <span class="dim" style="font-size:12.5px">${NO_PRETEXT}</span></div>
           <div class="field"><span class="label">Claim or reference number</span><input class="input" name="reference" value="${w.reference}" placeholder="e.g. WC-88412"></div>
           <details id="wiz-header" ${w.headerOpen || WIZ_HEADER.some(k => w[k]) ? 'open' : ''} style="border-radius:14px;background:rgba(255,255,255,.02);padding:4px 12px">
             <summary class="muted" style="cursor:pointer;padding:8px 4px">For the report header <span class="dim">· optional, and can be filled in later</span></summary>
@@ -324,11 +327,10 @@ function drawWizard() {
 /* Face comparison with a reference photo (docs/analysis.md §5): optional, off by default, allowed only where the
    subject lives permits it. The rule that decides is shown as the server words it. */
 const US_STATES = 'AL Alabama|AK Alaska|AZ Arizona|AR Arkansas|CA California|CO Colorado|CT Connecticut|DE Delaware|DC District of Columbia|FL Florida|GA Georgia|HI Hawaii|ID Idaho|IL Illinois|IN Indiana|IA Iowa|KS Kansas|KY Kentucky|LA Louisiana|ME Maine|MD Maryland|MA Massachusetts|MI Michigan|MN Minnesota|MS Mississippi|MO Missouri|MT Montana|NE Nebraska|NV Nevada|NH New Hampshire|NJ New Jersey|NM New Mexico|NY New York|NC North Carolina|ND North Dakota|OH Ohio|OK Oklahoma|OR Oregon|PA Pennsylvania|RI Rhode Island|SC South Carolina|SD South Dakota|TN Tennessee|TX Texas|UT Utah|VT Vermont|VA Virginia|WA Washington|WV West Virginia|WI Wisconsin|WY Wyoming'.split('|').map(x => [x.slice(0, 2), x.slice(3)]);
-let countries = null; // [[ISO code, name]], from the browser's own region names
-const countryList = () => countries ??= (() => { const dn = new Intl.DisplayNames(['en'], { type: 'region' }), out = [];
-  for (let a = 65; a < 91; a++) for (let b = 65; b < 91; b++) { const code = String.fromCharCode(a, b); let name; try { name = dn.of(code); } catch { continue; }
-    if (name && name !== code && !/unknown/i.test(name) && !['EU', 'EZ', 'UN', 'QO', 'XA', 'XB', 'ZZ'].includes(code)) out.push([code, name]); }
-  return out.sort((x, y) => x[1].localeCompare(y[1])); })();
+let countries = null; // [[ISO code, name]]: the server's list (case.COUNTRIES; test_app keeps them equal), named by the browser
+const ISO_COUNTRIES = 'AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS XK YE YT ZA ZM ZW'.split(' ');
+const countryList = () => countries ??= (() => { const dn = new Intl.DisplayNames(['en'], { type: 'region' });
+  return ISO_COUNTRIES.map(code => [code, dn.of(code) || code]).sort((x, y) => x[1].localeCompare(y[1])); })();
 const residenceOf = w => w.country === 'US' ? (w.state ? `US-${w.state}` : 'US') : w.country;
 function faceStep(w) {
   const r = residenceOf(w), g = w.gate;
@@ -603,7 +605,7 @@ const sourceRows = rows => html`${rows.map(r => { const url = /^https?:/.test(r.
   return html`<div style="display:flex;gap:10px;align-items:baseline;font-size:13.5px;min-width:0">
   <span class="dot" style="background:${SOURCE_DOT[r.status] || 'var(--dim)'};align-self:center"></span><b style="font-weight:500;white-space:nowrap">${r.source}</b>
   <span class="muted" style="white-space:nowrap">${url ? handleOf(url) : r.seed}${host && !r.source.toLowerCase().includes(host) ? html` <span class="dim">on ${host}</span>` : ''}</span>
-  <span class="t2" style="white-space:nowrap">${r.status === 'running' ? 'reading…' : r.status === 'failed' ? 'couldn’t read' : `${r.found ?? 0} found`}</span>
+  <span class="t2" style="white-space:nowrap">${r.status === 'running' ? 'reading…' : r.status === 'failed' ? 'couldn’t read' : r.status === 'skipped' ? 'skipped' : `${r.found ?? 0} found`}</span>
   ${r.note ? html`<span class="dim" style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.note}">${raw ? 'the site didn’t answer as expected (details on hover)' : r.note}</span>` : ''}</div>`; })}`;
 
 /* People around the subject (docs/analysis.md §8; legal.md A1–A10): only what the case already holds, by name and
@@ -633,7 +635,7 @@ screens.people = async slug => {
     <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:8px"><div class="h2" style="text-align:center">People around the subject</div>
       <div class="sub" style="text-align:center">${r.notice}</div></div>
     <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
-      ${shown.length ? shown.map(x => personCard(slug, x)) : html`<div class="empty">Nobody else is named in the subject’s posts, bios or records yet${hidden.length ? ' (apart from those you marked not relevant)' : ''}.</div>`}
+      ${c.details.kind === 'background' ? '' : shown.length ? shown.map(x => personCard(slug, x)) : html`<div class="empty">Nobody else is named in the subject’s posts, bios or records yet${hidden.length ? ' (apart from those you marked not relevant)' : ''}.</div>`}
       ${hidden.length ? html`<details><summary class="muted" style="cursor:pointer;padding:6px 0">Marked not relevant (${hidden.length})</summary><div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">${hidden.map(x => personCard(slug, x))}</div></details>` : ''}
       <span class="dim" style="font-size:12.5px">The report quotes what was observed, with its source, and never states a relationship. Children are never named. Employment screening reports leave this section out.</span></div>
   </main>`);
@@ -743,7 +745,7 @@ function hitCard(slug, h) {
       <div style="font-weight:500">${h.what}</div>
       <div style="font-size:13.5px;color:${h.timing === 'after' ? 'var(--am)' : 'var(--mu)'}">${h.days_after != null ? (h.days_after >= 0 ? `${h.days_after} days after the injury` : `${-h.days_after} days before the injury`) + ' · ' : ''}${h.verdict}${blur ? ' · blurred: may show a child' : ''}</div>
       ${flagged ? html`<div style="display:flex;gap:6px;margin-top:6px">
-        <button class="btn sm ${h.status === 'kept' || h.status === 'in report' ? 'good' : ''}" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="kept">${h.status === 'kept' || h.status === 'in report' ? '✓ Kept' : 'Keep it'}</button>
+        <button class="btn sm ${h.status === 'kept' || h.status === 'in report' ? 'good' : ''}" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="kept">${h.status === 'in report' ? '✓ In the report' : h.status === 'kept' ? '✓ Kept' : 'Keep it'}</button>
         <button class="btn ghost sm" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="not relevant">Not relevant</button></div>` : ''}
     </div></div>`;
 }
@@ -1033,11 +1035,14 @@ async function uploadFacebook(slug, files) {
 
 /* Connect your accounts (first boot, and from Home): sign in once in the Hunt Browser; each platform can be skipped */
 const setSkipped = list => { try { localStorage.setItem('hunt-skipped', JSON.stringify(list)); } catch { /* private window */ } };
+// legal.md C3 and C5: her own real account, and no pretext, said where she signs in and where she opens a case
+const OWN_ACCOUNT = 'Sign in only with your own real account (your work account, if your firm’s policy says so), never a made-up, shared or borrowed one. If a platform blocks it, stop and tell your firm; don’t sign in with another.';
+const NO_PRETEXT = 'Never use a false name or a false reason with anyone, online or off (no pretexting).';
 function connectRows(st) {
   if (!st.browser?.available) return html`<div class="reason warn"><span class="ic">!</span><span>Install the Hunt Browser first: <span class="mono">uv run playwright install chromium</span>, then come back here.</span></div>`;
   const sk = skipped();
   return html`${st.logins.map(l => { const state = st[l.platform] || 'unknown', isSkipped = sk.includes(l.platform) && state !== 'signed_in';
-    return html`<div class="row" style="${isSkipped ? 'opacity:.55' : ''}"><span class="dot" style="background:${siteColor(l.label)}"></span><b style="flex:1">${l.label}</b>
+    return html`<div class="row" style="${isSkipped ? 'opacity:.55' : ''};flex-wrap:wrap"><span class="dot" style="background:${siteColor(l.label)}"></span><b style="flex:1">${l.label}${l.platform === 'linkedin' ? html`<br><span class="muted" style="font-weight:400;font-size:13px">LinkedIn can show members who viewed them: set profile viewing to private mode in LinkedIn’s settings, or browse logged out.</span>` : ''}</b>
       <span style="font-size:14px;color:${state === 'signed_in' ? 'var(--gr)' : 'var(--mu)'}">${isSkipped ? 'Skipped' : state === 'signed_in' ? '✓ Signed in' : SIGNIN[state]}</span>
       ${state === 'signed_in' ? '' : html`<button class="btn sm" data-act="browser-open" data-url="${l.url}">Sign in</button>`}
       ${state === 'signed_in' ? '' : html`<button class="btn ghost sm" data-act="connect-skip" data-platform="${l.platform}">${isSkipped ? 'Undo' : 'Skip'}</button>`}</div>`; })}
@@ -1053,13 +1058,16 @@ function pairingPanel(pr, code) {
 }
 let pairCode = null; // {code, until}
 screens.connect = async () => {
-  const [st, pr] = await Promise.all([api('/api/browser/status'), api('/api/pairing').catch(() => ({ paired: false }))]);
+  const [st, pr, gd] = await Promise.all([api('/api/browser/status'), api('/api/pairing').catch(() => ({ paired: false })), api('/api/browser/guided').catch(() => ({ on: false }))]);
   try { localStorage.setItem('hunt-connect-seen', '1'); } catch { /* fine */ }
   mount(html`${topHome()}<main class="screen" style="align-items:center;padding:16px 24px 40px">
     <div style="width:min(720px,100%);display:flex;flex-direction:column;gap:18px">
       <div><a href="#/" data-act="back" class="muted" style="font-size:15px">← Back</a><div class="h2" style="margin-top:10px">Connect your accounts</div>
-        <div class="sub" style="margin-top:6px">Sign in once, in the Hunt Browser, to the platforms you’ll look at. Hunt never sees your passwords, and nothing is recorded while you sign in. Skip any you don’t use.</div></div>
+        <div class="sub" style="margin-top:6px">Sign in once, in the Hunt Browser, to the platforms you’ll look at. Hunt never sees your passwords, and nothing is recorded while you sign in. Skip any you don’t use.</div>
+        <div class="reason" style="margin-top:10px"><span class="ic">!</span><span>${OWN_ACCOUNT} ${NO_PRETEXT}</span></div></div>
       ${Object.keys(st.stopped || {}).length ? html`<div style="display:flex;flex-direction:column;gap:8px">${stopsBlock(st.stopped)}</div>` : ''}
+      ${st.problems?.length ? html`<div class="panel" style="padding:14px 18px;display:flex;flex-direction:column;gap:6px"><b>What the Hunt Browser reported</b>
+        ${st.problems.slice(-5).reverse().map(p => html`<span class="t2" style="font-size:13.5px">${when(p.ts)} · ${p.message}</span>`)}</div>` : ''}
       <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px" id="connect-rows">${connectRows(st)}</div>
       ${st.browser?.available ? html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><b>Your accounts <span class="muted" style="font-weight:400;font-size:14px">(optional)</span></b>
         <span class="muted" style="font-size:13.5px">The handle you sign in with on each platform, so every capture reads “logged in as @handle” in the evidence.</span>
@@ -1068,6 +1076,10 @@ screens.connect = async () => {
         <div><button class="btn sm" data-act="accounts-save">Save handles</button></div></div>` : ''}
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${seenFlag('hunt-keys-seen') ? html`<a class="btn primary" href="#/">Done</a>` : html`<a class="btn primary" href="#/keys">Next: free keys (optional) →</a>`}
         ${st.browser?.profile ? html`<span class="life" style="margin-left:auto"><button class="btn ghost sm" data-act="signout-ask">Sign out of everything…</button></span>` : ''}</div>
+      <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;gap:12px"><b>Guided mode</b><span class="${gd.on ? '' : 'muted'}" style="font-size:14px">${gd.on ? 'On' : 'Off'}</span></div>
+        <span class="muted" style="font-size:13.5px">One key press in the Hunt Browser scrolls the subject’s own profile or opens their next post, so you capture without clicking through. It runs only on accounts you confirmed, and every press is logged. Some firms’ counsel prefer it off, so check with yours before using it on casework.</span>
+        <div class="life" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${gd.on ? html`<span class="t2" style="font-size:13.5px;flex:1;min-width:200px">${gd.note ? html`Your note: ${gd.note}` : 'You acknowledged the trade-off when you turned it on.'}</span><button class="btn ghost sm" data-act="guided-set" data-on="">Turn off</button>`
+          : html`<label style="display:flex;gap:8px;align-items:center;font-size:14px;flex-basis:100%"><input type="checkbox" id="guided-ack" style="width:16px;height:16px;accent-color:var(--ac)"> I understand each press is my own input, it only steps through accounts I confirmed, and it’s logged.</label><input class="input" id="guided-note" placeholder="Note (optional), e.g. who you checked with" aria-label="Note" style="flex:1;min-width:220px;font-size:14px"><button class="btn sm" data-act="guided-set" data-on="1">Turn on</button>`}</div></div>
       <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><b>Hunt Capture in another browser</b><div id="pairing" style="display:flex;flex-direction:column;gap:10px">${pairingPanel(pr, pairCode && pairCode.until > Date.now() ? pairCode : null)}</div></div>
     </div></main>`);
   poll(async () => {
@@ -1142,7 +1154,7 @@ function leadParts(x, d, records) { // the post, flag, picture and link behind a
 }
 function leadCard(slug, x, d, records) {
   const { hit, file, href, blur } = leadParts(x, d, records), [word, col] = STRENGTH(x.confidence), aside = x.status === 'not relevant';
-  const kept = ['kept', 'in report'].includes(hit?.status || x.status);
+  const st = hit?.status || x.status; // "in report" is printed; "kept" stays with the case for her file (D4)
   return html`<div class="card" style="padding:14px;display:flex;gap:14px;background:var(--panel-2);${aside ? 'opacity:.55' : ''}">
     ${file ? html`<img class="thumb ${blur ? 'blur' : ''}" src="${evidenceUrl(slug, file)}" alt="" style="width:76px;height:76px;flex:none">`
       : html`<span class="tile-ic" style="width:76px;height:76px;font-size:22px">${x.kind === 'record' ? '▤' : '“'}</span>`}
@@ -1150,10 +1162,11 @@ function leadCard(slug, x, d, records) {
       <div style="font-size:14px"><span class="muted">Claim:</span> ${x.claim}</div>
       <div><span class="muted" style="font-size:14px">Evidence:</span> ${x.shows}</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px"><span class="t2">${longDay(x.date)}${x.days_after != null ? ` · ${x.days_after} days after the injury` : ''}</span>
-        <span style="color:${col}">${word}</span>${(hit?.status || x.status) === 'in report' ? html`<span class="tag" style="background:var(--gr-bg);color:var(--gr)">✓ In the report</span>` : ''}</div>
+        <span style="color:${col}">${word}</span></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:2px">
         ${aside ? html`<button class="btn ghost sm" data-act="lead-set" data-id="${x.id}" data-status="">Put back</button>` : html`
-        <button class="btn sm ${kept ? 'good' : ''}" data-act="lead-set" data-id="${x.id}" data-hit="${hit?.id ?? ''}" data-status="kept">${kept ? '✓ Kept' : 'Keep'}</button>
+        <button class="btn sm ${st === 'in report' ? 'good' : 'primary'}" data-act="lead-set" data-id="${x.id}" data-hit="${hit?.id ?? ''}" data-status="in report">${st === 'in report' ? '✓ In the report' : 'Add to report'}</button>
+        <button class="btn ghost sm ${st === 'kept' ? 'good' : ''}" data-act="lead-set" data-id="${x.id}" data-hit="${hit?.id ?? ''}" data-status="kept" title="Kept with the case, not printed in the report">${st === 'kept' ? '✓ Kept for the file' : 'Keep for the file'}</button>
         <button class="btn ghost sm" data-act="lead-set" data-id="${x.id}" data-hit="${hit?.id ?? ''}" data-status="not relevant">Not relevant</button>`}
         ${file ? html`<a class="btn ghost sm" href="${evidenceUrl(slug, file)}" target="_blank" rel="noopener">Open evidence</a>` : href && /^https?:\/\//.test(href) ? html`<a class="btn ghost sm" href="${href}" target="_blank" rel="noopener noreferrer">Open evidence ↗</a>` : ''}</div>
     </div></div>`;
@@ -1170,7 +1183,7 @@ function claimView(slug, c, d, ld, tl, records) {
       ${claimFilter ? html`<button class="muted" data-act="claim-filter" data-key="" style="font-size:13.5px;text-align:left">Show every restriction</button>` : ''}</div>
     <div style="display:flex;flex-direction:column;gap:10px;min-width:0">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap"><b style="font-size:17px">Evidence after the injury${claimFilter ? html` <span class="muted" style="font-weight:400">against “${ld.restrictions.find(r => r.key === claimFilter)?.claim.replace(/^The case asks about /, '') || claimFilter}”</span>` : ''}</b>
-        <span class="muted" style="font-size:13px">Leads to check, most confident first. Only what you keep goes in the report.</span></div>
+        <span class="muted" style="font-size:13px">Leads to check, most confident first. Only what you add to the report goes in it.</span></div>
       ${shown.length ? shown.map(x => leadCard(slug, x, d, records)) : html`<div class="empty">Nothing after ${longDay(ld.injury_date)} ${claimFilter ? 'bears on this' : 'bears on the claim'} yet.</div>`}
       ${aside.length ? html`<details><summary class="muted" style="cursor:pointer;padding:4px 0">Set aside (${aside.length})</summary><div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${aside.map(x => leadCard(slug, x, d, records))}</div></details>` : ''}
     </div></div>
@@ -1230,7 +1243,7 @@ screens.posts = async slug => {
     <div class="split" style="--side:460px;flex:1 0 auto;min-height:460px">
       <div style="display:flex;flex-direction:column;gap:8px;overflow:auto">${hits.length ? hits.map(h => html`<button class="row" data-act="pick-hit" data-id="${h.id}" style="text-align:left;${sel && h.id === sel.id ? 'box-shadow:inset 0 0 0 1.5px var(--ac)' : ''}">
           <span class="dot" style="background:${siteColor(h.source)}"></span>
-          <div style="flex:1;min-width:0"><div style="font-weight:500">${h.what}</div><div class="muted" style="font-size:13.5px">${[h.source, h.posted_at ? 'posted ' + day(h.posted_at) : ''].filter(Boolean).join(' · ')}</div></div>
+          <div style="flex:1;min-width:0"><div style="font-weight:500">${h.what}</div><div class="muted" style="font-size:13.5px">${[h.source, h.posted_at ? 'posted ' + day(h.posted_at) : ''].filter(Boolean).join(' · ')}${restricted(h) ? html` <span class="tag warn">${h.audience} only</span>` : ''}</div></div>
           <div style="text-align:right;font-size:13.5px"><div style="color:${h.timing === 'after' ? 'var(--am)' : 'var(--mu)'}">${h.days_after != null && h.days_after >= 0 ? `+${h.days_after} days` : ''}</div><div class="muted">${h.verdict}${h.status === 'in report' ? ' · in report' : h.status === 'kept' ? ' · kept' : ''}</div></div></button>`)
         : html`<div class="empty">Nothing flagged yet. <a href="#/case/${slug}/scan" style="color:var(--ac)">See the scan →</a></div>`}</div>
       <div id="hit-detail">${sel ? hitDetail(slug, c, sel) : ''}</div>
@@ -1249,6 +1262,7 @@ const commentsBlock = cs => !cs?.length ? '' : html`<details ${cs.length <= 5 ? 
     <span class="dim">${[x.posted_at ? day(x.posted_at) : x.posted_at_text, x.likes ? `${x.likes} like${x.likes === 1 ? '' : 's'}` : ''].filter(Boolean).map(t => ` · ${t}`).join('')}</span>
     <div class="t2" style="overflow-wrap:anywhere">${x.text}</div></div>`)}
     <span class="dim" style="font-size:12.5px">Only the comments the page showed; others may be hidden or folded.</span></div></details>`;
+const restricted = h => h.audience && h.audience !== 'Public'; // K3: held for counsel
 function hitDetail(slug, c, h) {
   const src = evidenceUrl(slug, h.file), blur = h.blur || h.child_visible;
   return html`<div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:12px">
@@ -1258,12 +1272,18 @@ function hitDetail(slug, c, h) {
     ${h.caption ? html`<div class="t2" style="font-size:14.5px">“${h.caption}”</div>` : ''}
     ${(x => x ? html`<div class="muted" style="font-size:13.5px">${[x.place && `at ${x.place}`, x.activity, x.life_event].filter(Boolean).join(' · ')}${x.posted_at_precision && x.posted_at_precision !== 'second' ? html`${x.place || x.activity || x.life_event ? ' · ' : ''}date to the ${x.posted_at_precision}${x.posted_at_text ? `, as Facebook showed it: “${x.posted_at_text}”` : ''}` : ''}</div>` : '')((window.__posts || []).find(p => p.id === h.post_id)?.extra)}
     ${commentsBlock((window.__posts || []).find(p => p.id === h.post_id)?.visible_comments)}
+    ${(window.__posts || []).find(p => p.id === h.post_id)?.extra?.not_subject ? html`<div class="reason warn"><span class="ic">!</span>From a page that isn’t the subject’s. It goes in the report only with your note saying how it concerns the subject.</div>` : ''}
+    ${restricted(h) ? html`<div class="reason ${h.counsel ? '' : 'warn'}" style="flex-direction:column;align-items:stretch;gap:8px">
+      <div><span class="ic">${h.counsel ? '✓' : '!'}</span> Shown to <b>${h.audience}</b>, not the public. ${h.counsel ? 'Counsel approved its use: it can go in the report, which says so.' : 'It stays out of the report until counsel approves its use.'}</div>
+      ${h.counsel ? '' : html`<div class="life" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input class="input" id="counsel-by" placeholder="Counsel’s name" aria-label="Counsel’s name" style="flex:1;min-width:160px;font-size:14px">
+        <input class="input" id="counsel-note" placeholder="Note (optional)" aria-label="Note" style="flex:2;min-width:160px;font-size:14px">
+        <button class="btn sm" data-act="counsel-ok" data-slug="${slug}" data-id="${h.id}">Record approval</button></div>`}</div>` : ''}
     ${c.details.limits ? html`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div class="card" style="padding:12px;background:var(--panel-3)"><div class="label">The claim says</div><div>${c.details.limits}</div></div>
       <div class="card" style="padding:12px;background:var(--am-bg)"><div class="label" style="color:var(--am)">The post shows</div><div>${h.who === 'him' ? '' : 'A person: '}${h.what}</div></div></div>` : ''}
     <div class="muted" style="font-size:13px">Machine verdict: ${h.verdict}. Hunt doesn’t measure weights or recognise faces; you decide whether this is the subject.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn sm ${h.status === 'kept' ? 'good' : ''}" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="kept">${h.status === 'kept' ? '✓ Kept' : 'Keep'}</button>
+      <button class="btn sm ${h.status === 'kept' ? 'good' : ''}" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="kept" title="Kept with the case, not printed in the report">${h.status === 'kept' ? '✓ Kept for the file' : 'Keep for the file'}</button>
       <button class="btn primary sm" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="in report">${h.status === 'in report' ? '✓ In the report' : 'Add to report'}</button>
       <button class="btn ghost sm" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="not relevant">Not relevant</button>
       ${h.url ? html`<a class="btn ghost sm" href="${/^https?:\/\//.test(h.url) ? h.url : '#'}" target="_blank" rel="noopener noreferrer" title="Opens the live post in your own browser, not through Hunt’s proxy">Open the post</a>` : ''}
@@ -1290,7 +1310,9 @@ function isoWeek(d) { const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(),
 const TODO = { summary: 'search', method: 'search', identity: 'identity', found: 'posts' }; // the step that writes each section
 const TODO_LABEL = { search: 'Run the search', identity: 'Decide whether it’s them', posts: 'Review the flagged posts left' };
 const MISSING = { client: 'Add the client', reference: 'Add the claim or reference number', assignment_date: 'Add the assignment date',
-  investigator: 'Add your name in report settings', licence: 'Add your licence number in report settings' };
+  investigator: 'Add your name in report settings', licence: 'Add your licence number in report settings',
+  abroad_basis: 'Write down the lawful basis (the subject lives abroad)', no_notice: 'Write down why the subject wasn’t told',
+  mhmda_basis: 'Write down the fraud basis (Washington subject)' };
 const HEADER_ROWS = [['client', 'Client'], ['adjuster', 'Adjuster'], ['reference', 'Claim or reference no.'], ['file_number', 'Our file no.'], ['subject', 'Subject'],
   ['subject_dob', 'Date of birth'], ['injury_date', 'Date of injury or loss'], ['assignment_date', 'Assigned'], ['report_date', 'Report date']];
 const DETAIL_FIELDS = [['client', 'Client', 'Carrier, TPA or law firm'], ['adjuster', 'Adjuster', ''], ['reference', 'Claim or reference no.', ''], ['file_number', 'Our file no.', 'Your own file number'],
@@ -1311,7 +1333,7 @@ function citeLabel(id, r) {
 screens.report = async slug => {
   const screening = sessionStorage.getItem('hunt-screening') === '1';
   const [c, r] = await Promise.all([loadCase(slug), api(`/api/cases/${encodeURIComponent(slug)}/report?screening=${screening ? 1 : 0}`)]);
-  const h = r.header, tz = h.timezone;
+  const h = r.header, tz = h.timezone, bg = c.details.kind === 'background';
   const cite = id => { const [label, target] = citeLabel(id, r); return html`<button class="mono" data-act="cite" data-target="${target}" title="${id}" style="padding:1px 6px;border-radius:5px;background:var(--ac-bg);color:var(--ac);font-size:12.5px;white-space:nowrap">${label}</button>`; };
   const exChip = no => no ? cite(r.exhibits.find(e => e.no === no)?.id) : '';
   const para = list => html`<p style="margin:0;line-height:1.7;font-size:16px">${list.map(x => html`${x.text} ${x.cites.map(cite)} `)}</p>`;
@@ -1364,12 +1386,14 @@ screens.report = async slug => {
           ${todos.map(step => html`<a class="reason warn" href="#/case/${slug}/${step}"><span class="ic">•</span>${TODO_LABEL[step]}</a>`)}
           ${missing.map(k => ['investigator', 'licence'].includes(k) ? html`<a class="reason warn" href="#/settings"><span class="ic">•</span>${MISSING[k] || k}</a>`
             : html`<button class="reason warn" data-act="details-edit" style="text-align:left"><span class="ic">•</span>${MISSING[k] || `Add ${k.replace('_', ' ')}`}</button>`)}</div>
-        <label class="panel" style="padding:16px 18px;display:flex;gap:12px;align-items:center;cursor:pointer"><input type="checkbox" data-act="screening" ${screening ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--ac)">
-          <span><b>Job screening mode</b><br><span class="muted" style="font-size:13.5px">Hides protected details (age, health, religion, family…)</span></span></label>
+        <label class="panel" style="padding:16px 18px;display:flex;gap:12px;align-items:center;cursor:pointer"><input type="checkbox" data-act="screening" ${screening || bg ? 'checked' : ''} ${bg ? 'disabled' : ''} style="width:18px;height:18px;accent-color:var(--ac)">
+          <span><b>Job screening mode</b><br><span class="muted" style="font-size:13.5px">${bg ? 'Always on for a background check: only the accounts you confirmed, and no protected details or family' : 'Hides protected details (age, health, religion, family…)'}</span></span></label>
         <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px">
+          ${r.checks.missing.includes('mhmda_basis') ? html`<div class="reason warn"><span class="ic">!</span>The subject lives in Washington: write down the fraud basis before exporting. <button data-act="details-edit" style="color:var(--ac)">Edit the case details →</button></div>`
+            : bg && !r.presence.length ? html`<div class="reason warn"><span class="ic">!</span>A background report covers only accounts you confirmed. <a href="#/case/${slug}/identity" style="color:var(--ac)">Confirm one on Is it them? →</a></div>` : html`
           <a class="btn primary" href="${base}.pdf${q}">Export PDF</a><a class="btn" href="${base}.html${q}&view=1" target="_blank" rel="noopener" title="Opens in a new tab; print it from there">Web page</a><a class="btn ghost" href="${base}.json${q}">Data file</a>
           <a class="btn ghost" href="/api/cases/${encodeURIComponent(slug)}/evidence.zip" download>Evidence bundle (.zip)</a>
-          <div class="muted" style="font-size:13px">Every evidence file under a readable name, with a SHA-256 manifest anyone can check with <span class="mono">shasum -c</span>.</div></div>
+          <div class="muted" style="font-size:13px">Every evidence file under a readable name, with a SHA-256 manifest anyone can check with <span class="mono">shasum -c</span>.</div>`}</div>
         <div class="panel" style="padding:14px 18px;display:flex;flex-direction:column;gap:4px;font-size:14.5px">
           <button data-act="details-edit" style="text-align:left;color:var(--ac)">Edit the case details →</button>
           <a href="#/settings" style="color:var(--ac)">Your firm, licence and logo →</a></div>
@@ -1393,6 +1417,16 @@ function detailsForm(c) {
   return html`<form id="details-form" style="display:flex;flex-direction:column;gap:12px"><div class="h3" style="font-size:19px">Case details for the report</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">${DETAIL_FIELDS.map(([k, label, hint]) => html`<label class="field"><span class="label">${label}</span>
       <input class="input" name="${k}" ${hint === 'date' ? raw('type="date"') : ''} value="${d[k] || ''}" placeholder="${hint === 'date' ? '' : hint}"></label>`)}</div>
+    <label class="field" style="max-width:420px"><span class="label">Where the subject lives <span class="dim">· decides whether face comparison may run, and Washington’s health-data rules</span></span>
+      <select class="input" name="subject_residence"><option value="unknown">Not known</option>
+        ${US_STATES.map(([k, n]) => html`<option value="US-${k}" ${d.subject_residence === `US-${k}` ? 'selected' : ''}>${n}, United States</option>`)}
+        ${countryList().map(([k, n]) => html`<option value="${k}" ${d.subject_residence === k ? 'selected' : ''}>${n}</option>`)}</select></label>
+    ${d.subject_residence === 'US-WA' ? html`<label class="field"><span class="label">Fraud basis <span class="dim">· the subject lives in Washington: the My Health My Data Act allows this work to prevent or investigate fraud (RCW 19.373.100(3)); say how</span></span>
+      <textarea class="input" name="mhmda_basis" rows="2" style="resize:vertical">${d.mhmda_basis || ''}</textarea></label>` : ''}
+    ${c.abroad ? html`<label class="field"><span class="label">Lawful basis <span class="dim">· the subject lives in the UK, Canada or the EEA: e.g. legitimate interests in investigating a claim (GDPR Art. 6(1)(f))</span></span>
+      <textarea class="input" name="abroad_basis" rows="2" style="resize:vertical">${d.abroad_basis || ''}</textarea></label>
+      <label class="field"><span class="label">Why the subject wasn’t told <span class="dim">· e.g. telling them would seriously impair the investigation (Art. 14(5)(b))</span></span>
+      <textarea class="input" name="no_notice" rows="2" style="resize:vertical">${d.no_notice || ''}</textarea></label>` : ''}
     <label class="field"><span class="label">Recommendations <span class="dim">· your own words, printed under “Conclusion and recommendations”</span></span>
       <textarea class="input" name="recommendations" rows="3" style="resize:vertical">${d.recommendations || ''}</textarea></label>
     <div style="display:flex;gap:8px"><button class="btn primary sm" data-act="details-save">Save</button><button class="btn ghost sm" data-act="details-cancel">Cancel</button>
@@ -1438,7 +1472,7 @@ const actions = {
     try {
       const { slug } = await api('/api/cases', { method: 'POST', body: { label, seeds: w.seeds, kind: w.kind, reference: w.reference || null, purpose: w.purpose,
         injury_date: w.kind === 'insurance' && w.injury_date ? w.injury_date : null, limits: w.limits || null, look_for: [...w.look_for, ...w.custom], tool: 'person',
-        ...Object.fromEntries(WIZ_HEADER.filter(k => w[k]).map(k => [k, w[k]])), ...(residenceOf(w) ? { subject_residence: residenceOf(w) } : {}) } });
+        ...Object.fromEntries(WIZ_HEADER.filter(k => w[k]).map(k => [k, w[k]])), subject_residence: residenceOf(w) || 'unknown' } });
       if (w.faceOn && w.gate?.allowed) try { // before the search, which compares the profile photos it finds
         const enc = encodeURIComponent(slug); await api(`/api/cases/${enc}/face`, { method: 'POST', body: { basis: w.faceBasis } });
         if (w.faceFiles.length) { const form = new FormData(); w.faceFiles.forEach(f => form.append('files[]', f)); await api(`/api/cases/${enc}/reference`, { method: 'POST', form }); }
@@ -1608,7 +1642,7 @@ const actions = {
       $('#key-rows').innerHTML = fmt(keys.map(keyRow)); toast(value ? 'Saved. Hunt uses it from now on.' : 'Removed.'); }
     catch (e) { el.disabled = false; fail(e); }
   },
-  'resume-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = html`<div style="display:flex;flex-direction:column;gap:8px"><span class="t2" style="font-size:14px">Only resume after you’ve spoken to Ethos, and never with another account.</span>
+  'resume-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = html`<div style="display:flex;flex-direction:column;gap:8px"><span class="t2" style="font-size:14px">Only resume after you’ve spoken to your firm, and never with another account.</span>
     <div style="display:flex;gap:6px"><button class="btn sm" data-act="resume-do" data-platform="${el.dataset.platform}">Resume ${el.dataset.platform}</button><button class="btn ghost sm" data-act="life-cancel">Cancel</button></div></div>`.s; },
   'resume-do': async el => { el.disabled = true;
     try { await api('/api/browser/resume', { method: 'POST', body: { platform: el.dataset.platform } }); toast(`${el.dataset.platform}: Hunt Capture can record there again.`);
@@ -1629,11 +1663,32 @@ const actions = {
   'pair-copy': async el => { try { await navigator.clipboard.writeText(el.dataset.code); toast('Copied.'); } catch { toast('Select the code and copy it.', true); } },
   'pair-forget': async () => { try { await api('/api/pairing/forget', { method: 'POST', body: {} }); toast('Unpaired. Its key stopped working.'); render(); } catch (e) { fail(e); } },
   'browser-open': async el => {
-    try { await api('/api/browser/open', { method: 'POST', body: { url: el.dataset.url, ...(el.dataset.case ? { case: el.dataset.case } : {}) } }); toast('Opened in the Hunt Browser. Hunt never sees your password.'); }
-    catch (e) { fail(e.status === 503 ? new Error('Install the Hunt Browser first: uv run playwright install chromium') : e); }
+    const confirmed = !!el.dataset.confirmed;
+    try { await api('/api/browser/open', { method: 'POST', body: { url: el.dataset.url, confirmed, ...(el.dataset.case ? { case: el.dataset.case } : {}) } }); toast('Opened in the Hunt Browser. Hunt never sees your password.'); }
+    catch (e) {
+      if (e.status === 409 && !confirmed) { // LinkedIn (AP12): she reads why, then opens it anyway or doesn't
+        const box = document.createElement('div'); box.className = 'reason warn'; box.style.cssText = 'flex-direction:column;align-items:stretch;gap:8px';
+        box.innerHTML = html`<span>${e.message}</span><span style="display:flex;gap:6px"><button class="btn sm" data-act="browser-open" data-url="${el.dataset.url}" data-case="${el.dataset.case || ''}" data-confirmed="1">Open anyway</button></span>`.s;
+        el.replaceWith(box);
+      } else fail(e.status === 503 ? new Error('Install the Hunt Browser first: uv run playwright install chromium') : e);
+    }
   },
   'life-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = (el.dataset.mode === 'pack' ? packForm(el.dataset.slug) : lifeForm(el.dataset.slug, el.dataset.mode)).s; box.querySelector('input').focus(); },
   'life-cancel': el => { const box = el.closest('.life'); box.innerHTML = box.dataset.was || ''; },
+  'guided-set': async el => {
+    const on = !!el.dataset.on, note = on ? $('#guided-note').value.trim() || null : null, acknowledged = on && $('#guided-ack').checked;
+    if (on && !acknowledged) return toast('Tick the box first: it records that you understand what guided mode does.', true);
+    el.disabled = true;
+    try { await api('/api/browser/guided', { method: 'POST', body: { on, acknowledged, note } }); toast(on ? 'Guided mode is on. The change is logged.' : 'Guided mode is off.'); render(); }
+    catch (e) { el.disabled = false; fail(e); }
+  },
+  'counsel-ok': async el => {
+    const by = $('#counsel-by').value.trim(), note = $('#counsel-note').value.trim();
+    if (!by) return toast('Add the name of the counsel who approved it.', true);
+    el.disabled = true;
+    try { await api(`/api/cases/${encodeURIComponent(el.dataset.slug)}/hits/${el.dataset.id}/counsel`, { method: 'POST', body: { by, note: note || null } });
+      toast('Approval recorded in the case log.'); render(); } catch (e) { el.disabled = false; fail(e); }
+  },
   'demo-open': async el => {
     el.disabled = true;
     try { let d = await api('/api/demo');

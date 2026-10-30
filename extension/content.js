@@ -2,9 +2,11 @@
 // and when a video is playing on screen, so it can take a screenshot. It reads no page data, adds nothing to the
 // page, and never clicks, types or navigates.
 //
-// Two things here act, each only on your input:
-// - The Story warning: when you're signed in and click a Story, it asks first, because Story viewers can see
-//   your account. Cancel stops that click; OK lets the same click through. Nothing is re-sent.
+// Three things here act, each only on your input:
+// - The Story warning: unless you're known to be signed out, a click on a Story asks first, because Story viewers
+//   can see your account. Cancel stops that click; OK lets the same click through. Nothing is re-sent.
+// - The contact warning: likewise before your own follow, add-friend, connect, like, comment or message click. An
+//   OK is reported to Hunt, which audits it.
 // - Guided mode: each press of Next asks for one step, and guidedScroll moves the page down exactly one screen. It
 //   never repeats and runs on no timer.
 
@@ -52,14 +54,40 @@ setInterval(() => {
   if (playing) send("frame");
 }, 2000);
 
-// The Story warning, before a Story opens while you're signed in to Instagram or Facebook.
+// Is she possibly signed in here? Only a known "signed_out" says no: a failed or missing check warns anyway.
+const PLATFORM = (/(?:^|\.)(facebook|instagram|tiktok|x|twitter|youtube|reddit)\.com$/.exec(location.hostname) || [])[1];
+const maybeSignedIn = () => signedIn[PLATFORM === "twitter" ? "x" : PLATFORM] !== "signed_out";
+
+// The Story warning, before a Story opens on Instagram or Facebook (a click or a middle-click).
 const STORY = 'a[href*="/stories/"], [role="button"][aria-label*="story" i], [role="link"][aria-label*="story" i]';
-document.addEventListener("click", (e) => {
-  const platform = /(^|\.)instagram\.com$/.test(location.hostname) ? "instagram"
-    : /(^|\.)facebook\.com$/.test(location.hostname) ? "facebook" : null;
-  if (!platform || signedIn[platform] !== "signed_in" || !e.target.closest || !e.target.closest(STORY)) return;
-  if (!confirm("Story viewers can see your account. Open this Story anyway?")) {
+function storyGuard(e) {
+  const story = (PLATFORM === "instagram" || PLATFORM === "facebook") && e.target.closest && e.target.closest(STORY);
+  if (!story || !maybeSignedIn()) return;
+  if (confirm("Story viewers can see your account. Instagram and Facebook then move on to other people's Stories by "
+    + "themselves; they can see you too. Open this Story anyway?")) {
+    chrome.runtime.sendMessage({ type: "story-ok", href: story.href || "" }).catch(() => {});
+  } else {
     e.preventDefault();
     e.stopImmediatePropagation();
   }
-}, true);
+}
+document.addEventListener("click", storyGuard, true);
+document.addEventListener("auxclick", storyGuard, true);
+
+// The contact warning: your own follow, friend, connect, like, comment or message click, from your account.
+const CONTACT = /^(?:follow|follow back|add friend|connect|like|love|react|comment|leave a comment|message|send message|subscribe|join|join group)$/i;
+function contactGuard(e) {
+  const control = e.target.closest && e.target.closest('button, [role="button"], a');
+  const label = control && (control.getAttribute("aria-label") || control.querySelector("[aria-label]")?.getAttribute("aria-label")
+    || control.textContent || "").trim();
+  if (!label || !CONTACT.test(label) || !maybeSignedIn()) return;
+  if (confirm(`"${label}" acts from your account, and the person may be told. Hunt's rules say no contact with the `
+    + "subject or the people around them. Do it anyway?")) {
+    chrome.runtime.sendMessage({ type: "contact-ok", what: label }).catch(() => {});
+  } else {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+}
+document.addEventListener("click", contactGuard, true);
+document.addEventListener("auxclick", contactGuard, true);

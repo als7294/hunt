@@ -23,6 +23,7 @@ warnings.filterwarnings("ignore", message="Using `httpx` with")  # Starlette pre
 from starlette.testclient import TestClient  # noqa: E402
 
 from hunt import app as server
+from hunt import graph
 from hunt.case import Case
 from hunt.seed import Finding, Seed
 
@@ -80,7 +81,7 @@ assert c.get("/api/cases", headers={"sec-fetch-site": "same-origin"}).status_cod
 
 new = {"label": "Vance claim", "seeds": ["kestrel_vane88", "Robert Vance"], "kind": "insurance",
        "purpose": "Insurer XYZ claim 123, legitimate interest", "injury_date": "2026-03-01", "look_for": ["sport"],
-       "tool": "person"}
+       "tool": "person", "subject_residence": "US-AZ"}
 body = json.dumps(new)
 assert c.post("/api/cases", content=body, headers={"content-type": "application/json"}).status_code == 403  # no Origin
 assert c.post("/api/cases", content=body, headers={**JSON, "origin": "http://evil.test"}).status_code == 403
@@ -88,6 +89,16 @@ assert c.post("/api/cases", content=body, headers={**JSON, "origin": f"http://lo
                                                    "sec-fetch-site": "cross-site"}).status_code == 403
 assert c.post("/api/cases", content=body, headers={"origin": BASE, "content-type": "text/plain"}).status_code == 415
 assert c.post("/api/cases", content=json.dumps({**new, "purpose": " "}), headers=JSON).status_code == 400
+assert c.post("/api/cases", content=json.dumps({k: v for k, v in new.items() if k != "kind"}), headers=JSON).status_code == 400  # K1
+assert c.post("/api/cases", content=json.dumps({k: v for k, v in new.items() if k != "subject_residence"}), headers=JSON).status_code == 400  # F4
+# A subject in the EEA, the UK or Canada: nothing runs until the basis and the reason for no notice are written down (F4)
+de = c.post("/api/cases", content=json.dumps({**new, "label": "Abroad check", "subject_residence": "DE"}), headers=JSON).json()["slug"]
+assert c.post(f"/api/cases/{de}/search", content="{}", headers=JSON).status_code == 409
+assert c.get(f"/api/cases/{de}").json()["abroad"] is True and "lives in DE" in c.get(f"/api/cases/{de}").json()["blocked"]
+c.post(f"/api/cases/{de}/details", content=json.dumps({"abroad_basis": "Legitimate interests in investigating a claim",
+                                                         "no_notice": "Notice would seriously impair the investigation"}), headers=JSON)
+assert c.get(f"/api/cases/{de}").json()["blocked"] is None
+assert c.post("/api/cases", content=json.dumps({**new, "label": "Where unknown", "subject_residence": "unknown"}), headers=JSON).status_code == 201
 r = c.post("/api/cases", content=body, headers=JSON)
 assert r.status_code == 201 and r.json() == {"slug": "vance-claim"}, r.text
 assert c.post("/api/cases", content=body, headers=JSON).json() == {"slug": "vance-claim-2"}  # never merged
@@ -287,6 +298,8 @@ assert c.get(api).json()["face"] == {"on": False, "basis": None, "references": [
 png = io.BytesIO(); Image.new("RGB", (40, 40), "gray").save(png, "PNG")
 ref = [("files[]", ("me.png", png.getvalue(), "image/png"))]
 assert c.post(f"{api}/reference", files=ref, headers={"origin": BASE}).status_code == 409  # off: no reference taken
+c.post(f"{api}/details", content=json.dumps({"subject_residence": "unknown"}), headers=JSON)
+assert Case.open("vance-claim").meta("subject_residence") is None  # "unknown" is stored as no residence
 r = c.post(f"{api}/face", content=json.dumps({"basis": "claimant consent form, file 1"}), headers=JSON)
 assert r.status_code == 403 and "residence is unknown" in r.json()["error"], r.text  # no residence on file: blocked
 c.post(f"{api}/details", content=json.dumps({"subject_residence": "US-AZ"}), headers=JSON)
@@ -321,8 +334,48 @@ assert c.post("/api/keys", content=json.dumps({"HUNT_NOPE": "x"}), headers=JSON)
 assert c.post("/api/keys", content=json.dumps({"HUNT_GRAVATAR_KEY": "x"}), headers={**JSON, "origin": "http://evil.test"}).status_code == 403
 c.post("/api/keys", content=json.dumps({"HUNT_GRAVATAR_KEY": ""}), headers=JSON)
 assert "HUNT_GRAVATAR_KEY" not in os.environ
+# Preview reads only a confirmed account, or a post on one; someone the posts name is never a seed (A1, A3)
+r = c.post("/api/cases/vance-claim/preview", content=json.dumps({"url": "https://www.instagram.com/example"}), headers=JSON)
+assert r.status_code == 400 and "confirmed" in r.json()["error"], r.text
+Case.open("vance-claim").decide("https://www.instagram.com/example", "him")
 r = c.post("/api/cases/vance-claim/preview", content=json.dumps({"url": "https://www.instagram.com/example"}), headers=JSON)
 assert r.status_code == 200 and r.json()["status"] == "failed" and "Hunt Browser" in r.json()["note"], r.text  # a login-walled site: the note says so
+assert c.post("/api/cases/vance-claim/preview", content=json.dumps({"url": "https://www.instagram.com/example2"}), headers=JSON).status_code == 400
+Case.open("vance-claim").decide("https://www.instagram.com/example", "unsure")
+# A child's name never reaches the screen (A5): posts, captions, comments, leads and the timeline go through graph's
+# minor pass (AN1's interface stands in until the analysis branch is merged)
+stand_in = not hasattr(graph, "minor_names")
+if stand_in:
+    graph.minor_names = lambda ps, cands, seeds, labels=(): ["Leo"] if any("son Leo" in (p.get("text") or "") for p in ps) else []
+    graph.redact = lambda t, names: t.replace("Leo", "[name withheld]") if t and names else t
+store["posts"].append({"id": 98, "source": "bluesky", "account_url": store["posts"][0]["account_url"], "url": "https://bsky.test/p/98",
+                       "posted_at": "2026-04-12T10:00:00+00:00", "text": "Park day with my son Leo", "origin": "fetched", "media": [],
+                       "visible_comments": [{"author": "Ann", "text": "Leo is so big now!"}]})
+for route in ("posts", "leads", "timeline"):
+    assert "Leo" not in c.get(f"/api/cases/vance-claim/{route}").text, route
+store["posts"].pop()
+if stand_in:
+    del graph.minor_names, graph.redact
+# A confirmed Facebook profile is read on her click: one request, through the facebook source, its finding stored (C6, AP8)
+fb_calls, fb_search = [], server.sources.facebook.search
+
+
+async def fake_fb(seed):
+    fb_calls.append(seed.value)
+    return [], 1, "Facebook shows this profile's name and picture logged out"
+server.sources.facebook.search = fake_fb
+Case.open("vance-claim").decide("https://www.facebook.com/kestrel.vane", "him")
+r = c.post("/api/cases/vance-claim/preview", content=json.dumps({"url": "https://www.facebook.com/kestrel.vane"}), headers=JSON)
+assert r.status_code == 200 and fb_calls == ["https://www.facebook.com/kestrel.vane"] and r.json()["source"] == "Facebook", r.text
+server.sources.facebook.search = fb_search
+Case.open("vance-claim").decide("https://www.facebook.com/kestrel.vane", "unsure")
+store["posts"].append({"id": 99, "source": "bluesky", "account_url": store["posts"][0]["account_url"], "url": "https://bsky.test/p/99",
+                       "posted_at": "2026-04-12T10:00:00+00:00", "text": "Fishing with my brother Dan Vell", "origin": "fetched", "media": []})
+for seed in ("Dan Vell", "dan_vell", "dan.vell@example.com"):
+    r = c.post("/api/cases/vance-claim/seeds", content=json.dumps({"seeds": [seed]}), headers=JSON)
+    assert r.status_code == 409 and "own case" in r.json()["error"], (seed, r.text)
+assert "Dan Vell" not in str(c.get("/api/cases/vance-claim").json()["seeds"])
+store["posts"].pop()
 
 # --- Report and exports -------------------------------------------------------------------------
 rep = c.get("/api/cases/vance-claim/report").json()
@@ -336,6 +389,42 @@ assert r.headers["content-disposition"].startswith("attachment") and "&lt;" not 
 r = c.get("/api/cases/vance-claim/report.json?screening=1").json()
 assert r["report"]["screening"] and all(m["ok"] for m in r["manifest"])
 assert c.get("/api/cases/vance-claim/report.docx").status_code == 404
+# The residence: a known ISO 3166 code or a US state, normalised; the wizard offers the same list (F2, AP2)
+url = "/api/cases/vance-claim/details"
+for bad in ("XX", "US-ZZ", "EU", "DE-BY", "U"):
+    assert c.post(url, content=json.dumps({"subject_residence": bad}), headers=JSON).status_code == 400, bad
+assert c.post(url, content=json.dumps({"subject_residence": " uk "}), headers=JSON).status_code == 200
+assert Case.open("vance-claim").meta("subject_residence") == "GB"
+c.post(url, content=json.dumps({"subject_residence": ""}), headers=JSON)
+assert c.get("/api/face/gate?residence=XX").json()["allowed"] is False
+js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "hunt", "static", "app.js")).read()
+from hunt.case import COUNTRIES  # noqa: E402
+assert set(js.split("const ISO_COUNTRIES = '")[1].split("'")[0].split()) == COUNTRIES
+# The account and no-pretext rules, where she signs in and where she opens a case (C3, C5; a policy rule: text only)
+assert "never a made-up, shared or borrowed one" in js and "(no pretexting)" in js and js.count("${NO_PRETEXT}") == 2
+# Counsel's approval of a restricted-audience item: named, audited, for a hit that exists
+url = "/api/cases/vance-claim/hits/7/counsel"
+assert c.post(url, content=json.dumps({"by": " "}), headers=JSON).status_code == 400
+assert c.post("/api/cases/vance-claim/hits/999/counsel", content=json.dumps({"by": "A. Counsel"}), headers=JSON).status_code == 404
+assert c.post(url, content=json.dumps({"by": "A. Counsel", "note": "Friends-only post, approved"}), headers=JSON).json() == \
+    {"hit": 7, "counsel": "A. Counsel"}
+assert Case.open("vance-claim").rows("select action from audit order by rowid desc limit 1")[0]["action"] == "counsel approved"
+# A Washington subject: no export until the fraud basis is written down (F3)
+c.post("/api/cases/vance-claim/details", content=json.dumps({"subject_residence": "US-WA"}), headers=JSON)
+r = c.get("/api/cases/vance-claim/report.json")
+assert r.status_code == 409 and "Washington" in r.json()["error"], r.text
+c.post("/api/cases/vance-claim/details", content=json.dumps({"mhmda_basis": "Claim fraud investigation"}), headers=JSON)
+assert c.get("/api/cases/vance-claim/report.json").status_code == 200
+c.post("/api/cases/vance-claim/details", content=json.dumps({"subject_residence": "US-AZ", "mhmda_basis": ""}), headers=JSON)
+# A background check: no export until she confirms an account, and no map of the people around the subject (K1, A8)
+bg = c.post("/api/cases", content=json.dumps({**new, "label": "Quill check", "kind": "background", "seeds": ["rquill_example"],
+                                              "purpose": "Employer XYZ: pre-employment check, consent on file"}), headers=JSON).json()["slug"]
+r = c.get(f"/api/cases/{bg}/report.html")
+assert r.status_code == 409 and "confirm" in r.json()["error"], r.text
+assert c.get(f"/api/cases/{bg}/people").json() == {"notice": server.NOT_IN_SCREENING, "people": []}
+assert c.get(f"/api/cases/{bg}/report").json()["screening"] is True
+Case.open(bg).decide("https://github.com/rquill_example", "him")
+assert c.get(f"/api/cases/{bg}/report.json").status_code == 200
 cases = c.get("/api/cases").json()
 assert next(x for x in cases if x["slug"] == "vance-claim")["headline"] in ("Confirmed · report ready", "Report ready"), cases
 assert c.get("/api/cases/vance-claim").json()["steps"] == {"search": "done", "identity": "done", "posts": "done",
