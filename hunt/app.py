@@ -21,6 +21,7 @@ import sys
 import tempfile
 import types
 import threading
+import urllib.parse
 import time
 import webbrowser
 from collections import Counter
@@ -1714,7 +1715,7 @@ async def capture_hello(req: Request):
     label = next((c["label"] for c in cases if c["slug"] == state["case"]), None)
     return JSONResponse({"version": version("hunt-osint"), **extension.status(), "cases": cases, "active_case": active,
                          "capture": state | {"label": label}, "off_sites": sorted(extension.CAPTURE_OFF),
-                         "stopped": browser.stops()})
+                         "stopped": browser.stops(), "guided": _guided()["on"]})
 
 
 def _capture_state(b: dict) -> dict:
@@ -1903,8 +1904,61 @@ async def capture_revoked(req: Request):  # the extension saw a checkpoint/chall
     return JSONResponse(browser.stop(site, reason, b.get("url"), case))
 
 
+GUIDED = HOME / "guided.json"  # {on, note, ts}: guided mode, off until she turns it on in Hunt with counsel's note (D3)
+GUIDED_TABS = {"", "posts", "reels", "reels_tab", "media", "videos", "shorts", "photos"}  # the subject's own posts
+
+
+def _guided() -> dict:
+    try:
+        return json.loads(GUIDED.read_text())
+    except (OSError, ValueError):
+        return {"on": False, "note": None, "ts": None}
+
+
+async def guided_mode(req: Request):
+    """GET, or POST {on, note}: guided mode on or off, from Hunt only (the extension can't reach /api/browser).
+    On needs counsel's note: who confirmed the trade-off for this firm, and when (legal.md, guided mode). Every
+    change goes to ~/Hunt/guided.log, and into the case being captured, if any."""
+    if req.method == "GET":
+        return JSONResponse(_guided())
+    b = await _body(req)
+    on, note = b.get("on") is True, b.get("note")
+    if on and not (isinstance(note, str) and note.strip() and len(note) <= 2000):
+        raise HTTPException(400, "turning guided mode on needs counsel's note: who confirmed it for this firm, and when")
+    state = {"on": on, "note": note.strip() if on else None, "ts": now()}
+    GUIDED.write_text(json.dumps(state))
+    with open(HOME / "guided.log", "a") as f:
+        f.write(json.dumps(state) + "\n")
+    if slug := browser.capture()["case"]:
+        Case.open(slug).audit(f"guided mode {'on' if on else 'off'}", {"note": state["note"]})
+    return JSONResponse(state)
+
+
+async def _guided_refusal(c: Case, action: str, url: str, to: str | None) -> str | None:
+    """Why this guided step may not run, or None: only on an account confirmed as the subject's, scrolling its
+    profile and its own posts tabs (never followers, following or friends), opening its own posts (G2, AP6)."""
+    mine = {extension.where(a) for a in extension.confirmed(c)}
+    acct = extension.account_of(url)
+    key = extension.where(acct) if acct else None
+    if key not in mine:
+        return "guided mode steps only through accounts confirmed as the subject's"
+    here = extension.where(url)
+    tab = (urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get("sk", [""])[0] if "profile.php" in here
+           else here[len(key):].strip("/").split("/")[0])
+    if action == "scroll" and tab not in GUIDED_TABS:
+        return "guided mode scrolls only the profile and its posts, reels, photos and videos, never lists of people"
+    if action == "open":
+        theirs = {extension.where(p["url"]) for p in await _posts(c) if p.get("url") and p.get("account_url")
+                  and extension.account_of(p["account_url"]) and extension.where(extension.account_of(p["account_url"])) == key}
+        if extension.where(to or "") not in theirs and not (extension.account_of(to) and extension.where(extension.account_of(to)) == key):
+            return "guided mode opens only the subject's own posts"
+    return None
+
+
 async def capture_guided(req: Request):  # one press of Next in guided mode
     b = await _body(req)
+    if not _guided()["on"]:
+        raise HTTPException(403, "guided mode is off: turn it on in Hunt, with counsel's note")
     try:
         c = Case.open(str(b.get("case") or ""))
     except LookupError:
@@ -1915,6 +1969,8 @@ async def capture_guided(req: Request):  # one press of Next in guided mode
         raise HTTPException(409, why)
     if extension.platform(b["url"]) in extension.CAPTURE_OFF or extension.platform(b["url"]) in browser.stops():
         raise HTTPException(403, "guided mode doesn't run where capture is off or stopped")
+    if why := await _guided_refusal(c, b["action"], b["url"], b.get("to")):
+        raise HTTPException(403, why)
     return JSONResponse({"audit": extension.guided(c, b["action"], b["url"], b.get("to"))})
 
 
@@ -1951,6 +2007,7 @@ CAPTURE_ROUTES = [
     Route("/api/browser/open", browser_open, methods=["POST"]),
     Route("/api/browser/sign-out", browser_sign_out, methods=["POST"]),
     Route("/api/browser/resume", browser_resume, methods=["POST"]),
+    Route("/api/browser/guided", guided_mode, methods=["GET", "POST"]),
     Route("/api/browser/accounts", browser_accounts, methods=["GET", "POST"]),
     Route("/api/capture/revoked", capture_revoked, methods=["POST"]),
     Route("/api/capture/guided", capture_guided, methods=["POST"]),

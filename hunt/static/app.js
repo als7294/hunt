@@ -1054,7 +1054,7 @@ function pairingPanel(pr, code) {
 }
 let pairCode = null; // {code, until}
 screens.connect = async () => {
-  const [st, pr] = await Promise.all([api('/api/browser/status'), api('/api/pairing').catch(() => ({ paired: false }))]);
+  const [st, pr, gd] = await Promise.all([api('/api/browser/status'), api('/api/pairing').catch(() => ({ paired: false })), api('/api/browser/guided').catch(() => ({ on: false }))]);
   try { localStorage.setItem('hunt-connect-seen', '1'); } catch { /* fine */ }
   mount(html`${topHome()}<main class="screen" style="align-items:center;padding:16px 24px 40px">
     <div style="width:min(720px,100%);display:flex;flex-direction:column;gap:18px">
@@ -1069,6 +1069,10 @@ screens.connect = async () => {
         <div><button class="btn sm" data-act="accounts-save">Save handles</button></div></div>` : ''}
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${seenFlag('hunt-keys-seen') ? html`<a class="btn primary" href="#/">Done</a>` : html`<a class="btn primary" href="#/keys">Next: free keys (optional) →</a>`}
         ${st.browser?.profile ? html`<span class="life" style="margin-left:auto"><button class="btn ghost sm" data-act="signout-ask">Sign out of everything…</button></span>` : ''}</div>
+      <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;gap:12px"><b>Guided mode</b><span class="${gd.on ? '' : 'muted'}" style="font-size:14px">${gd.on ? 'On' : 'Off'}</span></div>
+        <span class="muted" style="font-size:13.5px">One key press in the Hunt Browser scrolls the subject’s own profile or opens their next post, so you capture without clicking through. It runs only on accounts you confirmed. Some firms’ counsel prefer it off: turn it on only once your counsel has confirmed it for your firm.</span>
+        <div class="life" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${gd.on ? html`<span class="t2" style="font-size:13.5px;flex:1;min-width:200px">Counsel’s note: ${gd.note}</span><button class="btn ghost sm" data-act="guided-set" data-on="">Turn off</button>`
+          : html`<input class="input" id="guided-note" placeholder="Who confirmed it for your firm, and when" aria-label="Counsel’s note" style="flex:1;min-width:220px;font-size:14px"><button class="btn sm" data-act="guided-set" data-on="1">Turn on</button>`}</div></div>
       <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:10px"><b>Hunt Capture in another browser</b><div id="pairing" style="display:flex;flex-direction:column;gap:10px">${pairingPanel(pr, pairCode && pairCode.until > Date.now() ? pairCode : null)}</div></div>
     </div></main>`);
   poll(async () => {
@@ -1663,6 +1667,13 @@ const actions = {
   },
   'life-ask': el => { const box = el.closest('.life'); box.dataset.was = box.innerHTML; box.innerHTML = (el.dataset.mode === 'pack' ? packForm(el.dataset.slug) : lifeForm(el.dataset.slug, el.dataset.mode)).s; box.querySelector('input').focus(); },
   'life-cancel': el => { const box = el.closest('.life'); box.innerHTML = box.dataset.was || ''; },
+  'guided-set': async el => {
+    const on = !!el.dataset.on, note = on ? $('#guided-note').value.trim() : null;
+    if (on && !note) return toast('Write who confirmed it for your firm, and when.', true);
+    el.disabled = true;
+    try { await api('/api/browser/guided', { method: 'POST', body: { on, note } }); toast(on ? 'Guided mode is on. The change is logged.' : 'Guided mode is off.'); render(); }
+    catch (e) { el.disabled = false; fail(e); }
+  },
   'counsel-ok': async el => {
     const by = $('#counsel-by').value.trim(), note = $('#counsel-note').value.trim();
     if (!by) return toast('Add the name of the counsel who approved it.', true);
