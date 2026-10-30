@@ -23,6 +23,7 @@ warnings.filterwarnings("ignore", message="Using `httpx` with")  # Starlette pre
 from starlette.testclient import TestClient  # noqa: E402
 
 from hunt import app as server
+from hunt import graph
 from hunt.case import Case
 from hunt.seed import Finding, Seed
 
@@ -341,6 +342,20 @@ r = c.post("/api/cases/vance-claim/preview", content=json.dumps({"url": "https:/
 assert r.status_code == 200 and r.json()["status"] == "failed" and "Hunt Browser" in r.json()["note"], r.text  # a login-walled site: the note says so
 assert c.post("/api/cases/vance-claim/preview", content=json.dumps({"url": "https://www.instagram.com/example2"}), headers=JSON).status_code == 400
 Case.open("vance-claim").decide("https://www.instagram.com/example", "unsure")
+# A child's name never reaches the screen (A5): posts, captions, comments, leads and the timeline go through graph's
+# minor pass (AN1's interface stands in until the analysis branch is merged)
+stand_in = not hasattr(graph, "minor_names")
+if stand_in:
+    graph.minor_names = lambda ps, cands, seeds, labels=(): ["Leo"] if any("son Leo" in (p.get("text") or "") for p in ps) else []
+    graph.redact = lambda t, names: t.replace("Leo", "[name withheld]") if t and names else t
+store["posts"].append({"id": 98, "source": "bluesky", "account_url": store["posts"][0]["account_url"], "url": "https://bsky.test/p/98",
+                       "posted_at": "2026-04-12T10:00:00+00:00", "text": "Park day with my son Leo", "origin": "fetched", "media": [],
+                       "visible_comments": [{"author": "Ann", "text": "Leo is so big now!"}]})
+for route in ("posts", "leads", "timeline"):
+    assert "Leo" not in c.get(f"/api/cases/vance-claim/{route}").text, route
+store["posts"].pop()
+if stand_in:
+    del graph.minor_names, graph.redact
 # A confirmed Facebook profile is read on her click: one request, through the facebook source, its finding stored (C6, AP8)
 fb_calls, fb_search = [], server.sources.facebook.search
 

@@ -399,6 +399,23 @@ assert [x["text"] for x in compose(screening=True)["sentences"] if x["section"] 
     ["This screening version leaves out the people around the subject."]
 posts.pop()
 
+# A child's name never prints (C13, A5): graph's minor pass (AN1) names them; the report withholds each, everywhere
+stand_in = not hasattr(graph, "minor_names")
+if stand_in:  # until the analysis branch is merged: AN1's interface, standing in
+    graph.minor_names = lambda ps, cands, seeds, labels=(): ["Leo"] if any("my son Leo" in (p.get("text") or "") for p in ps) else []
+    graph.redact = lambda t, names: re.sub(r"(?<!\w)Leo(?!\w)", "[name withheld]", t, flags=re.I) if t and names else t
+posts.append({"id": 8, "source": "Bluesky", "account_url": "https://bsky.app/profile/kestrel_vane88", "url": "https://bsky.app/p/8",
+              "posted_at": "2026-04-20T10:00:00+00:00", "origin": "fetched", "media": [], "extra": None,
+              "text": "Park day with my son Leo"})
+kid = {"id": 8, "post_id": 8, "category": "sport", "what": "a man pushing Leo on a swing", "caption": "Park day with my son Leo",
+       "verdict": "likely", "status": "in report", "posted_at": "2026-04-20", "source": "Bluesky", "file": None}
+rep = compose(hs=[*hits, kid])
+page = report.to_html(case, rep)
+assert "E-8" in {e["id"] for e in rep["evidence"]} and "Leo" not in page and "[name withheld]" in page, page[-3000:]
+posts.pop()
+if stand_in:
+    del graph.minor_names, graph.redact
+
 # A case known only by a username: no "the subject, the subject", the header names the case, and accounts she
 # ruled out are cited to her decisions (they're in no table, so an account id couldn't be looked up)
 handle = Case.create("example handle", "Test: a public organisation's handle", kind="diligence", tool="person")

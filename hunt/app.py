@@ -787,8 +787,11 @@ async def _evidence(c: Case) -> tuple:
 
 async def get_timeline(req: Request):
     """The subject across posts, scan hits, public records and stated life events, injury date marked (leads.timeline)."""
-    details, posts, hits, cands = await _evidence(_case(req))
-    return JSONResponse({"injury_date": details.get("injury_date"), "events": leads.timeline(details, posts, hits, cands)})
+    c = _case(req)
+    details, posts, hits, cands = await _evidence(c)
+    red = report.minors(c, posts, cands)
+    return JSONResponse({"injury_date": details.get("injury_date"),
+                         "events": [{**e, "what": red(e["what"])} for e in leads.timeline(details, posts, hits, cands)]})
 
 
 async def get_leads(req: Request):
@@ -797,7 +800,9 @@ async def get_leads(req: Request):
     details, posts, hits, cands = await _evidence(c)
     people = graph.associates(posts, cands, c.seeds(), graph.photo_labels(c))["people"]
     out, said = leads.leads(details, posts, hits, cands, people), json.loads(c.meta("lead_status") or "{}")
+    red = report.minors(c, posts, cands)
     for x in out["leads"]:  # a scan lead's status is its flag's; a caption's or record's is what she set here
+        x["shows"] = red(x["shows"])
         if x["kind"] != "scan" and x["id"] in said:
             x["status"] = said[x["id"]]
     return JSONResponse(out)
@@ -894,6 +899,13 @@ async def _heic_to_jpeg(path: Path) -> Path:
 async def get_posts(req: Request):
     c = _case(req)
     posts, hits = await _posts(c), await _hits(c)
+    red = await asyncio.to_thread(report.minors, c, posts)  # a child's name never reaches the screen (A5)
+    for h in hits:
+        h |= {"what": red(h.get("what")), "caption": red(h.get("caption"))}
+    for p in posts:
+        p["text"] = red(p.get("text"))
+        for x in p.get("visible_comments") or []:
+            x |= {"author": red(x.get("author")), "text": red(x.get("text"))}
     by_post, approved = {p["id"]: p for p in posts}, {json.loads(r["detail"]).get("hit") for r in c.rows(
         "select detail from audit where action = 'counsel approved'")}
     for h in hits:  # the audience the platform showed, and whether counsel approved it (K3)

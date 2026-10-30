@@ -252,6 +252,9 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     settings() (read here when not given). A background (employment) case is always the screening version, of
     the accounts she confirmed only (K1, A8)."""
     d = case.details()
+    red = minors(case, posts, snap["candidates"])  # before anything prints: a child's name never does (A5)
+    hits = [{**h, "what": red(h.get("what")), "caption": red(h.get("caption"))} for h in hits]
+    posts = [{**p, "text": red(p.get("text"))} for p in posts]
     background, wa = d["kind"] == "background", case.mhmda
     screening = screening or background
     labels, doc, prefs = labels or {}, _Doc(screening, health=wa), prefs or settings()
@@ -580,7 +583,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
             doc.sentences[-1]["platform"] = h.get("source") or "Other"
         for n in on_item.pop(("hit", str(h["id"])), []) + on_item.pop(("post", str(h.get("post_id"))), []):
             before = len(doc.sentences)
-            doc.say("found", f"Investigator's note {n['cite']}, {_when(n['ts'], tz, False)}: “{n['text']}”", [n["cite"]])
+            doc.say("found", f"Investigator's note {n['cite']}, {_when(n['ts'], tz, False)}: “{red(n['text'])}”", [n["cite"]])
             if len(doc.sentences) > before:  # screening drops a note in protected words
                 doc.sentences[-1]["platform"] = h.get("source") or "Other"
     if not kept:
@@ -795,6 +798,17 @@ def _screened(c: dict) -> bool:
         return True
     text = " ".join(str(c["attrs"].get(k) or "") for k in ("case", "case_type", "nature_of_suit", "cause"))
     return src in ("courtlistener", "courts") and bool(SENSITIVE_CASE.search(text) or PROTECTED.search(text))
+
+
+def minors(case: Case, posts: list[dict], candidates: list[dict] | None = None):
+    """A function that withholds every name graph ties to a possible minor in this case (AN1's one rule), for the
+    report and the app's responses (C13, A5). Identity until graph has the hand-over."""
+    find = getattr(graph, "minor_names", None)
+    if not find:
+        return lambda t: t
+    names = find(posts, search.build(case)["candidates"] if candidates is None else candidates, case.seeds(),
+                 graph.photo_labels(case))
+    return (lambda t: graph.redact(t, names)) if names else (lambda t: t)
 
 
 def audience(h: dict, by_post: dict) -> str | None:
