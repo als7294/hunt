@@ -60,7 +60,9 @@ Hunt's start screen checks its pieces:
 
 Anything missing comes with a fix. If a download is needed, Hunt shows its size and waits for your **yes**.
 
-The first time, two short steps follow: **Connect your accounts** (below), then **free keys**, which are optional. You can come back to either from the buttons at the top of every screen: **Accounts** and **Keys**.
+The first time, two short steps follow: **Connect your accounts** (below), then **free keys**, which are optional.
+
+To see what a finished investigation looks like before starting your own, open the **demo case**. Run `hunt demo` in Terminal, or use the button on the first-run screen once it's there. Everything in it is fictional and marked DEMO: the subject, his accounts, posts, records and the report. It can't be changed by a search. You can come back to either from the buttons at the top of every screen: **Accounts** and **Keys**.
 
 ### Signing in to the Hunt Browser
 

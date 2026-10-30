@@ -251,4 +251,14 @@ r = c.get(f"/api/cases/{case.name}/minimise").json()
 assert not r["ready"] and "retention period ends" in r["why"]
 assert c.post(f"/api/cases/{case.name}/minimise", json={"count": 0, "bytes": 0}, headers=JSON).status_code == 409
 assert c.post(f"/api/cases/{case.name}/minimise", json={"count": "all"}, headers=JSON).status_code == 400
+
+# The demo case: built on request, then read-only (its worklist never opens a page)
+assert c.get("/api/demo").json()["exists"] is False
+r = c.post("/api/demo", json={}, headers=JSON)
+assert r.status_code == 200 and r.json()["slug"] == "demo-dorian-vell" and c.get("/api/demo").json()["exists"], r.text
+demo_case = c.get("/api/cases/demo-dorian-vell").json()
+assert "DEMO" in demo_case["details"]["label"]
+assert c.post("/api/cases/demo-dorian-vell/worklist/open", json={"account": "https://instagram.example/dorianvell/"},
+              headers=JSON).status_code == 409
+assert c.get("/api/cases/demo-dorian-vell/report").json()["header"]["firm"].startswith("DEMO")
 print("ok")
