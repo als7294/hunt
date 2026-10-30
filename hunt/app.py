@@ -799,12 +799,12 @@ async def get_leads(req: Request):
 
 
 async def set_lead(req: Request):
-    """{status: "kept" | "not relevant" | null} for a lead from a caption or a record, audited. (A scan lead is
+    """{status: "in report" | "kept" | "not relevant" | null} for a lead from a caption or a record, audited. (A scan lead is
     kept or set aside through its flag, POST /hits/{id}, so the Posts step and the report agree.)"""
     c, b = _case(req), await _body(req)
     status, lid = b.get("status"), req.path_params["id"]
-    if status not in ("kept", "not relevant", None):
-        raise HTTPException(400, "status must be kept, not relevant or null")
+    if status not in ("in report", "kept", "not relevant", None):
+        raise HTTPException(400, "status must be in report, kept, not relevant or null")
     said = json.loads(c.meta("lead_status") or "{}")
     said.pop(lid, None) if status is None else said.update({lid: status})
     c.db.execute("insert or replace into meta values ('lead_status', ?)", (json.dumps(said),))

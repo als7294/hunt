@@ -40,7 +40,7 @@ posts = [{"id": 1, "source": "Bluesky", "account_url": "https://bsky.app/profile
 hits = [
     {"id": 1, "post_id": 1, "category": "sport", "what": "finishing a 10k <race>", "verdict": "almost certain",
      "status": "in report", "posted_at": "2026-04-11", "timing": "after", "days_after": 41, "source": "Bluesky", "file": img},
-    {"id": 2, "category": "injury", "what": "a post about the knee injury", "verdict": "likely", "status": "kept",
+    {"id": 2, "category": "injury", "what": "a post about the knee injury", "verdict": "likely", "status": "in report",
      "posted_at": "2026-03-02", "timing": "after", "days_after": 1, "source": "Bluesky", "file": None},
     {"id": 3, "category": "sport", "what": "a gym selfie", "verdict": "likely", "status": "not relevant",
      "posted_at": None, "source": "Instagram", "file": None},
@@ -113,7 +113,12 @@ rows = {p["platform"]: p for p in rep["presence"]}
 assert set(rows) == {"Bluesky", "Instagram"} and rows["Bluesky"]["username"] == "kestrel_vane88", rows
 assert rows["Bluesky"]["last_activity"].startswith("2026-04-11") and rows["Bluesky"]["relevant"] == "yes", rows
 assert rows["Instagram"]["visibility"] == "public" and rows["Instagram"]["relevant"] == "not reviewed", rows
-assert [x["id"] for x in rep["exhibits"]] == ["E-2", "E-1"], rep["exhibits"]  # kept items, by platform and date
+assert [x["id"] for x in rep["exhibits"]] == ["E-2", "E-1"], rep["exhibits"]  # reported items, by platform and date
+filed = {"id": 5, "category": "sport", "what": "a bike ride", "verdict": "likely", "status": "kept", "posted_at": None,
+         "source": "Bluesky", "file": None}  # kept for her file only (decision D4): not printed, not "undated" either
+side = compose(hs=[*hits, filed, {**filed, "id": 6, "status": "new"}])
+assert "E-5" not in {e["id"] for e in side["evidence"]} | {x["id"] for x in side["exhibits"]}, side["evidence"]
+assert compose(hs=[*hits, {**filed, "id": 6, "status": "new"}])["couldnt_see"] == compose()["couldnt_see"]  # unseen: not counted
 assert {e["id"] for e in rep["evidence"]} == {"E-1", "E-2"}  # kept or in report only
 found = " ".join(s["text"] for s in rep["sentences"] if s["section"] == "found")
 assert "Exhibit 2: Bluesky, posted 2026-04-11, 41 days after" in found and "1 day after" in found, found

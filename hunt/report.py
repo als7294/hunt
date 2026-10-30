@@ -70,7 +70,7 @@ SCREENED = {"fec": "political affiliation", "npi": "health"}
 # …and court dockets whose subject is health or politics
 SENSITIVE_CASE = re.compile(r"medical|malpractice|health|disab|social security|medicare|medicaid|erisa|mental|"
                             r"pregnan|drug|politic|election|voting|campaign", re.I)
-KEPT = ("kept", "in report")
+KEPT = ("in report",)  # "kept" is kept with the case for her file, not printed (decision D4 (a))
 MAX_EMBED = 8 << 20  # images larger than this stay out of the HTML export
 WEEKDAYS = ("Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays")
 CERTIFY = ("I personally conducted or supervised the work described in this report, using only publicly available "
@@ -578,7 +578,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
                     elif (post := by_post.get(pid)) and (a := accounts_by.get(norm_url(post.get("account_url") or ""))):
                         out.append(acc(a))
             return out
-        chosen = [x for x in found["leads"] if (x["status"] in KEPT if x["kind"] == "scan" else said.get(x["id"]) == "kept")]
+        chosen = [x for x in found["leads"] if (x["status"] if x["kind"] == "scan" else said.get(x["id"])) in KEPT]
         method = log.get("scan finished", log.get("scan", log.get("search finished", opened)))[:1]
         rs = found["restrictions"]
         lower = lambda t: t[:1].lower() + t[1:]
@@ -653,7 +653,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         doc.say("couldnt_see", f"{_many(len(held), 'item')} shown to a restricted audience "
                                f"({', '.join(sorted({audience(h, by_post) for h in held}))}) {'was' if len(held) == 1 else 'were'} "
                                "left out pending counsel's approval.", ev(held), boilerplate=True)
-    if undated := [h for h in hits if not h.get("posted_at")]:
+    if undated := [h for h in hits if not h.get("posted_at") and h.get("status") != "new"]:  # she has looked at it
         doc.say("couldnt_see", f"{_many(len(undated), 'item')} {'has' if len(undated) == 1 else 'have'} no date, so "
                                f"{'it' if len(undated) == 1 else 'they'} can't be placed in time.", ev(undated))
     if runs:

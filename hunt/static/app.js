@@ -742,7 +742,7 @@ function hitCard(slug, h) {
       <div style="font-weight:500">${h.what}</div>
       <div style="font-size:13.5px;color:${h.timing === 'after' ? 'var(--am)' : 'var(--mu)'}">${h.days_after != null ? (h.days_after >= 0 ? `${h.days_after} days after the injury` : `${-h.days_after} days before the injury`) + ' · ' : ''}${h.verdict}${blur ? ' · blurred: may show a child' : ''}</div>
       ${flagged ? html`<div style="display:flex;gap:6px;margin-top:6px">
-        <button class="btn sm ${h.status === 'kept' || h.status === 'in report' ? 'good' : ''}" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="kept">${h.status === 'kept' || h.status === 'in report' ? '✓ Kept' : 'Keep it'}</button>
+        <button class="btn sm ${h.status === 'kept' || h.status === 'in report' ? 'good' : ''}" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="kept">${h.status === 'in report' ? '✓ In the report' : h.status === 'kept' ? '✓ Kept' : 'Keep it'}</button>
         <button class="btn ghost sm" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="not relevant">Not relevant</button></div>` : ''}
     </div></div>`;
 }
@@ -1141,7 +1141,7 @@ function leadParts(x, d, records) { // the post, flag, picture and link behind a
 }
 function leadCard(slug, x, d, records) {
   const { hit, file, href, blur } = leadParts(x, d, records), [word, col] = STRENGTH(x.confidence), aside = x.status === 'not relevant';
-  const kept = ['kept', 'in report'].includes(hit?.status || x.status);
+  const st = hit?.status || x.status; // "in report" is printed; "kept" stays with the case for her file (D4)
   return html`<div class="card" style="padding:14px;display:flex;gap:14px;background:var(--panel-2);${aside ? 'opacity:.55' : ''}">
     ${file ? html`<img class="thumb ${blur ? 'blur' : ''}" src="${evidenceUrl(slug, file)}" alt="" style="width:76px;height:76px;flex:none">`
       : html`<span class="tile-ic" style="width:76px;height:76px;font-size:22px">${x.kind === 'record' ? '▤' : '“'}</span>`}
@@ -1149,10 +1149,11 @@ function leadCard(slug, x, d, records) {
       <div style="font-size:14px"><span class="muted">Claim:</span> ${x.claim}</div>
       <div><span class="muted" style="font-size:14px">Evidence:</span> ${x.shows}</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px"><span class="t2">${longDay(x.date)}${x.days_after != null ? ` · ${x.days_after} days after the injury` : ''}</span>
-        <span style="color:${col}">${word}</span>${(hit?.status || x.status) === 'in report' ? html`<span class="tag" style="background:var(--gr-bg);color:var(--gr)">✓ In the report</span>` : ''}</div>
+        <span style="color:${col}">${word}</span></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:2px">
         ${aside ? html`<button class="btn ghost sm" data-act="lead-set" data-id="${x.id}" data-status="">Put back</button>` : html`
-        <button class="btn sm ${kept ? 'good' : ''}" data-act="lead-set" data-id="${x.id}" data-hit="${hit?.id ?? ''}" data-status="kept">${kept ? '✓ Kept' : 'Keep'}</button>
+        <button class="btn sm ${st === 'in report' ? 'good' : 'primary'}" data-act="lead-set" data-id="${x.id}" data-hit="${hit?.id ?? ''}" data-status="in report">${st === 'in report' ? '✓ In the report' : 'Add to report'}</button>
+        <button class="btn ghost sm ${st === 'kept' ? 'good' : ''}" data-act="lead-set" data-id="${x.id}" data-hit="${hit?.id ?? ''}" data-status="kept" title="Kept with the case, not printed in the report">${st === 'kept' ? '✓ Kept for the file' : 'Keep for the file'}</button>
         <button class="btn ghost sm" data-act="lead-set" data-id="${x.id}" data-hit="${hit?.id ?? ''}" data-status="not relevant">Not relevant</button>`}
         ${file ? html`<a class="btn ghost sm" href="${evidenceUrl(slug, file)}" target="_blank" rel="noopener">Open evidence</a>` : href && /^https?:\/\//.test(href) ? html`<a class="btn ghost sm" href="${href}" target="_blank" rel="noopener noreferrer">Open evidence ↗</a>` : ''}</div>
     </div></div>`;
@@ -1169,7 +1170,7 @@ function claimView(slug, c, d, ld, tl, records) {
       ${claimFilter ? html`<button class="muted" data-act="claim-filter" data-key="" style="font-size:13.5px;text-align:left">Show every restriction</button>` : ''}</div>
     <div style="display:flex;flex-direction:column;gap:10px;min-width:0">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap"><b style="font-size:17px">Evidence after the injury${claimFilter ? html` <span class="muted" style="font-weight:400">against “${ld.restrictions.find(r => r.key === claimFilter)?.claim.replace(/^The case asks about /, '') || claimFilter}”</span>` : ''}</b>
-        <span class="muted" style="font-size:13px">Leads to check, most confident first. Only what you keep goes in the report.</span></div>
+        <span class="muted" style="font-size:13px">Leads to check, most confident first. Only what you add to the report goes in it.</span></div>
       ${shown.length ? shown.map(x => leadCard(slug, x, d, records)) : html`<div class="empty">Nothing after ${longDay(ld.injury_date)} ${claimFilter ? 'bears on this' : 'bears on the claim'} yet.</div>`}
       ${aside.length ? html`<details><summary class="muted" style="cursor:pointer;padding:4px 0">Set aside (${aside.length})</summary><div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${aside.map(x => leadCard(slug, x, d, records))}</div></details>` : ''}
     </div></div>
@@ -1268,7 +1269,7 @@ function hitDetail(slug, c, h) {
       <div class="card" style="padding:12px;background:var(--am-bg)"><div class="label" style="color:var(--am)">The post shows</div><div>${h.who === 'him' ? '' : 'A person: '}${h.what}</div></div></div>` : ''}
     <div class="muted" style="font-size:13px">Machine verdict: ${h.verdict}. Hunt doesn’t measure weights or recognise faces; you decide whether this is the subject.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn sm ${h.status === 'kept' ? 'good' : ''}" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="kept">${h.status === 'kept' ? '✓ Kept' : 'Keep'}</button>
+      <button class="btn sm ${h.status === 'kept' ? 'good' : ''}" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="kept" title="Kept with the case, not printed in the report">${h.status === 'kept' ? '✓ Kept for the file' : 'Keep for the file'}</button>
       <button class="btn primary sm" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="in report">${h.status === 'in report' ? '✓ In the report' : 'Add to report'}</button>
       <button class="btn ghost sm" data-act="hit" data-slug="${slug}" data-id="${h.id}" data-status="not relevant">Not relevant</button>
       ${h.url ? html`<a class="btn ghost sm" href="${/^https?:\/\//.test(h.url) ? h.url : '#'}" target="_blank" rel="noopener noreferrer" title="Opens the live post in your own browser, not through Hunt’s proxy">Open the post</a>` : ''}
