@@ -44,7 +44,8 @@ HEAD_S, TAIL_FRAMES = 180, 60  # 1 frame/s over the first 3 minutes, then 60 spr
 FRAME_SIDE = 640
 MERGE_S = 5  # candidate frames this close in time form one stretch
 OCR_TIMEOUT = 30  # seconds for one screenshot's text
-MAX_STRETCHES = 8  # vision-model calls per video at most (earliest first)
+MAX_STRETCHES = 8
+SEEN_ON_A_PERSON = {"lifting", "sport", "other_job"}  # categories only an adult in the picture can show  # vision-model calls per video at most (earliest first)
 STATUSES = ("new", "kept", "not relevant", "in report")
 # ponytail: hand-set probabilities. Calibrate from the investigator's keep / not-relevant labels.
 P_YES_MANY, P_YES_ONCE, P_UNCLEAR, P_TEXT = 0.7, 0.5, 0.3, 0.5
@@ -89,11 +90,14 @@ CATEGORIES = {  # key -> {label, prompts (CLIP), keywords (regex stems over text
     },
     "travel": {
         "label": "travel",
-        "prompts": ["a photo of an airport terminal", "a photo taken from an airplane window",
-                    "a photo of tourists at a famous landmark", "a photo of a beach holiday", "a photo of a hotel room"],
+        # Broadened on the dev split: train platforms, ski slopes and cruise ships were missed at this gate.
+        "prompts": ["a photo of an airport terminal or an airplane cabin", "a photo of a train station platform with a train",
+                    "a photo of tourists sightseeing at a famous landmark", "a photo of a beach resort or a ski resort on holiday",
+                    "a photo of a cruise ship or a cable car"],
         "keywords": [r"holiday", r"vacation", r"trip", r"flight", r"airport", r"abroad", r"hotel", r"road ?trip",
                      r"travel\w*", r"getaway", r"cruise"],
-        "question": "travel: an airport, a plane, a tourist destination or a holiday",
+        "question": "travel or a holiday: an airport, a plane, a train journey, luggage, a cruise ship, a ski or beach "
+                    "resort, a tourist sight or sightseeing",
     },
     "other_job": {
         "label": "working another job",
@@ -126,7 +130,7 @@ NEGATIVES = ["a photo of food", "a photo of a pet", "a photo of a person sitting
              "a photo of a document", "a group of people posing for a photo"]
 
 # Hits join posts and media, so their tables come first: a case with no posts yet must still list (no) hits.
-SCHEMA = posts.SCHEMA + """
+SCHEMA = posts.SCHEMA + posts.EXTRA + """
 create table if not exists hits (id integer primary key, post_id int, media_id int, category text, what text,
     t0 real, t1 real, verdict text, p real, timing text, days_after int, status text default 'new',
     who text default 'unknown', file text, blur int default 0, created text,
@@ -222,12 +226,18 @@ async def run(case, look_for: list[str], limits: str, injury_date: str | None, e
                     answer = {"shows": "found by the image search, not checked by the vision model"}
                 frame, file = shots[len(shots) // 2][1], None  # a video hit shows its middle frame, kept as evidence
                 answers = answer.get("answers") or {}
+                nobody = answer.get("people") in ("none", "children only")  # the subject isn't a child
+                if answer.get("image", "photo") != "photo":
+                    progress.step(m)
+                    continue  # a poster, cartoon, screenshot or old photo isn't evidence of what the subject does
                 for c in asks:
                     said = answers.get(c, answer.get("answer", "unclear"))
                     # Asked several things at once, the model hedges "unclear" on ones the image plainly
                     # doesn't show; beside a firm "yes" that's noise (dev split: precision 0.25 -> 0.29).
                     if said == "no" or said == "unclear" and "yes" in answers.values():
                         continue
+                    if nobody and c in SEEN_ON_A_PERSON:
+                        continue  # needs an adult in the picture; driving and walks are often filmed first-person
                     if file is None:
                         file = m["file"] if m["kind"] != "video" else case._store(Path(frame).read_bytes(), "jpg")[1]
                     p_hit = P_UNCLEAR if said == "unclear" else P_YES_MANY if len(shots) > 1 else P_YES_ONCE
@@ -253,7 +263,9 @@ def hits(case) -> list[dict]:
 
 def _query(case, where: str = "", *args) -> list[dict]:
     return [_shape(h) for h in case.rows(
-        "select h.*, p.source, p.posted_at, p.url, p.text as caption from hits h join posts p on p.id = h.post_id "
+        "select h.*, p.source, p.posted_at, p.url, p.text as caption, m.kind as media_kind, "
+        "json_extract(e.extra, '$.from') as seen_from from hits h join posts p on p.id = h.post_id "
+        "left join media m on m.id = h.media_id left join post_extra e on e.post_id = h.post_id "
         f"{where} order by p.posted_at is null, p.posted_at desc, h.t0, h.id", *args)]
 
 
@@ -554,7 +566,10 @@ class _Progress:
 
 def _shape(h: dict) -> dict:
     h["blur"] = bool(h["blur"])
+    # Seen only as a ~640 px grid thumbnail: the app says "open the post to confirm" until it's captured in full.
+    h["from_grid"] = h["media_kind"] == "grid" or h["seen_from"] == "grid"
     for k in ("t0", "t1"):
         h[k] = None if h[k] is None else round(h[k], 1)
     return {k: h[k] for k in ("id", "post_id", "media_id", "category", "what", "t0", "t1", "verdict", "p", "timing",
-                              "days_after", "status", "who", "file", "source", "posted_at", "url", "caption", "blur")}
+                              "days_after", "status", "who", "file", "source", "posted_at", "url", "caption", "blur",
+                              "from_grid")}

@@ -103,7 +103,9 @@ JUDGE_PROMPT = """You help an investigator check a person's own photos and video
 Describe what is visible first, then answer.
 
 shows: one sentence of at most 15 words describing what is visible, like "A person lifting a kayak overhead".
-child_visible: true if a child or baby is visible.
+image: what kind of picture this is: "photo" (video stills count), "poster or advert", "cartoon or illustration", \
+"screenshot or text", or "old photo or artwork" (black-and-white or sepia historical photo, painting, engraving).
+people: who is visible: "none", "adults", "children only" or "adults and children".
 q1, q2, ...: for each question, "yes" only if the image clearly shows it, "no" if it clearly doesn't, \
 "unclear" otherwise. Several video stills may be tiled in one image: answer for any of them.
 
@@ -112,13 +114,15 @@ personal traits: write "a person" or "a child"."""
 
 JUDGE_KEEP_ALIVE = "2m"  # a scan's calls come back to back; unload() frees the model at the end
 GRID_TILE = 640  # px per tile when video stills share one image: Ollama resizes every image to the same size
+PEOPLE = ("none", "adults", "children only", "adults and children")
+IMAGES = ("photo", "poster or advert", "cartoon or illustration", "screenshot or text", "old photo or artwork")
 
 
 async def judge(frames: list[str], question: str | dict[str, str], limits: str = "") -> dict:
     """What do these frames (one photo, or up to 4 stills of one stretch of video, tiled into one image)
     show? Ask one question, or several at once as {key: what to look for}.
-    Returns {shows, child_visible, answer: yes|no|unclear} for one question, {shows, child_visible,
-    answers: {key: yes|no|unclear}} for several, or {} after two invalid answers.
+    Returns {shows, image: photo|poster or advert|..., people: none|adults|children only|adults and children, child_visible,
+    answer: yes|no|unclear} for one question (answers: {key: ...} for several), or {} after two invalid answers.
     Raises VLMUnavailable like observe()."""
     # Several questions in one call: reading the image costs ~3.5 s, each extra answer ~0.2 s.
     questions = question if isinstance(question, dict) else {"answer": question}
@@ -127,9 +131,9 @@ async def judge(frames: list[str], question: str | dict[str, str], limits: str =
     if limits:
         ask += f"\nContext only (don't judge it): the person says {limits!r}."
     schema = {"type": "object",
-              "properties": {"shows": _text, "child_visible": {"type": "boolean"},
+              "properties": {"shows": _text, "image": {"enum": list(IMAGES)}, "people": {"enum": list(PEOPLE)},
                              **{q: {"enum": ["yes", "no", "unclear"]} for q in keys}},
-              "required": ["shows", "child_visible", *keys]}
+              "required": ["shows", "image", "people", *keys]}
     body = {"model": MODEL, "stream": False, "format": schema, "keep_alive": JUDGE_KEEP_ALIVE,
             "options": {"temperature": 0, "num_predict": 60 + 8 * len(keys), "num_ctx": CONTEXT},
             "messages": [{"role": "system", "content": JUDGE_PROMPT},
@@ -139,7 +143,9 @@ async def judge(frames: list[str], question: str | dict[str, str], limits: str =
     if not raw:
         return {}
     answers = {key: raw.get(q) if raw.get(q) in ("yes", "no") else "unclear" for q, key in keys.items()}
-    out = {"shows": _str(raw.get("shows"))[:300], "child_visible": raw.get("child_visible") is True}
+    people = raw.get("people") if raw.get("people") in PEOPLE else "adults"  # unknown: assume someone is there
+    out = {"shows": _str(raw.get("shows"))[:300], "image": raw.get("image") if raw.get("image") in IMAGES else "photo",
+           "people": people, "child_visible": "children" in people}
     return out | ({"answers": answers} if isinstance(question, dict) else answers)
 
 

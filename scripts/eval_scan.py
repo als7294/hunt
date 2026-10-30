@@ -299,7 +299,18 @@ class Watch:
             pass
 
 
-async def scan_items(items, label):
+def gridded(src: Path, side: int, out: Path) -> Path:
+    """The photo as a grid thumbnail: centre-cropped square, side px, JPEG quality 80 (like Instagram's grid)."""
+    from PIL import Image, ImageOps
+    with Image.open(src) as im:
+        im = ImageOps.exif_transpose(im).convert("RGB")
+        s = min(im.size)
+        im = im.crop(((im.width - s) // 2, (im.height - s) // 2, (im.width + s) // 2, (im.height + s) // 2))
+        im.resize((side, side), Image.Resampling.LANCZOS).save(out, "JPEG", quality=80)
+    return out
+
+
+async def scan_items(items, label, grid=None):
     """Run the real scan over these items in a throwaway case; returns (hits per item, timings, watch)."""
     import resource
     import tempfile
@@ -308,8 +319,12 @@ async def scan_items(items, label):
     hunt.case.HOME = Path(tempfile.mkdtemp())  # never the investigator's real cases
     case = hunt.case.Case(f"eval {label}", purpose="measuring the media scan on the labelled eval set")
     media_of = {}
+    small = Path(tempfile.mkdtemp())
     for item in items:
-        [post] = posts.add_files(case, [DIR / item["file"]], item["source"], "2026-05-01T10:00:00") or [None]
+        src = DIR / item["file"]
+        if grid and item["kind"] == "photo":
+            src = gridded(src, grid, small / f"{item['id']}.jpg")
+        [post] = posts.add_files(case, [src], item["source"], "2026-05-01T10:00:00") or [None]
         if post is None:
             continue
         case.db.execute("update posts set text = ? where id = ?", (item["caption"], post))
@@ -384,12 +399,12 @@ def score(items, found):
             "child_hits_blurred": f"{blurred[1]}/{blurred[0]}"}
 
 
-async def evaluate(split, label):
+async def evaluate(split, label, grid=None, kinds=("photo", "video")):
     items = split_items(split)
-    out = {"split": split, "code": label}
-    for kind in ("photo", "video"):
+    out = {"split": split, "code": label, "grid": grid}
+    for kind in kinds:
         part = [i for i in items if i["kind"] == kind]
-        found, spent, calls, watch = await scan_items(part, f"{split} {kind}s")
+        found, spent, calls, watch = await scan_items(part, f"{split} {kind}s", grid)
         minutes = sum(i.get("duration") or 0 for i in part) / 60
         out[kind + "s"] = {
             "n": len(part), "minutes": round(minutes, 1) if kind == "video" else None, **score(part, found),
@@ -410,7 +425,7 @@ async def evaluate(split, label):
 def rescore(path):
     """Score saved predictions again (e.g. after a label fix) without re-running the scan."""
     out = json.loads(Path(path).read_text())
-    for kind in ("photos", "videos"):
+    for kind in (k for k in ("photos", "videos") if k in out):
         items = [i for i in split_items(out["split"]) if i["kind"] + "s" == kind]
         out[kind].update(score(items, out[kind]["predictions"]))
         print(kind, json.dumps({k: out[kind][k] for k in ("micro", "categories", "negatives_flagged",
@@ -427,6 +442,8 @@ if __name__ == "__main__":
     elif command == "run":
         split = sys.argv[sys.argv.index("--split") + 1] if "--split" in sys.argv else "dev"
         label = sys.argv[sys.argv.index("--label") + 1] if "--label" in sys.argv else "current"
-        asyncio.run(evaluate(split, label))
+        grid = int(sys.argv[sys.argv.index("--grid") + 1]) if "--grid" in sys.argv else None
+        kinds = ("photo",) if "--photos" in sys.argv else ("photo", "video")
+        asyncio.run(evaluate(split, label, grid, kinds))
     elif command == "rescore":
         rescore(sys.argv[2])

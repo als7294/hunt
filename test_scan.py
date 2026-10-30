@@ -255,12 +255,68 @@ got = {(h["post_id"], h["category"]) for h in scan.hits(case) if h["post_id"] in
 assert got == {(mixed, "lifting"), (vague, "lifting"), (vague, "walks")}, got
 scan._clip_scores, vlm.judge = fake_clip, fake_judge
 
+# Who is in the picture: nobody or only children drops what a person does (travel and injury can show without
+# anyone); "activity" gives way to a more specific yes
+[empty] = posts.add_files(case, [picture("empty.jpg", 108)], None, "2026-04-09T10:00:00")
+[kids] = posts.add_files(case, [picture("kids.jpg", 109)], None, "2026-04-10T10:00:00")
+[match] = posts.add_files(case, [picture("match.jpg", 110)], None, "2026-04-11T10:00:00")
+file_of = {p["id"]: p["media"][0]["file"] for p in posts.list_posts(case) if p["media"]}
+who = {empty: "none", kids: "children only", match: "adults"}
+
+
+async def all_clip(frames, cats, pause, progress):
+    mine = {file_of[k] for k in who}
+    return {mid: [{c: 0.9 if any(f.endswith(x) for x in mine) else 0.0 for c in cats} for _, f in shots]
+            for mid, shots in frames.items()}
+
+
+async def people_judge(frames, questions, limits=""):
+    post = next(k for k in who if frames[0].endswith(file_of[k]))
+    return {"shows": "A scene", "image": "photo", "people": who[post], "child_visible": "children" in who[post],
+            "answers": {k: "yes" if k in ("lifting", "travel", "sport", "activity") else "no" for k in questions}}
+
+scan._clip_scores, vlm.judge = all_clip, people_judge
+running = asyncio.Event()
+running.set()
+asyncio.run(scan.run(case, ["lifting", "travel", "sport", "activity"], "", "2026-03-01", events.append, running))
+got = {}
+for h in scan.hits(case):
+    if h["post_id"] in who:
+        got.setdefault(h["post_id"], set()).add(h["category"])
+assert got == {empty: {"travel"}, kids: {"travel"}, match: {"lifting", "travel", "sport"}}, got  # top 3 asked
+assert all(h["blur"] for h in scan.hits(case) if h["post_id"] == kids)
+scan._clip_scores, vlm.judge = fake_clip, fake_judge
+
+# A poster, cartoon, screenshot or old photo gets no hits, whatever it shows
+[poster] = posts.add_files(case, [picture("poster.jpg", 111)], None, "2026-04-12T10:00:00")
+file_of = {p["id"]: p["media"][0]["file"] for p in posts.list_posts(case) if p["media"]}
+
+
+async def poster_clip(frames, cats, pause, progress):
+    return {mid: [{c: 0.9 if f.endswith(file_of[poster]) else 0.0 for c in cats} for _, f in shots]
+            for mid, shots in frames.items()}
+
+
+async def poster_judge(frames, questions, limits=""):
+    return {"shows": "A gym poster", "image": "poster or advert", "people": "adults", "child_visible": False,
+            "answers": {k: "yes" for k in questions}}
+
+scan._clip_scores, vlm.judge = poster_clip, poster_judge
+asyncio.run(scan.run(case, ["sport"], "", "2026-03-01", events.append, running))
+assert not [h for h in scan.hits(case) if h["post_id"] == poster]
+scan._clip_scores, vlm.judge = fake_clip, fake_judge
+
 # A stuck OCR call (Vision can block forever) is given up, not waited on
 import threading
 stuck = threading.Event()
 photo.read_text, scan.OCR_TIMEOUT, logged = (lambda path: stuck.wait(5) and []), 0.2, []
 assert asyncio.run(scan._ocr(tmp / "shot.png", logged.append)) == [] and "timed out" in logged[0]["message"]
 stuck.set()
+
+# A hit on a grid thumbnail says so, for the app's "open the post to confirm"
+case.db.execute("insert or replace into post_extra values (?, ?)", (match, json.dumps({"from": "grid"})))
+assert all(h["from_grid"] for h in scan.hits(case) if h["post_id"] == match)
+assert not any(h["from_grid"] for h in scan.hits(case) if h["post_id"] == kids)
 
 # The investigator's decision
 hid = found[(deadlift, "lifting", None, None)]["id"]
@@ -282,21 +338,23 @@ sent = []
 def ollama(request):
     sent.append(json.loads(request.content))
     return httpx.Response(200, json={"message": {"content": json.dumps({
-        "shows": "A person and a box", "child_visible": True, "q1": "yes", "q2": "probably"})}})
+        "shows": "A person and a box", "image": "photo", "people": "adults and children", "q1": "yes",
+        "q2": "probably"})}})
 
 real_init = httpx.AsyncClient.__init__
 httpx.AsyncClient.__init__ = lambda self, **kw: real_init(self, transport=httpx.MockTransport(ollama), **kw)
 j = asyncio.run(vlm.judge([str(tmp / "carry.jpg")] * 5, {"lifting": "a person lifting or carrying something",
                                                          "my kayak": "kayak"}, "can't lift 5 kg"))
-assert j == {"shows": "A person and a box", "child_visible": True,
+assert j == {"shows": "A person and a box", "image": "photo", "people": "adults and children", "child_visible": True,
              "answers": {"lifting": "yes", "my kayak": "unclear"}}, j  # an off-list answer is unclear
 body = sent[0]
 assert body["keep_alive"] == "2m" and len(body["messages"][1]["images"]) == 1  # 5 stills, one tiled image
-assert set(body["format"]["properties"]) == {"shows", "child_visible", "q1", "q2"}  # custom text can't break the JSON
+assert set(body["format"]["properties"]) == {"shows", "image", "people", "q1", "q2"}  # custom text can't break the JSON
 assert "q2: does it show kayak?" in body["messages"][1]["content"] and "can't lift 5 kg" in body["messages"][1]["content"]
-assert "Never estimate weights" in body["messages"][0]["content"]
+assert "Never estimate weights" in body["messages"][0]["content"] and "old photo or artwork" in body["messages"][0]["content"]
 one = asyncio.run(vlm.judge([str(tmp / "carry.jpg")], "a person lifting or carrying something"))
-assert one == {"shows": "A person and a box", "child_visible": True, "answer": "yes"}, one  # one question: one answer
+assert one == {"shows": "A person and a box", "image": "photo", "people": "adults and children", "child_visible": True,
+               "answer": "yes"}, one  # one question: one answer
 asyncio.run(vlm.unload())
 assert sent[-1] == {"model": vlm.MODEL, "messages": [], "keep_alive": 0}
 print("ok")

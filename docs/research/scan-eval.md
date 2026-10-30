@@ -172,18 +172,87 @@ With three categories asked, fewer photos pass the CLIP gate, and I'd expect abo
   - a stricter CLIP gate, which costs recall
   - a smaller vision model
 
-## Where accuracy is weak
+## Round 2: accuracy where it was weakest
 
-The scan finds what's there: recall is 0.86 on photos and 1.0 on test videos. But it over-flags.
+_Tuned on the dev split only; the held-out test split was run once per candidate configuration._
 
-**On test photos:**
-- 35 of 66 negatives get at least one hit.
-- Promotional graphics: 14 of 21 flagged.
-- Old photos: 7 of 13 flagged.
-- Empty scenes ("nobody"): 7 of 18 flagged.
+**Targets**, from round 1:
+- **Over-flagging.** 35 of 66 negative test photos were flagged.
+- **Travel recall:** 0.4.
+- **Activity and other_job precision:** about 0.2–0.3.
 
-**What would improve it, tuned on dev:**
-- CLIP negatives for posters and old photographs.
-- A judge prompt that answers "no" for posters, memes, screenshots and historical photos.
+The dev errors traced to five causes:
+- old photos (24 false category flags)
+- scenes with nobody in them (19)
+- promotional graphics (16)
+- photos of children (8)
+- travel photos never reaching the vision model at all
+
+### Held-out test split: round 1 versus round 2
+
+| | Baseline (main before round 1) | Round 1 (main `8327131`) | **Round 2** |
+|---|---|---|---|
+| Photos, precision / recall | 0.32 / 0.86 | 0.35 / 0.86 | **0.41 / 0.95** |
+| Negative photos flagged | 32 / 66 | 35 / 66 | **27 / 66** |
+| Old photos flagged | 7 / 13 | 7 / 13 | **2 / 13** |
+| Graphics flagged | 14 / 21 | 14 / 21 | 11 / 21 |
+| Empty scenes flagged | 5 / 18 | 7 / 18 | 6 / 18 |
+| Videos, precision / recall | 0.17 / 1.00 | 0.17 / 1.00 | 0.19 / 1.00 |
+| Negative videos flagged | 7 / 11 | 8 / 11 | 6 / 11 |
+| Seconds per photo | 10.1 | 4.7 | **3.7** |
+| Seconds per minute of video | 177 | 14.9 | **11.8** |
+| Worst event-loop lag; worst memory pressure | 549 ms; critical | 249 ms; warning | 178 ms; normal |
+
+| Test photos, precision / recall | activity | lifting | sport | walks | travel | other_job | driving | injury |
+|---|---|---|---|---|---|---|---|---|
+| Round 1 | 0.20 / 1.0 | 0.44 / 1.0 | 0.53 / 0.89 | 0.25 / 1.0 | 0.29 / **0.4** | 0.29 / 0.83 | 0.43 / 1.0 | 0.50 / 1.0 |
+| Round 2 | 0.21 / 1.0 | **0.67** / 1.0 | 0.50 / 0.89 | 0.29 / 1.0 | **0.45 / 1.0** | **0.38** / 0.83 | 0.50 / 1.0 | 0.57 / 1.0 |
+
+**Why the answers got shorter.** Each answer now carries two short fixed-option fields (`image` and `people`) instead of free prose, so a photo costs 3.7 s, not 4.7 s.
+
+### What changed
+
+- **`image` field in the judge's answer.** The options are photo, poster or advert, cartoon or illustration, screenshot or text, and old photo or artwork. Only a photo, or a video still, can produce hits.
+  - On dev, old photos flagged fell from 12 to 4 of 17.
+  - A plain instruction to "answer no for posters and old photos" had done nothing (graphics stayed at 11 of 21). The small model follows a fixed-option field, not a rule in prose.
+- **`people` field:** none, adults, children only, or adults and children.
+  - It drives blurring, as `child_visible` did before; `judge` still returns `child_visible`.
+  - When nobody, or only children, is in the picture, lifting, sport and other_job hits are dropped: those need an adult to be visible.
+  - Driving, walks and activity are exempt. A first-person dashcam drive or a walk filmed by the walker shows no one, and requiring a person lost both on dev.
+- **Travel's CLIP prompts were broadened** to airports and plane cabins, train platforms, sightseeing, beach or ski resorts, and cruise ships or cable cars. Every travel miss had been blocked at the CLIP gate, before the vision model saw it.
+  - On dev, 5 of 6 travel photos now reach the model (4 before), with no extra non-travel items asked about travel.
+  - A broader set reached 6 of 6 but doubled the non-travel questions, so it wasn't used.
+- **The travel question names those cases too.**
+
+### Tried on dev and dropped
+
+- **Dropping "activity" when the same call says sport, lifting or walks.** It lost chopping wood (the raised axe read as "lifting") and an outdoor-centre video. They're legitimately both.
+- **Extra CLIP negatives for posters, flyers, cartoons and old photographs.** Graphics went from 10 to 9 flagged on dev, but one positive was blocked. Club posters often contain real photos of people, which CLIP and the vision model reasonably treat as photos.
+
+### Grid thumbnails (640 px)
+
+The capture extension and the Apify connector bring in grid thumbnails of about 640 px, and CDN-sized media. To see what that size does, the test photos were re-run as 640 px centre-cropped squares, saved as JPEG at quality 80 (`eval_scan.py run --grid 640 --photos`):
+
+| Test photos | Full size | 640 px grid |
+|---|---|---|
+| Round 1 code, precision / recall | 0.35 / 0.86 | 0.32 / 0.84 |
+| Round 2 code (before the travel prompts), precision / recall | 0.37 / 0.86 | 0.36 / 0.81 |
+| Seconds per photo (round 2) | 3.8 | 3.4 |
+
+**What the size costs:** precision holds, but recall drops by one or two items. The losses were activity and other_job, where a centre crop can cut out what the person is doing.
+
+**How hits on grid thumbnails are shown:** a hit carries `from_grid: true` when its media is a grid thumbnail, or its post was seen only in a grid (`extra.from == "grid"`). The app then shows "from a grid thumbnail; open the post to confirm" until the post is captured in full.
+
+## Where accuracy is still weak
+
+**Promotional graphics with real photos in them.** 11 of 21 test graphics are still flagged, because club posters and team sheets contain real photos of people.
+
+**Group poses and portraits.** These sit at 3 of 3 and 2 of 2 on test: a posed team photo reads as sport.
+
+**Children-only photos.** The kids' boxing class is no longer flagged, which is intended, since children aren't the subject. The visual labels count that as one missed sport item on dev.
+
+**Next candidates, tuned on dev:**
+- a "posed photo" value in a fixed-option field
+- a CLIP prompt set for team sheets and fixture posters
 
 **What can't change:** machine verdicts stay capped at "likely", and the investigator decides on every hit.
