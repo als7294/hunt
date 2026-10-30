@@ -329,7 +329,7 @@ posts.pop()
 
 # A case known only by a username: no "the subject, the subject", the header names the case, and accounts she
 # ruled out are cited to her decisions (they're in no table, so an account id couldn't be looked up)
-handle = Case.create("example handle", "Test: a public organisation's handle", kind="background", tool="person")
+handle = Case.create("example handle", "Test: a public organisation's handle", kind="diligence", tool="person")
 seed = Seed("username", "examplehandle")
 handle.add_seeds([seed])
 for site, url in (("GitHub", "https://github.com/examplehandle"), ("Mastodon", "https://mastodon.example/@examplehandle")):
@@ -339,6 +339,44 @@ rep2 = report.compose(handle, build(handle), [], [], handle.verify(), screening=
 assert "the subject, the subject" not in text(rep2) and rep2["header"]["subject"] == "example handle", rep2["header"]
 out = [x for x in rep2["sentences"] if "ruled out" in x["text"] and "other account" in x["text"]]
 assert out and all(c.startswith("M-a") for c in out[0]["cites"]), out
+
+# A background (employment) case: always the screening version, of the accounts she confirmed only, with the FCRA
+# notice; relationship words, protected traits and co-parties' names never print (K1, A8, A9)
+bg = Case.create("Quill check", "Employer XYZ: pre-employment check, consent on file", kind="background", tool="person")
+bseed, bname = Seed("username", "rquill_example"), Seed("name", "Rob Quill")
+bg.add_seeds([bseed, bname])
+mine, other = "https://bsky.app/profile/rquill_example", "https://bsky.app/profile/rquill_example2"
+for url in (mine, other):
+    bg.add_finding(Finding("maigret", bseed, "Bluesky", url, {"fullname": "Rob Quill"}))
+bg.add_run("courts", bname, "found", 1, 1, "")
+court = "https://data.ohio.gov/example/2025-00002"
+bg.add_finding(Finding("courts", bname, "Ohio Court of Claims", court, {"fullname": "Rob Quill", "roles": ["plaintiff"],
+                       "case": "Quill v. Dana Mercer", "court": "Ohio Court of Claims", "docket_number": "2025-00002"}))
+rep = report.compose(bg, build(bg), [], [], bg.verify(), labels={})
+assert rep["screening"] is True and rep["presence"] == [] and rep["records"] == [], rep["presence"]  # nothing confirmed yet
+assert report.FCRA in [x["text"] for x in rep["sentences"] if x["section"] == "disclaimers"]
+bg.decide(mine, "him")
+bg.decide(court, "him")
+bposts = [{"id": i, "source": "Bluesky", "account_url": acct, "url": f"{acct}/post/{i}", "posted_at": "2026-05-01T10:00:00+00:00",
+           "origin": "fetched", "media": [], "extra": None, "text": t}
+          for i, acct, t in ((1, mine, "Dinner with my wife Ines"), (2, mine, "Waiting on my mom's surgery"),
+                             (3, mine, "Gym at six"), (4, other, "Trail run with friends"))]
+bhits = [{"id": i, "post_id": i, "category": "sport", "what": what, "caption": cap, "verdict": "likely", "status": "in report",
+          "posted_at": "2026-05-01", "source": "Bluesky", "file": None}
+         for i, what, cap in ((1, "two people at dinner", "Dinner with my wife Ines"), (2, "a hospital corridor", "Waiting on my mom's surgery"),
+                              (3, "a gym selfie", "Gym at six"), (4, "a trail run", "Trail run with friends"))]
+from hunt import notes  # noqa: E402
+bg.db.execute("create table hits (id integer primary key)")  # the note's target; the hits themselves are passed in
+bg.db.execute("insert into hits values (3)")
+notes.add(bg, "his mom took this one", about="hit", ref=3)
+rep = report.compose(bg, build(bg), bposts, bhits, bg.verify(), labels={})
+page = report.to_html(bg, rep)
+assert [x["url"] for x in rep["presence"]] == [mine] and [e["id"] for e in rep["evidence"]] == ["E-3"], rep["evidence"]
+assert not any(report.RELATION.search(x["text"]) for x in rep["sentences"] if "screening version" not in x["text"]), rep["sentences"]
+for leak in ("Ines", "surgery", "Dana Mercer", "his mom", "rquill_example2"):
+    assert leak not in page, leak
+assert rep["records"][0]["summary"] == "Ohio Court of Claims, docket 2025-00002", rep["records"]
+assert report.RELATION.search("with my bro") and not report.RELATION.search("Pittsburgh, PA and Boston, MA")
 
 if os.environ.get("HUNT_TEST_PDF"):  # needs Chromium: uv run playwright install chromium
     assert asyncio.run(report.to_pdf(report.to_html(case, rep, pdf=True), rep)).startswith(b"%PDF")

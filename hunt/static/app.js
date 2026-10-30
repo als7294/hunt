@@ -633,7 +633,7 @@ screens.people = async slug => {
     <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:8px"><div class="h2" style="text-align:center">People around the subject</div>
       <div class="sub" style="text-align:center">${r.notice}</div></div>
     <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
-      ${shown.length ? shown.map(x => personCard(slug, x)) : html`<div class="empty">Nobody else is named in the subject’s posts, bios or records yet${hidden.length ? ' (apart from those you marked not relevant)' : ''}.</div>`}
+      ${c.details.kind === 'background' ? '' : shown.length ? shown.map(x => personCard(slug, x)) : html`<div class="empty">Nobody else is named in the subject’s posts, bios or records yet${hidden.length ? ' (apart from those you marked not relevant)' : ''}.</div>`}
       ${hidden.length ? html`<details><summary class="muted" style="cursor:pointer;padding:6px 0">Marked not relevant (${hidden.length})</summary><div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">${hidden.map(x => personCard(slug, x))}</div></details>` : ''}
       <span class="dim" style="font-size:12.5px">The report quotes what was observed, with its source, and never states a relationship. Children are never named. Employment screening reports leave this section out.</span></div>
   </main>`);
@@ -1311,7 +1311,7 @@ function citeLabel(id, r) {
 screens.report = async slug => {
   const screening = sessionStorage.getItem('hunt-screening') === '1';
   const [c, r] = await Promise.all([loadCase(slug), api(`/api/cases/${encodeURIComponent(slug)}/report?screening=${screening ? 1 : 0}`)]);
-  const h = r.header, tz = h.timezone;
+  const h = r.header, tz = h.timezone, bg = c.details.kind === 'background';
   const cite = id => { const [label, target] = citeLabel(id, r); return html`<button class="mono" data-act="cite" data-target="${target}" title="${id}" style="padding:1px 6px;border-radius:5px;background:var(--ac-bg);color:var(--ac);font-size:12.5px;white-space:nowrap">${label}</button>`; };
   const exChip = no => no ? cite(r.exhibits.find(e => e.no === no)?.id) : '';
   const para = list => html`<p style="margin:0;line-height:1.7;font-size:16px">${list.map(x => html`${x.text} ${x.cites.map(cite)} `)}</p>`;
@@ -1364,11 +1364,12 @@ screens.report = async slug => {
           ${todos.map(step => html`<a class="reason warn" href="#/case/${slug}/${step}"><span class="ic">•</span>${TODO_LABEL[step]}</a>`)}
           ${missing.map(k => ['investigator', 'licence'].includes(k) ? html`<a class="reason warn" href="#/settings"><span class="ic">•</span>${MISSING[k] || k}</a>`
             : html`<button class="reason warn" data-act="details-edit" style="text-align:left"><span class="ic">•</span>${MISSING[k] || `Add ${k.replace('_', ' ')}`}</button>`)}</div>
-        <label class="panel" style="padding:16px 18px;display:flex;gap:12px;align-items:center;cursor:pointer"><input type="checkbox" data-act="screening" ${screening ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--ac)">
-          <span><b>Job screening mode</b><br><span class="muted" style="font-size:13.5px">Hides protected details (age, health, religion, family…)</span></span></label>
+        <label class="panel" style="padding:16px 18px;display:flex;gap:12px;align-items:center;cursor:pointer"><input type="checkbox" data-act="screening" ${screening || bg ? 'checked' : ''} ${bg ? 'disabled' : ''} style="width:18px;height:18px;accent-color:var(--ac)">
+          <span><b>Job screening mode</b><br><span class="muted" style="font-size:13.5px">${bg ? 'Always on for a background check: only the accounts you confirmed, and no protected details or family' : 'Hides protected details (age, health, religion, family…)'}</span></span></label>
         <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px">
+          ${bg && !r.presence.length ? html`<div class="reason warn"><span class="ic">!</span>A background report covers only accounts you confirmed. <a href="#/case/${slug}/identity" style="color:var(--ac)">Confirm one on Is it them? →</a></div>` : html`
           <a class="btn primary" href="${base}.pdf${q}">Export PDF</a><a class="btn" href="${base}.html${q}&view=1" target="_blank" rel="noopener" title="Opens in a new tab; print it from there">Web page</a><a class="btn ghost" href="${base}.json${q}">Data file</a>
-          <a class="btn ghost" href="/api/cases/${encodeURIComponent(slug)}/evidence.zip" download>Evidence bundle (.zip)</a>
+          <a class="btn ghost" href="/api/cases/${encodeURIComponent(slug)}/evidence.zip" download>Evidence bundle (.zip)</a>`}
           <div class="muted" style="font-size:13px">Every evidence file under a readable name, with a SHA-256 manifest anyone can check with <span class="mono">shasum -c</span>.</div></div>
         <div class="panel" style="padding:14px 18px;display:flex;flex-direction:column;gap:4px;font-size:14.5px">
           <button data-act="details-edit" style="text-align:left;color:var(--ac)">Edit the case details →</button>

@@ -54,6 +54,7 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
 KINDS = ("insurance", "background", "diligence", "journalism")
 HIT_STATUSES = ("kept", "not relevant", "in report")
 HEARTBEAT = 15  # seconds between SSE comments on a quiet job
+NOT_IN_SCREENING = "A background check leaves out the people around the subject: family and friends can't weigh in a hiring decision."
 THROTTLE = 0.25  # seconds between `scan` progress events (~4/s); the latest one wins
 NAMESAKE = 0.2
 VERDICTS = [label for _, label in ICD203]
@@ -732,8 +733,11 @@ def _avatar(c: Case, x: dict) -> str | None:
 
 
 async def get_people(req: Request):
-    """Family and associates from what the case already holds (graph.associates): names and citations only."""
+    """Family and associates from what the case already holds (graph.associates): names and citations only.
+    None for a background (employment) case: family can't weigh in a hiring decision (A8)."""
     c = _case(req)
+    if c.details()["kind"] == "background":
+        return JSONResponse({"notice": NOT_IN_SCREENING, "people": []})
     snap = await search.snapshot(c)
     out = graph.associates(await _posts(c), snap["candidates"], c.seeds(), graph.photo_labels(c))
     hidden = set(json.loads(c.meta("people_hidden") or "[]"))
@@ -1059,6 +1063,8 @@ async def export_report(req: Request):
     fmt = req.path_params["fmt"]
     if fmt not in ("html", "pdf", "json"):
         raise HTTPException(404, "report formats: html, pdf, json")
+    if c.details()["kind"] == "background" and not any(u and x["decision"] == "him" for u, x in c.decisions().items()):
+        raise HTTPException(409, "a background report covers only accounts you confirmed: confirm at least one on Is it them? first")
     rep = await _report(req, c, export=True)
     html = report.to_html(c, rep, pdf=fmt == "pdf")
     if fmt == "html":

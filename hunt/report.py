@@ -49,7 +49,15 @@ CEILING = "likely"  # the strongest wording a machine reading gets in a report
 # Not a bare "race": in posts that's nearly always a running race.
 PROTECTED = re.compile(r"\b(age|aged|born|birth\w*|gender|sex|pronouns?|racial|ethnic\w*|religio\w*|"
                        r"nationalit\w*|citizen\w*|marital|married|pregnan\w*|disab\w*|health|medical|injur\w*|"
-                       r"union|politic\w*|orientation|veteran|genetic)\b", re.I)
+                       r"union|politic\w*|orientation|veteran|genetic|colou?r|ancestry|creed|gay|lesbian|bisexual|"
+                       r"transgender|trans|queer|church|mosque|synagogue|temple|wheelchair|cancer|chemo\w*|surger\w*|"
+                       r"hospital\w*|diagnos\w*|therap\w*|rehab\w*|arrest\w*|convict\w*|felon\w*|jail\w*|prison\w*|"
+                       r"criminal|probation|parole)\b", re.I)
+# Family and other relationship words (graph.RELATIONS): screening drops any sentence about the subject that has one
+# (A8). Words of three letters or fewer only in lower case, so "Pittsburgh, PA" and "MA" stay.
+RELATION = re.compile(r"\b(?:(?i:" + "|".join(re.escape(w) for w in sorted(graph.RELATIONS, key=len, reverse=True)
+                                                if len(w) > 3) + r")|" + "|".join(re.escape(w) for w in graph.RELATIONS
+                                                                                 if len(w) <= 3) + r")(?![\w-])")
 READ_AUTOMATICALLY = re.compile(r"bsky|bluesky|mastodon|youtube", re.I)  # what posts.collect reads
 # Sources whose findings are records about a person, not accounts they run (hunt/sources: public records)
 RECORDS = {"fec": "FEC itemized political contributions", "edgar": "SEC EDGAR filings",
@@ -224,7 +232,7 @@ class _Doc:
     def say(self, section: str, text: str, cites: list[str], boilerplate: bool = False):
         """boilerplate: fixed text about the report itself, never about the subject, so screening keeps it."""
         assert cites, f"uncited sentence: {text}"
-        if self.screening and not boilerplate and PROTECTED.search(text):
+        if self.screening and not boilerplate and (PROTECTED.search(text) or RELATION.search(text)):
             return
         self.sentences.append({"section": section, "text": text, "cites": list(dict.fromkeys(cites))})
 
@@ -234,8 +242,12 @@ class _Doc:
 def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks: dict,
             screening: bool = False, labels: dict | None = None, prefs: dict | None = None) -> dict:
     """The report dict of docs/api.md. `snap` is search.build(); `checks` is case.verify(); `prefs` is
-    settings() (read here when not given)."""
-    labels, d, doc, prefs = labels or {}, case.details(), _Doc(screening), prefs or settings()
+    settings() (read here when not given). A background (employment) case is always the screening version, of
+    the accounts she confirmed only (K1, A8)."""
+    d = case.details()
+    background = d["kind"] == "background"
+    screening = screening or background
+    labels, doc, prefs = labels or {}, _Doc(screening), prefs or settings()
     tz = prefs["timezone"]
     log, decided, audit = {}, {}, {}  # action → citations; norm_url ('' = the person) → its decisions; id → row
     for a in snap["audit"]:
@@ -247,7 +259,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     own = lambda c: decided.get(norm_url(c["url"]), []) + decided.get("", [])
     opened = log.get("case opened", ["M-a1"])[:1]
     scope = log.get("case details", opened)[:1]
-    cands = [c for c in snap["candidates"] if not (screening and _screened(c))]
+    cands = [c for c in snap["candidates"] if not (screening and _screened(c)) and not (background and c["decision"] != "him")]
     methodology = [r for r in snap["methodology"] if not (screening and r["source"] in SCREENED)]
     people = [c for c in cands if search.in_person(c) and not _record(c)]  # accounts
     records = [c for c in cands if search.in_person(c) and _record(c)]
@@ -258,9 +270,12 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     who = subject if confirmed else "a person matching the details supplied"
     acc = lambda c: f"A-{c['finding_ids'][0]}"
     by_post = {p["id"]: p for p in posts}
+    if background:  # only posts from the accounts she confirmed
+        mine = {norm_url(c["url"]) for c in people}
+        hits = [h for h in hits if norm_url(by_post.get(h.get("post_id"), {}).get("account_url") or "") in mine]
     if screening:
-        hits = [h for h in hits if h.get("category") != "injury" and not PROTECTED.search(
-            f"{h.get('what', '')} {h.get('caption', '')}")]
+        hits = [h for h in hits if h.get("category") != "injury" and not any(
+            r.search(f"{h.get('what', '')} {h.get('caption', '')}") for r in (PROTECTED, RELATION))]
     kept = sorted((h for h in hits if h.get("status") in KEPT),
                   key=lambda h: (h.get("source") or "", h.get("posted_at") or ""))
     ev = lambda hs: [f"E-{h['id']}" for h in hs]
@@ -502,7 +517,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         shot = f" ({ex(acc(c))})" if ex(acc(c)) else ""
         tie = (f"the investigator confirmed it concerns {who}" if c["decision"] == "him"
                else f"{cap(c['verdict'])} to concern {who}" + (f" ({why})" if why else ""))
-        doc.say("records", f"{c['site']}{shot}: {_summary(c, None if screening else d['injury_date'])}; {tie}.",
+        doc.say("records", f"{c['site']}{shot}: {_summary(c, None if screening else d['injury_date'], screening)}; {tie}.",
                 [acc(c)] + (own(c) if c["decision"] else []))
     if others := [c for c in cands if _record(c) and not search.in_person(c) and c["decision"] != "not him"]:
         doc.say("records", f"{_many(len(others), 'other record')} under the same name {'was' if len(others) == 1 else 'were'} "
@@ -634,8 +649,11 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
     searched = [r for r in methodology if r["source"] in RECORDS and not (r["note"] or "").startswith("not run")]
     if searched:
         kinds = list(dict.fromkeys(RECORDS[r["source"]] for r in searched))
-        doc.say("couldnt_see", f"Public records were limited to {', '.join(kinds)}; state and county court, criminal and "
-                               "property records weren't searched.", [_run(r) for r in searched])
+        courts = any(r["source"] == "courts" for r in searched)
+        doc.say("couldnt_see", f"Public records were limited to {', '.join(kinds)}; " + (
+            "criminal and property records weren't searched, and state and county court records only where a court "
+            "publishes them as open data." if courts else "state and county court, criminal and property records weren't searched."),
+            [_run(r) for r in searched], boilerplate=True)  # about the method, not the subject
     else:
         doc.say("couldnt_see", "Court and other public records weren't searched.", log.get("search", opened)[:1])
 
@@ -649,7 +667,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
             log.get("capture", [])[:1] + log.get("file added", [])[:1] + log.get("posts collected", [])[:1] or opened)
     doc.say("disclaimers", "Online content can be edited, deleted, misdated or posted by someone else; dates are as each "
                            "platform displayed them, and times are given in " + tz + ".", runs[:1] or opened)
-    doc.say("disclaimers", FCRA if d["kind"] == "background" else NOT_CONSUMER, opened)
+    doc.say("disclaimers", FCRA if background else NOT_CONSUMER, opened, boilerplate=True)
     if screening:
         doc.say("disclaimers", "This screening version leaves out protected characteristics (such as age, health, "
                                "religion and family status), political-contribution and health-related records, and "
@@ -681,7 +699,7 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
         "sections": [{"id": k, "title": t, "done": done[k] and k in said} for k, t in SECTIONS],
         "sentences": [s for s in doc.sentences if s["section"] != "couldnt_see"],
         "presence": presence,
-        "records": [{"row": i + 1, "id": acc(c), "source": _record(c), "site": c["site"], "url": c["url"], "summary": _summary(c, None if screening else d["injury_date"]),
+        "records": [{"row": i + 1, "id": acc(c), "source": _record(c), "site": c["site"], "url": c["url"], "summary": _summary(c, None if screening else d["injury_date"], screening),
                      "status": "confirmed" if c["decision"] == "him" else cap(c["verdict"]),
                      "exhibit": numbered.get(acc(c))} for i, c in enumerate(records)],
         "exhibits": exhibits,
@@ -722,10 +740,13 @@ def _screened(c: dict) -> bool:
     return src in ("courtlistener", "courts") and bool(SENSITIVE_CASE.search(text) or PROTECTED.search(text))
 
 
-def _summary(c: dict, injury: str | None = None) -> str:
+def _summary(c: dict, injury: str | None = None, screening: bool = False) -> str:
     """What a public record says, in one line, from the fields its source sets; with the injury date, the
-    competition results after it."""
+    competition results after it. Screening gives a court record's court and docket only: its caption names others."""
     a, src = c["attrs"], _record(c)
+    if screening and src in ("courtlistener", "courts"):
+        return ", ".join(str(b) for b in (a.get("court"), f"docket {a['docket_number']}" if a.get("docket_number") else None) if b) \
+            or c["site"]
     bits = []
     if src == "fec":
         bits = [f"{a.get('contributions')} itemized contributions" + (f" totalling ${a['total_usd']:,.0f}" if a.get("total_usd") else ""),

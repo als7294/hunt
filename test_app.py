@@ -336,6 +336,15 @@ assert r.headers["content-disposition"].startswith("attachment") and "&lt;" not 
 r = c.get("/api/cases/vance-claim/report.json?screening=1").json()
 assert r["report"]["screening"] and all(m["ok"] for m in r["manifest"])
 assert c.get("/api/cases/vance-claim/report.docx").status_code == 404
+# A background check: no export until she confirms an account, and no map of the people around the subject (K1, A8)
+bg = c.post("/api/cases", content=json.dumps({**new, "label": "Quill check", "kind": "background", "seeds": ["rquill_example"],
+                                              "purpose": "Employer XYZ: pre-employment check, consent on file"}), headers=JSON).json()["slug"]
+r = c.get(f"/api/cases/{bg}/report.html")
+assert r.status_code == 409 and "confirm" in r.json()["error"], r.text
+assert c.get(f"/api/cases/{bg}/people").json() == {"notice": server.NOT_IN_SCREENING, "people": []}
+assert c.get(f"/api/cases/{bg}/report").json()["screening"] is True
+Case.open(bg).decide("https://github.com/rquill_example", "him")
+assert c.get(f"/api/cases/{bg}/report.json").status_code == 200
 cases = c.get("/api/cases").json()
 assert next(x for x in cases if x["slug"] == "vance-claim")["headline"] in ("Confirmed · report ready", "Report ready"), cases
 assert c.get("/api/cases/vance-claim").json()["steps"] == {"search": "done", "identity": "done", "posts": "done",
