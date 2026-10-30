@@ -105,6 +105,39 @@ assert "Gligic" not in (FIX / "nasa_facebook.mhtml").read_text(errors="replace")
 assert __import__("hunt.facebook").facebook.categories({"source": "Instagram", "alt": "May be an image of 1 person, "
                                                         "lifting weights and gym"})[0][1].startswith("Instagram image description")
 
+# --- The comments she could see on a post's own page (fictional pages; docs/capture.md "Comments") --------------
+[fbc] = parsed("Facebook", "facebook_post_comments.mhtml")  # the comments sit beside the post, not inside it
+assert fbc["text"].startswith("Helped my sister move") and (fbc["reactions"], fbc["comments"]) == (31, 4)
+dana, reply, owen, priya = fbc["visible_comments"]
+assert (dana["author"], dana["account_url"], dana["likes"], dana["reply_to"]) == ("Dana Vell", "https://www.facebook.com/dana.vell", 3, None)
+assert dana["text"] == "love you bro ❤️ couldn't have done it without you" and dana["posted_at_text"] == "2d"
+assert dana["url"] == "https://www.facebook.com/dorian.vell/posts/pfbid0HelpDana5521?comment_id=Y29tbWVudDo1NTIx"  # no tracking
+assert (reply["author"], reply["reply_to"], reply["likes"]) == ("Dorian Vell", "Dana Vell", None)  # nested in Dana's, kept apart
+assert reply["text"].startswith("anytime sis") and reply["url"].endswith("&reply_comment_id=cmVwbHk6NTUyMg")
+assert (owen["account_url"], owen["likes"]) == ("https://www.facebook.com/profile.php?id=100089123456789", 1)
+assert (priya["author"], priya["account_url"], priya["text"]) == ("Priya Nair", None, "Glad the move went well!")  # name not linked
+[igc] = parsed("Instagram", "instagram_post_comments.mhtml")  # the post's own time comes after its comments
+assert (igc["text"], igc["posted_at"], igc["reactions"]) == ("Leg day. 180 kg deadlift PB 💪 #gym", "2026-10-25T13:02:00+00:00", 87)
+assert len(igc["media"]) == 1 and igc["from"] == "full"  # not the commenters' avatars
+dana, reply, owen = igc["visible_comments"]
+assert (dana["handle"], dana["likes"], dana["posted_at"]) == ("dana_vell", 4, "2026-10-26T09:14:00+00:00")
+assert dana["text"] == "love you bro ❤️ now please rest that back" and dana["account_url"] == "https://www.instagram.com/dana_vell/"
+assert (reply["handle"], reply["reply_to"], reply["text"]) == ("dorian.vell", "dana_vell", "@dana_vell it's fine, physio said light lifting only 😅")
+assert (owen["url"], owen["likes"]) == ("https://www.instagram.com/p/DQx7LegDay1/c/18046611200099887/", 2)
+[ttc] = parsed("TikTok", "tiktok_video_comments.mhtml")  # no JSON and no link to itself: the page's address says which video
+assert (ttc["url"], ttc["text"], ttc["posted_at"], ttc["from"]) == ("https://www.tiktok.com/@dvell.lifts/video/7691231154110413901",
+                                                                     "Sunday trail run, 10 km", "2026-09-30T07:45:00+00:00", "full")
+dana, reply, owen = ttc["visible_comments"]
+assert (dana["author"], dana["handle"], dana["likes"], dana["posted_at_text"]) == ("Dana Vell", "dana_vell", 12, "2d ago")
+assert (reply["handle"], reply["reply_to"], reply["likes"]) == ("dvell.lifts", "dana_vell", 3)
+assert (owen["posted_at"], owen["reply_to"], owen["likes"]) == ("2026-09-29", None, 1)  # "09-29": the latest 29 September
+top, own_reply = parsed("X", "x_status_comments.mhtml")  # replies by others are its comments, not posts
+assert top["post_id"] == "2114780141056950949" and (top["comments"], top["reactions"]) == (3, 37)
+dana, owen, mine = top["visible_comments"]
+assert (dana["handle"], dana["likes"], dana["reply_to"], dana["text"]) == ("dana_vell", 5, None, "love you bro ❤️ thank you for today")
+assert (owen["author"], owen["reply_to"], owen["posted_at"]) == ("Owen Marsh", "dana_vell", "2026-10-26T19:02:00+00:00")
+assert own_reply["url"] == mine["url"] and own_reply["text"] == "@omarsh don't tell the doctor"  # his own reply stays his post too
+
 # --- Where a page is, and the checklist's sections ------------------------------------------------
 assert ext.platform("https://m.facebook.com/x") == "Facebook" and ext.platform("http://x.com/a") is None
 assert ext.platform("https://notfacebook.com/x") is None and ext.platform("https://x.com.evil.test/") is None
@@ -322,7 +355,7 @@ assert c.post("/api/browser/sign-out", content="{}", headers=WEB).json()["moved_
 import base64 as _b64  # noqa: E402
 import quopri as _qp  # noqa: E402
 
-from hunt import scan  # noqa: E402
+from hunt import scan, vlm  # noqa: E402
 
 HBU = {"origin": HB["origin"], "x-hunt-key": HB["x-hunt-key"]}  # the Hunt Browser's key, for uploads
 
@@ -408,6 +441,45 @@ assert page_up("https://www.instagram.com/p/DVendor0001/", vendor_page).json()["
 [vendor] = [p for p in posts.list_posts(case) if p["url"] == "https://www.instagram.com/p/DVendor0001/"]
 assert (vendor["source"], vendor["origin"], vendor["text"]) == ("Instagram", "captured", "Lake loop by kayak")
 assert vendor["extra"]["vendor_source"] == "Instagram (via Apify)" and vendor["extra"]["viewed_as"].startswith("logged in")
+# 3c. The comments she could see stay with their post: a grid post she opened later, an X post already captured from
+# the profile, and a capture of the same page again, which adds nothing twice
+talk = Case.create("comments", purpose="self-check with made-up posts")
+at = "2026-10-28T15:00:00Z"
+add = lambda url, name: ext.add_page(talk, url, FIX / name, at, Path(tempfile.mkdtemp()), ext.record(url, at, "0.1.0.1", "signed_in"))
+add("https://www.instagram.com/dorian.vell/", "instagram_profile.mhtml")
+r = add("https://www.instagram.com/p/DQx7LegDay1/", "instagram_post_comments.mhtml")
+assert (r["upgraded"], r["comments"]) == (1, 3), r
+add("https://x.com/dvell", "x_profile.mhtml")
+r = add("https://x.com/dvell/status/2114780141056950949", "x_status_comments.mhtml")
+assert (r["added"], r["comments"]) == (1, 3), r  # his own reply is new; the post itself was already in the case
+add("https://www.instagram.com/p/DQx7LegDay1/", "instagram_post_comments.mhtml")
+by_url = {p["url"]: p for p in posts.list_posts(talk)}
+leg = by_url["https://www.instagram.com/p/DQx7LegDay1/"]
+assert [x["handle"] for x in leg["visible_comments"]] == ["dana_vell", "dorian.vell", "owen.marsh"]
+assert leg["visible_comments"][1]["reply_to"] == "dana_vell" and leg["visible_comments"][0]["likes"] == 4
+assert leg["visible_comments"][0]["seen_at"] == at and leg["visible_comments"][0]["evidence"] == leg["extra"]["evidence"]
+assert "visible_comments" not in leg["extra"] and leg["text"] == "Leg day. 180 kg deadlift PB 💪 #gym"
+assert by_url["https://x.com/dvell/status/2114780141056950949"]["visible_comments"][0]["handle"] == "dana_vell"
+assert len(talk.rows("select 1 from comments")) == 6 and len(talk.rows("select 1 from audit where action = 'comments recorded'")) == 2
+assert json.loads(talk.rows("select detail from audit where action = 'capture page' order by rowid desc limit 1")[0]["detail"])["comments"] == 3
+# the scan reads the comments too: a caption hit wins, else the comment's words are the hit's reason
+
+
+async def no_clip(frames, cats, pause, progress):
+    return {k: [{c: 0.0 for c in cats} for _ in v] for k, v in frames.items()}
+
+
+async def nothing():
+    pass
+
+
+scan._clip_scores, vlm.unload = no_clip, nothing
+ready = __import__("asyncio").Event()
+ready.set()
+__import__("asyncio").run(scan.run(talk, ["sport"], "", None, lambda e: None, ready))
+said = {(h["url"], h["category"]): h["what"] for h in scan.hits(talk)}
+assert said[("https://x.com/dvell/status/2114780141056950949", "sport")].startswith("Comment by Owen Marsh: “he told me the same about the gym")
+assert said[("https://www.instagram.com/p/DQx7LegDay1/", "sport")].startswith("Caption: ")
 # 4. The revocation watcher: an archive showing a challenge stops that platform until she resumes it
 blocked = mhtml("https://www.instagram.com/dorian.vell/", "<html><body><h2>We suspect automated behavior on your account"
                 "</h2><p>To protect our community, please confirm it's you.</p></body></html>")

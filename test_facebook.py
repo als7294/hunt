@@ -95,6 +95,9 @@ assert leg["text"] == "Leg day done. New PB on the deadlift 💪 180 kg" and "Be
 assert leg["place"] == "Iron Harbor Gym" and leg["fb_id"] == "100087654321012"
 assert (leg["reactions"], leg["comments"], leg["shares"]) == (23, 5, 2)
 assert [Path(m).name for m in leg["media"]] == ["447120_n.jpg"]  # not the 16px emoji, the svg avatar or the logo
+[mara] = leg["visible_comments"]  # the comment under it, as the page showed it
+assert (mara["author"], mara["account_url"], mara["posted_at_text"]) == ("Mara Quill", "https://www.facebook.com/profile.php?id=100055512345678", "2d")
+assert mara["text"] == "Beast mode! Don't hurt that knee again 😬" and mara["url"].endswith("pfbid02XaLegDay7701?comment_id=Y29tbWVudDo3NzAx")
 assert all(Path(m).is_file() for p in posts for m in p["media"])
 # "See more" in the DOM; the full text comes from the JSON. Two photos and a video's poster; the blob: video isn't saved
 assert ridge["activity"] == "feeling adventurous" and ridge["place"] == "Cedar Ridge Trailhead"

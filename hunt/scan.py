@@ -3,7 +3,7 @@ surfaces; the investigator decides.
 
 Order: posts after the injury date, newest first, then the before-injury baseline. Passes, with
 one model in memory at a time:
-  1. text: keyword lists over captions, and Apple Vision OCR of screenshots
+  1. text: keyword lists over captions and the comments she could see, and Apple Vision OCR of screenshots
   2. CLIP ViT-L/14 (local Hugging Face cache, fp16 on MPS) scores every photo and sampled video
      frame against each category's prompts versus shared negatives, tuned for recall
   3. the local vision model, vlm.judge(), only on CLIP or keyword candidates (every photo and
@@ -155,11 +155,15 @@ async def run(case, look_for: list[str], limits: str, injury_date: str | None, e
     # 1. Text: captions, then screenshots' OCR
     for p in todo:
         await pause.wait()
+        first = p["media"][0]["file"] if p["media"] else None
         for c, spec in cats.items():
             if found := _keywords(p["text"], spec):
-                first = p["media"][0]["file"] if p["media"] else None
                 progress.found += _hit(case, emit, p, None, c, f"Caption: “{found}”", None, None, P_TEXT,
                                        injury_date, first)
+            for com in p.get("visible_comments") or []:  # a caption hit for the same category wins
+                if found := _keywords(com["text"], spec):
+                    progress.found += _hit(case, emit, p, None, c, f"Comment by {com['author'] or com['handle']}: “{found}”",
+                                           None, None, P_TEXT, injury_date, first)
         progress.found += _tag_hits(case, emit, p, cats, injury_date)
         if not p["media"]:
             progress.done(1)
