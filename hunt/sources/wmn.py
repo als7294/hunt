@@ -7,7 +7,8 @@ list's own known accounts with `uv run python scripts/validate_wmn.py`.
 The list is pinned to a commit (PIN) and read once; a new pin is a new cache file. One honest
 request per site (legal.md C6, C7; compliance audit DS4): Hunt's own User-Agent, never an
 entry's browser one; no entry on a deny-list host; a POST only for entries in POST_OK, each
-read and found to send nothing but the handle to a username or profile lookup.
+read and found to send nothing but the handle to a username or profile lookup. Hits are tidied as
+Maigret's are (maigret.tidy_hits): search pages dropped and counted, mirrors pointed at the profile.
 """
 
 import asyncio
@@ -20,6 +21,7 @@ from ..case import HOME
 from ..seed import Finding
 from . import _api
 from ._api import denied
+from .maigret import tidy_hits
 
 NAME = "whatsmyname"
 KINDS = {"username"}
@@ -98,6 +100,7 @@ async def search(seed):
         results = await asyncio.gather(*map(check, sites))
     counts = {s: sum(1 for st, _ in results if st == s) for s in ("found", "not found", "unknown", "error")}
     checked = counts["found"] + counts["not found"]
-    return ([f for _, f in results if f], checked,
+    findings, dropped = tidy_hits([f for _, f in results if f], seed.value)
+    return (findings, checked,
             f"checked {len(sites)} sites ({len(listed) - len(sites)} skipped: deny-list hosts or unread POSTs): "
-            + ", ".join(f"{n} {s}" for s, n in counts.items()))
+            + ", ".join(f"{n} {s}" for s, n in counts.items()) + dropped)
