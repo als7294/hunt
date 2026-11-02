@@ -107,7 +107,7 @@ _Checked live on 2026-10-29 with the public organisation account `nasa` only, lo
 | OpenCorporates | API key required; free keys only for public-benefit "Permitted Users" | Commercial use needs a paid key: rejected |
 | FAA airmen registry | Monthly ZIP of CSVs (registry.faa.gov) | Server answers scripted requests with 503; not automated (see below) |
 | NSOPW / sex-offender registries | **No API; terms forbid automated search** | Link out only |
-| Property/assessor | County by county, no free national API | Out of MVP |
+| Property/assessor | County by county, no free national API | **Wired in** for FL (statewide), CT, NY, NYC, Cook, Harris, Philadelphia and seven more: see [Property](#property) |
 
 ## API sources in Hunt
 
@@ -164,7 +164,7 @@ The search, filtering, proxy, health probe and note come with it. Tables already
 - NY elevator, crane, pyrotechnician, asbestos and mold individual licences (`cxfs-ya8e`, `bu6a-ty84`, `83wd-skw3`, `95bk-87hc`, `h6jr-vxqt`)
 - TX Racing Commission and easement-agent licensees (`data.texas.gov` `yqzs-yaft`, `3p42-m5cn`)
 
-An ArcGIS FeatureServer layer takes the same `Dataset` with `arcgis=True` and its service path as `id` (DC's business licences); the where-clause is the same SQL.
+An ArcGIS FeatureServer layer takes the same `Dataset` with `engine="arcgis"` and its service path as `id` (DC's business licences), and a Carto table `engine="carto"` (Philadelphia property); the where-clause is the same SQL. `order` (Socrata `$order`) puts the newest year first in a table that holds several.
 
 A state that publishes files instead (no API) is a `_bulk.Table`: its file URLs (or a function reading the agency's index page) and a parser from one file to records and their people; add it to `licences.TABLES` or `businesses.TABLES`. `florida.py` and `statefiles.py` are the examples; `python -m hunt.sources.records update <table>` loads it.
 
@@ -192,7 +192,7 @@ _Checked 2026-11-01, every state and DC. Method: the Socrata discovery API for b
 
 | State | Business entities | Licences |
 |---|---|---|
-| AL | **By hand**: [SOS entity search](https://arc-sos.state.al.us/CGI/CORPNAME.MBR/INPUT) (officers and agents: `CORPAGENT.MBR`). Its host's `robots.txt` is Disallow: /. No bulk product | **By hand**: no umbrella agency. [Medical board](https://dashboard.albme.gov/Verification/search.aspx) (its free roster comes from a form post, not a file); [contractors board](https://licensesearch.alabama.gov/genconbd) (a free roster CSV, but it lists companies, not people: not built); real estate lists $10 |
+| AL | **Built** (`registries`, 2026-11-02): the SOS officer, agent and incorporator search and each entity's page, read logged out as public pages (its host's `robots.txt` is Disallow: /, recorded in the note under D2). No bulk product | **By hand**: no umbrella agency. [Medical board](https://dashboard.albme.gov/Verification/search.aspx) (its free roster comes from a form post, not a file); [contractors board](https://licensesearch.alabama.gov/genconbd) (a free roster CSV, but it lists companies, not people: not built); real estate lists $10 |
 | AK | **By hand**: [CBPL entity search](https://www.commerce.alaska.gov/cbp/main/search/entities). CBPL's own pages offer free corporation and officials CSVs, but a DataDome bot wall answers scripts with 403 everywhere on the host. Worth asking CBPL for an allowlisted channel | **By hand**: [CBPL professional search](https://www.commerce.alaska.gov/cbp/main/search/professional); its free licence download sits behind the same wall |
 | AZ | **By hand**: [Arizona Business Center](https://arizonabusinesscenter.azcc.gov/EntitySearch/Index) (`robots.txt` Disallow: /). Excluded: the database extract, $1,000 with a commercial-purpose declaration | **By hand**: no umbrella. [Real estate](http://services.azre.gov/PdbWeb/); contractors (ROC), medical and nursing boards answer scripts with a Cloudflare 403 |
 | AR | **By hand**: [SOS corporation search](https://www.ark.org/corp-search/) (AWS WAF CAPTCHA). Excluded: bulk data, a $150-a-year subscriber account | **By hand**: [Medical Board directory](https://armedicalboard.adh.arkansas.gov/public/directory/AdvancedDirectorySearch.aspx). Excluded: mailing lists ($100 to $250) |
@@ -209,7 +209,7 @@ _Checked 2026-11-01, every state and DC. Method: the Socrata discovery API for b
 | IN | **By hand**: [INBiz search](https://inbiz.in.gov/business-search) (reCAPTCHA). Excluded: bulk data, $8,000 | **By hand**: [PLA eVerification](https://mylicense.in.gov/everification/). Excluded: licence files, $150 plus $10 per 1,000 records |
 | IA | **By hand**: [business search](https://sos.iowa.gov/search/business) (Cloudflare). Not yet: data.iowa.gov's free "Active Iowa Business Entities" (registered agents only, CC BY 4.0) has no stable file URL behind its download button. Excluded: officers through the paid SOS API ($2,400 a year) | **By hand**: [DIAL licence search](https://ia-plb.my.site.com/LicenseSearchPage). The nursing rosters' host disallows / |
 | KS | **By hand**: [business entity search](https://www.sos.ks.gov/eforms/BusinessEntity/Search.aspx) (disallowed to robots). Excluded: data lists, $150 under a K.S.A. 45-230 certification | **By hand**: [Board of Nursing verification](https://portal.egov.ksbn.ks.gov/verification/) (reCAPTCHA). Healing Arts and Real Estate answer scripts with an Akamai 403 |
-| KY | **By hand**: [business search](https://sosbes.sos.ky.gov/BusSearchNProfile/search.aspx). Excluded: Bulk Data Service, $2,000 a month for commercial use; the free tier is non-commercial and needs a login | **By hand**: [Department of Professional Licensing](https://oop.ky.gov/lic_search.aspx). Excluded: the nursing roster, $500 |
+| KY | **Built** (`registries`, 2026-11-02): the SOS [current representative search](https://sosbes.sos.ky.gov/BusSearchNProfile/Offsearch.aspx) (officers, directors, members, organisers; active and inactive), read logged out as a public form (no CAPTCHA, no robots.txt). Excluded: Bulk Data Service, $2,000 a month for commercial use; the free tier is non-commercial and needs a login | **By hand**: [Department of Professional Licensing](https://oop.ky.gov/lic_search.aspx). Excluded: the nursing roster, $500 |
 | LA | **By hand**: [commercial search](https://coraweb.sos.la.gov/commercialsearch/commercialsearch.aspx) (reCAPTCHA; disallowed to robots). Excluded: the Commercial API, a yearly fee | **By hand**: [medical](https://online.lasbme.org/#/verifylicense) and [nursing](https://www.lsbn.state.la.us/license-lookup/) boards (reCAPTCHA), [contractors](https://arlspublic.lslbc.louisiana.gov/Public/Search), [real estate](https://portal.lrec.gov/Public/Search). Excluded: the nursing CSV, $0.02 a name |
 | ME | **By hand**: [corporate search](https://apps3.web.maine.gov/nei-sos-icrs/ICRS?MainPage=x) (reCAPTCHA; "strictly prohibits mining data"). Excluded: monthly data, $600 (snippet) | **By hand**: [ALMS licence search](https://www.pfr.maine.gov/ALMSOnline/ALMSQuery/SearchIndividual.aspx) (results and exports disallowed to robots) |
 | MD | **By hand**: [Business Express](https://egov.maryland.gov/BusinessExpress/EntitySearch) (Turnstile). Excluded: the corporate master file | **By hand**: [Labor licence search](https://www.dllr.state.md.us/cgi-bin/ElectronicLicensing/OP_Search/OP_search.cgi?calling_app=ALL::ALL_personal_name) (reCAPTCHA). opendata.maryland.gov has only FY2018 veterinary lists |
@@ -244,7 +244,9 @@ _Checked 2026-11-01, every state and DC. Method: the Socrata discovery API for b
 | WI | **By hand**: [corporate search](https://apps.dfi.wi.gov/apps/corpsearch/search.aspx) (Cloudflare 403). Excluded: database files, $40 each, no officers | **By hand**: [DSPS credential search](https://online.drl.wi.gov/LicenseLookup/IndividualCredentialSearch.aspx) (Cloudflare 403). Excluded: lists, up to $2,000 (snippet) |
 | WY | **By hand**: [WyoBiz filing search](https://wyobiz.wyo.gov/Business/FilingSearch.aspx) (F5 challenge with a CAPTCHA). Excluded: database download, $10,200 a year, no sharing | **By hand**: [Board of Medicine lookup](https://my.wyomedboard.wyo.gov/licensee_lookup_and_verification_empty_layout) (reCAPTCHA; lists on request) |
 
-**Totals** (51 jurisdictions, two cells each): business entities 8 built, 42 by hand, 1 excluded; licences 14 built, 36 by hand, 1 excluded. Together **22 built, 78 by hand, 2 excluded**. Built covers 22 states and DC in at least one cell.
+**Totals** (51 jurisdictions, two cells each): business entities 10 built, 40 by hand, 1 excluded; licences 14 built, 36 by hand, 1 excluded. Together **24 built, 76 by hand, 2 excluded**. Built covers 24 states and DC in at least one cell.
+
+**Read as public pages (D2, 2026-11-02).** A by-hand cell whose only bar was `robots.txt` or a terms clause against automation, and whose search page is public, logged out and free of CAPTCHAs, becomes a `registries` (businesses) or `boards` (licences) adapter: one search per name under Hunt's User-Agent, then at most 10 detail pages one at a time, stopping the host at the first 403, 429, login wall, CAPTCHA or challenge page. A cell barred by a CAPTCHA, a bot wall, a login or a use clause ("personal, non-commercial use") stays by hand or excluded. Checked and left by hand on 2026-11-02: Kansas (403 to Hunt), West Virginia (a honeypot field and timestamp on its form: bot detection), Missouri (needs JavaScript to post its form).
 
 ### Bulk files on this Mac
 
@@ -272,6 +274,38 @@ _Checked 2026-11-01, every state and DC. Method: the Socrata discovery API for b
 | Alabama contractors board roster | Free and allowed, but it lists companies, not people |
 | Iowa "Active Iowa Business Entities" | Free, but registered agents only, and its file has no stable URL yet; worth adding once it does |
 | Maryland's FY2018 veterinary tables, Missouri's alcohol licences, data.pa.gov's licensee counts | Stale, businesses only, or counts without names |
+
+## Property
+
+_Checked 2026-11-02. Method: the Socrata catalogue for parcel, assessment, tax-roll and CAMA tables with an owner-name column (metadata, then one row per table with values masked); the counties' and states' own open-data and download pages; one GET of each by-hand search page. No person's name was searched._
+
+`parcels` (name seeds) answers "what does this person own, and where": the owner as the roll writes it (`fullname`), `roles` (owner, co-owner, taxpayer), the parcel's `address` and `location`, the owner's `mailing_address` (where the tax bill goes, often the home of an owner who lets the parcel), `homestead` where the roll records the exemption (the owner lives there), `value`, `sale_date`/`sale_price` or `owned_since`, `parcel`, `county`, `year`. An owner whose mailing address is the parcel, or with a homestead exemption, is the strongest residence record Hunt has.
+
+| Jurisdiction | Channel | Status |
+|---|---|---|
+| Florida, all 67 counties | Department of Revenue's statewide NAL roll ([data portal](https://floridarevenue.com/property/Pages/DataPortal_RequestAssessmentRollGISData.aspx); each county's newest final roll, else its preliminary one; 794 MB for the 60 final counties of 2026). The public files leave out owners exempt under s. 119.071 | **Built**, a local table: `python -m hunt.sources.records update fl-property` (`HUNT_FL_COUNTIES="Hillsborough, Miami-Dade"` loads fewer). The live record is the county appraiser's: [Hillsborough](https://gis.hcpafl.org/propertysearch/), [Miami-Dade](https://www.miamidade.gov/Apps/PA/propertysearch/), [Orange](https://ocpaweb.ocpafl.org/parcelsearch), [Pinellas](https://www.pcpao.gov/) (refuses scripts), [Duval](https://paopropertysearch.coj.net/Basic/Search.aspx), [Broward](https://web.bcpa.net/BcpaClient/), [Palm Beach](https://pbcpao.gov/index.htm) |
+| Philadelphia | OPA properties (Carto SQL API): owners 1 and 2, mailing address, homestead, value, last sale | **Built** (live) |
+| Allegheny County PA | WPRDC's property assessments (585K parcels) carry an owner *type*, not a name | **By hand**: [Real Estate Portal](https://realestate.alleghenycounty.us/) |
+| Connecticut, every town | 2026 Parcel and CAMA data (Socrata) | **Built** (live) |
+| New York State outside NYC | Local assessment rolls, 2021 to 2025, up to four owners (Socrata; newest roll first) | **Built** (live) |
+| New York City | DOF property valuation and assessment (Socrata; "LAST, FIRST", searched by prefix) | **Built** (live) |
+| Cook County IL | Assessor parcel addresses: owner and taxpayer names, 2021 to 2026 (Socrata; a slow full scan, 60 s allowed) | **Built** (live) |
+| Harris County TX | HCAD public data download (owners joined to accounts; "can be imported into user databases") | **Built**, a local table: `… update tx-harris` (210 MB). The live record: [HCAD search](https://search.hcad.org/) (refuses scripts) |
+| Denver, Providence, Baton Rouge, Norfolk VA, Prince George's County MD, Cambridge MA, Williamson County TX | Each assessor's own Socrata table | **Built** (live) |
+| Los Angeles, Maricopa, Dallas, King WA, Clark NV, Tarrant, Bexar | Not yet checked for an owner-name file | **By hand**: [LA assessor portal](https://portal.assessor.lacounty.gov/), [Maricopa](https://mcassessor.maricopa.gov/), [DCAD](https://www.dallascad.org/), [King](https://blue.kingcounty.com/Assessor/eRealProperty/), [Clark](https://www.clarkcountynv.gov/government/assessor/), [TAD](https://www.tad.org/), [BCAD](https://www.bcad.org/). The Texas appraisal districts publish data downloads like HCAD's: the next candidates |
+
+**Not surfaced by default:** as for officers, show the town and the parcel; the street is one click away (the report decides).
+
+## UCC filings and discipline
+
+_Checked 2026-11-02 (Socrata catalogue; the OIG's download page). No person's name was searched._
+
+| Source | Tables | Record carries |
+|---|---|---|
+| `ucc` | Colorado UCC debtors (`8upq-58vz`) and farm-products financing statements (`ej2c-jkvh`); Connecticut UCC and lien filings (`xfev-8smz`), the person as debtor or as secured party | `roles` (debtor, additional debtor, secured party), `filing`, `lien`, `filing_type`, `status`, `filed`, `lapses`, the other party (`secured_party` or `debtor`), `collateral`, `address`, `location` |
+| `discipline` | HHS-OIG List of Excluded Individuals/Entities (a local table: `… update us-leie`, 11 MB, monthly; individuals only, with **date of birth**); NY Board for Professional Medical Conduct (`ebmi-8ctw`, with year of birth); Delaware DPR (`dz6p-akeq`); Connecticut DCP and real-estate decisions (`2twc-xaxs`, `9ky9-v9uu`); NYC Buildings licensees (`ndq3-kuef`) and process servers (`b9yk-4pzk`) | `action`, `effective` (and `until`, `reinstated`), `licence`, `licence_number`, `case`, `decided`, `document` (the decision), `dob` or `year_of_birth`, `npi`; one record per action |
+
+Not built: Connecticut DPH hearing decisions (`262e-rymj`, empty on 2026-11-02); SAM.gov exclusions (an API key); every other state's UCC search (by-hand forms or paid bulk, as for the business registries above) and board actions (PDF lists or lookups). Florida's federal tax liens are in Sunbiz's quarterly files (`flr`), behind the same shared login as its corporate data: a candidate for the investigator's own download.
 
 ## Court records
 

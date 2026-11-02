@@ -50,6 +50,13 @@ from . import (aboutme, deviantart, flickr, goodreads, kick, letterboxd, linktre
 SOURCES += [reddit, snapchat, telegram, pinterest, tumblr, medium, substack, linktree, aboutme, twitch, kick, soundcloud,
             flickr, deviantart, letterboxd, untappd, goodreads]
 
+# Per-state records work (docs/research/tools.md, "State records" and after): one block, so merges stay simple
+from . import discipline, parcels, registries, ucc  # noqa: E402
+SOURCES += [parcels,  # name → property owned (assessors' rolls; Florida's statewide roll indexed on this Mac)
+            ucc,  # name → UCC financing statements and liens naming the person (debtor or secured party)
+            discipline,  # name → board actions and federal health-program exclusions (the OIG list indexed on this Mac)
+            registries]  # name → state business registries read as public pages, logged out (robots.txt-only by-hand ones)
+
 
 def _key_status(src, is_set: bool) -> str:
     if not getattr(src, "KEY", None):

@@ -1,5 +1,6 @@
 """Name search over US government open-data portals (Socrata SODA API), shared by the records sources.
-An ArcGIS FeatureServer layer (`arcgis=True`, `id` its service path) takes the same where-clause.
+An ArcGIS FeatureServer layer (engine "arcgis", `id` its service path) or a Carto table (engine "carto", `id` the
+table) takes the same where-clause.
 
 A Dataset says where a table lives, which columns hold a person's name and what role that
 name plays, and how a row reads as a record. To add a state:
@@ -42,19 +43,28 @@ class Dataset:
     key: str  # column naming one record; the record URL asks the portal for it
     url: Callable[[dict], str] | None = None  # a better record page than the portal query, if there is one
     lookup: tuple[str, str, str] | None = None  # (dataset id, its key, our column): fetch that row in as row["_lookup"]
-    arcgis: bool = False  # an ArcGIS FeatureServer layer at https://<domain>/<id>, not a Socrata table
+    engine: str = "socrata"  # or "arcgis" (a FeatureServer layer at https://<domain>/<id>) or "carto" (a Carto SQL table)
+    surname_first: bool = False  # Socrata: whole-name columns written "LAST, FIRST" in capitals (a fast prefix search)
+    timeout: float | None = None  # seconds, for a table the portal scans slowly (millions of rows); else the client's
+    order: str | None = None  # Socrata $order, e.g. "roll_year DESC": a table holding several years gives the newest first
 
     def page(self, row: dict) -> str:
         if self.url:
             return self.url(row)
-        if self.arcgis:
-            return f"https://{self.domain}/{self.id}/query?" + urlencode(
-                {"where": f"{self.key}='{_soql(str(row.get(self.key, '')))}'", "outFields": "*", "f": "html"})
+        match_ = f"{self.key}='{_soql(str(row.get(self.key, '')))}'"
+        if self.engine == "arcgis":
+            return f"https://{self.domain}/{self.id}/query?" + urlencode({"where": match_, "outFields": "*", "f": "html"})
+        if self.engine == "carto":
+            return f"https://{self.domain}/api/v2/sql?" + urlencode({"q": f"SELECT * FROM {self.id} WHERE {match_}"})
         return f"https://{self.domain}/resource/{self.id}.json?" + urlencode({self.key: row.get(self.key, "")})
 
     @property
     def meta(self) -> str:  # metadata only, no rows: what health() probes
-        return f"https://{self.domain}/{self.id}?f=json" if self.arcgis else f"https://{self.domain}/api/views/{self.id}.json"
+        if self.engine == "arcgis":
+            return f"https://{self.domain}/{self.id}?f=json"
+        if self.engine == "carto":
+            return f"https://{self.domain}/api/v2/sql?" + urlencode({"q": f"SELECT * FROM {self.id} LIMIT 0"})
+        return f"https://{self.domain}/api/views/{self.id}.json"
 
 
 def words(text) -> list[str]:
@@ -94,7 +104,9 @@ def _soql(text: str) -> str:
     return text.replace("'", "''")
 
 
-def _clause(spec, first, last) -> str:
+def _clause(spec, first, last, surname_first=False) -> str:
+    if isinstance(spec, str) and surname_first:  # "VANCE, ROBERT", upper case: a prefix match uses the portal's index
+        return f"starts_with({spec}, '{_soql(last)}') and {spec} like '%{_soql(first)}%'"
     if isinstance(spec, str):
         return f"upper({spec}) like '%{_soql(last)}%' and upper({spec}) like '%{_soql(first)}%'"
     f, l = spec
@@ -110,16 +122,22 @@ def _named(row, spec, first, last) -> bool:
 
 
 async def _one(c, source, seed, d: Dataset, first, last) -> list[Finding]:
-    where = " or ".join(f"({_clause(s, first, last)})" for s in d.names)
+    where = " or ".join(f"({_clause(s, first, last, d.surname_first)})" for s in d.names)
     # missing=(): a 404 means the portal dropped the dataset, which the note should say
-    if d.arcgis:
+    if d.engine == "arcgis":
         r = await fetch(c, f"https://{d.domain}/{d.id}/query",
                         {"where": where, "outFields": "*", "resultRecordCount": LIMIT, "f": "json"}, missing=())
         if "error" in (data := r.json()):  # ArcGIS reports a bad query as 200 with an error body
             raise ValueError(f"{d.label}: {data['error'].get('message')}")
         data = [f.get("attributes", {}) for f in data.get("features", [])]
+    elif d.engine == "carto":
+        r = await fetch(c, f"https://{d.domain}/api/v2/sql", {"q": f"SELECT * FROM {d.id} WHERE {where} LIMIT {LIMIT}"},
+                        missing=())
+        data = r.json().get("rows", [])
     else:
-        r = await fetch(c, f"https://{d.domain}/resource/{d.id}.json", {"$where": where, "$limit": LIMIT}, missing=())
+        r = await fetch(c, f"https://{d.domain}/resource/{d.id}.json",
+                        {"$where": where, "$limit": LIMIT, **({"$order": d.order} if d.order else {})}, missing=(),
+                        **({"timeout": d.timeout} if d.timeout else {}))
         data = r.json()
     rows = [(row, spec) for row in data for spec in d.names if _named(row, spec, first, last)]  # a role per name that matches
     if d.lookup and rows:
@@ -137,6 +155,8 @@ async def _one(c, source, seed, d: Dataset, first, last) -> list[Finding]:
         role = attrs.pop("role", None) or role
         if isinstance(spec, str):
             attrs["fullname"] = row.get(spec)
+        elif not attrs.get("fullname"):  # the matched (first, last) pair, as the record writes it
+            attrs["fullname"] = joined(row.get(spec[0]), row.get(spec[1]))
         url = d.page(row)
         if url in found:  # one person in two roles on one record
             found[url].attrs["roles"] = sorted(set(found[url].attrs["roles"]) | {role})

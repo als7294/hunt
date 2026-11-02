@@ -104,7 +104,7 @@ DATASETS = [
                              "business_address": r.get("PREMISEADDRESS"),
                              "business_location": "Washington, DC" if r.get("PREMISEINDC") == "Yes" else None,
                              "licence_number": r.get("CUSTOMERNUMBER")},
-            key="CUSTOMERNUMBER", arcgis=True),
+            key="CUSTOMERNUMBER", engine="arcgis"),
 ]
 HEALTH = [d.meta for d in DATASETS]
 TABLES = [florida.CORPORATIONS, florida.FICTITIOUS]  # bulk files loaded on this Mac (_bulk); a search never downloads them

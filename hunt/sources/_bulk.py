@@ -136,11 +136,11 @@ async def _answer(c, method: str, url: str, path: Path | None = None) -> httpx.R
                 raise
 
 
-def rows(path, delimiter: str = ",", encoding: str = "latin-1"):
+def rows(path, delimiter: str = ",", encoding: str = "latin-1", quoting: int = csv.QUOTE_MINIMAL):
     """Dict rows from a CSV (or tab-delimited) file, every CSV inside a .zip, or an .xlsx's first sheet. The header
     is the first row with three or more cells filled, so a title row above it is skipped."""
     if isinstance(path, io.TextIOBase):
-        yield from _rows(csv.reader(path, delimiter=delimiter))
+        yield from _rows(csv.reader(path, delimiter=delimiter, quoting=quoting))
     elif zipfile.is_zipfile(path):  # an .xlsx is a zip too; WVBOM's downloads have no .xlsx suffix
         with zipfile.ZipFile(path) as z:
             if any(name.startswith("xl/worksheets/") for name in z.namelist()):
@@ -149,10 +149,10 @@ def rows(path, delimiter: str = ",", encoding: str = "latin-1"):
             for name in z.namelist():
                 if name.lower().endswith((".csv", ".txt")):
                     with z.open(name) as f:
-                        yield from rows(io.TextIOWrapper(f, encoding=encoding, newline=""), delimiter)
+                        yield from rows(io.TextIOWrapper(f, encoding=encoding, newline=""), delimiter, quoting=quoting)
     else:
         with open(path, encoding=encoding, newline="") as f:
-            yield from _rows(csv.reader(f, delimiter=delimiter))
+            yield from _rows(csv.reader(f, delimiter=delimiter, quoting=quoting))
 
 
 def _rows(lists):

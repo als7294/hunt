@@ -33,9 +33,10 @@ def client(timeout: float = 20, **headers) -> httpx.AsyncClient:
                              headers={"User-Agent": UA, "Accept": "application/json", **headers})
 
 
-async def fetch(c: httpx.AsyncClient, url: str, params=None, missing=(404, 410)) -> httpx.Response | None:
+async def fetch(c: httpx.AsyncClient, url: str, params=None, missing=(404, 410),
+                timeout=httpx.USE_CLIENT_DEFAULT) -> httpx.Response | None:
     """GET url: the response, None if the thing isn't there, Limited if we're being throttled."""
-    r = await c.get(url, params=params)
+    r = await c.get(url, params=params, timeout=timeout)
     wait = r.headers.get("retry-after")
     # GitHub signals both its hourly quota and its secondary (burst) limit with a 403
     if r.status_code == 429 or (r.status_code == 403 and (r.headers.get("x-ratelimit-remaining") == "0" or wait)):
