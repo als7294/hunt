@@ -489,7 +489,7 @@ screens.identity = async slug => {
   const accts = p.accounts, n = accts.length, weakest = p.weakest_verdict, low = Math.min(...accts.map(a => a.probability ?? 1));
   const avatar = accts.find(a => a.avatar)?.avatar, me = !!c.details.about_me; // searching yourself (hunt/profile.py)
   mount(html`${topCase(c, 'identity')}<main class="screen" style="align-items:center;padding:6px 16px 32px;gap:18px">
-    ${identityTabs(slug, 'identity')}
+    ${identityTabs(slug, 'identity', me)}
     <div style="text-align:center;display:flex;flex-direction:column;gap:8px"><div class="h2">${me ? 'Is this you?' : 'Is this them?'}</div>
       <div class="sub">${n ? `We found ${n} account${n > 1 ? 's' : ''} that look like ${me ? 'you, going by your description' : 'the same person'}.` : me ? 'No account matches your description well enough yet. Add a username, email or city and search again.' : 'No account looks likely enough yet. Add more of what you know and search again.'}</div></div>
     ${n ? html`<div style="width:min(880px,100%);background:linear-gradient(180deg,#1E2230,#1B1D23 40%);border-radius:24px;padding:28px;box-shadow:inset 0 0 0 1px var(--edge);display:flex;flex-direction:column;gap:20px">
@@ -516,6 +516,7 @@ screens.identity = async slug => {
       <div id="vendor-line"></div>
     </div>` : ''}
     ${faceRows(p)}
+    ${possibleBlock(p, me)}
     ${recordsPanel(p)}
     ${p.namesakes.length ? html`<div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:600;font-size:19px">Others with the same name</span><span class="muted" style="font-size:14.5px">We’ll mention these in the report</span></div>
@@ -540,6 +541,29 @@ screens.identity = async slug => {
   }).catch(() => {});
   api(`/api/cases/${encodeURIComponent(slug)}/seen-before`).then(r => { if ($('#seen-here')) $("#seen-here").innerHTML = fmt(seenBox(r, slug)); }).catch(() => {});
   if (document.querySelector('[data-links]')) api(`/api/cases/${encodeURIComponent(slug)}/records/links`).then(recordLinks).catch(() => {});
+};
+
+/* Possibly theirs: 0.2 ≤ p < 0.55, usually a handle-only match capped at "roughly even" until a second identifier
+   agrees. Grouped by the handle they share; each confirmed or ruled out by hand. */
+const possibleBlock = (p, me) => {
+  const xs = p.possible || [];
+  if (!xs.length) return '';
+  const byHandle = list => Object.entries(list.reduce((g, x) => ((g[x.handle || handleOf(x.url)] ||= []).push(x), g), {}));
+  const total = Object.fromEntries(byHandle(xs).map(([h, l]) => [h, l.length]));
+  const row = x => html`<div class="row" style="padding:10px 12px"><span class="dot" style="background:${siteColor(x.site)}"></span>
+    <div style="flex:1;min-width:0"><div><b style="font-weight:500">${x.site}</b> <span class="muted">${pct(x.probability)} ${capped(x.verdict)}</span></div>
+      <div class="muted" style="font-size:13.5px">${x.why}${x.why === 'only the username agrees' ? `: confirm it’s ${me ? 'yours' : 'theirs'}` : ''}</div></div>
+    <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="him">${x.decision === 'him' ? '✓ ' : ''}${me ? 'Mine' : 'Theirs'}</button>
+    <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="not him">${me ? 'Not me' : 'Not them'}</button></div>`;
+  const groups = list => byHandle(list).map(([h, l]) => html`<div style="display:flex;flex-direction:column;gap:6px">
+    <div class="muted" style="font-size:14px;padding:2px">${h} · ${total[h]} account${total[h] > 1 ? 's' : ''} with this username</div>${l.map(row)}</div>`);
+  return html`<div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px"><span style="font-weight:600;font-size:19px">${me ? 'Possibly yours' : 'Possibly theirs'}</span>
+      <span class="muted" style="font-size:14.5px">${me ? 'Only your username agrees so far: say which are yours' : 'Usually only the username agrees: confirm or rule out each'}</span></div>
+    ${groups(xs.slice(0, 10))}
+    ${xs.length > 10 ? html`<details id="pos-more" ${keepOpen.has('pos-more') ? 'open' : ''}><summary class="muted" style="cursor:pointer;padding:6px 2px">Show all ${xs.length}</summary>
+      <div style="display:flex;flex-direction:column;gap:10px;padding-top:6px">${groups(xs.slice(10))}</div></details>` : ''}
+  </div>`;
 };
 
 const namesakeRow = ns => html`<div class="row"><span class="tile-ic" style="background:var(--raise);color:var(--mu)">${(ns.label || '?').slice(0, 2).toUpperCase()}</span>
@@ -638,7 +662,7 @@ const sourceRows = rows => html`${rows.map(r => { const url = /^https?:/.test(r.
 
 /* People around the subject (docs/analysis.md §8; legal.md A1–A10): only what the case already holds, by name and
    citation. Nothing about them is searched; "Open as a new case…" starts the wizard with its own purpose. */
-const identityTabs = (slug, now) => html`<nav style="display:flex;gap:6px;align-self:center">${[['identity', 'Accounts'], ['people', 'People around the subject']].map(([k, label]) =>
+const identityTabs = (slug, now, me) => html`<nav style="display:flex;gap:6px;align-self:center">${[['identity', 'Accounts'], ['people', me ? 'People around you' : 'People around the subject']].map(([k, label]) =>
   html`<a class="step ${k === now ? 'now' : ''}" href="#/case/${slug}/${k}" style="padding:7px 14px">${label}</a>`)}</nav>`;
 const sureness = c => c >= 0.9 ? 'stated' : c >= 0.6 ? 'likely' : 'a hint';
 const SOURCE_WORD = { post: 'a post', bio: 'a profile bio', record: 'a public record', photo: 'your mark on a kept photo', name: 'the name' };
@@ -659,11 +683,11 @@ screens.people = async slug => {
   const [c, r] = await Promise.all([loadCase(slug), api(`/api/cases/${encodeURIComponent(slug)}/people`)]);
   const shown = r.people.filter(x => !x.hidden), hidden = r.people.filter(x => x.hidden);
   mount(html`${topCase(c, 'identity')}<main class="screen" style="align-items:center;padding:6px 16px 32px;gap:16px">
-    ${identityTabs(slug, 'people')}
-    <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:8px"><div class="h2" style="text-align:center">People around the subject</div>
-      <div class="sub" style="text-align:center">${r.notice}</div></div>
+    ${identityTabs(slug, 'people', !!c.details.about_me)}
+    <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:8px"><div class="h2" style="text-align:center">${c.details.about_me ? 'People around you' : 'People around the subject'}</div>
+      <div class="sub" style="text-align:center">${c.details.about_me ? r.notice.replace("the subject's own", 'your own') : r.notice}</div></div>
     <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
-      ${c.details.kind === 'background' ? '' : shown.length ? shown.map(x => personCard(slug, x)) : html`<div class="empty">Nobody else is named in the subject’s posts, bios or records yet${hidden.length ? ' (apart from those you marked not relevant)' : ''}.</div>`}
+      ${c.details.kind === 'background' ? '' : shown.length ? shown.map(x => personCard(slug, x)) : html`<div class="empty">Nobody else is named in ${c.details.about_me ? 'your' : 'the subject’s'} posts, bios or records yet${hidden.length ? ' (apart from those you marked not relevant)' : ''}.</div>`}
       ${hidden.length ? html`<details><summary class="muted" style="cursor:pointer;padding:6px 0">Marked not relevant (${hidden.length})</summary><div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">${hidden.map(x => personCard(slug, x))}</div></details>` : ''}
       <span class="dim" style="font-size:12.5px">The report quotes what was observed, with its source, and never states a relationship. Children are never named. Employment screening reports leave this section out.</span></div>
   </main>`);
