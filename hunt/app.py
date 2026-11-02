@@ -764,7 +764,7 @@ async def get_person(req: Request):
                                      f"({', '.join('?' * len(report.RECORDS))}) order by rowid", *report.RECORDS)],
         "decision": snap["decision"],
         "profile": _profile(found, background),
-        "people_search": [] if background else _people_search(c.seeds()),
+        "people_search": _people_search(c.seeds()) if c.details()["kind"] in PEOPLE_SEARCH_KINDS else [],
     })
 
 
@@ -845,11 +845,17 @@ def _town_st(text: str) -> str:
     return ", ".join(parts)
 
 
-# People-search sites, for her to search by hand in the Hunt Browser; Hunt never requests them. Their terms forbid
-# employment and tenant screening (they aren't consumer reporting agencies), so a background case gets none.
+# People-search sites (docs/research/legal.md P1–P5, D24): links for her to open by hand in the Hunt Browser, never
+# requested, prefetched or previewed by Hunt, and never captured. Not on a background case: their terms forbid
+# employment and tenant screening. Not TruePeopleSearch: its terms allow personal, noncommercial use only.
+PEOPLE_SEARCH_KINDS = ("insurance", "diligence", "journalism")
+PEOPLE_SEARCH_HOSTS = ("whitepages.com", "fastpeoplesearch.com", "truepeoplesearch.com")  # never recorded (P4)
+NO_PEOPLE_SEARCH_CAPTURE = "Hunt doesn't record people-search sites (their terms bar it): write down the lead by hand"
+
+
 def _people_search(seeds) -> list[dict]:
-    """[{site, label, url}]: each name seed with the case's first place, then reverse lookups of its phone and
-    email seeds, on TruePeopleSearch, FastPeopleSearch and Whitepages (each site's own search URLs, 2026-11)."""
+    """[{site, label, url}]: each name seed with the case's first place, then a reverse lookup of each phone seed,
+    on Whitepages and FastPeopleSearch (each site's own search URLs, 2026-11)."""
     q = urllib.parse.quote
     place = next((t for s in seeds if s.kind in ("location", "address") and (t := _town_st(s.value))), "")
 
@@ -866,20 +872,14 @@ def _people_search(seeds) -> list[dict]:
         v = s.value.strip()
         if s.kind == "name" and v:
             label = f"{v}, {place}" if place else v
-            links += [{"site": "TruePeopleSearch", "label": label,
-                       "url": f"https://www.truepeoplesearch.com/results?name={q(v)}&citystatezip={q(place)}"},
+            links += [{"site": "Whitepages", "label": label,
+                       "url": "https://www.whitepages.com/name/" + "/".join(wp(p) for p in (v, place) if p)},
                       {"site": "FastPeopleSearch", "label": label,
-                       "url": "https://www.fastpeoplesearch.com/name/" + "_".join(fps(p) for p in (v, place) if p)},
-                      {"site": "Whitepages", "label": label,
-                       "url": "https://www.whitepages.com/name/" + "/".join(wp(p) for p in (v, place) if p)}]
+                       "url": "https://www.fastpeoplesearch.com/name/" + "_".join(fps(p) for p in (v, place) if p)}]
         elif s.kind == "phone" and (d := _us_phone(v)):
             label = f"phone ({d[:3]}) {d[3:6]}-{d[6:]}"
-            links += [{"site": "TruePeopleSearch", "label": label, "url": f"https://www.truepeoplesearch.com/resultphone?phoneno={d}"},
-                      {"site": "FastPeopleSearch", "label": label, "url": f"https://www.fastpeoplesearch.com/{d[:3]}-{d[3:6]}-{d[6:]}"},
-                      {"site": "Whitepages", "label": label, "url": f"https://www.whitepages.com/phone/1-{d[:3]}-{d[3:6]}-{d[6:]}"}]
-        elif s.kind == "email" and "@" in v:  # only TruePeopleSearch looks up an email
-            links.append({"site": "TruePeopleSearch", "label": f"email {v}",
-                          "url": f"https://www.truepeoplesearch.com/resultemail?email={q(v)}"})
+            links += [{"site": "Whitepages", "label": label, "url": f"https://www.whitepages.com/phone/1-{d[:3]}-{d[3:6]}-{d[6:]}"},
+                      {"site": "FastPeopleSearch", "label": label, "url": f"https://www.fastpeoplesearch.com/{d[:3]}-{d[3:6]}-{d[6:]}"}]
     return links
 
 
@@ -2020,6 +2020,10 @@ async def _capture_upload(req: Request, field: str, work):
             raise HTTPException(404, "no such case")
         if why := c.blocked():
             raise HTTPException(409, why)
+        host = (urllib.parse.urlparse(str(form.get("url") or "")).hostname or "").lower()
+        if any(host == h or host.endswith("." + h) for h in PEOPLE_SEARCH_HOSTS):  # P4: refused, and the refusal logged
+            c.audit("people-search capture refused", {"host": host, "kind": field, "why": "people-search site (legal.md P4)"})
+            raise HTTPException(451, NO_PEOPLE_SEARCH_CAPTURE)  # not 403: the extension re-pairs and retries on that
         site = extension.platform(form.get("url"))
         if not site:
             raise HTTPException(400, "url must be a page on Facebook, Instagram, TikTok, X or YouTube")

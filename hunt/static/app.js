@@ -577,12 +577,13 @@ function personSummary(c, p) {
       <div id="pc-relatives"></div></div>
     <div class="dim" style="font-size:12.5px">Only from the accounts and records judged to be them. Hover a fact for its sources.</div></div>`;
 }
-// People-search sites (GET /person's people_search; none on a background case): prefilled, for her to search by hand
+// People-search sites (GET /person's people_search; legal.md P1–P5): prefilled buttons, opened only by her click, never previewed
 const peopleSearch = (slug, p) => {
   const by = Object.entries((p.people_search || []).reduce((g, l) => ((g[l.label] ||= []).push(l), g), {}));
   return by.length ? html`<div class="panel" style="width:min(880px,100%);padding:16px 18px;display:flex;flex-direction:column;gap:10px">
     <div><b>People-search sites</b> <span class="muted" style="font-size:13.5px">· search by hand in the Hunt Browser; Hunt never opens or reads them itself</span></div>
-    <div class="reason warn"><span class="ic">!</span><span>Check their terms: not for employment or tenant screening.</span></div>
+    <div class="reason warn"><span class="ic">!</span><span>Lead only: confirm in a primary record, and cite that record. Not for employment or tenant screening.
+      Hunt Capture doesn’t record these sites, so write down the lead by hand. A paid Whitepages account is preferred: its licence covers business use.</span></div>
     ${by.map(([label, ls]) => html`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="t2" style="flex:1;min-width:180px;font-size:14px">${label}</span>
       ${ls.map(l => html`<button class="btn ghost sm" data-act="browser-open" data-url="${l.url}" data-case="${slug}" title="Opens ${l.url} in the Hunt Browser">${l.site}</button>`)}</div>`)}</div>` : '';
 };
