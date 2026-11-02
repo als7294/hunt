@@ -48,11 +48,20 @@ PLACE_TIERS = {
 CORROBORATES = 2.0  # bits a non-handle reason needs to count as a second identifier
 
 
+BIO_KEYS = ("bio", "description", "about", "headline")
+
+
+class FromBio(str):
+    """A place the profile's bio states, not its location field: the reason reads "bio says 'Florida'"."""
+    said = "bio says"
+
+
 def place_text(attrs: dict) -> str:
     """The profile's location as one geocodable string ('Washington, United States').
 
     Placeholder fields are dropped first ('N/A' + country 'US' → 'US'); geo.locate only
-    sees whole strings, so it can't strip a joke part from a real one.
+    sees whole strings, so it can't strip a joke part from a real one. With no location,
+    the place its bio clearly states (geo.bio_place), as a FromBio.
     """
     if attrs.get("address"):  # a record's street address, with its town and state when it leaves them out
         out = str(attrs["address"]).strip()  # (NPI and FMCSA keep "City, ST" in location; others in city and state)
@@ -61,7 +70,9 @@ def place_text(attrs: dict) -> str:
                 out += f", {v}"
         return out
     parts = [str(attrs[k]).strip() for k in ("location", "city", "state", "country") if attrs.get(k)]
-    return ", ".join(p for p in parts if " ".join(p.lower().split()) not in geo.NOT_PLACES | {""})
+    if out := ", ".join(p for p in parts if " ".join(p.lower().split()) not in geo.NOT_PLACES | {""}):
+        return out
+    return next((FromBio(p) for k in BIO_KEYS if (p := geo.bio_place(str(attrs.get(k) or "")))), "")
 
 
 def username_u(handle: str, taken: tuple[int, int] | None = None) -> tuple[float, str]:
@@ -88,6 +99,11 @@ def name_similarity(a: str, b: str) -> float:
 def compare_names(profile: str, known: str, handle: str = "") -> tuple[float, str] | None:
     """Weight and reason for one profile name against one known name; None = no signal."""
     sim, shared = name_similarity(profile, known), _contained(profile, known)
+    p, k = _clean(profile).split(), _clean(known).split()
+    # Two full names with one surname but different first names are different people ("Kevin Smith" is not "Aaron
+    # Smith"), however alike the strings look; a nickname or a middle name of the first name is the same one.
+    if len(p) >= 2 and len(k) >= 2 and _aliases(p[-1]) & _aliases(k[-1]) and not any(_aliases(t) & _aliases(k[0]) for t in p[:-1]):
+        return bits(0.9, 0.01, agree=False), f"name '{profile}' conflicts with '{known}' (a different first name)"
     if sim >= 90:
         return bits(0.9, 0.01), f"name '{profile}' matches '{known}'"
     if sim >= 75 or len(shared) >= 2:
@@ -97,6 +113,10 @@ def compare_names(profile: str, known: str, handle: str = "") -> tuple[float, st
         if handle and _alnum(shared[0]) == _alnum(handle):
             return None
         return bits(0.5, 0.1), f"name '{profile}' is part of '{known}'"
+    # A form of the surname beside other words ("Smitty Tech" for Aaron Smith) is part of their name, not a rival one.
+    if len(k) >= 2 and (form := next((t for t in p[:-1] if _aliases(t) & _aliases(k[-1])), None)):
+        form = next((w for w in re.findall(r"[^\W_]+", profile) if w.lower() == form), form)  # as written
+        return bits(0.5, 0.1), f"name '{profile}' carries '{form}', a form of '{known}'"
     # A one-word display name ("SmittyTech", "gamerdude99") is a handle or a brand, not a rival real name.
     if sim < 50 and (" " in profile.strip() or len(_clean(known).split()) < 2):
         return bits(0.9, 0.01, agree=False), f"name '{profile}' conflicts with '{known}'"
@@ -193,7 +213,8 @@ def score(seed, url: str, attrs: dict, subject: list,
             (tier, km), k = max(pairs, key=lambda p: PLACE_TIERS[p[0][0]][0])
             weight, phrase = PLACE_TIERS[tier]
             dist = f"{km:,.0f} km; " if _local(here) and _local(places[k]) else ""  # meaningless for a country or state
-            add("place", weight, f"location '{profile_place}' {phrase} '{k}' ({dist}read as {_short(here)})")
+            add("place", weight, f"{getattr(profile_place, 'said', 'location')} '{profile_place}' {phrase} '{k}' "
+                                 f"({dist}read as {_short(here)})")
         else:
             missing = profile_place if not here else " / ".join(known_places)
             add("place", 0.0, f"couldn't place '{missing}', so location isn't counted")
@@ -237,6 +258,7 @@ def score(seed, url: str, attrs: dict, subject: list,
     return p, verdict(p), [f"{w:+.1f} {why}" for w, _, why in ranked], [tag for _, tag, _ in ranked]
 
 
+STATED_AGE = re.compile(r"\b(\d{2})\s?(?:y/?o\b|yrs?\.? old|years old)|\bage\s?(\d{2})\b|\bborn (?:in )?((?:19|20)\d\d)\b", re.I)
 DOB_KEYS = ("dob", "date_of_birth", "birth_date", "birthdate", "birthday", "born", "birth_year", "year_of_birth")
 AGE_KEYS = ("age",)
 EMPLOYER_KEYS = ("employer", "company", "organization", "organisation", "work")
@@ -258,6 +280,10 @@ def _facts(attrs: dict, dobs: list[str], ages: list[int], employers: list[str]) 
         int(m.group(0)) if (m := re.search(r"\b(19|20)\d\d\b", said)) else None
     if year is None and (theirs := next((str(attrs[k]) for k in AGE_KEYS if attrs.get(k)), "")).strip().isdigit():
         year, said = date.today().year - int(theirs), f"age {theirs.strip()}"
+    bio = " ".join(str(attrs.get(k) or "") for k in ("bio", "description", "about"))
+    if year is None and (m := STATED_AGE.search(bio)):  # a bio's "29 y/o", "age 29", "born 1994"
+        year = int(m[3]) if m[3] else date.today().year - int(m[1] or m[2])
+        said = f"the bio's '{m[0].strip()}'"
     if years and year:
         iso = full and (full.group(0) if "-" in full.group(0) else f"{full.group(3)}-{int(full.group(1)):02d}-{int(full.group(2)):02d}")
         if dob and iso and iso == dob:

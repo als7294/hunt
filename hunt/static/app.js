@@ -497,6 +497,7 @@ screens.identity = async slug => {
     ${identityTabs(slug, 'identity')}
     <div style="text-align:center;display:flex;flex-direction:column;gap:8px"><div class="h2">Is this them?</div>
       <div class="sub">${n ? `We found ${n} account${n > 1 ? 's' : ''} that look like the same person.` : 'No account looks likely enough yet. Add more of what you know and search again.'}</div></div>
+    ${personSummary(c, p)}
     ${n ? html`<div style="width:min(880px,100%);background:linear-gradient(180deg,#1E2230,#1B1D23 40%);border-radius:24px;padding:28px;box-shadow:inset 0 0 0 1px var(--edge);display:flex;flex-direction:column;gap:20px">
       <div style="display:flex;align-items:center;gap:24px">
         <div style="width:96px;height:96px;border-radius:50%;overflow:hidden;flex:none;box-shadow:0 0 0 3px var(--raise)">${avatar ? html`<img src="${avatar}" alt="" style="width:100%;height:100%;object-fit:cover">` : html`<div class="thumb" style="height:96px;display:flex;align-items:center;justify-content:center;color:var(--mu);font-size:13px">photo</div>`}</div>
@@ -523,6 +524,7 @@ screens.identity = async slug => {
     ${faceRows(p)}
     ${possibleBlock(p)}
     ${recordsPanel(p)}
+    ${peopleSearch(slug, p)}
     ${p.namesakes.length ? html`<div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:600;font-size:19px">Others with the same name</span><span class="muted" style="font-size:14.5px">We’ll mention these in the report</span></div>
       ${p.namesakes.slice(0, 10).map(namesakeRow)}
@@ -546,6 +548,43 @@ screens.identity = async slug => {
   }).catch(() => {});
   api(`/api/cases/${encodeURIComponent(slug)}/seen-before`).then(r => { if ($('#seen-here')) $("#seen-here").innerHTML = fmt(seenBox(r, slug)); }).catch(() => {});
   if (document.querySelector('[data-links]')) api(`/api/cases/${encodeURIComponent(slug)}/records/links`).then(recordLinks).catch(() => {});
+  if ($('#pc-relatives') && c.details.kind !== 'background') api(`/api/cases/${encodeURIComponent(slug)}/people`).then(r => {
+    const xs = r.people.filter(x => !x.hidden).map(x => ({ value: x.minor ? 'a child' : x.name || `${x.labels[0]}, not named`, note: x.minor || !x.name ? '' : x.labels[0],
+      sources: x.cites.map(ct => `${SOURCE_WORD[ct.kind] || ct.kind}${/^https?:\/\//.test(ct.url || '') ? ` on ${new URL(ct.url).hostname.replace(/^www\./, '')}` : ''}`) }));
+    if (xs.length && $('#pc-relatives')) $('#pc-relatives').outerHTML = factCol('Possible relatives and associates', xs, x => factLine(x, x.note)).s;
+  }).catch(() => {});
+};
+
+/* The person as a people-search result (GET /person's profile): only what the accounts and records judged to be them
+   show, each fact with how many sources show it and, on hover, which. Relatives are filled in from People around. */
+const factLine = (f, note = '') => html`<span title="${f.sources.join('\n')}" style="display:flex;gap:6px;align-items:baseline;min-width:0">
+  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.value}</span><span class="dim" style="font-size:12px;white-space:nowrap">${note ? `${note} · ` : ''}${f.sources.length} source${f.sources.length > 1 ? 's' : ''}</span></span>`;
+const factCol = (title, xs, line = x => factLine(x)) => xs?.length ? html`<div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+  <div class="dim" style="font-size:12px;text-transform:uppercase;letter-spacing:.06em">${title}</div>${xs.slice(0, 6).map(line)}
+  ${xs.length > 6 ? html`<span class="dim" style="font-size:12.5px" title="${xs.slice(6).map(x => x.value).join('\n')}">and ${xs.length - 6} more</span>` : ''}</div>` : '';
+const monthOf = iso => { const d = asDate(iso); return iso && !isNaN(d) ? d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) : ''; };
+function personSummary(c, p) {
+  const f = p.profile || {}, names = f.names || [], born = f.born || [], year = new Date().getFullYear();
+  if (!['names', 'born', 'places', 'phones', 'emails', 'usernames'].some(k => f[k]?.length)) return '';
+  return html`<div id="person-summary" class="panel" style="width:min(880px,100%);padding:18px 20px;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;gap:6px 12px;align-items:baseline;flex-wrap:wrap">
+      <span style="font-weight:600;font-size:22px" title="${names[0]?.sources.join('\n') || 'The case’s name: no account or record judged to be them gives one'}">${names[0]?.value || c.details.label}</span>
+      ${born.length ? html`<span class="t2" title="${born[0].sources.join('\n')}">age ${year - born[0].value - 1} or ${year - born[0].value}, born ${born[0].value}</span>` : ''}
+      ${born.length > 1 ? html`<span class="tag warn" title="${born.slice(1).map(b => `${b.value}: ${b.sources.join(', ')}`).join('\n')}">another source says ${born.slice(1).map(b => b.value).join(' or ')}</span>` : ''}
+      ${names.length > 1 ? html`<span class="muted" style="font-size:14px">also ${names.slice(1, 5).map((x, i) => html`${i ? ', ' : ''}<span title="${x.sources.join('\n')}">${x.value}</span>`)}${names.length > 5 ? ` and ${names.length - 5} more` : ''}</span>` : ''}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px 24px">
+      ${factCol('Places, newest first', f.places, x => factLine(x, monthOf(x.as_of)))}${factCol('Phones', f.phones)}${factCol('Emails', f.emails)}${factCol('Usernames', f.usernames)}
+      <div id="pc-relatives"></div></div>
+    <div class="dim" style="font-size:12.5px">Only from the accounts and records judged to be them. Hover a fact for its sources.</div></div>`;
+}
+// People-search sites (GET /person's people_search; none on a background case): prefilled, for her to search by hand
+const peopleSearch = (slug, p) => {
+  const by = Object.entries((p.people_search || []).reduce((g, l) => ((g[l.label] ||= []).push(l), g), {}));
+  return by.length ? html`<div class="panel" style="width:min(880px,100%);padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+    <div><b>People-search sites</b> <span class="muted" style="font-size:13.5px">· search by hand in the Hunt Browser; Hunt never opens or reads them itself</span></div>
+    <div class="reason warn"><span class="ic">!</span><span>Check their terms: not for employment or tenant screening.</span></div>
+    ${by.map(([label, ls]) => html`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="t2" style="flex:1;min-width:180px;font-size:14px">${label}</span>
+      ${ls.map(l => html`<button class="btn ghost sm" data-act="browser-open" data-url="${l.url}" data-case="${slug}" title="Opens ${l.url} in the Hunt Browser">${l.site}</button>`)}</div>`)}</div>` : '';
 };
 
 /* Possibly theirs: 0.2 ≤ p < 0.55, usually a handle-only match capped at "roughly even" until a second identifier

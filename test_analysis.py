@@ -498,4 +498,62 @@ assert r2["leads"][0]["shows"] == ("OpenPowerlifting: competed in Spring Open (d
                                    "on 2026-04-18 (48 days after the injury)"), r2["leads"][0]["shows"]
 assert [e["after_injury"] for e in leads.timeline(details, [], [], [lifter]) if e["kind"] == "record"] == [False, True]
 
+# Entity resolution (hunt/entity.py; fictional people): accounts tied to one already locked get it as a reason,
+# once; a conflicting real name is cut out; namesakes below the floor neither get nor pass; never circular
+from hunt import entity, search  # noqa: E402
+from hunt.seed import Finding  # noqa: E402
+
+X, Y = "8f0e1c3a5b7d9e2f", "13579bdf02468ace"  # two different profile photos (dHash)
+def acct(url, p, reasons=(), tags=(), name=None, seed="vellcraft", **attrs):
+    return {"url": url, "site": url.split("//")[1].split(".")[0].title(), "probability": p,
+            "verdict": "very likely" if p >= 0.8 else "roughly even chance" if p >= 0.2 else "unlikely", "decision": None,
+            "seed": {"kind": "username", "value": seed}, "reasons": list(reasons), "tags": list(tags),
+            "attrs": {**({"fullname": name} if name else {}), **attrs}}
+subj = [Seed("name", "Dorian Vell"), Seed("username", "vellcraft")]
+chess = acct("https://chess.test/vellcraft", 0.95, ["+6.5 name 'Dorian Vell' matches 'Dorian Vell'", "+3.4 username 'vellcraft'"],
+             ["name", "username"], "Dorian Vell")
+tube = acct("https://tube.test/vellcraft", 0.5, ["+3.2 username 'vellcraft' is rare; capped"], ["username"], "Velvet Forge")
+kev = acct("https://gitlab.test/vellcraft", 0.5, ["-3.3 name 'Kevin Vell' conflicts with 'Dorian Vell'", "+3.2 username"],
+           ["name", "username"], "Kevin Vell")
+dev = acct("https://dev.test/vellcraft", 0.5, ["+3.2 username 'vellcraft'"], ["username"])
+pics = acct("https://pics.test/vellcraft", 0.5, ["+3.2 username 'vellcraft'"], ["username"], "Velvet Forge")
+low = acct("https://low.test/vellcraft", 0.1, ["+3.2 username"], ["username"])
+links = acct("https://links.test/vellcraft", 0.5, ["+3.2 username"], ["username"], links=["https://chess.test/vellcraft"])
+faces = {chess["url"]: X, tube["url"]: X, kev["url"]: X, dev["url"]: Y, low["url"]: X}
+faces[tube["url"]] = X
+tied = entity.corroborate([chess, tube, kev, dev, pics, low, links], {**faces, dev["url"]: Y, tube["url"]: X}, subj)
+assert tied[tube["url"]][0][:2] == (entity.BITS["avatar"], "photo") and tied[tube["url"]][0][2] == "same profile photo as Chess (very likely)"
+assert kev["url"] not in tied and low["url"] not in tied, tied  # "Kevin Vell" cut out; below the floor
+assert tied[links["url"]][0][1] == "link"  # links to the locked account
+assert tied[pics["url"]] == [(entity.BITS["name"] / 2, "name", "the same rare display name as Tube, which is tied to Chess (very likely)")]
+assert dev["url"] not in tied  # a different photo: no tie
+# a seed taken from the receiving account never lets the giver vouch for it
+chess2 = {**chess, "reasons": chess["reasons"] + ["+4.0 username 'velvetforge' is one the subject uses"]}
+assert tube["url"] not in entity.corroborate([chess2, tube], {chess["url"]: X, tube["url"]: X}, subj, {"velvetforge": tube["url"]})
+# the subject's own name or handle is never a "rare display name" tie (already counted; namesakes share it)
+twin = acct("https://twin.test/vellcraft", 0.5, ["+3.2 username"], ["username"], "Dorian Vell")
+assert twin["url"] not in entity.corroborate([chess, twin], {}, subj)
+# End to end through search.build: the stored photos tie an account to a locked one, which locks it
+ec = Case("entity test", "self-check, fictional")
+ec.add_seeds(subj)
+ec.add_run("maigret", subj[1], "found", 3, 600, "")
+for site, attrs in (("Chess", {"fullname": "Dorian Vell", "image": "https://img.test/a.png"}), ("Tube", {"image": "https://img.test/b.png"}),
+                    ("Lab", {"fullname": "Kevin Vell", "image": "https://img.test/c.png"})):
+    ec.add_finding(Finding("maigret", subj[1], site, f"https://{site.lower()}.test/vellcraft", attrs))
+for img in ("a", "b", "c"):
+    ec.add_avatar(f"https://img.test/{img}.png", img.encode(), X)
+built = {c["site"]: c for c in search.build(ec)["candidates"]}
+assert built["Chess"]["probability"] > 0.9 and built["Tube"]["probability"] > 0.9, built["Tube"]["reasons"]
+assert any("same profile photo as Chess" in r for r in built["Tube"]["reasons"])
+assert built["Lab"]["probability"] < 0.2 and not any("same profile photo" in r for r in built["Lab"]["reasons"])
+# Name rules: a different first name with the same surname conflicts; a form of the surname beside a word counts
+assert match.compare_names("Kevin Vell", "Dorian Vell")[0] < 0 and match.compare_names("John Smith", "Aaron Smith")[0] < 0
+assert match.compare_names("Smitty Tech", "Aaron Smith")[1] == "name 'Smitty Tech' carries 'Smitty', a form of 'Aaron Smith'"
+assert match.compare_names("Ron Smith", "Aaron Smith")[0] > 0 and match.compare_names("Aaron James Smith", "Aaron Smith")[0] > 0
+# A bio's stated age or birth year against the subject's
+from datetime import date  # noqa: E402
+
+bio = lambda b: [r for r in match.score(subj[1], "https://x.test/vellcraft", {"bio": b}, subj + [Seed("dob", "1990-05-05")])[2] if "bio" in r]
+assert bio(f"Dad, {date.today().year - 1990} y/o")[0].startswith("+4.2") and bio("born 1962")[0].startswith("-3.2") and bio("hello") == []
+
 print("ok")
