@@ -21,6 +21,7 @@ import sys
 import tempfile
 import types
 import threading
+import unicodedata
 import urllib.parse
 import time
 import webbrowser
@@ -41,7 +42,7 @@ from starlette.responses import HTMLResponse, FileResponse, JSONResponse, Redire
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import graph, keys, leads, pivot, profile, report, search, sources, vendor, vlm
+from . import geo, graph, keys, leads, match, pivot, profile, report, search, sources, vendor, vlm
 from . import bundle, demo, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
@@ -725,7 +726,7 @@ def _agreeing(c: dict) -> set[str]:
 
 async def get_person(req: Request):
     c = _case(req)
-    snap = await search.snapshot(c)
+    snap, background = await search.snapshot(c), c.details()["kind"] == "background"
     found = [x for x in snap["candidates"] if search.in_person(x)]
     people = [x for x in found if not report._record(x)]  # accounts they run; public records about them are listed apart
     counts = Counter(t for x in people for t in _agreeing(x))
@@ -762,8 +763,124 @@ async def get_person(req: Request):
                      for r in c.rows("select source, status, found, note from runs where source in "
                                      f"({', '.join('?' * len(report.RECORDS))}) order by rowid", *report.RECORDS)],
         "decision": snap["decision"],
+        "profile": _profile(found, background),
+        "people_search": [] if background else _people_search(c.seeds()),
     })
 
+
+RECORD_DATES = ("last_update", "filed", "registered", "issued", "formed")  # when a record shows its address
+
+
+def _profile(found: list[dict], screening: bool) -> dict:
+    """The person as a people-search result: names, birth years, places (newest first), phones, emails and usernames,
+    each {value, sources, as_of}, from the accounts and records judged to be them (search.in_person) only. A screening
+    case leaves out birth years and the records a screening report leaves out (age is protected in hiring)."""
+    facts = {k: {} for k in ("names", "born", "places", "phones", "emails", "usernames")}
+
+    def add(kind, key, value, source, when=""):
+        f = facts[kind].setdefault(key, {"value": value, "sources": [], "as_of": ""})
+        f["sources"] += [source] if source not in f["sources"] else []
+        f["as_of"] = max(f["as_of"], when)
+
+    handles = {match._alnum(_handle(x)) for x in found if not report._record(x)}
+    for x in found:
+        a, record = x["attrs"], report._record(x)
+        if screening and record and report._screened(x):
+            continue
+        source = x["site"] if record else f"{x['site']} {_handle(x)}"
+        fetched = max((e["at"] for e in x["evidence"]), default="")  # an account shows where it is now
+        when = max((str(a[k])[:10] for k in RECORD_DATES if record and re.match(r"\d{4}-", str(a.get(k) or ""))), default=fetched)
+        for n in (a.get("fullname"), a.get("name")):
+            if isinstance(n, str) and n.strip() and match._alnum(n) not in handles:
+                last, comma, first = " ".join(n.split()).partition(",")  # records write "VELL, DANA"
+                n = f"{first.strip()} {last}" if comma else last
+                if key := " ".join(sorted(match._clean(n).split())):  # "Dana M. Vell" and "VELL, DANA" are one name
+                    add("names", key, n.title() if n.isupper() else n, source)
+        if not screening and (y := _born(a)):
+            add("born", y, y, source)
+        if t := _town_st(match.place_text(a)):
+            add("places", t.lower(), t, source, when)
+        for ph in _each(a.get("phone")) + _each(a.get("phones")):
+            if d := _us_phone(str(ph)):
+                add("phones", d, f"({d[:3]}) {d[3:6]}-{d[6:]}", source)
+            elif len(re.sub(r"\D", "", str(ph))) >= 7:
+                add("phones", re.sub(r"\D", "", str(ph)), str(ph).strip(), source)
+        for e in _each(a.get("email")) + _each(a.get("emails")):
+            if isinstance(e, str) and re.fullmatch(r"[^@\s*]+@[^@\s*]+\.\w+", e):  # not a masked one
+                add("emails", e.lower(), e.lower(), source)
+        for u in [] if record else [_handle(x), *_each(a.get("other_usernames"))]:
+            if isinstance(u, str) and re.fullmatch(r"[\w.-]{2,40}", u):
+                add("usernames", u.lower(), u, source)
+    out = {k: sorted(v.values(), key=lambda f: (-len(f["sources"]), str(f["value"]))) for k, v in facts.items()}
+    out["places"].sort(key=lambda f: f["as_of"] or "9", reverse=True)  # undated: what a page shows now
+    return out
+
+
+def _us_phone(text: str) -> str | None:
+    """A US number's ten digits ('+1 (520) 555-0143' → '5205550143'), else None."""
+    d = re.sub(r"\D", "", text)
+    d = d[1:] if len(d) == 11 and d[0] == "1" else d
+    return d if len(d) == 10 else None
+
+
+def _each(v) -> list:
+    return v if isinstance(v, list) else [v] if v else []
+
+
+def _born(a: dict) -> int | None:
+    """The birth year a record or profile gives: from a date of birth or birth year, else from an age."""
+    said = next((str(a[k]) for k in match.DOB_KEYS if a.get(k)), "")
+    if m := re.search(r"\b(?:19|20)\d\d\b", said):
+        return int(m[0])
+    age = str(next((a[k] for k in match.AGE_KEYS if a.get(k)), "")).strip()
+    return date.today().year - int(age) if age.isdigit() else None
+
+
+def _town_st(text: str) -> str:
+    """'Tucson, Arizona, USA' → 'Tucson, AZ'; a street address → its town ('' when it names none)."""
+    town = geo._town(text)
+    parts = [p.strip() for p in (text if town is None else town).split(",") if p.strip() and p.strip().lower() not in geo.USA]
+    if len(parts) > 1:
+        parts[-1] = geo.CODES.get(parts[-1].lower(), parts[-1])
+    return ", ".join(parts)
+
+
+# People-search sites, for her to search by hand in the Hunt Browser; Hunt never requests them. Their terms forbid
+# employment and tenant screening (they aren't consumer reporting agencies), so a background case gets none.
+def _people_search(seeds) -> list[dict]:
+    """[{site, label, url}]: each name seed with the case's first place, then reverse lookups of its phone and
+    email seeds, on TruePeopleSearch, FastPeopleSearch and Whitepages (each site's own search URLs, 2026-11)."""
+    q = urllib.parse.quote
+    place = next((t for s in seeds if s.kind in ("location", "address") and (t := _town_st(s.value))), "")
+
+    def fps(part):  # fastpeoplesearch.com's own slug: words joined by "-", parts by "_"
+        part = re.sub(r"-+", "-", re.sub(r"\s+", "-", part.replace("-", "~").replace(",", " ").strip()))
+        return q(re.sub(r"[^A-Za-z0-9\-~']", "", part), safe="'").lower()
+
+    def wp(part):  # whitepages.com's: accents and punctuation dropped, words title-cased
+        plain = unicodedata.normalize("NFKD", part).encode("ascii", "ignore").decode()
+        return "-".join(w.title() if not w.isupper() else w for w in re.sub(r"[^\w\s-]", "", plain).split())
+
+    links = []
+    for s in seeds:
+        v = s.value.strip()
+        if s.kind == "name" and v:
+            label = f"{v}, {place}" if place else v
+            links += [{"site": "TruePeopleSearch", "label": label,
+                       "url": f"https://www.truepeoplesearch.com/results?name={q(v)}&citystatezip={q(place)}"},
+                      {"site": "FastPeopleSearch", "label": label,
+                       "url": "https://www.fastpeoplesearch.com/name/" + "_".join(fps(p) for p in (v, place) if p)},
+                      {"site": "Whitepages", "label": label,
+                       "url": "https://www.whitepages.com/name/" + "/".join(wp(p) for p in (v, place) if p)}]
+        elif s.kind == "phone" and (d := _us_phone(v)):
+            label = f"phone ({d[:3]}) {d[3:6]}-{d[6:]}"
+            links += [{"site": "TruePeopleSearch", "label": label, "url": f"https://www.truepeoplesearch.com/resultphone?phoneno={d}"},
+                      {"site": "FastPeopleSearch", "label": label, "url": f"https://www.fastpeoplesearch.com/{d[:3]}-{d[3:6]}-{d[6:]}"},
+                      {"site": "Whitepages", "label": label, "url": f"https://www.whitepages.com/phone/1-{d[:3]}-{d[3:6]}-{d[6:]}"}]
+        elif s.kind == "email" and "@" in v:  # only TruePeopleSearch looks up an email
+            links.append({"site": "TruePeopleSearch", "label": f"email {v}",
+                          "url": f"https://www.truepeoplesearch.com/resultemail?email={q(v)}"})
+    return links
 
 
 def _handle(x: dict) -> str:
