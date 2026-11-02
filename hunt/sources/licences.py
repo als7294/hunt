@@ -1,14 +1,21 @@
 """State occupational and professional licences from official open-data portals: name → licence records.
 
 An active licence in a trade or profession is the usual "working another job" lead.
-Covered: Texas (TDLR trades, TREC real estate and inspectors, Medical Board), Colorado
-(DORA, all professions), Delaware, Illinois (IDFPR), Washington (L&I contractors and their
-principals), Oregon (CCB contractors), New York City (Buildings trades).
-California (DCA, CSLB) and Florida (DBPR) publish bulk files only, so they aren't searched.
-Add a state in _socrata.py's three steps. Keyless; see _socrata for limits.
+Covered: Texas (TDLR trades, TREC real estate and inspectors, Medical Board, TDI insurance
+agents and adjusters, notaries), Colorado (DORA, all professions, and real estate), Delaware
+(all professions, notaries), Illinois (IDFPR), Washington (L&I contractors and their
+principals, DOH health professions, CPAs), Oregon (CCB contractors, building trades,
+notaries), Connecticut (DCP, all credentials), New York (real estate, barbers and
+cosmetology, home inspectors, appraisers, notaries, attorneys), New York City (Buildings
+trades), Vermont (fire-safety trades), and, from their agencies' bulk files once loaded
+(florida.py, statefiles.py): Florida (DBPR, every profession it licenses), Virginia (DPOR, every
+profession it regulates), Minnesota (DLI construction trades), Nevada (real estate) and West
+Virginia (Board of Medicine). Every other state is listed, with why, in
+docs/research/tools.md ("State records"). Add a state in _socrata.py's three steps.
+Keyless; see _socrata for limits.
 """
 
-from . import _socrata
+from . import _bulk, _socrata, florida, statefiles
 from ._socrata import Dataset, day, joined, place
 
 NAME = "licences"
@@ -112,9 +119,118 @@ DATASETS = [
                              "location": place(r.get("license_business_city"), r.get("business_state")),
                              "email": r.get("business_email"), "phone": r.get("business_phone_number")},
             key="license_number"),
+    # Added with the per-state survey (docs/research/tools.md, "State records")
+    Dataset("Connecticut licence (DCP)", "data.ct.gov", "ngch-56tr", {"name": "licence holder"},
+            lambda r, role: {"licence": r.get("credential"), "licence_number": r.get("fullcredentialcode"),
+                             "status": joined(r.get("status"), r.get("statusreason")).lower() or None,
+                             "issued": day(r.get("issuedate")), "expires": day(r.get("expirationdate")),
+                             "business": r.get("businessname") or r.get("dba"), "address": (r.get("address") or "").title(),
+                             "location": place(r.get("city"), r.get("state"))},
+            key="credentialid"),
+    Dataset("Washington health licence (DOH)", "data.wa.gov", "qxh8-f4bd", {("firstname", "lastname"): "licence holder"},
+            lambda r, role: {"fullname": joined(r.get("firstname"), r.get("middlename"), r.get("lastname")),
+                             "year_of_birth": r.get("birthyear"), "licence": r.get("credentialtype"),
+                             "licence_number": r.get("credentialnumber"), "status": r.get("status"),
+                             "issued": day(r.get("firstissuedate")), "expires": day(r.get("expirationdate"))},
+            key="credentialnumber"),
+    Dataset("Washington CPA licence (Board of Accountancy)", "data.wa.gov", "6du3-3h9e",
+            {("firstname", "lastname"): "licence holder"},
+            lambda r, role: {"fullname": joined(r.get("firstname"), r.get("middlename"), r.get("lastname"), r.get("suffix")),
+                             "licence": "Certified public accountant", "licence_number": r.get("number"),
+                             "status": r.get("status"), "issued": day(r.get("originalissue")), "expires": day(r.get("expires")),
+                             "location": place(r.get("city"), r.get("state"))},
+            key="number"),
+    Dataset("New York real estate licence (DOS)", "data.ny.gov", "yg7h-zjbf", {"license_holder_name": "licence holder"},
+            lambda r, role: {"licence": r.get("license_type"), "licence_number": r.get("license_number"),
+                             "expires": day(r.get("license_expiration_date")), "business": r.get("business_name"),
+                             "business_address": joined(r.get("business_address_1"), r.get("business_address_2")),
+                             "location": place(r.get("business_city"), r.get("business_state")), "county": r.get("county")},
+            key="license_number"),
+    Dataset("New York barber and cosmetology licence (DOS)", "data.ny.gov", "ucu3-8265",
+            {"license_holder_name": "licence holder"},
+            lambda r, role: {"licence": r.get("license_type"), "licence_number": r.get("license_number"),
+                             "issued": day(r.get("license_effective_term")), "expires": day(r.get("license_expiration_date"))},
+            key="license_number"),
+    Dataset("New York home inspector licence (DOS)", "data.ny.gov", "r9fr-48vu", {("first_name", "last_name"): "licence holder"},
+            lambda r, role: {"fullname": joined(r.get("first_name"), r.get("middle_initial"), r.get("last_name"),
+                                                r.get("name_suffix")),
+                             "licence": "Home inspector", "licence_number": r.get("uid"),
+                             "issued": day(r.get("original_issue_date")), "expires": day(r.get("current_expire_date")),
+                             "business": r.get("hi_business_name"),
+                             "business_address": joined(r.get("business_street"), r.get("business_apt_unit")),
+                             "location": place(r.get("business_city"), r.get("business_state"))},
+            key="uid"),
+    Dataset("New York appraiser licence (DOS)", "data.ny.gov", "3nr4-s9yt", {"applicant_name": "licence holder"},
+            lambda r, role: {"licence": r.get("license_type"), "licence_number": r.get("uid"), "issued": day(r.get("org_date")),
+                             "expires": day(r.get("exp_date")), "business": r.get("prin_bus_name"),
+                             "business_address": (r.get("prin_bus_addr1") or "").title(),
+                             "location": place(r.get("business_city"), r.get("st"))},
+            key="uid"),
+    Dataset("New York notary commission (DOS)", "data.ny.gov", "rwbv-mz6z", {"commission_holder_name": "notary public"},
+            lambda r, role: {"licence": "Notary public", "licence_number": r.get("commission_number_uid"),
+                             "issued": day(r.get("term_issue_date")), "expires": day(r.get("term_expiration_date")),
+                             "business": r.get("business_name_if_available"),
+                             "location": place(r.get("business_city_if_available"), r.get("business_state_if_available"))
+                             or (f"{r['commissioned_county']} County, NY" if r.get("commissioned_county") else None)},
+            key="commission_number_uid"),
+    Dataset("New York attorney registration (OCA)", "data.ny.gov", "eqw2-r5nb", {("first_name", "last_name"): "attorney"},
+            lambda r, role: {"fullname": joined(r.get("first_name"), r.get("middle_name"), r.get("last_name"), r.get("suffix")),
+                             "licence": "Attorney", "licence_number": r.get("registration_number"), "status": r.get("status"),
+                             "admitted": r.get("year_admitted"), "business": r.get("company_name"),
+                             "address": joined(r.get("street_1"), r.get("street_2")),
+                             "location": place(r.get("city"), r.get("state")), "phone": r.get("phone_number")},
+            key="registration_number"),
+    Dataset("Texas insurance licence (TDI)", "data.texas.gov", "kxv3-diwf", {"name": "licence holder"},
+            lambda r, role: {"licence": r.get("qualification") or r.get("license_type"),
+                             "licence_number": r.get("license_number"), "npn": r.get("npn"),
+                             "issued": day(r.get("license_issue_date")), "expires": day(r.get("expiration_date")),
+                             "location": place(r.get("city"), r.get("state"))},
+            key="license_number"),
+    Dataset("Texas notary commission (SOS)", "data.texas.gov", "gmd3-bnrd", {("first_name", "last_name"): "notary public"},
+            lambda r, role: {"fullname": joined(r.get("first_name"), r.get("last_name")), "licence": "Notary public",
+                             "licence_number": r.get("notary_id"), "issued": day(r.get("effective_date")),
+                             "expires": day(r.get("expire_date")),
+                             "address": ", ".join(p.strip() for p in str(r.get("address") or "").splitlines() if p.strip()),
+                             "email": r.get("email_address"), "surety": r.get("surety_company")},
+            key="notary_id"),
+    Dataset("Colorado real estate licence (DORA)", "data.colorado.gov", "4zse-6bnw", {("firstname", "lastname"): "licence holder"},
+            lambda r, role: {"fullname": joined(r.get("firstname"), r.get("middlename"), r.get("lastname"), r.get("suffix")),
+                             "licence": r.get("licensetype"),
+                             "licence_number": ".".join(p for p in (r.get("licenseprefix"), r.get("licensenumber")) if p),
+                             "status": r.get("licensestatus"), "issued": day(r.get("licensefirstissuedate")),
+                             "expires": day(r.get("licenseexpirationdate")), "business": r.get("entityname"),
+                             "location": place(r.get("city"), r.get("state")), "discipline": r.get("programaction"),
+                             "verify": _link(r.get("verifylicense"))},
+            key="licensenumber"),
+    Dataset("Oregon building trades licence (BCD)", "data.oregon.gov", "vhbr-cuaq", {"full_name": "licence holder"},
+            lambda r, role: {"licence": r.get("lictype") or r.get("profession"), "licence_number": r.get("licnbr"),
+                             "status": r.get("lic_status"), "expires": day(r.get("expiration_date")), "business": r.get("dba"),
+                             "address": joined(r.get("addr1"), r.get("addr2"), r.get("addr3")),
+                             "location": place(r.get("city"), r.get("state")), "county": r.get("county")},
+            key="licnbr"),
+    Dataset("Oregon notary commission (SOS)", "data.oregon.gov", "j2pk-zk6z", {("first_name", "last_name"): "notary public"},
+            lambda r, role: {"fullname": joined(r.get("first_name"), r.get("mdle_name"), r.get("last_name")),
+                             "licence": "Notary public", "licence_number": r.get("commsn_nbr"),
+                             "issued": day(r.get("effective_date")), "expires": day(r.get("expiration_date")),
+                             "location": place(r.get("city"), r.get("state"))},
+            key="commsn_nbr"),
+    Dataset("Delaware notary commission", "data.delaware.gov", "q8dr-mj6p", {"full_name": "notary public"},
+            lambda r, role: {"licence": "Notary public", "licence_number": r.get("commission_number"),
+                             "expires": day(r.get("expiration")), "location": place(r.get("city"), None)},
+            key="commission_number"),
+    Dataset("Vermont fire-safety trades licence (DFS)", "data.vermont.gov", "cy8e-89cz",
+            {("first_name", "last_name"): "licence holder"},
+            lambda r, role: {"fullname": joined(r.get("first_name"), r.get("last_name")),
+                             "licence": ", ".join(p for p in (r.get("type_desc"), r.get("level_desc")) if p) or None,
+                             "licence_number": r.get("license_number"), "expires": day(r.get("license_exp_date")),
+                             "address": (r.get("street_address") or "").title(), "location": place(r.get("city"), r.get("state"))},
+            key="license_number"),
 ]
-HEALTH = [f"https://{d.domain}/api/views/{d.id}.json" for d in DATASETS]
+HEALTH = [d.meta for d in DATASETS]
+TABLES = [florida.LICENCES, *statefiles.TABLES]  # bulk files loaded on this Mac (_bulk); a search never downloads them
 
 
 async def search(seed):
-    return await _socrata.search(NAME, seed, DATASETS)
+    found, checked, note = await _socrata.search(NAME, seed, DATASETS)
+    more, loaded, local = _bulk.search(NAME, seed, TABLES)
+    return found + more, checked + loaded, f"{note}; {local}" if local else note
