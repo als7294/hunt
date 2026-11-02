@@ -35,12 +35,14 @@ from .seed import now
 
 SITES = {"facebook.com": "Facebook", "instagram.com": "Instagram", "tiktok.com": "TikTok", "x.com": "X",
          "twitter.com": "X", "linkedin.com": "LinkedIn", "youtube.com": "YouTube", "reddit.com": "Reddit",
-         "strava.com": "Strava", "snapchat.com": "Snapchat"}
+         "strava.com": "Strava", "snapchat.com": "Snapchat", "whitepages.com": "Whitepages",
+         "fastpeoplesearch.com": "FastPeopleSearch", "truepeoplesearch.com": "TruePeopleSearch"}
 KEY_FILE = HOME / "capture-key.json"
 # The per-site switch (docs/research/automation-legal.md §4): never recorded where the terms name extensions or
 # "semi-automated" tools, and LinkedIn also scans for extension ids. There she uses Save Page As and the importers;
 # LinkedIn's checklist sections stay, as links.
-CAPTURE_OFF = {"LinkedIn", "Strava", "Snapchat"}
+# People-search sites are never recorded either: their terms bar storing results at all (legal.md P4, people_search.py).
+CAPTURE_OFF = {"LinkedIn", "Strava", "Snapchat", "Whitepages", "FastPeopleSearch", "TruePeopleSearch"}
 # The revocation watcher (passive): the paths and words a platform shows an account it has checked, challenged,
 # blocked or disabled. Any of them is a hard stop for that platform (browser.stop), never a reason to try another
 # account, profile or proxy.
