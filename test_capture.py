@@ -588,7 +588,7 @@ browser.stop("TikTok", "a test stop")
 assert browser.stopped("http://www.tiktok.com/@x")["reason"] == "a test stop" and browser.stopped("https://x.com/a") is None
 browser.resume("TikTok")
 from hunt.sources import _api  # noqa: E402
-assert _api.denied("http://m.facebook.com/x") and _api.denied("www.reddit.com/r/x") and not _api.denied("https://notfacebook.com/")
+assert _api.denied("http://m.facebook.com/x") and not _api.denied("www.reddit.com/r/x") and not _api.denied("https://notfacebook.com/")  # D2 revised: Reddit is read logged out
 # CA3 (decision D12 a): on a page that isn't the subject's, the archive is kept whole, and only posts naming him are stored
 pal = Case.create("associates", purpose="self-check with made-up posts")
 pal.add_seeds([Seed("url", "https://www.instagram.com/dorian.vell/"), Seed("name", "Dorian Vell")])

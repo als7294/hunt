@@ -86,24 +86,26 @@ assert set(NEW) <= set(SOURCES) and len({s.NAME for s in SOURCES}) == len(SOURCE
 assert all(set(s.KINDS) <= set(KINDS) and asyncio.iscoroutinefunction(s.search) for s in SOURCES)
 assert facebook not in SOURCES and asyncio.iscoroutinefunction(facebook.search)  # the app's click action still has it
 
-# One deny list, by hostname whatever the scheme (DS2; decision D2 (b): Strava and Snapchat too)
-for url in ("https://www.instagram.com/x", "http://X.com/a", "strava.com/athletes/1", "https://m.facebook.com/p", "https://fb.com/p",
-            "https://www.snapchat.com/add/x", "https://old.reddit.com/u/x", "https://www.threads.com/@x"):
+# One deny list, by hostname whatever the scheme: the login-walled platforms (C1). Since D2 was revised (2026-11-02),
+# sites that only ask robots to stay away (Reddit, Strava, Snapchat, Chess.com) are read logged out, stopping at a refusal
+for url in ("https://www.instagram.com/x", "http://X.com/a", "https://m.facebook.com/p", "https://fb.com/p",
+            "https://www.threads.com/@x", "https://www.linkedin.com/in/x"):
     assert _api.denied(url), url
-for url in ("https://xnxx.com/", "https://www.dropbox.com/", "https://wix.com/", "https://notreddit.com/", "https://github.com/x"):
+for url in ("https://xnxx.com/", "https://www.dropbox.com/", "https://wix.com/", "https://notreddit.com/", "https://github.com/x",
+            "strava.com/athletes/1", "https://www.snapchat.com/add/x", "https://old.reddit.com/u/x", "https://www.chess.com/member/x"):
     assert not _api.denied(url), url
 
 # Maigret: one honest request per site (DS3): no deny-list host, no bot-walled or activation-gated site, no browser headers
 import maigret.utils as maigret_utils
 msites = maigret.sites()
-assert len(msites) == 385 and maigret_utils.DEFAULT_USER_AGENTS == [_api.UA], len(msites)
+assert len(msites) == 386 and maigret_utils.DEFAULT_USER_AGENTS == [_api.UA], len(msites)  # 386 since D2 was revised: Reddit is read logged out
 for name, site in msites.items():
     for template in (site.url, site.url_probe, site.url_main):
         assert not template or not _api.denied(maigret._url(site, template)), (name, template)
     assert not any(p in maigret.WALLS for p in site.protection or ()) and not site.activation, name
     assert (site.request_method or "GET").upper() == "GET" or name in maigret.POST_OK, name
     assert not any(k.lower() == "user-agent" or k.lower().startswith("sec-ch") for k in site.headers), (name, site.headers)
-assert not {"Twitter", "Instagram", "Reddit", "Facebook", "LinkedIn", "Threads", "Snapchat", "Strava"} & set(msites)
+assert not {"Twitter", "Instagram", "Facebook", "LinkedIn", "Threads"} & set(msites)  # login-walled (C1); Reddit, Snapchat, Strava are read since D2
 assert "GitHub" in msites and "GitHub" not in maigret.sites(extra_deny=("github.com",))  # a stopped platform's host
 assert maigret.AUDITED == "0.6.6"
 
