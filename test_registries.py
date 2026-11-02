@@ -14,7 +14,7 @@ from hunt.seed import Seed
 from hunt.sources import _api, registries
 
 REAL_CLIENT = registries.client
-registries.GAP = 0
+registries._pages.GAP = 0
 
 RESULTS = """<table><thead><tr class="cgiTableHead1"><th>Entity ID</th><th>Entity Name</th><th>Name</th><th>Position</th></tr>
 </thead>
