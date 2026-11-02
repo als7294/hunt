@@ -17,7 +17,7 @@ from dataclasses import asdict
 import httpx
 from PIL import Image
 
-from . import entity, browser, geo, match, photo
+from . import emails, entity, browser, geo, match, photo
 from .capture import screenshots
 from .case import Case
 from .seed import Seed, now
@@ -60,6 +60,7 @@ async def run(case: Case, seeds: list[Seed], emit, capture: bool = True, pause: 
     await step("checking")
     await avatars(case, report, emit)
     await compare_faces(case, build(case, places), emit)
+    await emails.collect(case, build(case, places), emit)  # what the sites they run publish: leads, never searched unticked
     if capture:
         async with HEAVY:
             await screenshot(case, build(case, places), emit)
@@ -279,6 +280,7 @@ def build(case: Case, places: dict | None = None) -> dict:
         "candidates": candidates,
         "attributes": attributes,
         "pivots": pivots,
+        "published_emails": emails.stored(case),
         "decision": decided.get("", {}).get("decision"),
         "photos": [{"file": r["name"], "at": r["ts"], "evidence": r["evidence"], **json.loads(r["analysis"])}
                    for r in case.rows("select * from photos order by id")],

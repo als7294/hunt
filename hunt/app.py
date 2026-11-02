@@ -764,7 +764,7 @@ async def get_person(req: Request):
                      for r in c.rows("select source, status, found, note from runs where source in "
                                      f"({', '.join('?' * len(report.RECORDS))}) order by rowid", *report.RECORDS)],
         "decision": snap["decision"],
-        "profile": _profile(found, background),
+        "profile": _profile(found, background, snap.get("published_emails", [])),
         "people_search": people_search.search_links(c.seeds()) if c.details()["kind"] in people_search.KINDS else [],
     })
 
@@ -772,7 +772,7 @@ async def get_person(req: Request):
 RECORD_DATES = ("last_update", "filed", "registered", "issued", "formed")  # when a record shows its address
 
 
-def _profile(found: list[dict], screening: bool) -> dict:
+def _profile(found: list[dict], screening: bool, published: list[dict] = ()) -> dict:
     """The person as a people-search result: names, birth years, places (newest first), phones, emails and usernames,
     each {value, sources, as_of}, from the accounts and records judged to be them (search.in_person) only. A screening
     case leaves out birth years and the records a screening report leaves out (age is protected in hiring)."""
@@ -812,6 +812,10 @@ def _profile(found: list[dict], screening: bool) -> dict:
         for u in [] if record else [_handle(x), *_each(a.get("other_usernames"))]:
             if isinstance(u, str) and re.fullmatch(r"[\w.-]{2,40}", u):
                 add("usernames", u.lower(), u, source)
+    theirs = {match.norm_url(x["url"]) for x in found}
+    for e in published:  # shown on a site they run, or its RDAP record (emails.collect), while that account is theirs
+        if match.norm_url(e["from_url"]) in theirs:
+            add("emails", e["value"], e["value"], e["why"].removeprefix("listed on "))
     out = {k: sorted(v.values(), key=lambda f: (-len(f["sources"]), str(f["value"]))) for k, v in facts.items()}
     out["places"].sort(key=lambda f: f["as_of"] or "9", reverse=True)  # undated: what a page shows now
     return out
