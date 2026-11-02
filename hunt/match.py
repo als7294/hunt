@@ -103,8 +103,7 @@ def score(seed, url: str, attrs: dict, subject: list,
           taken: dict[str, tuple[int, int]] | None = None,
           places: dict[str, "geo.Place | None"] | None = None,
           extra: list[tuple[float, str, str]] | None = None,
-          confirmed: set[str] | None = None, facts: dict | None = None,
-          described: dict | None = None) -> tuple[float, str, list[str], list[str]]:
+          confirmed: set[str] | None = None, facts: dict | None = None) -> tuple[float, str, list[str], list[str]]:
     """(probability, ICD 203 verdict, reasons, tags) that this finding belongs to the subject.
 
     `taken` maps lowercase handle → (sites taken, sites checked), from the case's runs.
@@ -113,10 +112,7 @@ def score(seed, url: str, attrs: dict, subject: list,
     `confirmed` holds norm_url()s the investigator marked as the subject: known profiles from then on.
     The subject's dob, age and employer seeds (and `facts`, the case's details: subject_dob) are scored
     against what a record says: date of birth, age, employer.
-    `described` is your locked description's criteria when the case is about you (profile.py): its names, handles,
-    emails, phones, sites, employers and dates arrive in `subject` like seeds; its places and words are scored here.
-    Each reason has a tag (username, name, place, email, phone, link, photo, face, dob, employer, described,
-    confirmed), in order.
+    Each reason has a tag (username, name, place, email, phone, link, photo, face, dob, employer, confirmed), in order.
     Weights are scaled by what learning.py has learned from the investigator's decisions, if anything.
     """
     of = lambda *kinds: [s.value for s in subject if s.kind in kinds]
@@ -204,10 +200,6 @@ def score(seed, url: str, attrs: dict, subject: list,
     dobs = of("dob") + [d for d in [(facts or {}).get("subject_dob")] if d]
     ages = [int(a) for a in of("age") if str(a).strip().isdigit()]
     reasons += [(w, tag, why) for tag, w, why in _facts(attrs, dobs, ages, of("employer"))]
-    if described:
-        here = (places or {}).get(profile_place) if profile_place else None
-        reasons += [(w, tag, why) for tag, w, why in _described(attrs, described, here, profile_place,
-                                                                 {t for _, t, _ in reasons})]
     reasons += extra or []
     scales = learning.match_scales()  # {} until enough decisions: every weight as hand-set
     reasons = [(max(-learning.FACE_AGAINST, min(learning.FACE_FOR, w)) if tag == "face" else w * scales.get(tag, 1.0),
@@ -266,102 +258,6 @@ def _facts(attrs: dict, dobs: list[str], ages: list[int], employers: list[str]) 
     if theirs and (hit := next((e for e in employers if fuzz.token_set_ratio(_clean(e), _clean(theirs)) >= 90), None)):
         out.append(("employer", bits(0.6, 0.01), f"employer '{theirs}' matches the subject's '{hit}'"))
     return out
-
-
-LIVED = {"same area": "is where you've lived", "same region": "is in a state or region you've lived in",
-         "same country": "is in a country you've lived in", "different region": "is in a region you haven't lived in",
-         "different country": "is in a country you haven't lived in"}
-TERMS = {  # your description's words in a profile's own text: (m, u, what), u = a stranger's profile saying it
-    "employers": (0.6, 0.01, "a job"), "schools": (0.5, 0.01, "a school"), "other": (0.4, 0.02, "a name"),
-    "titles": (0.4, 0.05, "your work"), "interests": (0.4, 0.1, "an interest"),
-}
-LOOSE = ("titles", "interests")  # matched by their words' stems: "run marathons" finds "marathoner"
-STOP = {"about", "really", "things", "stuff", "posts", "posting", "loves", "playing", "watching", "going", "doing",
-        "making", "being", "their", "other", "people", "every", "where", "which", "there", "online", "social", "media",
-        "lots", "always", "pretty", "mostly", "spend", "spending", "years", "weekends", "time", "free"}
-GENERIC_ORG = "university|college|school|academy|inc|llc|ltd|co|company|corp|corporation|group"
-SKIP_KEYS = re.compile(r"image|avatar|photo|icon|banner|created|followers|following|count|id$", re.I)
-
-
-def _described(attrs: dict, c: dict, here: "geo.Place | None", profile_place: str, have: set[str]) -> list[tuple[str, float, str]]:
-    """(tag, bits, why) for a profile against your locked description (profile.py), all on this Mac.
-
-    Places are compared offline: by name, and by the state and country Nominatim gave the profile's own location
-    (your places are never geocoded). Words count once each: up to three of a kind, two interests."""
-    out = []
-    if "place" not in have and profile_place and (tier := _lived(here, profile_place, c.get("places") or [])):
-        out.append(("place", PLACE_TIERS[tier][0], f"location '{profile_place}' {LIVED[tier]}"
-                                                   + (f" (read as {_short(here)})" if here else "")))
-    text, common = profile_text(attrs), c.get("common") or {}
-    for key, (m, u, what) in TERMS.items():
-        if key == "employers" and "employer" in have:
-            continue  # the employer field already matched
-        said = list(dict.fromkeys((w, t) for t in c.get(key) or [] if (w := _mentions(t, text, key in LOOSE))))
-        out += [("described", bits(m, max(u, common.get(t, 0))), f"mentions '{w}', {what} in your description"
-                 + (f" (as do {common[t]:.0%} of the accounts found)" if common.get(t, 0) > u else ""))
-                for w, t in said[:2 if key == "interests" else 3]]
-    return out
-
-
-def profile_text(attrs: dict) -> str:
-    """A profile's own words, _clean, for finding the description's words in."""
-    return " ".join(_clean(str(v)) for k, v in attrs.items() if v and not SKIP_KEYS.search(k))
-
-
-def commonness(c: dict, profiles: list[dict]) -> dict[str, float]:
-    """For each word in your description, the share of these profiles that say it. A search's accounts are mostly
-    namesakes, so a word many of them say (a home state, a hobby) is common, and counts for less (_described).
-    Measured only over 50 or more accounts, as username_u does: fewer can't tell common from yours."""
-    if len(profiles) < 50:
-        return {}
-    texts = [profile_text(a) for a in profiles]
-    return {t: (sum(bool(_mentions(t, x, key in LOOSE)) for x in texts) + 1) / (len(texts) + 2)
-            for key in TERMS for t in c.get(key) or []}
-
-
-def _lived(here: "geo.Place | None", text: str, places: list[dict]) -> str | None:
-    """The closest geo.compare tier between a profile's place and the places you've lived, or None."""
-    names = _clean(f"{text} {here.label.split(' or ')[0] if here else ''}")
-    region = here.region if here else _state_in(text)  # a record's address isn't geocoded: its state is in the text
-    tiers = []
-    for p in places:
-        city = _clean(p.get("city") or "")
-        if len(city) > 2 and city not in geo.STATES.values() and re.search(rf"\b{re.escape(city)}\b", names):
-            tiers.append("same area")
-        elif here and p.get("country") and here.country_code.upper() != p["country"]:
-            tiers.append("different country")
-        elif p.get("region") and region == p["region"]:
-            tiers.append("same region")
-        elif p.get("region") and region and (not here or here.rank >= geo.REGION):
-            tiers.append("different region")
-        elif here and p.get("country"):
-            tiers.append("same country")
-    return max(tiers, key=lambda t: PLACE_TIERS[t][0]) if tiers else None
-
-
-def _state_in(text: str) -> str | None:
-    """The US state an address or location names ('12 Elm St, Austin, TX 78701', 'Austin, Texas'), as ISO 3166-2."""
-    if (m := re.search(r",\s*([A-Z]{2})(?:\s+\d{5}(?:-\d{4})?)?\s*(?:,|$)", text)) and m[1].lower() in geo.STATES:
-        return "US-" + m[1]
-    low = text.lower()
-    return next(("US-" + code.upper() for code, name in geo.STATES.items() if re.search(rf"\b{name}\b", low)), None)
-
-
-def _mentions(term: str, text: str, loose: bool) -> str | None:
-    """The words of `text` (already _clean) that say `term`: the whole phrase, or for a loose term any of its
-    real words by stem (first five letters). None if it isn't said."""
-    term = _clean(term)
-    if not loose:
-        short = re.sub(rf"(?:\s+(?:{GENERIC_ORG}))+$", "", term)  # "Oklahoma State University" is "Oklahoma State"
-        for t in dict.fromkeys([term, short] if len(short.split()) >= 2 else [term]):
-            if len(t) >= 3 and re.search(rf"\b{re.escape(t)}\b", text):
-                return t
-        squashed = term.replace(" ", "")  # "Acme Corp" is "acmecorp" in a handle or a link
-        return term if len(squashed) >= 6 and squashed in text.replace(" ", "") else None
-    for w in term.split():
-        if len(w) >= 5 and w not in STOP and (m := re.search(rf"\b{re.escape(w[:5])}\w*", text)):
-            return m.group(0)
-    return None
 
 
 def _clean(name: str) -> str:

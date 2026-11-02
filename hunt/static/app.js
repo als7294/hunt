@@ -259,8 +259,8 @@ const KIND_CHOICES = [['insurance', 'Insurance claim', '⛨', 'var(--am)', 'rgba
 let wiz;
 const WIZ_HEADER = ['client', 'adjuster', 'file_number', 'assignment_date', 'subject_dob']; // optional, for the report header
 const newWizard = () => ({ seeds: [], kind: 'insurance', look_for: LOOK_FOR.filter(l => l[2]).map(l => l[0]), custom: [], purpose: '', reference: '', injury_date: '', limits: '',
-  ...Object.fromEntries(WIZ_HEADER.map(k => [k, ''])), country: '', state: '', faceOn: false, faceBasis: '', faceFiles: [], gate: null, aboutMe: false });
-screens.new = async () => { wiz ??= newWizard(); meState ??= await api('/api/me').catch(() => ({})); drawWizard(); };
+  ...Object.fromEntries(WIZ_HEADER.map(k => [k, ''])), country: '', state: '', faceOn: false, faceBasis: '', faceFiles: [], gate: null });
+screens.new = () => { wiz ??= newWizard(); drawWizard(); };
 function drawWizard() {
   const w = wiz, step = wizStep();
   mount(html`<div class="screen" style="background:#121318">
@@ -275,7 +275,6 @@ function drawWizard() {
           <input id="seed-in" class="input" style="flex:1;min-width:220px;background:none;padding:6px 4px" placeholder="${w.seeds.length ? 'Add another…' : 'Paste anything… a name, email, phone, username, profile link, date of birth or address'}" aria-label="Who are you looking into">
         </label>
         <span id="seed-hint" class="muted" style="font-size:14px;margin-top:-12px">${placeHint()}</span>
-        ${meToggle(w)}
         <div style="display:flex;flex-direction:column;gap:12px">
           <span class="t2">What’s it for?</span>
           <div style="display:flex;gap:10px;flex-wrap:wrap">${KIND_CHOICES.map(([k, label, ic, col, bg]) => html`<button type="button" class="choice ${w.kind === k ? 'on' : ''}" data-act="wiz-kind" data-kind="${k}"><span class="ic" style="background:${bg};color:${col}">${ic}</span>${label}</button>`)}</div>
@@ -364,13 +363,6 @@ const lookFor = w => html`<div style="display:flex;flex-direction:column;gap:8px
   <div style="display:flex;flex-wrap:wrap;gap:7px">${LOOK_FOR.map(([k, label]) => html`<button type="button" class="tick ${w.look_for.includes(k) ? 'on' : ''}" data-act="wiz-look" data-key="${k}">${w.look_for.includes(k) ? '✓ ' : ''}${label}</button>`)}
   ${w.custom.map(c => html`<button type="button" class="tick on" data-act="wiz-custom-remove" data-value="${c}">✓ ${c} ×</button>`)}
   <input class="tick add" id="custom-in" placeholder="+ Add your own" style="width:150px;outline:0" aria-label="Add your own thing to look for"></div></div>`;
-// Searching yourself (hunt/profile.py): accounts are scored against your locked description; nothing in it is searched
-let meState;
-const meToggle = w => meState?.fingerprint ? html`<label style="display:flex;gap:12px;align-items:flex-start;padding:12px 14px;margin-top:-6px;border-radius:14px;cursor:pointer;background:${w.aboutMe ? 'var(--ac-bg)' : 'rgba(255,255,255,.02)'};box-shadow:${w.aboutMe ? 'inset 0 0 0 1.5px var(--ac)' : 'inset 0 0 0 1px var(--edge)'}">
-    <input type="checkbox" id="wiz-me" ${w.aboutMe ? 'checked' : ''} style="width:18px;height:18px;margin-top:2px;accent-color:var(--ac);flex:none">
-    <span><b>This is me</b><span class="muted" style="display:block;font-size:13.5px;margin-top:2px">Check every account against the description you locked on ${longDay(meState.saved)}. Nothing in it is searched.</span></span></label>`
-  : html`<a href="#/me" class="dim" style="font-size:13.5px;margin-top:-10px;align-self:flex-start">Searching for yourself? <span style="color:var(--ac)">Describe yourself once →</span></a>`;
-const ME_PURPOSE = 'Searching myself: seeing what’s public about me';
 const wizStep = () => !wiz.seeds.length ? 1 : !wiz.purpose.trim() ? 2 : wiz.faceOn && (!wiz.faceBasis.trim() || !wiz.faceFiles.length) ? 2.5 : 3;
 const wizHint = step => step === 1 ? 'Add at least one thing you know about them.' : step === 2 ? 'Say who asked and why it’s lawful.'
   : step === 2.5 ? 'Comparing faces needs your legal basis and a reference photo, or turn it off.' : '';
@@ -487,11 +479,11 @@ function watchSearch(slug, job, cl) {
 screens.identity = async slug => {
   const [c, p] = await Promise.all([loadCase(slug), api(`/api/cases/${encodeURIComponent(slug)}/person`)]);
   const accts = p.accounts, n = accts.length, weakest = p.weakest_verdict, low = Math.min(...accts.map(a => a.probability ?? 1));
-  const avatar = accts.find(a => a.avatar)?.avatar, me = !!c.details.about_me; // searching yourself (hunt/profile.py)
+  const avatar = accts.find(a => a.avatar)?.avatar;
   mount(html`${topCase(c, 'identity')}<main class="screen" style="align-items:center;padding:6px 16px 32px;gap:18px">
-    ${identityTabs(slug, 'identity', me)}
-    <div style="text-align:center;display:flex;flex-direction:column;gap:8px"><div class="h2">${me ? 'Is this you?' : 'Is this them?'}</div>
-      <div class="sub">${n ? `We found ${n} account${n > 1 ? 's' : ''} that look like ${me ? 'you, going by your description' : 'the same person'}.` : me ? 'No account matches your description well enough yet. Add a username, email or city and search again.' : 'No account looks likely enough yet. Add more of what you know and search again.'}</div></div>
+    ${identityTabs(slug, 'identity')}
+    <div style="text-align:center;display:flex;flex-direction:column;gap:8px"><div class="h2">Is this them?</div>
+      <div class="sub">${n ? `We found ${n} account${n > 1 ? 's' : ''} that look like the same person.` : 'No account looks likely enough yet. Add more of what you know and search again.'}</div></div>
     ${n ? html`<div style="width:min(880px,100%);background:linear-gradient(180deg,#1E2230,#1B1D23 40%);border-radius:24px;padding:28px;box-shadow:inset 0 0 0 1px var(--edge);display:flex;flex-direction:column;gap:20px">
       <div style="display:flex;align-items:center;gap:24px">
         <div style="width:96px;height:96px;border-radius:50%;overflow:hidden;flex:none;box-shadow:0 0 0 3px var(--raise)">${avatar ? html`<img src="${avatar}" alt="" style="width:100%;height:100%;object-fit:cover">` : html`<div class="thumb" style="height:96px;display:flex;align-items:center;justify-content:center;color:var(--mu);font-size:13px">photo</div>`}</div>
@@ -506,9 +498,9 @@ screens.identity = async slug => {
           <div style="flex:1;min-width:0"><div><b>${a.site}</b> <span class="muted">${a.handle || handleOf(a.url)}</span> · <span style="color:${VERDICT_COLOR[a.verdict] || 'var(--t2)'}">${pct(a.probability)} ${capped(a.verdict)}</span>${a.decision ? html` · <span class="muted">you said: ${a.decision === 'him' ? 'them' : a.decision === 'not him' ? 'not them' : 'unsure'}</span>` : ''}</div>
             <div class="muted" style="font-size:13.5px">${a.reasons.join(' · ')}</div></div>
           <button class="btn ghost sm" data-act="note-open" data-about="account" data-ref="${a.url}" data-title="Notes on the ${a.site} account">Note</button>
-          <button class="btn ghost sm" data-act="decide" data-url="${a.url}" data-decision="not him">${me ? 'Not me' : 'Not them'}</button></div>`)}</div></details>
+          <button class="btn ghost sm" data-act="decide" data-url="${a.url}" data-decision="not him">Not them</button></div>`)}</div></details>
       <div style="display:flex;gap:10px">
-        <button class="btn good" data-act="decide-all" data-decision="him">${me ? 'Yes, it’s me' : 'Yes, it’s them'}</button>
+        <button class="btn good" data-act="decide-all" data-decision="him">Yes, it’s them</button>
         <button class="btn ghost" data-act="decide-all" data-decision="unsure">Not sure yet</button>
         <button class="btn ghost" data-act="decide-all" data-decision="not him">No</button>
         ${p.decision ? html`<span class="muted" style="align-self:center;margin-left:8px">You said: ${p.decision === 'him' ? 'yes' : p.decision === 'not him' ? 'no' : 'not sure'}</span>` : ''}
@@ -516,7 +508,7 @@ screens.identity = async slug => {
       <div id="vendor-line"></div>
     </div>` : ''}
     ${faceRows(p)}
-    ${possibleBlock(p, me)}
+    ${possibleBlock(p)}
     ${recordsPanel(p)}
     ${p.namesakes.length ? html`<div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:600;font-size:19px">Others with the same name</span><span class="muted" style="font-size:14.5px">We’ll mention these in the report</span></div>
@@ -545,21 +537,21 @@ screens.identity = async slug => {
 
 /* Possibly theirs: 0.2 ≤ p < 0.55, usually a handle-only match capped at "roughly even" until a second identifier
    agrees. Grouped by the handle they share; each confirmed or ruled out by hand. */
-const possibleBlock = (p, me) => {
+const possibleBlock = p => {
   const xs = p.possible || [];
   if (!xs.length) return '';
   const byHandle = list => Object.entries(list.reduce((g, x) => ((g[x.handle || handleOf(x.url)] ||= []).push(x), g), {}));
   const total = Object.fromEntries(byHandle(xs).map(([h, l]) => [h, l.length]));
   const row = x => html`<div class="row" style="padding:10px 12px"><span class="dot" style="background:${siteColor(x.site)}"></span>
     <div style="flex:1;min-width:0"><div><b style="font-weight:500">${x.site}</b> <span class="muted">${pct(x.probability)} ${capped(x.verdict)}</span></div>
-      <div class="muted" style="font-size:13.5px">${x.why}${x.why === 'only the username agrees' ? `: confirm it’s ${me ? 'yours' : 'theirs'}` : ''}</div></div>
-    <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="him">${x.decision === 'him' ? '✓ ' : ''}${me ? 'Mine' : 'Theirs'}</button>
-    <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="not him">${me ? 'Not me' : 'Not them'}</button></div>`;
+      <div class="muted" style="font-size:13.5px">${x.why}${x.why === 'only the username agrees' ? `: confirm it’s theirs` : ''}</div></div>
+    <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="him">${x.decision === 'him' ? '✓ ' : ''}Theirs</button>
+    <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="not him">Not them</button></div>`;
   const groups = list => byHandle(list).map(([h, l]) => html`<div style="display:flex;flex-direction:column;gap:6px">
     <div class="muted" style="font-size:14px;padding:2px">${h} · ${total[h]} account${total[h] > 1 ? 's' : ''} with this username</div>${l.map(row)}</div>`);
   return html`<div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px"><span style="font-weight:600;font-size:19px">${me ? 'Possibly yours' : 'Possibly theirs'}</span>
-      <span class="muted" style="font-size:14.5px">${me ? 'Only your username agrees so far: say which are yours' : 'Usually only the username agrees: confirm or rule out each'}</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px"><span style="font-weight:600;font-size:19px">Possibly theirs</span>
+      <span class="muted" style="font-size:14.5px">Usually only the username agrees: confirm or rule out each</span></div>
     ${groups(xs.slice(0, 10))}
     ${xs.length > 10 ? html`<details id="pos-more" ${keepOpen.has('pos-more') ? 'open' : ''}><summary class="muted" style="cursor:pointer;padding:6px 2px">Show all ${xs.length}</summary>
       <div style="display:flex;flex-direction:column;gap:10px;padding-top:6px">${groups(xs.slice(10))}</div></details>` : ''}
@@ -662,7 +654,7 @@ const sourceRows = rows => html`${rows.map(r => { const url = /^https?:/.test(r.
 
 /* People around the subject (docs/analysis.md §8; legal.md A1–A10): only what the case already holds, by name and
    citation. Nothing about them is searched; "Open as a new case…" starts the wizard with its own purpose. */
-const identityTabs = (slug, now, me) => html`<nav style="display:flex;gap:6px;align-self:center">${[['identity', 'Accounts'], ['people', me ? 'People around you' : 'People around the subject']].map(([k, label]) =>
+const identityTabs = (slug, now) => html`<nav style="display:flex;gap:6px;align-self:center">${[['identity', 'Accounts'], ['people', 'People around the subject']].map(([k, label]) =>
   html`<a class="step ${k === now ? 'now' : ''}" href="#/case/${slug}/${k}" style="padding:7px 14px">${label}</a>`)}</nav>`;
 const sureness = c => c >= 0.9 ? 'stated' : c >= 0.6 ? 'likely' : 'a hint';
 const SOURCE_WORD = { post: 'a post', bio: 'a profile bio', record: 'a public record', photo: 'your mark on a kept photo', name: 'the name' };
@@ -683,11 +675,11 @@ screens.people = async slug => {
   const [c, r] = await Promise.all([loadCase(slug), api(`/api/cases/${encodeURIComponent(slug)}/people`)]);
   const shown = r.people.filter(x => !x.hidden), hidden = r.people.filter(x => x.hidden);
   mount(html`${topCase(c, 'identity')}<main class="screen" style="align-items:center;padding:6px 16px 32px;gap:16px">
-    ${identityTabs(slug, 'people', !!c.details.about_me)}
-    <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:8px"><div class="h2" style="text-align:center">${c.details.about_me ? 'People around you' : 'People around the subject'}</div>
-      <div class="sub" style="text-align:center">${c.details.about_me ? r.notice.replace("the subject's own", 'your own') : r.notice}</div></div>
+    ${identityTabs(slug, 'people')}
+    <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:8px"><div class="h2" style="text-align:center">People around the subject</div>
+      <div class="sub" style="text-align:center">${r.notice}</div></div>
     <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
-      ${c.details.kind === 'background' ? '' : shown.length ? shown.map(x => personCard(slug, x)) : html`<div class="empty">Nobody else is named in ${c.details.about_me ? 'your' : 'the subject’s'} posts, bios or records yet${hidden.length ? ' (apart from those you marked not relevant)' : ''}.</div>`}
+      ${c.details.kind === 'background' ? '' : shown.length ? shown.map(x => personCard(slug, x)) : html`<div class="empty">Nobody else is named in the subject’s posts, bios or records yet${hidden.length ? ' (apart from those you marked not relevant)' : ''}.</div>`}
       ${hidden.length ? html`<details><summary class="muted" style="cursor:pointer;padding:6px 0">Marked not relevant (${hidden.length})</summary><div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">${hidden.map(x => personCard(slug, x))}</div></details>` : ''}
       <span class="dim" style="font-size:12.5px">The report quotes what was observed, with its source, and never states a relationship. Children are never named. Employment screening reports leave this section out.</span></div>
   </main>`);
@@ -1167,8 +1159,9 @@ screens.keys = async () => {
     <div><a class="btn primary" href="#/">Done</a></div></div></main>`);
 };
 
-/* About you (hunt/profile.py): describe yourself once, to search for yourself. Encrypted on this Mac, read by the
-   local model, never searched or sent. What you wrote isn't shown again; what Hunt read from it is shown this once. */
+/* Training answer key (hunt/profile.py, `hunt me`): you describe yourself once, and scripts/train_find.py uses it to
+   grade how well Hunt finds you from a few bits. It never changes how any case is scored. Encrypted on this Mac, read by
+   the local model, never searched or sent. What you wrote isn't shown again; what Hunt read from it is shown this once. */
 const ME_EXAMPLE = 'For example: I’m Jordan Reyes, 34, and most people call me JR. I grew up in Tulsa, Oklahoma and have lived in Austin, Texas since 2016. I studied at Oklahoma State and I’m head baker at Lumen Bakery. I run marathons and post about sourdough. I’m jr_reyes91 on most sites.';
 const ME_SHOW = [['names', 'Names you go by'], ['usernames', 'Usernames'], ['places', 'Places you’ve lived'], ['employers', 'Work'], ['titles', 'What you do'],
   ['schools', 'Schools'], ['interests', 'What you post about'], ['other', 'Other names'], ['emails', 'Emails'], ['phones', 'Phones'], ['websites', 'Sites']];
@@ -1178,15 +1171,14 @@ const ME_COUNT = { names: ['name', 'names'], usernames: ['username', 'usernames'
 let meReplacing = false;
 screens.me = async () => {
   const me = await api('/api/me'), locked = me.fingerprint && !meReplacing;
-  meState = me;
   mount(html`${topHome()}<main class="screen" style="align-items:center;padding:16px 24px 40px"><div style="width:min(720px,100%);display:flex;flex-direction:column;gap:18px">
-    <div><a href="#/" data-act="back" class="muted" style="font-size:15px">← Back</a><div class="h2" style="margin-top:10px">About you</div>
-      <div class="sub" style="margin-top:6px">For searching for yourself. Hunt checks every account it finds against what you write here, so yours stand out from everyone who shares your name.</div></div>
+    <div><a href="#/" data-act="back" class="muted" style="font-size:15px">← Back</a><div class="h2" style="margin-top:10px">Training answer key</div>
+      <div class="sub" style="margin-top:6px">Describe yourself once. Hunt’s training feeds it a few bits about you, lets it search like it would for anyone, then uses this to grade what it found: which accounts really are yours, and which it got wrong. It never changes how Hunt scores anyone.</div></div>
     <div id="me-box">${locked ? meLocked(me) : meForm(me)}</div></div></main>`);
   const t = $('#me-text'); if (!t) return;
-  const count = () => { const n = t.value.trim().length; $('#me-count').textContent = `${n.toLocaleString('en-US')} / 8,000`; $('[data-act="me-lock"]').disabled = n < 20; };
-  t.addEventListener('input', count);
-  t.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && t.value.trim().length >= 20) { e.preventDefault(); actions['me-lock']($('[data-act="me-lock"]')); } });
+  const count = () => { const n = t.value.trim().length; $('#me-count').textContent = `${n.toLocaleString('en-US')} / 8,000`; $('[data-act="me-lock"]').disabled = n < 20 || !$('#me-attest').checked; };
+  t.addEventListener('input', count); $('#me-attest').addEventListener('change', count);
+  t.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !$('[data-act="me-lock"]').disabled) { e.preventDefault(); actions['me-lock']($('[data-act="me-lock"]')); } });
   t.focus();
 };
 const meForm = me => html`<form class="panel" style="padding:22px;display:flex;flex-direction:column;gap:14px" autocomplete="off">
@@ -1194,31 +1186,32 @@ const meForm = me => html`<form class="panel" style="padding:22px;display:flex;f
       : me.exists ? html`<div class="reason warn"><span class="ic">!</span><span>This replaces the description you locked on ${longDay(me.saved)}.</span></div>` : ''}
     <label class="field"><span class="label">Describe yourself in your own words</span>
       <textarea class="input" id="me-text" rows="9" maxlength="8000" spellcheck="false" style="resize:vertical;line-height:1.55" placeholder="${ME_EXAMPLE}"></textarea></label>
-    <div class="muted" style="font-size:14px;line-height:1.5">What helps most is what only you would say: places you’ve lived, schools, jobs and your own businesses, the names and usernames you go by, the year you were born, and what you post about.</div>
+    <div class="muted" style="font-size:14px;line-height:1.5">What grades best is what only you would say: the usernames and emails you use, places you’ve lived, schools, jobs and your own businesses, the year you were born, and what you post about.</div>
+    <label style="display:flex;gap:10px;align-items:center;cursor:pointer;font-size:14.5px"><input type="checkbox" id="me-attest" style="width:18px;height:18px;accent-color:var(--ac);flex:none">This describes me, the person who uses this Mac account, and no one else.</label>
     <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
       <button type="button" class="btn primary" data-act="me-lock" disabled>Lock it on this Mac</button>
       <span id="me-count" class="dim" style="font-size:13px">0 / 8,000</span>
       ${me.exists ? html`<a href="#/me" data-act="me-keep" class="muted" style="font-size:14px;margin-left:auto">Keep the one I have</a>` : ''}</div>
-    <div class="dim" style="font-size:12.5px;line-height:1.5"><span style="color:var(--gr)">●</span> Encrypted on this Mac, with its key in your Keychain. Hunt reads it on this Mac and never sends it anywhere. Nothing in it is searched: a search starts only from what you type in the case. Once it’s locked, it isn’t shown again.</div>
+    <div class="dim" style="font-size:12.5px;line-height:1.5"><span style="color:var(--gr)">●</span> Encrypted on this Mac, with its key in your Keychain. Hunt reads it on this Mac and never sends it anywhere, and nothing in it is searched. Once it’s locked, it isn’t shown again.</div>
   </form>`;
 const meLocked = (me, read) => html`<div class="panel" style="padding:22px;display:flex;flex-direction:column;gap:16px">
     <div style="display:flex;align-items:center;gap:14px"><span class="tile-ic" style="background:var(--gr-bg);color:var(--gr)">✓</span>
       <div style="min-width:0"><b style="font-size:17px">Locked on this Mac</b><div class="muted" style="font-size:14px">Saved ${longDay(me.saved)} · fingerprint <span class="mono">${me.fingerprint}</span></div></div></div>
-    ${read ? meRead(read) : html`<div class="t2" style="font-size:15px;line-height:1.5">Hunt checks accounts against ${meCounts(me.counts)}.</div>`}
+    ${read ? meRead(read) : html`<div class="t2" style="font-size:15px;line-height:1.5">Training grades Hunt’s answers against ${meCounts(me.counts)}.</div>`}
     <div style="display:flex;gap:8px;align-items:center"><input class="input" id="me-add" maxlength="2000" placeholder="Add to it, e.g. I also lived in Denver, Colorado from 2015 to 2018" aria-label="Add to your description" style="flex:1;min-width:0">
       <button type="button" class="btn sm" data-act="me-add">Add</button></div>
     <div class="dim" style="font-size:12.5px">What you wrote isn’t shown again, here or anywhere. Add to it above, or write it again to start over.</div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn primary" data-act="me-search">Search for yourself →</button><button class="btn ghost" data-act="me-replace">Write it again</button></div></div>`;
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn ghost" data-act="me-replace">Write it again</button><button class="btn ghost" data-act="me-forget" style="margin-left:auto">Forget it</button></div></div>`;
 const meCounts = counts => { const parts = Object.entries(ME_COUNT).filter(([k]) => counts?.[k]).map(([k, [one, many]]) => `${counts[k]} ${counts[k] > 1 ? many : one}`);
   return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0] || 'what the rules could read from it'; };
 function meRead(c) { // what Hunt read from it, shown this once so you can check it
   const place = p => [p.city, p.region ? p.region.replace(/^US-/, '') : p.country].filter(Boolean).join(', ');
   const born = c.birth_date ? `born ${longDay(c.birth_date)}` : c.birth_year ? `born ${c.birth_year}` : c.age ? `age ${c.age}` : '';
   const rows = [...ME_SHOW.filter(([k]) => c[k]?.length).map(([k, label]) => [label, c[k].map(v => k === 'places' ? place(v) : v)]), ...(born ? [['Birth', [born]]] : [])];
-  return html`<div style="display:flex;flex-direction:column;gap:10px"><span class="t2" style="font-size:15px">Here’s what Hunt read. It checks accounts against these, and won’t show them again:</span>
+  return html`<div style="display:flex;flex-direction:column;gap:10px"><span class="t2" style="font-size:15px">Here’s what Hunt read. Training grades against these, and they won’t be shown again:</span>
     ${rows.length ? rows.map(([label, vals]) => html`<div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap"><span class="muted" style="width:150px;flex:none;font-size:14px">${label}</span>
       <div style="display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0">${vals.map(v => html`<span class="tag" style="font-size:13px;font-weight:500;padding:3px 10px">${v}</span>`)}</div></div>`)
-      : html`<div class="reason warn"><span class="ic">!</span><span>Hunt couldn’t pick out anything to check against. Write it again with places, jobs or usernames.</span></div>`}</div>`;
+      : html`<div class="reason warn"><span class="ic">!</span><span>Hunt couldn’t pick out anything to grade against. Write it again with usernames, places or jobs.</span></div>`}</div>`;
 }
 
 /* Have we seen this person before? (docs/qol.md I): local, read-only, nothing merged or blocked */
@@ -1575,26 +1568,29 @@ const actions = {
   'me-lock': async el => {
     const t = $('#me-text'), text = t.value.trim(); if (text.length < 20 || el.disabled) return;
     el.disabled = t.disabled = true; el.classList.add('busy'); el.textContent = 'Reading it on this Mac… about 15 seconds';
-    try { const r = await api('/api/me', { method: 'POST', body: { text } }); meReplacing = false; meState = r; t.value = '';
+    try { const r = await api('/api/me', { method: 'POST', body: { text, attest: $('#me-attest').checked } }); meReplacing = false; t.value = '';
       $('#me-box').innerHTML = meLocked(r, r.criteria).s; window.scrollTo({ top: 0, behavior: 'smooth' }); }
     catch (e) { el.disabled = t.disabled = false; el.classList.remove('busy'); el.textContent = 'Lock it on this Mac'; fail(e); }
   },
   'me-add': async el => {
     const t = $('#me-add'), text = t.value.trim(); if (!text || el.disabled) return;
     el.disabled = t.disabled = true; el.classList.add('busy'); el.textContent = 'Reading…';
-    try { const r = await api('/api/me', { method: 'POST', body: { text, add: true } }); meState = r; $('#me-box').innerHTML = meLocked(r, r.criteria).s; toast('Added and locked again.'); }
+    try { const r = await api('/api/me', { method: 'POST', body: { text, add: true } }); $('#me-box').innerHTML = meLocked(r, r.criteria).s; toast('Added and locked again.'); }
     catch (e) { el.disabled = t.disabled = false; el.classList.remove('busy'); el.textContent = 'Add'; fail(e); }
   },
   'me-replace': () => { meReplacing = true; render(); },
+  'me-forget': async () => {
+    if (!confirm('Forget your description? The file goes to the Trash and its key is deleted, so it can’t be read again. Cases aren’t affected.')) return;
+    try { await api('/api/me', { method: 'DELETE', body: {} }); toast('Forgotten.'); render(); } catch (e) { fail(e); }
+  },
   'me-keep': (el, e) => { e.preventDefault(); meReplacing = false; render(); },
-  'me-search': () => { wiz = { ...newWizard(), aboutMe: true, purpose: ME_PURPOSE, kind: 'diligence' }; location.hash = '#/new'; },
   'wiz-start': async el => {
     el.disabled = true;
     const w = wiz, label = w.seeds.find(s => seedKind(s) === 'name') || w.seeds[0];
     try {
       const { slug } = await api('/api/cases', { method: 'POST', body: { label, seeds: w.seeds, kind: w.kind, reference: w.reference || null, purpose: w.purpose,
         injury_date: w.kind === 'insurance' && w.injury_date ? w.injury_date : null, limits: w.limits || null, look_for: [...w.look_for, ...w.custom], tool: 'person',
-        ...Object.fromEntries(WIZ_HEADER.filter(k => w[k]).map(k => [k, w[k]])), subject_residence: residenceOf(w) || 'unknown', about_me: w.aboutMe } });
+        ...Object.fromEntries(WIZ_HEADER.filter(k => w[k]).map(k => [k, w[k]])), subject_residence: residenceOf(w) || 'unknown' } });
       if (w.faceOn && w.gate?.allowed) try { // before the search, which compares the profile photos it finds
         const enc = encodeURIComponent(slug); await api(`/api/cases/${enc}/face`, { method: 'POST', body: { basis: w.faceBasis } });
         if (w.faceFiles.length) { const form = new FormData(); w.faceFiles.forEach(f => form.append('files[]', f)); await api(`/api/cases/${enc}/reference`, { method: 'POST', form }); }
@@ -1861,7 +1857,6 @@ document.addEventListener('change', async e => {
   if (e.target.id === 'wiz-country') { wiz.country = e.target.value; wiz.state = ''; wiz.faceOn = false; drawWizard(); wizGate(); }
   if (e.target.id === 'wiz-state') { wiz.state = e.target.value; wiz.faceOn = false; drawWizard(); wizGate(); }
   if (e.target.id === 'wiz-face-on') { wiz.faceOn = e.target.checked; drawWizard(); }
-  if (e.target.id === 'wiz-me') { wiz.aboutMe = e.target.checked; if (wiz.aboutMe && !wiz.purpose.trim()) wiz.purpose = ME_PURPOSE; else if (!wiz.aboutMe && wiz.purpose === ME_PURPOSE) wiz.purpose = ''; drawWizard(); }
   if (e.target.id === 'wiz-ref') { wiz.faceFiles = [...e.target.files]; drawWizard(); }
   if (e.target.id === 'face-ref-add' && e.target.files.length) {
     const form = new FormData(); [...e.target.files].forEach(f => form.append('files[]', f));

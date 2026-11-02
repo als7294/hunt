@@ -130,11 +130,18 @@ def main():
     dm = sub.add_parser("demo", parents=[proxy], help="build a finished, fictional demo case to look through")
     dm.add_argument("--reset", action="store_true", help="move the demo case to the Trash and build it again")
     sub.add_parser("app", parents=[proxy], help="open the Hunt app in your browser (this machine only)")
-    sub.add_parser("me", parents=[proxy], help="describe yourself once, locked on this Mac, to search for yourself")
+    me = sub.add_parser("me", parents=[proxy], help="lock a description of yourself on this Mac: the answer key "
+                                                   "Hunt's training (scripts/train_find.py) grades its search of you with")
+    me.add_argument("--forget", action="store_true", help="forget it: the file to the Trash, its key out of the Keychain")
     args = ap.parse_args()
 
     if getattr(args, "proxy", None):
         os.environ["HUNT_PROXY"] = args.proxy
+    if args.cmd == "me" and args.forget:
+        from . import profile
+        if input("Forget your description? It can't be read again afterwards. [y/N] ").strip().lower() != "y":
+            return
+        return print(f"forgotten (fingerprint {profile.forget()['forgotten']})")
     if args.cmd in ("app", "me"):
         from .app import serve
         return serve(args.cmd)

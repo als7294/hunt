@@ -1,17 +1,18 @@
-"""About you: one locked description of yourself, for searching yourself. It never leaves this Mac.
+"""The training answer key: a description of yourself, locked on this Mac, that grades how well Hunt finds you.
 
     ~/Hunt/me.locked   line 1: the format and the SHA-256 of what's locked inside;
                        line 2: AES-256 (macOS's openssl), its key in your login Keychain ("Hunt profile").
                        Mode 600, and left out of Time Machine backups.
+    ~/Hunt/me.log      when each lock, addition and forget happened, with the fingerprint; never the text.
 
-You write it once, on the About you page (`hunt me`, or #/me in the app). The local model (Ollama) reads it
-into criteria: names you go by, usernames, places you've lived, schools, jobs, interests. A case marked as
-you (meta about_me) scores every account against them (match.score, `described`), so your accounts stand
-out from people who share your name. Nothing in it is searched, geocoded or sent anywhere: a search starts
-only from what the case was given, and the description only decides which hits are you.
+You write it once on the answer key page (`hunt me`, #/me in the app) and tick that it describes you. The local model
+(Ollama) and some rules read it into criteria: the names, usernames, emails and places you use, jobs, schools and
+other distinctive names. scripts/train_find.py feeds Hunt a few bits about you, lets it search as it would for anyone,
+and grades what it found with judge(). The description never changes how Hunt scores any case, and nothing in it is
+searched, geocoded or sent anywhere.
 
-The text is shown once, never again: afterwards Hunt only says what's locked (a fingerprint and how many of
-each kind of criterion), so nothing reads it back off the screen.
+The text is shown once, never again: afterwards Hunt only says what's locked (a fingerprint and how many of each kind
+of criterion), so nothing reads it back off the screen.
 """
 
 import hashlib
@@ -28,9 +29,10 @@ from . import vlm
 from .case import HOME
 from .geo import STATES
 from .pivot import EMAIL, MENTION
-from .seed import Seed, _dob, now
+from .seed import _dob, _handle, now
 
 PATH = HOME / "me.locked"
+LOG = HOME / "me.log"  # one JSON line per lock, addition and forget: when, the fingerprint, attested; never the text
 FORMAT = "hunt-me/1"
 SERVICE = "Hunt profile"  # the Keychain item; its account is the file's path, so another HUNT_HOME has its own key
 MAX_TEXT = 8000
@@ -73,11 +75,18 @@ CITY_STATE = re.compile(r"\b([A-Z][a-z]+(?:[ .-][A-Z][a-z]+){0,3}),\s*([A-Z]{2}|
 _cache: tuple | None = None  # ((mtime_ns, size), payload): build() runs often, and unlocking costs two subprocesses
 
 
-async def lock(text: str, add: bool = False) -> dict:
+ATTEST = "This describes me, the person who uses this Mac account, and no one else."
+
+
+async def lock(text: str, add: bool = False, attest: bool = False) -> dict:
     """Read `text` into criteria on this Mac and lock both away, replacing what was locked before (with `add`,
-    after what's locked: nothing has to be written twice, and the old text is never shown).
+    after what's locked: nothing has to be written twice, and the old text is never shown). A new description needs
+    `attest`: the person writing it says it's them (ATTEST; S1, D16). Each lock is logged in LOG.
     {"fingerprint", "saved", "counts", "criteria", "read_by"}: the criteria once, so you can check them."""
     text = text.strip()
+    if not add and not attest:
+        raise ValueError("tick that this describes you, and no one else")
+    attested = attest or bool(add and _attested())  # an addition keeps the attestation of what it adds to
     if add and (before := load()):
         if len(text) < 3:
             raise ValueError("write what to add")
@@ -96,7 +105,38 @@ async def lock(text: str, add: bool = False) -> dict:
         pass  # the rules alone still catch emails, phones, handles, sites, dates and ages
     payload = {"format": FORMAT, "text": text, "criteria": found, "saved": now(), "read_by": read_by}
     fingerprint = _write(payload)
+    _log({"fingerprint": fingerprint, "attested": attested, "add": add})
     return {**status(), "fingerprint": fingerprint, "criteria": found}
+
+
+def forget() -> dict:
+    """Forget the description (S2, D20): the file to the Trash, its key out of the Keychain (so the Trash copy can't be
+    read), the cache cleared, and the forgetting logged. Cases keep only the fingerprint. {"forgotten": fingerprint}."""
+    global _cache
+    if not PATH.exists():
+        raise ValueError("there's no description to forget")
+    fingerprint = _fingerprint()
+    from .inbox import _trash
+    _trash(PATH)
+    subprocess.run(["security", "delete-generic-password", "-s", SERVICE, "-a", str(PATH)], capture_output=True)
+    _cache = None
+    _log({"fingerprint": fingerprint, "forgotten": True})
+    return {"forgotten": fingerprint}
+
+
+def _log(entry: dict):
+    fd = os.open(LOG, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a") as f:
+        f.write(json.dumps({"ts": now(), **entry}) + "\n")
+
+
+def _attested() -> str | None:
+    """When the current description was attested: the latest attested lock of it, or None."""
+    if not (LOG.exists() and PATH.exists()):
+        return None
+    fp = _fingerprint()
+    lines = [json.loads(l) for l in LOG.read_text().splitlines() if l.strip()]
+    return next((l["ts"] for l in reversed(lines) if l.get("fingerprint") == fp and l.get("attested")), None)
 
 
 def status() -> dict:
@@ -110,7 +150,8 @@ def status() -> dict:
     c = p["criteria"]
     counts = {k: len(c[k]) for k in (*LISTS, "places") if c.get(k)}
     counts |= {"birth": 1} if c.get("birth_date") or c.get("birth_year") or c.get("age") else {}
-    return {"exists": True, "fingerprint": _fingerprint(), "saved": p["saved"], "counts": counts, "read_by": p["read_by"]}
+    return {"exists": True, "fingerprint": _fingerprint(), "saved": p["saved"], "counts": counts, "read_by": p["read_by"],
+            "attested_at": _attested()}
 
 
 def load() -> dict | None:
@@ -133,25 +174,34 @@ def load() -> dict | None:
     return _cache[1]
 
 
-def criteria(case) -> dict:
-    """Your criteria when `case` is about you, else {}. A description that can't be opened counts as none."""
-    if not case.meta("about_me"):
-        return {}
-    try:
-        return (load() or {}).get("criteria", {})
-    except ValueError:
-        return {}
-
-
-def seeds(c: dict) -> list[Seed]:
-    """The criteria the existing comparisons already know how to score: names, usernames, emails, phones,
-    sites, employers, date of birth and age. Never added to the case, so never searched."""
-    out = [Seed(kind, v) for kind, key in (("name", "names"), ("username", "usernames"), ("email", "emails"),
-                                           ("phone", "phones"), ("url", "websites"), ("employer", "employers"))
-           for v in c.get(key, [])]
-    out += [Seed("dob", c["birth_date"])] if c.get("birth_date") else \
-        [Seed("dob", f"{c['birth_year']}-07-01")] if c.get("birth_year") else []  # mid-year: _facts compares the year
-    return out + ([Seed("age", str(c["age"]))] if c.get("age") and not c.get("birth_date") and not c.get("birth_year") else [])
+def judge(candidate: dict, c: dict) -> tuple[str, str] | None:
+    """Grade one of Hunt's accounts against the answer key `c`: ("certain", why) when it carries one of your usernames
+    (in its address or as its display name), lists your email, phone or site, or a site confirms your email is
+    registered there; ("probable", why) when its own words name one of your distinctive names (an employer, school,
+    brand or project); ("not", why) when you said it isn't yours; None when the key can't tell. Your own decision in
+    the case outranks the rest."""
+    if candidate.get("decision") in ("him", "not him"):
+        return ("certain", "you marked it yours") if candidate["decision"] == "him" else ("not", "you said it isn't yours")
+    a, url, seed = candidate.get("attrs") or {}, candidate.get("url") or "", candidate.get("seed") or {}
+    alnum = lambda v: re.sub(r"[\W_]", "", str(v).lower())
+    handles = {alnum(u) for u in c.get("usernames", [])}
+    own = alnum(_handle(url) or "") if url else ""
+    if own and own in handles:
+        return "certain", "its address carries one of your usernames"
+    if any(alnum(a.get(k) or "") in handles for k in ("fullname", "name", "display_name") if a.get(k)):
+        return "certain", "its display name is one of your usernames"
+    if seed.get("kind") == "email" and seed.get("value", "").lower() in {e.lower() for e in c.get("emails", [])}:
+        return "certain", "the site confirms your email is registered there"
+    flat = str(a).lower()
+    phones = {re.sub(r"\D", "", n)[-10:] for n in re.findall(r"\+?\d[\d\s().-]{8,16}\d", flat)}
+    if any(e.lower() in flat for e in c.get("emails", [])) or any(re.sub(r"\D", "", p)[-10:] in phones for p in c.get("phones", [])) \
+            or any(w.lower().split("//")[-1].removeprefix("www.").rstrip("/") in flat for w in c.get("websites", [])):
+        return "certain", "it lists your email, phone or site"
+    words = _norm(" ".join(str(v) for k, v in a.items() if v and k not in ("image", "avatar")))
+    if said := next((t for k in ("employers", "schools", "other") for t in c.get(k, [])
+                     if len(_norm(t)) >= 4 and re.search(rf"\b{re.escape(_norm(t))}\b", words)), None):
+        return "probable", f"it names '{said}', one of your distinctive names"
+    return None
 
 
 def rules(text: str) -> dict:

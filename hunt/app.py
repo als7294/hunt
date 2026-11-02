@@ -465,16 +465,8 @@ async def create_case(req: Request):
     if not b.get("subject_residence"):  # F4: where they live decides what may run; "unknown" is an answer, on record
         raise HTTPException(400, "subject_residence is required: where the subject lives, or unknown")
     seeds = [s for raw in _str_list(b.get("seeds"), "seeds") for s in detect(raw)]
-    if b.get("about_me") is True:  # searching yourself: scored against your locked description (profile.py)
-        me = profile.status()
-        if not me.get("fingerprint"):
-            raise HTTPException(400, me.get("error") or "describe yourself on About you first")
-        details["about_me"] = me["fingerprint"]
     c = Case.create(label, purpose, **details)
     c.add_seeds(seeds)
-    if "about_me" in details:
-        c.audit("about me", {"fingerprint": details["about_me"], "note": "accounts are scored against the subject's own "
-                             "locked description; it stays on this Mac and nothing in it is searched"})
     c.audit("case details", {"label": label, **details, "subject_residence": details.get("subject_residence", "unknown"),
                              "seeds": [asdict(s) for s in seeds]})
     return JSONResponse({"slug": c.name}, 201)
@@ -627,21 +619,17 @@ async def remove_reference(req: Request):
     return JSONResponse(_face_state(c))
 
 
-def _fold(text: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", text.lower())
-
-
 async def add_seeds(req: Request):
     c = _case(req)
     seeds = [s for raw in _str_list((await _body(req)).get("seeds"), "seeds") for s in detect(raw)]
-    # Someone the subject's posts, bios or records name is not a seed: searching them needs its own case (A1)
-    around = {_fold(p["name"]): p for p in graph.associates(await _posts(c), (await search.snapshot(c))["candidates"],
-                                                            c.seeds(), graph.photo_labels(c))["people"] if p.get("name")}
-    for s in seeds:
-        key = _fold(s.value.split("@")[0] if s.kind == "email" else s.value)
-        if s.kind in ("name", "username", "email") and key in around:
-            raise HTTPException(409, f"{s.value} is named in what the case holds as someone around the subject "
-                                     f"({around[key]['labels'][0]}): open them as their own case, with its own purpose")
+    # Someone the subject's posts, bios or records name, or whose handle or link a quote about them carries, is not
+    # a seed: searching them needs its own case (A1, C13, SS2)
+    people = graph.associates(await _posts(c), (await search.snapshot(c))["candidates"], c.seeds(),
+                              graph.photo_labels(c))["people"]
+    if hit := graph.conflicts(people, seeds):
+        s, p = hit[0]
+        raise HTTPException(409, f"{s.value} belongs to someone around the subject in what the case holds "
+                                 f"({p['labels'][0]}): open them as their own case, with its own purpose")
     c.add_seeds(seeds)
     c.audit("seeds added", {"seeds": [asdict(s) for s in seeds]})
     return JSONResponse({"seeds": [{"kind": s.kind, "value": s.value} for s in c.seeds()]})
@@ -745,7 +733,7 @@ async def get_person(req: Request):
                       "decision": x["decision"], "avatar": _avatar(c, x),
                       "face": {k: x["face"][k] for k in ("match", "score", "why")} if x.get("face") else None} for x in people],
         "reference": _face_state(c)["references"] if c.meta("face_basis") else [],
-        "summary": [{"tag": t, "text": f"{n} of {len(people)} accounts {_yours(c, SUMMARY.get(t, t))}", "count": n}
+        "summary": [{"tag": t, "text": f"{n} of {len(people)} accounts {SUMMARY.get(t, t)}", "count": n}
                     for t, n in counts.most_common()],
         "weakest_verdict": min((x["verdict"] for x in people), key=VERDICTS.index, default=None),
         "possible": [{"url": x["url"], "site": x["site"], "handle": _handle(x), "verdict": x["verdict"],
@@ -768,10 +756,6 @@ async def get_person(req: Request):
         "decision": snap["decision"],
     })
 
-
-def _yours(c: Case, text: str) -> str:
-    """In a case about you (About you, hunt/profile.py): "your usernames", not "the subject's"."""
-    return text.replace("the subject's", "your").replace("the subject", "you") if c.meta("about_me") else text
 
 
 def _handle(x: dict) -> str:
@@ -1080,20 +1064,29 @@ async def post_keys(req: Request):
 
 
 async def get_me(req: Request):
-    """About you: what's locked (a fingerprint and counts), never what it says (hunt/profile.py)."""
+    """The training answer key: what's locked (a fingerprint and counts), never what it says (hunt/profile.py)."""
     return JSONResponse(profile.status())
 
 
 async def post_me(req: Request):
-    """Lock your description, replacing the last one ({"add": true}: adding to it). The criteria come back this once."""
+    """Lock the training answer key, replacing the last one ({"attest": true} required; {"add": true}: adding to it).
+    The criteria come back this once."""
     b = await _body(req)
     text = b.get("text")
     if not isinstance(text, str):
         raise HTTPException(400, "text must be your description")
     try:
-        return JSONResponse(await profile.lock(text, add=b.get("add") is True))
+        return JSONResponse(await profile.lock(text, add=b.get("add") is True, attest=b.get("attest") is True))
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+async def forget_me(req: Request):
+    """Forget the answer key: the file to the Trash, its key out of the Keychain (profile.forget)."""
+    try:
+        return JSONResponse(profile.forget())
+    except ValueError as e:
+        raise HTTPException(404, str(e))
 
 
 async def public_preview(req: Request):
@@ -2073,6 +2066,7 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/startup", startup),
         Route("/api/me", get_me),
         Route("/api/me", post_me, methods=["POST"]),
+        Route("/api/me", forget_me, methods=["DELETE"]),
         Route("/api/cases", list_cases),
         Route("/api/cases", create_case, methods=["POST"]),
         Route("/api/cases/{slug}", get_case),

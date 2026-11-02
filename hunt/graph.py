@@ -240,6 +240,27 @@ def associates(posts: list[dict], candidates: list[dict], subject: list, photo_l
     return _associates(posts, candidates, subject, photo_labels, case_key)[0]
 
 
+def conflicts(people: list[dict], seeds: list) -> list[tuple]:
+    """(seed, person) for each seed that belongs to someone around the subject (C13, A1, SS2): their name, or a
+    value, handle or link that appears in a quote a person entry cites, children's entries included. Never a seed:
+    searching them needs its own case. `people` is associates()["people"]."""
+    fold = lambda t: re.sub(r"[^a-z0-9]", "", str(t).lower())
+    out = []
+    for s in seeds:
+        v = s.value.strip()
+        forms = {fold(v.split("@")[0] if s.kind == "email" else v)} - {""}
+        handle = _handle(v) if s.kind == "url" else v.lstrip("@") if s.kind == "username" else None
+        words = {w.lower() for w in (v, handle) if w and len(w) >= 3}
+        for p in people:
+            named = s.kind in ("name", "username", "email") and p.get("name") and fold(p["name"]) in forms
+            quoted = any(re.search(rf"(?<![\w.]){re.escape(w)}(?![\w])", (c.get("quote") or "").lower())
+                         for c in p.get("cites", []) for w in words)
+            if named or quoted:
+                out.append((s, p))
+                break
+    return out
+
+
 def minor_names(posts: list[dict], candidates: list[dict], subject: list, photo_labels: list[dict] = ()) -> list[str]:
     """Every name and first name tied to a possible minor in the case, as written, longest first: what redact()
     takes, for the report, the app's responses and the bundle (compliance AP1, Q1). Server-side only: never

@@ -16,7 +16,7 @@ from dataclasses import asdict
 import httpx
 from PIL import Image
 
-from . import browser, geo, match, photo, profile
+from . import browser, geo, match, photo
 from .capture import screenshots
 from .case import Case
 from .seed import Seed, now
@@ -103,14 +103,9 @@ async def fan_out(case: Case, seeds: list[Seed], emit):
 async def geocode(case: Case, emit=None, audit: bool = True) -> dict:
     """Place every location string in the case, if the subject has a known place to compare with."""
     texts = {s.value for s in case.seeds() if s.kind in ("address", "location")}
-    lived = profile.criteria(case).get("places")  # your own places are compared offline (match._lived), never sent
-    if not texts and not lived:
+    if not texts:
         return {}
-    from .report import RECORDS  # report imports this module
-    # With only your places to compare, a record's street address is read as text (its city and state), so only
-    # the accounts' free-text locations ('ATX', 'Bay Area') go to the geocoder
-    texts |= {t for r in case.rows("select source, attrs from findings")
-              if (t := match.place_text(json.loads(r["attrs"]))) and not (lived and not texts and r["source"] in RECORDS)}
+    texts |= {t for r in case.rows("select attrs from findings") if (t := match.place_text(json.loads(r["attrs"])))}
     if emit:
         emit({"type": "log", "message": f"placing {len(texts)} locations (OpenStreetMap Nominatim, 1/s, cached)"})
     places = await geo.locate(sorted(texts))
@@ -127,8 +122,6 @@ async def snapshot(case: Case) -> dict:
 
 def build(case: Case, places: dict | None = None) -> dict:
     subject = case.seeds()
-    described = profile.criteria(case)  # {} unless the case is about you: then your locked description's criteria
-    scored_on = subject + profile.seeds(described)  # scored against, never searched or written into the report
     decided = case.decisions()
     him = {u for u, d in decided.items() if u and d["decision"] == "him"}
     facts = case.details()  # subject_dob, scored against records with the dob, age and employer seeds
@@ -150,8 +143,8 @@ def build(case: Case, places: dict | None = None) -> dict:
         taken[r["seed"].lower()] = (t[0] + r["found"], t[1] + r["checked"])
 
     def rate(c, extra=None):
-        p, verdict, reasons, tags = match.score(Seed(**c["seed"]), c["url"], c["attrs"], scored_on, taken, places, extra, him,
-                                                facts, described)
+        p, verdict, reasons, tags = match.score(Seed(**c["seed"]), c["url"], c["attrs"], subject, taken, places, extra, him,
+                                                facts)
         c.update(verdict=verdict, probability=round(p, 3), reasons=reasons, tags=tags)
 
     candidates = []
@@ -167,8 +160,6 @@ def build(case: Case, places: dict | None = None) -> dict:
                         + [s for f in fs for s in shots[f["id"]]],
         })
 
-    if described:  # how common each of the description's words is among these accounts (match.commonness)
-        described = {**described, "common": match.commonness(described, [c["attrs"] for c in candidates])}
     for c in candidates:
         rate(c)
 

@@ -13,6 +13,7 @@ from .seed import _handle
 
 LIKELY = 0.55  # cli.LIKELY: only profiles at "likely" or better are mined…
 RARE = 0.05  # …and those found under a username this rare (match.username_u), whose leads rank after
+SHE_IS = re.compile(r"\b(?:he|she|they)['’](?:s|re)\s+(\d{1,2})\b(?!\s*(?:minutes?|hours?|km|miles?|kg|lbs?|%))", re.I)
 HANDLE_NAME = re.compile(r"[A-Za-z0-9_.-]{4,30}")  # a display name that is a handle: one token, no space…
 HANDLE_SIGN = re.compile(r"[\d_.-]|[a-z][A-Z]")  # …with a digit, a separator or a capital inside ("SmittyTech")
 SOCIAL = {  # host -> platform, for profile links whose path carries the handle
@@ -86,8 +87,8 @@ def suggestions(report: dict, min_p: float = LIKELY) -> list[dict]:
             found.append({"kind": "username", "value": own, "how": f"account is named '{own}'", "rank": 0})
         bio = " ".join(str(c["attrs"].get(k) or "") for k in TEXT_KEYS)
         for f in found:
-            if f["rank"] == 3 or f["kind"] == "email" and _about_someone(bio, f["value"]):
-                continue  # an @mention or a relative's email is someone else: never a lead to search (legal.md C13)
+            if f["rank"] == 3 or _about_someone(bio, f["value"]):
+                continue  # an @mention, or anything in a sentence about a relative or a child, is someone else's (C13, SS1)
             key = match.norm_url(f["value"]) if f["kind"] == "url" else f["value"].lower()
             rank = f["rank"] + (0 if sure else 10)  # an unconfirmed account's leads come after every likely one's
             if key not in have and (key not in best or rank < best[key][0]):
@@ -126,7 +127,7 @@ def facts(attrs: dict, own_url: str = "") -> list[dict]:
             if not e.lower().startswith(("noreply", "no-reply")):
                 add("email", e.lower(), f"lists the email {e.lower()}", 0)
         linky = k in match.LINK_KEYS or k.endswith("_url") or "link" in k
-        for u in match.URLISH.findall(EMAIL.sub(" ", text)):
+        for u in (u.rstrip(".,;:!?)") for u in match.URLISH.findall(EMAIL.sub(" ", text))):  # "…/kv_runs." ends a sentence
             host = _host(u)
             if host == own or re.search(r"\.(?:png|jpe?g|gif|webp|svg)$", u, re.I):
                 continue
@@ -143,9 +144,12 @@ def facts(attrs: dict, own_url: str = "") -> list[dict]:
 
 
 def _about_someone(text: str, value: str) -> bool:
-    """Whether `value` sits in a sentence that names a relationship ("my wife's email is …", "Married to …")."""
-    from .graph import BIO, POSSESSIVE
-    return any(value.lower() in sentence.lower() and (POSSESSIVE.search(sentence) or BIO.search(sentence))
+    """Whether `value` sits in a sentence about someone else: a relationship ("my wife's Instagram is …",
+    "Married to …", "Dad to Leo") or a child ("he's 9", "age 7", "8 años")."""
+    from .graph import AGE_MINOR, BIO, PARENT_TO, POSSESSIVE
+    child = lambda s: any(int(g) < 18 for m in [*AGE_MINOR.finditer(s), *SHE_IS.finditer(s)] for g in m.groups() if g)
+    return any(value.lower() in sentence.lower() and (POSSESSIVE.search(sentence) or BIO.search(sentence)
+                                                      or PARENT_TO.search(sentence) or child(sentence))
                for sentence in re.split(r"(?<=[.!?])\s+", text))
 
 
