@@ -735,6 +735,10 @@ async def get_person(req: Request):
     counts = Counter(t for x in people for t in _agreeing(x))
     namesakes = [x for x in snap["candidates"] if not search.in_person(x) and x["probability"] < NAMESAKE
                  and "name" in _agreeing(x)]
+    # Between namesakes and the person: usually a handle-only match, capped at "roughly even chance" until a
+    # second identifier agrees. Listed so each can be confirmed or ruled out by hand.
+    possible = [x for x in snap["candidates"] if not search.in_person(x) and NAMESAKE <= x["probability"] < search.LIKELY
+                and x.get("decision") != "not him" and not report._record(x)]
     return JSONResponse({
         "accounts": [{"url": x["url"], "site": x["site"], "handle": _handle(x), "verdict": x["verdict"],
                       "probability": x["probability"], "reasons": [_plain(r) for r in x["reasons"]],
@@ -744,6 +748,12 @@ async def get_person(req: Request):
         "summary": [{"tag": t, "text": f"{n} of {len(people)} accounts {SUMMARY.get(t, t)}", "count": n}
                     for t, n in counts.most_common()],
         "weakest_verdict": min((x["verdict"] for x in people), key=VERDICTS.index, default=None),
+        "possible": [{"url": x["url"], "site": x["site"], "handle": _handle(x), "verdict": x["verdict"],
+                      "probability": x["probability"], "decision": x["decision"], "avatar": _avatar(c, x),
+                      "why": "only the username agrees" if _agreeing(x) <= {"username"}
+                      else _plain(next((r for r in x["reasons"] if r[:1] == "+"), x["reasons"][0] if x["reasons"] else "")),
+                      "reasons": [_plain(r) for r in x["reasons"]]}
+                     for x in sorted(possible, key=lambda x: (_handle(x).lower(), -x["probability"]))],
         "namesakes": [{"url": x["url"], "site": x["site"], "label": x["attrs"].get("fullname") or x["attrs"].get("name")
                        or _handle(x), "why": [_plain(r) for r in x["reasons"]], "decision": x["decision"]}
                       for x in namesakes],

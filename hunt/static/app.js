@@ -516,6 +516,7 @@ screens.identity = async slug => {
       <div id="vendor-line"></div>
     </div>` : ''}
     ${faceRows(p)}
+    ${possibleBlock(p, me)}
     ${recordsPanel(p)}
     ${p.namesakes.length ? html`<div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:600;font-size:19px">Others with the same name</span><span class="muted" style="font-size:14.5px">We’ll mention these in the report</span></div>
@@ -540,6 +541,29 @@ screens.identity = async slug => {
   }).catch(() => {});
   api(`/api/cases/${encodeURIComponent(slug)}/seen-before`).then(r => { if ($('#seen-here')) $("#seen-here").innerHTML = fmt(seenBox(r, slug)); }).catch(() => {});
   if (document.querySelector('[data-links]')) api(`/api/cases/${encodeURIComponent(slug)}/records/links`).then(recordLinks).catch(() => {});
+};
+
+/* Possibly theirs: 0.2 ≤ p < 0.55, usually a handle-only match capped at "roughly even" until a second identifier
+   agrees. Grouped by the handle they share; each confirmed or ruled out by hand. */
+const possibleBlock = (p, me) => {
+  const xs = p.possible || [];
+  if (!xs.length) return '';
+  const byHandle = list => Object.entries(list.reduce((g, x) => ((g[x.handle || handleOf(x.url)] ||= []).push(x), g), {}));
+  const total = Object.fromEntries(byHandle(xs).map(([h, l]) => [h, l.length]));
+  const row = x => html`<div class="row" style="padding:10px 12px"><span class="dot" style="background:${siteColor(x.site)}"></span>
+    <div style="flex:1;min-width:0"><div><b style="font-weight:500">${x.site}</b> <span class="muted">${pct(x.probability)} ${capped(x.verdict)}</span></div>
+      <div class="muted" style="font-size:13.5px">${x.why}${x.why === 'only the username agrees' ? `: confirm it’s ${me ? 'yours' : 'theirs'}` : ''}</div></div>
+    <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="him">${x.decision === 'him' ? '✓ ' : ''}${me ? 'Mine' : 'Theirs'}</button>
+    <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="not him">${me ? 'Not me' : 'Not them'}</button></div>`;
+  const groups = list => byHandle(list).map(([h, l]) => html`<div style="display:flex;flex-direction:column;gap:6px">
+    <div class="muted" style="font-size:14px;padding:2px">${h} · ${total[h]} account${total[h] > 1 ? 's' : ''} with this username</div>${l.map(row)}</div>`);
+  return html`<div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px"><span style="font-weight:600;font-size:19px">${me ? 'Possibly yours' : 'Possibly theirs'}</span>
+      <span class="muted" style="font-size:14.5px">${me ? 'Only your username agrees so far: say which are yours' : 'Usually only the username agrees: confirm or rule out each'}</span></div>
+    ${groups(xs.slice(0, 10))}
+    ${xs.length > 10 ? html`<details id="pos-more" ${keepOpen.has('pos-more') ? 'open' : ''}><summary class="muted" style="cursor:pointer;padding:6px 2px">Show all ${xs.length}</summary>
+      <div style="display:flex;flex-direction:column;gap:10px;padding-top:6px">${groups(xs.slice(10))}</div></details>` : ''}
+  </div>`;
 };
 
 const namesakeRow = ns => html`<div class="row"><span class="tile-ic" style="background:var(--raise);color:var(--mu)">${(ns.label || '?').slice(0, 2).toUpperCase()}</span>
