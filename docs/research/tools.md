@@ -104,7 +104,7 @@ _Checked live on 2026-10-29 with the public organisation account `nasa` only, lo
 | **OpenPowerlifting** | Public-domain bulk file (170 MB zip, 829 MB CSV, weekly) | Every powerlifting meet it can find, worldwide: 4.05M entries at 64.6K meets. **Wired in** (`activity`) as a local table loaded once; see [Activity records](#activity-records) |
 | **Court and hearing tables** (Socrata) | Keyless | NYC Housing Court, suits against NYC, OATH trials and DOB/ECB summonses, NYS tax warrants, Ohio Court of Claims, Chicago administrative hearings, Texas TCEQ judgments. **Wired in** (`courts`). Every other court portal is opened by hand: see [Court records](#court-records) |
 | **Florida voter roll** | The Division of Elections' monthly extract, free to anyone who asks (a public record; Florida puts no use condition on it) | Name → every registered voter of that name: residence address, birth date, registration date, status, household. **Wired in** (`voter`) as a local table the investigator loads from the files; Florida only, see [Voter registration](#voter-registration) |
-| OpenCorporates | API key required; free keys only for public-benefit "Permitted Users" | Commercial use needs a paid key: rejected |
+| OpenCorporates | API key required; free keys only for public-benefit "Permitted Users" | **Wired in, optional** (`opencorporates`): off until the investigator sets her own paid key in `HUNT_OPENCORPORATES_TOKEN`, like Apify; officers in every state, one request per name; data ODbL (credit OpenCorporates) |
 | FAA airmen registry | Monthly ZIP of CSVs (registry.faa.gov) | Server answers scripted requests with 503; not automated (see below) |
 | NSOPW / sex-offender registries | **No API; terms forbid automated search** | Link out only |
 | Property/assessor | County by county, no free national API | **Wired in** for FL (statewide), CT, NY, NYC, Cook, Harris, Philadelphia and seven more: see [Property](#property) |
@@ -146,7 +146,6 @@ _Checked live on 2026-10-29, logged out, with public organisations' handles, `ex
 | PyPI | No user API; user pages are behind a client challenge |
 | FINRA BrokerCheck | Terms limit use to investor-protection, compliance or regulatory purposes, and forbid bulk automated collection |
 | OFAC SDN list | Free and lawful, but a bulk list with fuzzy name matching, not a search API. Worth a separate sanctions-screen step |
-| OpenCorporates | Every API call needs a key, and free keys go only to public-benefit "Permitted Users"; commercial use is paid |
 | FMCSA QCMobile API | Needs a Login.gov web key. The keyless census on data.transportation.gov already gives the identity fields and officers; QCMobile would add only inspections and crashes |
 | California DCA / CSLB | No API. DCA's monthly licensee files sit on Box, whose `robots.txt` disallows /; CSLB's free files come from a form postback with no stable URL. See [State records](#state-records-business-entities-and-licences) |
 | FAA airmen registry | A monthly ZIP of CSVs (`registry.faa.gov/database/CS<MMYYYY>.zip`). The server answered Hunt's scripted HEAD with a 503, so Hunt doesn't fetch it; getting around that would be bot-check circumvention. Size not measured. **Decision for Aaron:** an investigator can download it by hand and Hunt could import the file |
@@ -523,7 +522,7 @@ The 111 Maigret unknowns after the change: 72 "Request failed" inside Maigret's 
 
 ## Free keys
 
-Every key is optional except CourtListener's, and all are off until the investigator sets the env var. Each is free. `health()` carries the same facts per source (`key_status`, `key_url`, `key_free`), so the setup screen can show them live.
+Every key is optional except CourtListener's and OpenCorporates' (each source runs only with one), and all are off until the investigator sets the env var. Each is free. `health()` carries the same facts per source (`key_status`, `key_url`, `key_free`), so the setup screen can show them live.
 
 | Source(s) | What a free key unlocks | Get it | Env var | Free limit |
 |---|---|---|---|---|
@@ -532,6 +531,7 @@ Every key is optional except CourtListener's, and all are off until the investig
 | OpenFEC (`fec`) | Its own quota instead of the shared `DEMO_KEY` | [api.data.gov sign-up](https://api.data.gov/signup/), approved instantly | `HUNT_FEC_KEY` | 1,000 requests/hr (DEMO_KEY: about 10) |
 | CourtListener (`courtlistener`) | The source runs at all; without a token it is skipped | Free account, then [your token](https://www.courtlistener.com/profile/api-token/) | `HUNT_COURTLISTENER_TOKEN` | 5/min, 50/hr, 125/day (API docs, 2026-10-29); the profile page shows your actual usage |
 | State portals (`licences`, `businesses`, `fmcsa`) | A token's own quota instead of a shared per-IP pool | Free account on any Data & Insights portal, then Developer Settings → Create New App Token (e.g. [data.texas.gov](https://data.texas.gov/profile/edit/developer_settings)) | `HUNT_SOCRATA_TOKEN` | About 1,000 requests/hr per token. One token was accepted by all 11 portals Hunt searches (checked 2026-10-29); if one ever rejects it, the note says so |
+| OpenCorporates (`opencorporates`) | The source runs at all: officers across every US state's registry, including those Hunt can't read | A [paid API account](https://opencorporates.com/api_accounts/new) for casework (free keys are for public-benefit users only) | `HUNT_OPENCORPORATES_TOKEN` | Per the plan; a 403 is its rate limit and stops the run |
 | SEC EDGAR (`edgar`) | Nothing to unlock; SEC asks callers to say who they are | No sign-up: set it to your firm and a contact email | `HUNT_SEC_UA` | 10 requests/s either way |
 
 Not listed:
