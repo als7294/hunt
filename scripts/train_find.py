@@ -66,9 +66,10 @@ def main():
         if not seeds:
             break
     yours = [c for c in report["candidates"] if (grade[c["url"]] or ("",))[0] in ("certain", "probable")]
-    missed = [c for c in yours if not search.in_person(c)]
-    print(f"\nfound {len(yours)} of your accounts; rated {len(yours) - len(missed)} of them likely or better; "
-          f"missed {len(missed)}; case {case.name}")
+    possible = [c for c in yours if not search.in_person(c) and c["probability"] >= 0.2]  # on Is it them?, to confirm
+    missed = [c for c in yours if not search.in_person(c) and c["probability"] < 0.2]
+    print(f"\nfound {len(yours)} of your accounts: {len(yours) - len(possible) - len(missed)} rated likely or better, "
+          f"{len(possible)} shown as possibly theirs, {len(missed)} rated unlikely (missed); case {case.name}")
     for c in missed[:40]:
         print(f"  missed {c['probability']:.2f} {c['site'][:16]:16} {c['url'][:60]:60} {' | '.join(c['reasons'][:2])}")
 

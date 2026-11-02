@@ -14,6 +14,7 @@ from .seed import _handle
 LIKELY = 0.55  # cli.LIKELY: only profiles at "likely" or better are mined…
 RARE = 0.05  # …and those found under a username this rare (match.username_u), whose leads rank after
 SHE_IS = re.compile(r"\b(?:he|she|they)['’](?:s|re)\s+(\d{1,2})\b(?!\s*(?:minutes?|hours?|km|miles?|kg|lbs?|%))", re.I)
+ARCHIVE = re.compile(r"(?:^|\.)(?:archive\.org|archive\.ph|archive\.today|archive\.is|cachedview\.nl)$")
 HANDLE_NAME = re.compile(r"[A-Za-z0-9_.-]{4,30}")  # a display name that is a handle: one token, no space…
 HANDLE_SIGN = re.compile(r"[\d_.-]|[a-z][A-Z]")  # …with a digit, a separator or a capital inside ("SmittyTech")
 SOCIAL = {  # host -> platform, for profile links whose path carries the handle
@@ -129,8 +130,8 @@ def facts(attrs: dict, own_url: str = "") -> list[dict]:
         linky = k in match.LINK_KEYS or k.endswith("_url") or "link" in k
         for u in (u.rstrip(".,;:!?)") for u in match.URLISH.findall(EMAIL.sub(" ", text))):  # "…/kv_runs." ends a sentence
             host = _host(u)
-            if host == own or re.search(r"\.(?:png|jpe?g|gif|webp|svg)$", u, re.I):
-                continue
+            if host == own or ARCHIVE.search(host) or re.search(r"\.(?:png|jpe?g|gif|webp|svg)$", u, re.I):
+                continue  # an archived copy is the same account again, not a lead
             site, handle = _profile(u)
             if site and handle:
                 add("username", handle, f"links to the {site} account {u}", 1, platform=site, url=u)
