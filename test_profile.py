@@ -286,4 +286,9 @@ assert lc.derived() == {"coolcoder": "https://github.com/jsmith"}, "searching a 
 lc.add_seeds([Seed("username", "coolcoder")])  # any other caller re-adding it keeps the source too
 assert lc.derived() == {"coolcoder": "https://github.com/jsmith"}
 
+# A registration hit on a site's login page offers no "login" handle (seed.GENERIC)
+reg = {"url": "https://medal.tv/login", "site": "Medal", "probability": 0.99, "verdict": "almost certain",
+       "seed": {"kind": "email", "value": "jr@jordanreyes.example.com"}, "attrs": {}}
+assert not pivot.suggestions({"subject_seeds": [], "candidates": [reg], "methodology": []}), "no 'login' lead"
+
 print("test_profile: all checks passed")

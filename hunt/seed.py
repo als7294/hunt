@@ -17,7 +17,9 @@ NAME = re.compile(r"[^\W\d_]+(?:[ .'-]+[^\W\d_]+)+")
 PHONE = re.compile(r"\+?[\d\s().-]{7,}")
 # URL path segments that are never the handle: /in/jane, /user/jane, /@jane/about
 GENERIC = {"in", "u", "user", "users", "profile", "profiles", "people", "member", "members",
-           "channel", "c", "about", "photos", "posts", "status"}
+           "channel", "c", "about", "photos", "posts", "status",
+           # a site's own pages, as email-registration checks report them ("medal.tv/login"): never a handle
+           "login", "signin", "sign-in", "signup", "sign-up", "register", "account", "accounts", "home", "join"}
 
 
 @dataclass(frozen=True)
