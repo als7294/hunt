@@ -7,10 +7,10 @@ disallows its site API to robots, so Hunt loads its bulk file once into a local 
 table: `python -m hunt.sources.activity update` (170 MB zipped, refreshed weekly upstream),
 or update() from the app. A search never downloads anything; without the table it says so.
 
-Race-results platforms (Athlinks, RunSignup, UltraSignup, ITRA, CrossFit Games, USMS, USA
-Cycling, NYRR) have no cross-race name API or bar scripts, so search_links gives their
-search pages, prefilled, for the investigator to open by hand (docs/research/tools.md,
-"Activity records").
+Athlinks, UltraSignup, USA Powerlifting, CrossFit Games and UTR are searched by name, logged out, by
+their own sources (athlinks.py and the rest). The platforms with no cross-race name search a logged-out
+reader can use (RunSignup, ITRA, USMS, USA Cycling, NYRR) stay in search_links: their search pages,
+prefilled, for the investigator to open by hand (docs/research/tools.md, "Activity records").
 
 Each lifter is one record: `meets` (date, meet, town, division, weight class, lifts, total,
 place), `first_date`/`last_date`, `birth_year` from the age at the latest meet (the matcher's

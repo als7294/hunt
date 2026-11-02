@@ -18,6 +18,7 @@ import os
 
 from . import (activity, bluesky, businesses, courtlistener, courts, edgar, facebook, fec, fmcsa, github, gravatar,
                keybase, licences, maigret, mastodon, npi, openpgp, phone, stackexchange, user_scanner, voter, wayback, wmn)
+from . import athlinks, crossfit, ultrasignup, usapl, utr  # published results, read logged out (_results)
 from ._api import client, probe
 
 # `facebook` is not here (compliance audit DS5): batch search never requests Facebook; the app calls
@@ -28,6 +29,7 @@ SOURCES = [maigret, wmn, user_scanner, phone,
            fec, edgar, npi, courtlistener, courts,  # name → public records (courts.search_links: portals opened by hand)
            licences, businesses, fmcsa,  # name → work and driving records
            activity,  # name → published competition results (a local copy of OpenPowerlifting; activity.search_links for the rest)
+           athlinks, ultrasignup, usapl, crossfit, utr,  # name → race finishes, ultras, USAPL meets, CrossFit ranks, UTR ratings
            voter]  # name → registered voters, from a state's own extract indexed on this Mac (Florida)
 
 
