@@ -217,10 +217,11 @@ assert not any("same name" in r for c in search.build(bg)["candidates"] for r in
 rng = random.Random(7)
 cities = [f"TOWN{i}" for i in range(300)] + ["GAINESVILLE"]
 with sqlite3.connect(voter._db("FL")) as conn:
-    conn.executemany("INSERT INTO voters VALUES (?, ?, ?, '', ?, ?, ?, '', ?, ?, ?, '2000-01-01', 'active', 'ALA_20261016.txt')", (
+    dobs = [f"{rng.randint(1940, 2004)}-0{rng.randint(1, 9)}-1{rng.randint(0, 9)}" for _ in range(400_000)]
+    conn.executemany("INSERT INTO voters VALUES (?, ?, ?, '', ?, ?, ?, '', ?, ?, ?, ?, '2000-01-01', 'active', 'ALA_20261016.txt')", (
         ("Alachua", str(700000000 + i), "QUELLMAN" if i < 30000 else f"SURNAME{i % 5000}",
          "ARLO" if i < 3000 else f"FIRST{i % 400}", rng.choice("ABCDEFGHJKLMNPRST"), f"{i % 9000} MAIN ST",
-         rng.choice(cities), f"{32000 + i % 900:05d}", f"{rng.randint(1940, 2004)}-0{rng.randint(1, 9)}-1{rng.randint(0, 9)}")
+         rng.choice(cities), f"{32000 + i % 900:05d}", dobs[i], dobs[i][:4])  # birth_year, as voter's import fills it
         for i in range(400_000)))
 big = write_dbpr(TMP / "lic08el.csv", [dbpr(f"QUELLMAN, ARLO {rng.choice('ABCDEFGHJKLMNPRST')}" if i < 2000 else f"SURNAME{i}, FIRST{i}",
                                             f"{i % 9000} Main St", rng.choice(cities).title(), "32601", f"EC{i:07d}")
