@@ -77,35 +77,82 @@ assert columns == list(voter.KEEP) + ["file"] and not {"race", "party", "gender"
 raw = voter._db("FL").read_bytes()
 assert b"LPF" not in raw and b"rv@example.com" not in raw and b"VANCE" in raw
 
-# --- a name alone: every Robert… Vance, actives first, Rob excluded (first-name prefix, as the other records sources)
+# --- a name alone never runs (V5); with the case's place it is the voters who fit, actives first, identity only
 found, checked, note = asyncio.run(voter.search(Seed("name", "Robert Vance")))
-assert checked == 1 and len(found) == 3 and len({f.url for f in found}) == 3, [f.url for f in found]
-assert note == "Florida extract of 2026-10-16: 3 FL voters named Robert… Vance", note
-assert [f.attrs["status"] for f in found] == ["active", "active", "inactive"]
+assert (found, checked) == ([], 0) and note.startswith("not run: a voter lookup needs the case's place") and "V5" in note, note
+found, checked, note = asyncio.run(voter.search(Seed("name", "Robert Vance"), [Seed("location", "Florida")]))  # a state narrows nothing
+assert found == [] and note.startswith("not run:"), note
+found, checked, note = run(("name", "Robert Vance"), ("age", str(date.today().year - 1975)), ("age", str(date.today().year - 1989)))
+assert checked == 1 and len(found) == 2 and len({f.url for f in found}) == 2, [f.url for f in found]
+assert note == "Florida extract of 2026-10-16, narrowed by the case's place, date of birth or age: 2 FL voters named Robert… Vance", note
 jr = next(f for f in found if f.attrs["voter_id"] == "100000001")
-assert jr.site == "Florida voter roll" and jr.url == voter.BUILT["FL"] + "#FL-100000001"
+assert jr.site == "Florida voter roll" and jr.url == voter.BUILT["FL"] + "#FL-100000001" and jr.body is None
 assert jr.attrs == {"fullname": "Robert J Vance Jr", "dob": "1989-03-14", "address": "100 Example St, Gainesville, FL 32601",
                     "location": "Gainesville, FL", "county": "Alachua", "registered": "2008-10-06", "status": "active",
-                    "voter_id": "100000001", "household": ["Jane M Vance"], "file": "ALA_20261016.txt", "data_date": "2026-10-16"}, jr.attrs
+                    "voter_id": "100000001", "state": "FL", "file": "ALA_20261016.txt", "data_date": "2026-10-16"}, jr.attrs
+assert "household" not in jr.attrs  # read live for the page, stored only on "him" (V5, C13)
 assert "dob" in DOB_KEYS  # the matcher scores it against the subject's date of birth or age
-assert jr.body.splitlines()[0].split("\t") == list(voter.KEEP) and "1989-03-14" in jr.body and "LPF" not in jr.body
-tampa = next(f for f in found if f.attrs["county"] == "Hillsborough")
-assert tampa.attrs["address"] == "200 Sample Ave Apt 4, Tampa, FL 33602-1234" and "household" not in tampa.attrs
 assert next(f for f in found if f.attrs["county"] == "Broward").attrs["file"] == "BRO_20261016.txt"  # read out of the zip
+assert voter.household(jr.url) == ["Jane M Vance"] and voter.household(voter.BUILT["FL"] + "#FL-400000001") == []
+assert voter.household(voter.BUILT["FL"] + "#FL-999") == []
 
-# --- lookup narrows by the case's other seeds
-assert [f.attrs["county"] for f, *_ in [run(("name", "Robert Vance"), ("location", "Tampa, FL"))[0]]] == ["Hillsborough"]
+# --- each kind of seed narrows; Rob is never a Robert (first-name prefix, as the other records sources)
+assert [f.attrs["county"] for f in run(("name", "Robert Vance"), ("location", "Tampa, FL"))[0]] == ["Hillsborough"]
+tampa = run(("name", "Robert Vance"), ("location", "Tampa, FL"))[0][0]
+assert tampa.attrs["address"] == "200 Sample Ave Apt 4, Tampa, FL 33602-1234" and tampa.attrs["status"] == "inactive"
 assert [f.attrs["voter_id"] for f in run(("name", "Robert Vance"), ("address", "100 Example St, Gainesville, FL 32601"))[0]] == ["100000001"]
 assert [f.attrs["voter_id"] for f in run(("name", "Robert Vance"), ("location", "33301"))[0]] == ["400000001"]
 assert [f.attrs["voter_id"] for f in run(("name", "Robert Vance"), ("dob", "1989-03-14"))[0]] == ["100000001"]
-assert [f.attrs["voter_id"] for f in run(("name", "Robert Vance"), ("age", str(date.today().year - 1989)))[0]] == ["100000001"]
-assert len(run(("name", "Robert Vance"), ("location", "Florida"))[0]) == 3  # a state alone narrows nothing
+assert [f.attrs["voter_id"] for f in run(("name", "Rob Vance"), ("location", "Jacksonville, FL"))[0]] == ["300000001"]
+assert [f.attrs["voter_id"] for f in run(("name", "Rob Vance"), ("location", "Gainesville, FL"))[0]] == ["100000001"]  # Rob finds Robert, not the reverse
 found, _, note = run(("name", "Robert Vance"), ("location", "Orlando, FL"))
-assert found == [] and note.startswith("Florida extract of 2026-10-16: 0 FL voters named Robert… Vance") and "narrowed" in note, note
-found, _, note = run(("name", "Robert Vance"), limit=2)
-assert len(found) == 2 and "3 FL voters named Robert… Vance (2 kept)" in note, note
-assert run(("name", "Vance"))[0] == [] and "needs a first and a last name" in run(("name", "Vance"))[2]
-assert len(run(("name", "Robert Vance Jr"), ("name", "Jane Vance"))[0]) == 4  # suffix dropped; two names in one call
+assert found == [] and "0 FL voters named Robert… Vance. Address Confidentiality Program participants and exempt voters aren't in the extract; " \
+                       "no match isn't evidence about where someone lives" in note, note
+assert voter.LIMIT == 10
+found, _, note = run(("name", "Robert Vance"), ("location", "Gainesville, FL"), ("location", "Tampa, FL"), ("location", "Fort Lauderdale, FL"), limit=2)
+assert len(found) == 2 and "3 FL voters named Robert… Vance (2 kept: add a street or a date of birth)" in note, note
+assert run(("name", "Vance"), ("location", "Tampa, FL"))[0] == [] and "needs a first and a last name" in run(("name", "Vance"), ("location", "Tampa, FL"))[2]
+assert len(run(("name", "Robert Vance Jr"), ("name", "Jane Vance"), ("location", "Gainesville, FL"))[0]) == 2  # suffix dropped; two names
+
+# --- in a case: fan_out hands the source the case's narrowing seeds, never on a background case (V4); screening leaves it out
+from hunt import report, search
+from hunt.case import Case
+
+search.SOURCES = [voter]
+events = []
+insurance = Case.create("voter test", "Test: voter lookup in an insurance case", kind="insurance")
+seeds = [Seed("name", "Robert Vance"), Seed("location", "Gainesville, FL")]
+insurance.add_seeds(seeds)
+asyncio.run(search.fan_out(insurance, seeds, events.append))
+runs = insurance.rows("select * from runs where source = 'voter'")
+assert len(runs) == 1 and runs[0]["status"] == "found" and runs[0]["found"] == 1 and "narrowed by" in runs[0]["note"], runs
+held = insurance.rows("select url, attrs, sha256, evidence from findings where source = 'voter'")
+assert len(held) == 1 and held[0]["sha256"] is None and held[0]["evidence"] is None and "household" not in held[0]["attrs"]
+
+attrs = voter.confirm(insurance, held[0]["url"])  # she marks it "him": now the household and the evidence row are kept
+assert attrs["household"] == ["Jane M Vance"] and attrs["fullname"] == "Robert J Vance Jr"
+held = insurance.rows("select url, attrs, sha256, evidence from findings where source = 'voter'")[0]
+assert held["sha256"] and held["evidence"] and '"household": ["Jane M Vance"]' in held["attrs"]
+evidence = (insurance.dir / "evidence" / Path(held["evidence"]).name).read_text() if not Path(held["evidence"]).is_absolute() else Path(held["evidence"]).read_text()
+assert evidence.splitlines()[0].split("\t") == list(voter.KEEP) and "1989-03-14" in evidence and "LPF" not in evidence
+assert insurance.rows("select * from audit where action = 'voter record confirmed'")
+try:
+    voter.confirm(insurance, voter.BUILT["FL"] + "#FL-999")
+    raise AssertionError("an unknown record can't be confirmed")
+except LookupError:
+    pass
+
+background = Case.create("voter screen", "Test: no voter data in a background case", kind="background")
+background.add_seeds(seeds)
+asyncio.run(search.fan_out(background, seeds, events.append))
+runs = background.rows("select * from runs where source = 'voter'")
+assert len(runs) == 1 and runs[0]["status"] == "skipped" and "V4" in runs[0]["note"] and runs[0]["found"] == 0, runs
+assert background.rows("select 1 from findings where source = 'voter'") == []
+assert report.SCREENED["voter"] == "political activity" and report.RECORDS["voter"] == "the Florida voter extract"
+assert report._screened({"found_by": ["voter"], "attrs": {}}) is True
+line = report._summary({"found_by": ["voter"], "attrs": attrs, "site": "Florida voter roll"})
+assert line == ("Robert J Vance Jr, born 1989-03-14, 100 Example St, Gainesville, FL 32601, registered 2008-10-06, active, "
+                "Florida voter extract dated 2026-10-16"), line
 
 # --- nothing to index, or a state that isn't built
 voter.DIR = Path(tempfile.mkdtemp())

@@ -377,6 +377,7 @@ These were taken by the main session on Aaron's behalf (D1–D15 on 2026-10-30, 
   - Only tags on the subject's own posts or on posts showing the subject count (A3). Tags on an associate's other posts don't.
   - A tag is something the platform showed, not proof of kinship. The "why" says "tagged with the subject in N family-event posts", never "family".
   - The family-event test reads the subject's own captions and post types. It never infers anyone's age, health or religion from them (holiday names can reveal religion, A9, A8).
+  - **The event names are shown as the posts give them, religious holidays included** (Aaron, 2026-11-02: "stop overly censoring stuff"). They're quoted, never turned into a statement about anyone's religion, and background cases show none (A8).
 
 ### Not yet enforced
 

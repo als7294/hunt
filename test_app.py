@@ -451,6 +451,19 @@ assert r.status_code == 200, r.text
 assert r.json() == {"added": 9, "posts": 9, "pages": 2, "screenshots": 1, "skipped": [
     "Saved/Dorian Vell _ Facebook_files/icon.svg", "Saved/Dorian Vell _ Facebook_files/l9oFVWfjS2E.css"]}, r.json()
 assert c.post(url, files=saved, headers={"origin": BASE}).json()["added"] == 0  # the same pages again: nothing new
+# A saved people-search page is refused, as Hunt Capture refuses one (legal.md P4): nothing stored, the refusal audited
+ps_mhtml = (b"From: <Saved by Blink>\r\nSnapshot-Content-Location: https://www.whitepages.com/name/Dorian-Vell/Port-Alder-WA\r\n"
+            b"MIME-Version: 1.0\r\nContent-Type: multipart/related; type=\"text/html\"; boundary=\"b\"\r\n\r\n--b\r\n"
+            b"Content-Type: text/html\r\nContent-Location: https://www.whitepages.com/name/Dorian-Vell/Port-Alder-WA\r\n\r\n"
+            b"<html><body>Dorian Vell, age 41</body></html>\r\n--b--\r\n")
+ps_html = b"<!-- saved from url=(0052)https://www.fastpeoplesearch.com/name/dorian-vell -->\n<html><body>results</body></html>"
+before = len(c.get(f"/api/cases/{slug}/posts").json()["posts"])
+for name, body in (("wp.mhtml", ps_mhtml), ("fps.html", ps_html)):
+    r = c.post(url, files=[("files[]", (name, body, "text/html"))], headers={"origin": BASE})
+    assert r.status_code == 451 and "people-search" in r.json()["error"], r.text
+assert len(c.get(f"/api/cases/{slug}/posts").json()["posts"]) == before
+assert [json.loads(a["detail"])["host"] for a in Case.open(slug).rows("select detail from audit where action = 'people-search capture refused'")] \
+    == ["www.whitepages.com", "www.fastpeoplesearch.com"]
 listed = c.get(f"/api/cases/{slug}/posts").json()
 leg = next(p for p in listed["posts"] if p["url"] == "https://www.facebook.com/dorian.vell/posts/pfbid02XaLegDay7701")
 assert leg["source"] == "Facebook" and leg["origin"] == "added" and leg["posted_at"] == "2026-10-25T13:02:00+00:00"
@@ -522,7 +535,7 @@ assert ps == {("FastPeopleSearch", "https://www.fastpeoplesearch.com/name/dorian
 for kind in ("diligence", "journalism"):  # the case kinds they may be offered on, besides insurance
     qc.db.execute("insert or replace into meta values ('kind', ?)", (kind,))
     assert len(c.get(f"/api/cases/{pc}/person").json()["people_search"]) == 4, kind
-assert server._town_st("12 Sample Rd, Apt 4, Phoenix, Arizona 85001") == "Phoenix, AZ" and server._town_st("Washington, DC") == "Washington, DC"
+assert server.people_search.town("12 Sample Rd, Apt 4, Phoenix, Arizona 85001") == "Phoenix, AZ" and server.people_search.town("Washington, DC") == "Washington, DC"
 qc.db.execute("insert or replace into meta values ('kind', 'background')")
 bp = c.get(f"/api/cases/{pc}/person").json()
 assert Case.open(pc).details()["kind"] == "background" and bp["people_search"] == [] and bp["profile"]["born"] == [], bp

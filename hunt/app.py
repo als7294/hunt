@@ -21,7 +21,6 @@ import sys
 import tempfile
 import types
 import threading
-import unicodedata
 import urllib.parse
 import time
 import webbrowser
@@ -42,7 +41,7 @@ from starlette.responses import HTMLResponse, FileResponse, JSONResponse, Redire
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import geo, graph, keys, leads, match, pivot, profile, report, search, sources, vendor, vlm
+from . import graph, keys, leads, match, people_search, pivot, profile, report, search, sources, vendor, vlm
 from . import bundle, demo, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
@@ -764,7 +763,7 @@ async def get_person(req: Request):
                                      f"({', '.join('?' * len(report.RECORDS))}) order by rowid", *report.RECORDS)],
         "decision": snap["decision"],
         "profile": _profile(found, background),
-        "people_search": _people_search(c.seeds()) if c.details()["kind"] in PEOPLE_SEARCH_KINDS else [],
+        "people_search": people_search.search_links(c.seeds()) if c.details()["kind"] in people_search.KINDS else [],
     })
 
 
@@ -798,10 +797,10 @@ def _profile(found: list[dict], screening: bool) -> dict:
                     add("names", key, n.title() if n.isupper() else n, source)
         if not screening and (y := _born(a)):
             add("born", y, y, source)
-        if t := _town_st(match.place_text(a)):
+        if t := people_search.town(match.place_text(a)):
             add("places", t.lower(), t, source, when)
         for ph in _each(a.get("phone")) + _each(a.get("phones")):
-            if d := _us_phone(str(ph)):
+            if d := people_search.us_phone(str(ph)):
                 add("phones", d, f"({d[:3]}) {d[3:6]}-{d[6:]}", source)
             elif len(re.sub(r"\D", "", str(ph))) >= 7:
                 add("phones", re.sub(r"\D", "", str(ph)), str(ph).strip(), source)
@@ -816,13 +815,6 @@ def _profile(found: list[dict], screening: bool) -> dict:
     return out
 
 
-def _us_phone(text: str) -> str | None:
-    """A US number's ten digits ('+1 (520) 555-0143' → '5205550143'), else None."""
-    d = re.sub(r"\D", "", text)
-    d = d[1:] if len(d) == 11 and d[0] == "1" else d
-    return d if len(d) == 10 else None
-
-
 def _each(v) -> list:
     return v if isinstance(v, list) else [v] if v else []
 
@@ -834,53 +826,6 @@ def _born(a: dict) -> int | None:
         return int(m[0])
     age = str(next((a[k] for k in match.AGE_KEYS if a.get(k)), "")).strip()
     return date.today().year - int(age) if age.isdigit() else None
-
-
-def _town_st(text: str) -> str:
-    """'Tucson, Arizona, USA' → 'Tucson, AZ'; a street address → its town ('' when it names none)."""
-    town = geo._town(text)
-    parts = [p.strip() for p in (text if town is None else town).split(",") if p.strip() and p.strip().lower() not in geo.USA]
-    if len(parts) > 1:
-        parts[-1] = geo.CODES.get(parts[-1].lower(), parts[-1])
-    return ", ".join(parts)
-
-
-# People-search sites (docs/research/legal.md P1–P5, D24): links for her to open by hand in the Hunt Browser, never
-# requested, prefetched or previewed by Hunt, and never captured. Not on a background case: their terms forbid
-# employment and tenant screening. Not TruePeopleSearch: its terms allow personal, noncommercial use only.
-PEOPLE_SEARCH_KINDS = ("insurance", "diligence", "journalism")
-PEOPLE_SEARCH_HOSTS = ("whitepages.com", "fastpeoplesearch.com", "truepeoplesearch.com")  # never recorded (P4)
-NO_PEOPLE_SEARCH_CAPTURE = "Hunt doesn't record people-search sites (their terms bar it): write down the lead by hand"
-
-
-def _people_search(seeds) -> list[dict]:
-    """[{site, label, url}]: each name seed with the case's first place, then a reverse lookup of each phone seed,
-    on Whitepages and FastPeopleSearch (each site's own search URLs, 2026-11)."""
-    q = urllib.parse.quote
-    place = next((t for s in seeds if s.kind in ("location", "address") and (t := _town_st(s.value))), "")
-
-    def fps(part):  # fastpeoplesearch.com's own slug: words joined by "-", parts by "_"
-        part = re.sub(r"-+", "-", re.sub(r"\s+", "-", part.replace("-", "~").replace(",", " ").strip()))
-        return q(re.sub(r"[^A-Za-z0-9\-~']", "", part), safe="'").lower()
-
-    def wp(part):  # whitepages.com's: accents and punctuation dropped, words title-cased
-        plain = unicodedata.normalize("NFKD", part).encode("ascii", "ignore").decode()
-        return "-".join(w.title() if not w.isupper() else w for w in re.sub(r"[^\w\s-]", "", plain).split())
-
-    links = []
-    for s in seeds:
-        v = s.value.strip()
-        if s.kind == "name" and v:
-            label = f"{v}, {place}" if place else v
-            links += [{"site": "Whitepages", "label": label,
-                       "url": "https://www.whitepages.com/name/" + "/".join(wp(p) for p in (v, place) if p)},
-                      {"site": "FastPeopleSearch", "label": label,
-                       "url": "https://www.fastpeoplesearch.com/name/" + "_".join(fps(p) for p in (v, place) if p)}]
-        elif s.kind == "phone" and (d := _us_phone(v)):
-            label = f"phone ({d[:3]}) {d[3:6]}-{d[6:]}"
-            links += [{"site": "Whitepages", "label": label, "url": f"https://www.whitepages.com/phone/1-{d[:3]}-{d[3:6]}-{d[6:]}"},
-                      {"site": "FastPeopleSearch", "label": label, "url": f"https://www.fastpeoplesearch.com/{d[:3]}-{d[3:6]}-{d[6:]}"}]
-    return links
 
 
 def _handle(x: dict) -> str:
@@ -1785,6 +1730,10 @@ async def add_facebook(req: Request):
                 pictures.append(await _heic_to_jpeg(dest) if ext in (".heic", ".heif") else dest)
         if not pages and not pictures:
             raise HTTPException(400, "no saved Facebook pages or screenshots")
+        for page in pages:  # P4: a saved people-search page is refused, as Hunt Capture refuses one; nothing is stored
+            if host := people_search.host_of(_saved_from(page, tmp / ".origin")):
+                c.audit("people-search capture refused", {"host": host, "kind": "saved page", "why": "people-search site (legal.md P4)"})
+                raise HTTPException(451, people_search.NO_CAPTURE)
         saved_at = _saved_at(form.get("saved_at"))
         try:
             done = await asyncio.to_thread(_import_facebook, c, posts, pages, pictures, tmp, saved_at)
@@ -1794,6 +1743,12 @@ async def add_facebook(req: Request):
     finally:
         await form.close()
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _saved_from(page: Path, media_dir: Path) -> str | None:
+    """The address a saved page was saved from: an MHTML's or webarchive's own, else a "saved from url=" comment."""
+    loaded = facebook._load(page, None, media_dir)
+    return loaded["page_url"] or next(iter(re.findall(r"saved from url=\(\d+\)(\S+?)\s*-->", loaded["html"][:4096])), None)
 
 
 def _import_facebook(c: Case, posts, pages: list[Path], pictures: list[Path], tmp: Path, saved_at) -> dict:
@@ -2020,10 +1975,9 @@ async def _capture_upload(req: Request, field: str, work):
             raise HTTPException(404, "no such case")
         if why := c.blocked():
             raise HTTPException(409, why)
-        host = (urllib.parse.urlparse(str(form.get("url") or "")).hostname or "").lower()
-        if any(host == h or host.endswith("." + h) for h in PEOPLE_SEARCH_HOSTS):  # P4: refused, and the refusal logged
+        if host := people_search.host_of(form.get("url")):  # P4: refused, and the refusal logged
             c.audit("people-search capture refused", {"host": host, "kind": field, "why": "people-search site (legal.md P4)"})
-            raise HTTPException(451, NO_PEOPLE_SEARCH_CAPTURE)  # not 403: the extension re-pairs and retries on that
+            raise HTTPException(451, people_search.NO_CAPTURE)  # not 403: the extension re-pairs and retries on that
         site = extension.platform(form.get("url"))
         if not site:
             raise HTTPException(400, "url must be a page on Facebook, Instagram, TikTok, X or YouTube")

@@ -345,7 +345,7 @@ assert c.post("/api/capture/hello", content="{}", headers=HB).json()["capture"] 
     {"case": slug, "on": True, "since": None, "label": "capture test"}
 assert cap({"case": slug, "on": False}, HB, "/api/capture/state").json() == c.get("/api/browser/status").json()["capture"]
 assert c.get("/api/browser/status").json()["capture"]["on"] is False
-assert c.post("/api/capture/hello", content="{}", headers=HB).json()["off_sites"] == ["LinkedIn", "Snapchat", "Strava"]
+assert c.post("/api/capture/hello", content="{}", headers=HB).json()["off_sites"] == ["FastPeopleSearch", "LinkedIn", "Snapchat", "Strava", "TruePeopleSearch", "Whitepages"]
 assert bare.post("/api/browser/capture", content=json.dumps({"case": slug, "on": True}), headers=HB).status_code == 403
 # sign-in states: presence only; anything that isn't a state (a cookie value, say) is refused
 signin = lambda body, h=HB: c.post("/api/capture/signins", content=json.dumps(body), headers=h)
