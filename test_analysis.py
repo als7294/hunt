@@ -525,8 +525,21 @@ tied = entity.corroborate([chess, tube, kev, dev, pics, low, links], {**faces, d
 assert tied[tube["url"]][0][:2] == (entity.BITS["avatar"], "photo") and tied[tube["url"]][0][2] == "same profile photo as Chess (very likely)"
 assert kev["url"] not in tied and low["url"] not in tied, tied  # "Kevin Vell" cut out; below the floor
 assert tied[links["url"]][0][1] == "link"  # links to the locked account
-assert tied[pics["url"]] == [(entity.BITS["name"] / 2, "name", "the same rare display name as Tube, which is tied to Chess (very likely)")]
+assert pics["url"] not in tied  # a display name never carries a second hop (Tube is only tied by photo)
 assert dev["url"] not in tied  # a different photo: no tie
+studio = acct("https://studio.test/vellcraft", 0.9, chess["reasons"], ["name", "username"], "Velvet Forge")
+assert entity.corroborate([studio, pics], {}, subj)[pics["url"]] == [(entity.BITS["name"], "name", "the same rare display name as Studio (very likely)")]
+# not ties: an ID that looks like a phone number, initials, a fragment of a handle, two URLs of one account
+tok = lambda i: {"tiktok_id": i, "sec_uid": f"MS4wLj{i}", "avatar": f"https://cdn.test/{i}~tplv.jpeg?x=5550104477"}
+assert dev["url"] not in entity.corroborate([{**chess, "attrs": {**chess["attrs"], **tok("6812345550104477901")}},
+                                             {**dev, "attrs": tok("7205550104477123")}], {}, subj)  # IDs share a 10-digit run
+assert not match.phones(tok("6812345550104477901")) and match.phones({"bio": "call (202) 555-0143"}) == {"2025550143"}
+phone = {"phone": "+1 (555) 010-4477"}
+assert entity.corroborate([{**chess, "attrs": phone}, {**dev, "attrs": phone}], {}, subj)[dev["url"]][0][1] == "phone"
+for shown in (("DVC", "D V C"), ("Vellcraft Studio", "Vellcraft Studio"), ("VELLCRAFT", "Vell Craft")):
+    assert not entity.corroborate([{**studio, "attrs": {"fullname": shown[0]}}, {**pics, "attrs": {"fullname": shown[1]}}], {}, subj)
+again = acct("https://chess.test/vellcraft?lang=en", 0.5, ["+3.2 username"], ["username"], links=[chess["url"]])
+assert again["url"] not in entity.corroborate([chess, again], {}, subj)
 # a seed taken from the receiving account never lets the giver vouch for it
 chess2 = {**chess, "reasons": chess["reasons"] + ["+4.0 username 'velvetforge' is one the subject uses"]}
 assert tube["url"] not in entity.corroborate([chess2, tube], {chess["url"]: X, tube["url"]: X}, subj, {"velvetforge": tube["url"]})

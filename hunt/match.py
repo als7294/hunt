@@ -24,6 +24,7 @@ ICD203 = [(0.05, "almost no chance"), (0.20, "very unlikely"), (0.45, "unlikely"
           (0.55, "roughly even chance"), (0.80, "likely"), (0.95, "very likely"), (1.01, "almost certain")]
 LINK_KEYS = ("website", "links", "links_found", "url", "homepage", "blog")
 PHONEISH = re.compile(r"\+?\d[\d\s().-]{8,16}\d")
+PHONE_KEYS = re.compile(r"phone|contact|\btel|mobile|cell|whatsapp", re.I)
 URLISH = re.compile(r"(?:https?://)?(?:[\w-]+\.)+[a-z]{2,}(?:/[^\s'\",\]]*)?", re.I)
 NN = NickNamer()
 
@@ -200,7 +201,7 @@ def score(seed, url: str, attrs: dict, subject: list,
         elif e in flat:
             add("email", bits(0.99, 0.0001), f"profile lists {e}")
 
-    listed = {re.sub(r"\D", "", n)[-10:] for n in PHONEISH.findall(flat)}
+    listed = phones(attrs)
     if said := next((ph for ph in of("phone") if len(re.sub(r"\D", "", ph)) >= 10 and re.sub(r"\D", "", ph)[-10:] in listed), None):
         add("phone", bits(0.99, 0.0001), f"profile lists the phone number {said}")
 
@@ -262,6 +263,17 @@ STATED_AGE = re.compile(r"\b(\d{2})\s?(?:y/?o\b|yrs?\.? old|years old)|\bage\s?(
 DOB_KEYS = ("dob", "date_of_birth", "birth_date", "birthdate", "birthday", "born", "birth_year", "year_of_birth")
 AGE_KEYS = ("age",)
 EMPLOYER_KEYS = ("employer", "company", "organization", "organisation", "work")
+
+
+def phones(attrs: dict) -> set[str]:
+    """The phone numbers a profile shows (last 10 digits): any number under a phone-like key, or a valid number
+    written in its bio. Never an ID, count, URL or image key, whose long digit runs look like phone numbers."""
+    shown = " ".join(str(v) for k, v in attrs.items() if PHONE_KEYS.search(str(k)) and not re.search(r"_?id$|url|image", str(k)))
+    out = {d[-10:] for n in PHONEISH.findall(shown) if len(d := re.sub(r"\D", "", n)) >= 10}
+    import phonenumbers
+    bio = " ".join(str(attrs.get(k) or "") for k in BIO_KEYS)
+    return out | {str(m.number.national_number)[-10:] for m in phonenumbers.PhoneNumberMatcher(bio, "US")
+                  if len(str(m.number.national_number)) >= 10}
 
 
 def _facts(attrs: dict, dobs: list[str], ages: list[int], employers: list[str]) -> list[tuple[str, float, str]]:

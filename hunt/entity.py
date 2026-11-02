@@ -4,9 +4,11 @@ one record, but explainably.
 Accounts that share an independent identifier have one owner:
   - the same profile photo (photo.dhash of the stored avatars);
   - one links to or names the other, the same email or Gravatar, or the same personal website (graph.build);
-  - the same phone number;
-  - the same distinctive display name: rare across the case, never the account's own handle echoed, never the
-    subject's own name or handle (that is already counted, and every namesake shows it).
+  - the same phone number, from a phone field or written in the bio (match.phones: never an ID or a URL's digits);
+  - the same distinctive display name: six letters or more, rare across the case, never part of a handle (the
+    account's own, or the subject's, or its letters: "ALS" for als7294 is just the handle), never the subject's own name (already
+    counted, and every namesake shows it).
+Two URLs of one account (tiktok.com/@x and tiktok.com/@x?lang=en) are a duplicate, not a tie.
 An account tied this way to one already locked (likely or better, or confirmed by the investigator) gets that as
 a named reason, "same profile photo as Chess.com (very likely)", weighed by how independent the tie is.
 
@@ -16,7 +18,8 @@ Never circular:
     (case.derived());
   - an account showing a real name that conflicts with the subject's ("Kevin Smith" against "Aaron Smith") is
     cut out of every cluster: it neither gets nor passes anything;
-  - at most two hops, the second at half weight, so a chain can't run on.
+  - at most two hops, the second at half weight and only over a strong tie (never a display name), so a chain
+    can't run on.
 """
 
 import re
@@ -35,7 +38,8 @@ WHAT = {"avatar": "same profile photo as", "link": "linked with", "website": "th
         "email": "the same email as", "gravatar": "the same Gravatar as", "phone": "the same phone number as",
         "name": "the same rare display name as"}
 FLOOR = 0.2  # accounts below this (namesakes) neither get nor pass anything: keeps build() quick on a big case
-RARE = 3  # a display name on at most this many accounts in the case is distinctive
+RARE = 3  # a display name on at most this many accounts in the case is distinctive...
+LONG = 6  # ...and at least this long (letters and digits): initials and fragments match strangers
 
 
 def corroborate(candidates: list[dict], faces: dict[str, str], subject: list, derived: dict[str, str] | None = None,
@@ -59,9 +63,9 @@ def corroborate(candidates: list[dict], faces: dict[str, str], subject: list, de
         for b, kind in edges.get(a, []):
             if b not in anchors and _independent(by_url[a], b, derived):
                 near.setdefault(b, []).append((a, kind, None))
-    for b in list(near):  # a second hop, at half weight, only from a first-hop account
+    for b in list(near):  # a second hop, at half weight, only from a first-hop account, only over a strong tie
         for c, kind in edges.get(b, []):
-            if c not in anchors and c not in near and c != b and _independent(by_url[b], c, derived):
+            if kind != "name" and c not in anchors and c not in near and c != b and _independent(by_url[b], c, derived):
                 a, first, _ = max(near[b], key=lambda t: BITS[t[1]])
                 near.setdefault(c, []).append((a, kind, b))
     out = {}
@@ -85,15 +89,20 @@ def _edges(pool: list[dict], everyone: list[dict], faces: dict[str, str], subjec
     same = {frozenset((a, b)): None for a in norm for b in norm if a < b and a in dh and b in dh
             and photo.same_image(dh[a], dh[b])}
     out = {}
-    add = lambda a, b, kind: (out.setdefault(a, []).append((b, kind)), out.setdefault(b, []).append((a, kind)))
+    nodes = {n["id"]: n for n in graph.build(pool, {})["nodes"]}
+    one = lambda a, b: nodes[a]["platform"] == nodes[b]["platform"] and nodes[a]["handle"].lower() == nodes[b]["handle"].lower()
+
+    def add(a, b, kind):
+        if not one(a, b):  # two URLs of one account are a duplicate, not a tie
+            out.setdefault(a, []).append((b, kind))
+            out.setdefault(b, []).append((a, kind))
     for e in graph.build(pool, same)["edges"]:
         if e["strong"]:
             add(e["a"], e["b"], e["kind"])
     phones = {}
     for u, c in norm.items():
-        for n in match.PHONEISH.findall(str(c["attrs"]).lower()):
-            if len(digits := re.sub(r"\D", "", n)) >= 10:
-                phones.setdefault(digits[-10:], set()).add(u)
+        for n in match.phones(c["attrs"]):
+            phones.setdefault(n, set()).add(u)
     for us in phones.values():
         for a in us:
             for b in us:
@@ -102,11 +111,13 @@ def _edges(pool: list[dict], everyone: list[dict], faces: dict[str, str], subjec
     # A distinctive display name: rare across the whole case, not the account's own handle, not the subject's
     # own name or handle (those already count, and namesakes share them)
     theirs = {match._alnum(s.value) for s in subject if s.kind in ("name", "username")}
+    handles = theirs | {match._alnum(n["handle"]) for n in nodes.values()}
     shown = {match.norm_url(c["url"]): _display(c) for c in everyone}
     count = Counter(n for n in shown.values() if n)
     named = {}
     for u in norm:
-        if (n := shown.get(u)) and count[n] <= RARE and n not in theirs:
+        if (n := shown.get(u)) and len(n) >= LONG and count[n] <= RARE and n not in theirs \
+                and not any(n in h or h in n or n == re.sub(r"\d", "", h) for h in handles if h):
             named.setdefault(n, []).append(u)
     for us in named.values():
         for a in us:
