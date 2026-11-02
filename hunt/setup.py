@@ -32,7 +32,7 @@ from pathlib import Path
 
 import httpx
 
-from . import browser, inbox, vlm, watch
+from . import browser, inbox, profile, vlm, watch
 from .case import HOME, all_cases
 
 REPO = "git+https://github.com/als7294/hunt"
@@ -101,6 +101,11 @@ def doctor() -> list[dict]:
     row("home", "Hunt folder", writable, f"{HOME}: {len(all_cases())} cases" if HOME.exists() else f"{HOME} (made on first use)",
         "Make the folder writable, or set HUNT_HOME to a folder you can write to")
     row("launcher", "Hunt in Applications", LAUNCHER.exists(), str(LAUNCHER), "hunt setup")
+    profile._cache = None  # a fresh look at the file and the Keychain, not what this process unlocked earlier
+    if (me := profile.status())["exists"]:  # About you: it must open here; nothing it says is ever shown
+        row("me", "About you (the training answer key)", me.get("fingerprint"),
+            f"opens; fingerprint {me['fingerprint']}" if me.get("fingerprint") else me["error"],
+            "Write it again on About you (hunt me): it replaces the one that won't open")
     return rows
 
 

@@ -147,7 +147,7 @@ Every hit is scored against everything the case knows, Fellegi–Sunter style. E
 
 ## Status
 
-**0.1.0, the first release.** [CHANGELOG.md](CHANGELOG.md) lists what it does and what isn't built yet. Coming next: the reference-photo screen for the face check, and **Locate a photo** (photo geolocation, built and benchmarked, on hold). See the [roadmap](docs/roadmap.md).
+**0.1.0, the first release.** [CHANGELOG.md](CHANGELOG.md) lists what it does and what isn't built yet. Coming next: **Locate a photo** (photo geolocation, built and benchmarked, on hold). See the [roadmap](docs/roadmap.md).
 
 ## Docs
 
@@ -173,6 +173,8 @@ Every hit is scored against everything the case knows, Fellegi–Sunter style. E
 ```bash
 for t in test_*.py; do uv run python "$t"; done
 ```
+
+**Training on yourself:** `scripts/train_find.py` searches a developer from a few details and grades what it finds against an answer key locked on their Mac (`hunt me`). See the [user guide](docs/user-guide.md#11-for-developers-training-hunt-on-yourself).
 
 ## Credits
 

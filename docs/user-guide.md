@@ -122,6 +122,7 @@ Hunt then:
 - lists the court websites that don't allow automated searches, as links for you to search by hand
 - notes every source it asked, including the ones that found nothing (your methodology section needs those)
 - screenshots the likely matches as evidence
+- **suggests more to search:** the usernames, emails and sites listed on the accounts that look like them. All are ticked to start with; untick any you don't want, then press **Search the ticked**. Nothing is searched until you press it. Leads from an account found only under a rare username come last, marked "not yet confirmed".
 
 ### Is it them?
 
@@ -246,7 +247,7 @@ Hunt is built for lawful, purpose-bound investigations:
 - **It never contacts or notifies the person:** no follows, messages or email checks that could alert them.
 - **It never fetches anything from Instagram or Facebook by itself.** The one exception is an Apify run you start on your own account.
 - **TikTok videos** are fetched only from public pages TikTok lets software read, and only when the uploader allows downloads. Otherwise Hunt keeps just the cover picture.
-- **No face search.** A one-to-one check of your own reference photo against candidate profile photos is built, but it isn't in the app yet. When it is, it will be off unless you turn it on, and it runs only when you've recorded where the subject lives. A place it doesn't recognise, or no place at all, blocks it. **California is always blocked**, and so are Illinois, Texas, Washington, Colorado, the EU, the UK and Canada.
+- **No face search.** A one-to-one check of your own reference photo against candidate profile photos is in the new-case form. It's off unless you turn it on, and it runs only when you've recorded where the subject lives. A place it doesn't recognise, or no place at all, blocks it. **California is always blocked**, and so are Illinois, Texas, Washington, Colorado, the EU, the UK and Canada.
 - **Children are never named.** When a post mentions a child ("my son Leo"), Hunt shows them only as "a child", never by name, in the people it notices around the subject, in the report, and in the evidence bundle's log. Your own notes are kept as you write them, so leave children's names out of them.
 - **It never sends your cases anywhere.** If you use Apify, Apify receives the addresses of the accounts you ask it to read, and nothing else from the case.
 
@@ -259,6 +260,7 @@ The reasoning, with sources, is in [legal.md](research/legal.md). It's engineeri
 - **Where everything lives:** your Mac, in `~/Hunt`:
   - each case in its own folder, with its log and its evidence named by fingerprint
   - the Hunt Browser's profile, holding your logins
+  - the training answer key from About you, if a developer wrote one (`me.locked`, encrypted; section 11)
 - **What leaves your Mac:**
   - the requests to the sites and public records being checked, and to TikTok's and YouTube's public pages (through your proxy, if you set one)
   - place names, never people's names, sent to OpenStreetMap to compare locations
@@ -287,3 +289,32 @@ The reasoning, with sources, is in [legal.md](research/legal.md). It's engineeri
 It leaves the vision model and the browser in place, since other apps may share them, and tells you how to remove them.
 
 If you use a **proxy**, after setting or changing it run `hunt setup --launcher` and turn background watching off and on again. Both remember the proxy as it was when they were made.
+
+## 11. For developers: training Hunt on yourself
+
+To measure how well Hunt finds a real person, a developer can train it on themselves, against an answer key only they hold. **The answer key only grades the results.** Hunt searches as it would for any subject, with its normal scoring, and the key never changes how any case is scored or worded.
+
+1. **Write the answer key** once on **About you** (`hunt me`). Describe yourself in your own words, up to 8,000 characters: the names and usernames you go by, emails, phones, sites, places you've lived, schools and jobs.
+2. **Run the training**, giving it a few details as you'd type them into a case:
+
+```bash
+uv run python scripts/train_find.py "Your Name" "location: Your State" --rounds 2
+```
+
+- **How it runs:** Hunt searches those details, then follows the leads its likely accounts give, as **Search the ticked** does. It repeats that round after round (`--rounds`, 2 by default).
+- **Each round prints:**
+  - what was searched
+  - every account rated "likely" or better, ticking those that carry one of the answer key's own usernames, emails, phones or sites
+- **At the end** it lists the accounts that carry them but were rated below "likely": the ones Hunt missed.
+- **The case:** it opens a case named "train …" in `~/Hunt`. Delete it when you're done.
+
+**What's stored, and how it's locked:**
+- **Where:** one file, `~/Hunt/me.locked`, kept apart from every case. A case, a packed case, a report or an evidence bundle never carries it.
+- **What:** the description, and what Hunt read from it on this Mac. It's read by Hunt's own rules and the local model, keeping only what the description says.
+- **Encrypted** (AES-256), with a random key in the login Keychain as "Hunt profile".
+  - Only your macOS account can read the file, and Time Machine leaves it out of backups.
+  - It won't open on another Mac.
+- **A fingerprint (SHA-256) catches any change made outside Hunt.** `hunt doctor` checks that the file still opens.
+- **Shown once:** right after you lock it, About you shows what it read. After that it shows only the date, the fingerprint and how many of each kind it holds. **Add** puts more in; **Write it again** replaces it.
+- **Never searched or sent:** nothing in it is searched, geocoded or sent anywhere, and `train_find.py` prints nothing from it. A search starts only from the details you give.
+- **To remove it,** move `~/Hunt/me.locked` to the Trash and delete the "Hunt profile" key in Keychain Access.

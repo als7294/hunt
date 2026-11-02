@@ -40,6 +40,7 @@ Errors are `{"error": "message"}` with a 4xx or 5xx status.
 | POST | `/api/cases/{slug}/delete` | `{confirm: <slug>, reason?}` → `{deleted, to: "Trash"}`. Moves the whole case folder to the Trash (Finder's Put Back restores it). 409 under a legal hold or while a job runs. Audited in the case (`case deleted`, which goes to the Trash with it) and in `~/Hunt/deleted-cases.log`, as `{ts, case, created, reason, audit_rowid}` only: `case` is the first 16 hex digits of the slug's SHA-256, since the slug is made from the label, which often names the subject |
 | POST | `/api/cases/{slug}/details` | Any of `{reference, injury_date, limits, look_for, client, adjuster, file_number, assignment_date, subject_dob, recommendations, subject_residence, mhmda_basis}`; `""` clears a field → `{details}`. Audited. Dates are `YYYY-MM-DD` |
 | POST | `/api/cases/{slug}/seeds` | `{seeds: [str]}` → `{seeds}` |
+| GET | `/api/cases/{slug}/suggestions` | `{suggestions: [{value, kind: "username"\|"email"\|"url", why, source_url}]}`, at most 24, strongest first (`pivot.suggestions`): what the accounts at "likely" or better, or marked `him` (never `not him`), list or go by, then what accounts found under a rare username list (below 5% of sites, `pivot.RARE`), whose `why` ends "not yet confirmed". Leaves out what the case already has, @mentions and a relative's email. Nothing is searched or audited: the app's **Search the ticked** sends the chosen ones to `/seeds`, then starts `/search` |
 | GET | `/api/cases/{slug}/case.json` | The full `search.build()` dict (candidates, methodology, audit…) |
 
 ## Jobs and live progress
@@ -143,6 +144,19 @@ reference number; `injury_date` is the date of injury or loss.
 sources read them. Which keys exist comes from the source modules' `KEY`, `KEY_REQUIRED`, `KEY_URL` and `KEY_FREE`; a
 key read elsewhere in Hunt (not by a source) is added to `keys.EXTRA = {env var: {label, url, free}}`. Every key is
 optional except CourtListener's, and Hunt works fully without any.
+
+## About you: the training answer key (one, under `HUNT_HOME`)
+A training answer key (`hunt/profile.py`, docs/user-guide.md §11): one description of the developer, in `HUNT_HOME/me.locked`:
+line 1 is the format and the SHA-256 of what's locked; line 2 is AES-256-CBC (macOS's `openssl`, PBKDF2), keyed by a random key
+in the login Keychain (service "Hunt profile", account the file's path). Mode 0600, excluded from Time Machine. The key goes to
+`security` and `openssl` on stdin or a pipe, never in argv or the environment.
+
+| Method | Path | Body / response |
+|---|---|---|
+| GET | `/api/me` | `{exists: false}`, or `{exists: true, fingerprint, saved, counts: {<kind>: n}, read_by}`, or `{exists: true, error}` when it won't open here (its key isn't in this Mac's Keychain, or it doesn't match its SHA-256). `fingerprint` is the first 16 hex digits of the SHA-256, in fours; `counts` uses the criteria keys below, plus `birth: 1` for a date, year or age; `read_by` is `"rules"` or `"rules and <model>"`. Never the text or the criteria |
+| POST | `/api/me` | `{text, add?: bool}` → GET's fields plus `criteria`, this once: `{names, usernames, emails, phones, websites, employers, schools, titles, interests, other: [str], places: [{city, region, country, named}], birth_date: "YYYY-MM-DD"\|"", birth_year: int, age: int}` (0 or `""` when not stated). Replaces what's locked; with `add`, appends `text` to it, so the old text never comes back. Read on this Mac by `profile.rules` and, when Ollama runs, the local model, keeping only what the text says (`profile.grounded`). 400: `text` not a string, under 20 characters (3 with `add`), over 8,000 in all, or the key couldn't be kept in the Keychain. Not audited: no case is involved |
+
+`scripts/train_find.py` reads the criteria to grade a search: which accounts it found carry the description's own usernames, emails, phones or sites. They never change how a case is scored or worded, and nothing in them is searched, geocoded or sent.
 
 ## Report
 Laid out like an insurance / online-activity investigation report (`docs/research/report-format.md`).
