@@ -1,10 +1,10 @@
 // Hunt Capture's service worker (docs/capture.md).
 //
 // A passive recorder. While capture is on, it records the pages you open yourself on Facebook, Instagram, TikTok,
-// X, YouTube and Reddit (never LinkedIn, Strava or Snapchat, whose terms name extensions): a screenshot of what's
-// on screen when a view settles, and an MHTML archive of the page (chrome.pageCapture: the page and the pictures
-// your browser already loaded). Everything goes only to Hunt on this computer (127.0.0.1; the extension's CSP
-// allows nothing else). It sends no request to any platform.
+// X, YouTube and Reddit (never LinkedIn, Strava or Snapchat, whose terms name extensions, nor people-search sites):
+// a screenshot of what's on screen when a view settles, and an MHTML archive of the page (chrome.pageCapture: the
+// page and the pictures your browser already loaded). Everything goes only to Hunt on this computer (127.0.0.1; the
+// extension's CSP allows nothing else). It sends no request to any platform.
 //
 // Every request a platform receives is caused by one deliberate input of yours. The extension itself never
 // navigates, clicks, scrolls, types, searches, likes, follows or messages, with one exception you drive: in guided
@@ -20,6 +20,9 @@
 // recording that platform if it sees one (Hunt also checks each archive's text).
 
 const SITE = /^https:\/\/([a-z0-9-]+\.)*(facebook|instagram|tiktok|x|twitter|youtube|reddit)\.com\//i;  // the switch's "on" sites
+// Never recorded, whatever permissions the extension is given: their terms name extensions, or (the people-search
+// sites, legal.md P4) bar storing what they show at all. Checked before every screenshot, archive and recording.
+const NEVER = /^https?:\/\/([a-z0-9-]+\.)*(linkedin|strava|snapchat|whitepages|fastpeoplesearch|truepeoplesearch)\.com(\/|$)/i;
 const NAMES = { facebook: "Facebook", instagram: "Instagram", tiktok: "TikTok", x: "X", twitter: "X", youtube: "YouTube",
   reddit: "Reddit", linkedin: "LinkedIn" };
 const REVOKED = {  // the revocation watcher: where a platform sends an account it checked, challenged or blocked
@@ -198,6 +201,7 @@ async function archive(tab, force) {
   const now = Date.now();
   // the same page again only after you scrolled (new posts loaded) and PAGE_GAP passed; a new page, or a guided
   // step, at once
+  if (NEVER.test(tab.url || "")) return null;
   if (t.busy || (!force && !t.guided && t.url === tab.url && (!t.scrolled || now - t.page < PAGE_GAP))) return null;
   t.busy = true;
   try {
@@ -229,7 +233,7 @@ const warned = new Set();  // tabs already told about the missing screenshot per
 async function view(tabId, kind) {
   const s = await get();
   const tab = await chrome.tabs.get(tabId).catch(() => null);
-  if (!s.on || !s.case || !tab || !tab.active || !SITE.test(tab.url || "")) return null;
+  if (!s.on || !s.case || !tab || !tab.active || NEVER.test(tab.url || "") || !SITE.test(tab.url || "")) return null;
   if (s.stopped[nameOf(tab.url)] || (await session()).paused.includes(tabId)) return null;
   if (s.mode === "manual" && kind !== "manual") return null;
   try {
@@ -420,6 +424,7 @@ async function handle(msg) {
 async function record(streamId, tab) {
   const s = await get();
   if (!s.on) throw new Error("Turn capture on first.");
+  if (NEVER.test(tab.url || "")) throw new Error("Hunt Capture never records this site: its terms bar it.");
   if (!SITE.test(tab.url || "")) throw new Error("Hunt Capture records only the supported sites.");
   if (s.stopped[nameOf(tab.url)]) throw new Error(s.stopped[nameOf(tab.url)].message);
   if (!(await chrome.offscreen.hasDocument())) {
