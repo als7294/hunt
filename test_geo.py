@@ -232,6 +232,18 @@ places = asyncio.run(geo.locate(["Tampa, FL", "Florida"]))
 why = match.score(Seed("username", "glazequeen"), "https://site.test/glazequeen", bio, seeds, places=places)[2]
 assert any("bio says 'Florida' is in the same region as 'Tampa, FL'" in w for w in why), why
 
+# Where they're from only ever supports: a Tampa native now in Austin is no conflict with an Austin seed
+native = {"fullname": "Rae Okafor", "bio": "Potter. Tampa, FL native"}
+assert match.place_text(native) == "Tampa, FL" and match.place_text(native).said == "bio says they're from"
+assert isinstance(geo.bio_place("from Ohio"), geo.From) and isinstance(geo.bio_place("Native Floridian"), geo.From)
+assert not isinstance(geo.bio_place("Proud Texan"), geo.From) and not isinstance(geo.bio_place("based in Ohio"), geo.From)
+places = asyncio.run(geo.locate(["Austin, TX", "Tampa, FL"]))
+austin = [Seed("username", "glazequeen"), Seed("location", "Austin, TX")]
+why = match.score(Seed("username", "glazequeen"), "https://site.test/glazequeen", native, austin, places=places)[2]
+assert not any("place" in w or "from" in w or "region" in w for w in why), why  # no conflict, no reason at all
+why = match.score(Seed("username", "glazequeen"), "https://site.test/glazequeen", native, seeds, places=places)[2]
+assert any("bio says they're from 'Tampa, FL' is in the same area as 'Tampa, FL'" in w for w in why), why
+
 # Captions: a place counts when at least two posts state it and none other as often; one trip doesn't
 post = lambda text, place=None: {"text": text, "extra": {"place": place} if place else None}
 assert match.post_place([post("Clay day"), post("Paris! 📍 Paris"), post("Kiln day")]) == ""  # one post: maybe a trip

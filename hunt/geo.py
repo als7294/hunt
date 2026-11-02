@@ -406,7 +406,7 @@ def bio_place(text: str) -> str | None:
     Texan' as 'Texan', '#TampaBay', 'the 813'), or None. In order: a place after a marker of where they
     live ('based in', 'living in', 'now in', 📍, 🏠) or before '-based'; a state's flag emoji; a piece of the
     text that is wholly a place; a place after a marker of where they're from ('from', 'native of', 'born
-    in') or before one ('Tampa native'). A piece is a line, the text between emoji, bars or bullets, a
+    in') or before one ('Tampa native'), returned as a From. A piece is a line, the text between emoji, bars or bullets, a
     sentence, a comma part or a hashtag, and wholly a place means a US state, its nickname or demonym, a
     city shorthand ('Philly', 'ATX'), an area code ('the 813', '#813'), a region ('South Florida') or a
     'town, ST' the table knows. After a marker any US town counts ('Tampa native'), and after one of where
@@ -437,13 +437,22 @@ def bio_place(text: str) -> str | None:
             for said in [sentence, *(f"{a},{b}" for a, b in pairs), *towns, *parts, *re.findall(r"#\w+", sentence)]:
                 if p := _said(said):
                     return p
-    return after(FROM, "us") or before(FROM_AFTER, "us")  # US towns only: 'Messages from God' (Hungary)
+    p = after(FROM, "us") or before(FROM_AFTER, "us")  # US towns only: 'Messages from God' (Hungary)
+    return p and From(p)
+
+
+class From(str):
+    """A place bio_place read as where someone is from ('Tampa native', 'from Ohio', 'Native Floridian'),
+    not where they live: support when it matches, never a conflict when it doesn't."""
 
 
 def _said(text: str, known: str = "") -> str | None:
     """`text`, tidied, if it is wholly a place bio_place accepts; 'Tampa FL' comes back as 'Tampa, FL'.
     After a marker, `known` also takes a bare town name: 'us' a US one, '*' one anywhere."""
-    text = QUALIFIER.sub("", " ".join(text.strip(" .,'’-").split()))
+    text = " ".join(text.strip(" .,'’-").split())
+    if (q := QUALIFIER.match(text)) and re.search(r"native|born", q[0], re.I) and (p := _said(text[q.end():], known)):
+        return From(p)  # 'Native Floridian', 'born and raised Texan'
+    text = QUALIFIER.sub("", text)
     tag, bare = text.startswith("#"), text.lstrip("#")
     key, (head, _, last) = bare.lower(), bare.rpartition(" ")
     key = COMPACT.get(key, key) if tag else key

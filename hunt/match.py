@@ -83,7 +83,8 @@ def place_text(attrs: dict) -> str:
     parts = [str(attrs[k]).strip() for k in ("location", "city", "state", "country") if attrs.get(k)]
     if out := ", ".join(p for p in parts if " ".join(p.lower().split()) not in geo.NOT_PLACES | {""}):
         return out
-    bio = next((Said(p) for k in BIO_KEYS if (p := geo.bio_place(str(attrs.get(k) or "")))), "")
+    bio = next((Said(p, "bio says they're from" if isinstance(p, geo.From) else "bio says")
+                for k in BIO_KEYS if (p := geo.bio_place(str(attrs.get(k) or "")))), "")
     return bio or attrs.get(POSTS_PLACE) or ""
 
 
@@ -93,7 +94,8 @@ def post_place(posts: list[dict]) -> str:
     ("3 posts say"); '' otherwise. Captions never leave the machine; only that place is geocoded."""
     said = {}
     for p in posts:
-        if place := geo.bio_place(str((p.get("extra") or {}).get("place") or "")) or geo.bio_place(p.get("text") or ""):
+        place = geo.bio_place(str((p.get("extra") or {}).get("place") or "")) or geo.bio_place(p.get("text") or "")
+        if place and not isinstance(place, geo.From):  # 'Greetings from Tampa' is a trip, not a home
             q = (geo._queries(place) or [place.lower()])[0]
             same = (hit := geo._local(q)) and hit[0]["display_name"]  # '#florida', 'FL' and 'Sunshine State' are one place
             said.setdefault(same or q, []).append(place)
@@ -244,8 +246,10 @@ def score(seed, url: str, attrs: dict, subject: list,
             if tier in ("same region", "same area") and (u := geo.share(here)):  # u: the state's share of the people
                 weight = bits(0.8, u) if tier == "same region" else max(weight, bits(0.7, u))  # an area is no commoner
             dist = f"{km:,.0f} km; " if _local(here) and _local(places[k]) else ""  # meaningless for a country or state
-            add("place", weight, f"{getattr(profile_place, 'said', 'location')} '{profile_place}' {phrase} '{k}' "
-                                 f"({dist}read as {_short(here)})")
+            # Where they grew up ('Tampa native'): the same area or region supports, anything else says nothing
+            if not getattr(profile_place, "said", "").endswith("from") or tier in ("same area", "same region"):
+                add("place", weight, f"{getattr(profile_place, 'said', 'location')} '{profile_place}' {phrase} '{k}' "
+                                     f"({dist}read as {_short(here)})")
         else:
             missing = profile_place if not here else " / ".join(known_places)
             add("place", 0.0, f"couldn't place '{missing}', so location isn't counted")
