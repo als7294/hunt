@@ -497,6 +497,7 @@ screens.identity = async slug => {
     ${identityTabs(slug, 'identity')}
     <div style="text-align:center;display:flex;flex-direction:column;gap:8px"><div class="h2">Is this them?</div>
       <div class="sub">${n ? `We found ${n} account${n > 1 ? 's' : ''} that look like the same person.` : 'No account looks likely enough yet. Add more of what you know and search again.'}</div></div>
+    ${personSummary(c, p)}
     ${n ? html`<div style="width:min(880px,100%);background:linear-gradient(180deg,#1E2230,#1B1D23 40%);border-radius:24px;padding:28px;box-shadow:inset 0 0 0 1px var(--edge);display:flex;flex-direction:column;gap:20px">
       <div style="display:flex;align-items:center;gap:24px">
         <div style="width:96px;height:96px;border-radius:50%;overflow:hidden;flex:none;box-shadow:0 0 0 3px var(--raise)">${avatar ? html`<img src="${avatar}" alt="" style="width:100%;height:100%;object-fit:cover">` : html`<div class="thumb" style="height:96px;display:flex;align-items:center;justify-content:center;color:var(--mu);font-size:13px">photo</div>`}</div>
@@ -523,6 +524,7 @@ screens.identity = async slug => {
     ${faceRows(p)}
     ${possibleBlock(p)}
     ${recordsPanel(p)}
+    ${peopleSearch(slug, p)}
     ${p.namesakes.length ? html`<div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:600;font-size:19px">Others with the same name</span><span class="muted" style="font-size:14.5px">We’ll mention these in the report</span></div>
       ${p.namesakes.slice(0, 10).map(namesakeRow)}
@@ -546,6 +548,43 @@ screens.identity = async slug => {
   }).catch(() => {});
   api(`/api/cases/${encodeURIComponent(slug)}/seen-before`).then(r => { if ($('#seen-here')) $("#seen-here").innerHTML = fmt(seenBox(r, slug)); }).catch(() => {});
   if (document.querySelector('[data-links]')) api(`/api/cases/${encodeURIComponent(slug)}/records/links`).then(recordLinks).catch(() => {});
+  if ($('#pc-relatives') && c.details.kind !== 'background') api(`/api/cases/${encodeURIComponent(slug)}/people`).then(r => {
+    const xs = r.people.filter(x => !x.hidden).map(x => ({ value: x.minor ? 'a child' : x.name || `${x.labels[0]}, not named`, note: x.minor || !x.name ? '' : x.labels[0],
+      sources: x.cites.map(ct => `${SOURCE_WORD[ct.kind] || ct.kind}${/^https?:\/\//.test(ct.url || '') ? ` on ${new URL(ct.url).hostname.replace(/^www\./, '')}` : ''}`) }));
+    if (xs.length && $('#pc-relatives')) $('#pc-relatives').outerHTML = factCol('Possible relatives and associates', xs, x => factLine(x, x.note)).s;
+  }).catch(() => {});
+};
+
+/* The person as a people-search result (GET /person's profile): only what the accounts and records judged to be them
+   show, each fact with how many sources show it and, on hover, which. Relatives are filled in from People around. */
+const factLine = (f, note = '') => html`<span title="${f.sources.join('\n')}" style="display:flex;gap:6px;align-items:baseline;min-width:0">
+  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.value}</span><span class="dim" style="font-size:12px;white-space:nowrap">${note ? `${note} · ` : ''}${f.sources.length} source${f.sources.length > 1 ? 's' : ''}</span></span>`;
+const factCol = (title, xs, line = x => factLine(x)) => xs?.length ? html`<div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+  <div class="dim" style="font-size:12px;text-transform:uppercase;letter-spacing:.06em">${title}</div>${xs.slice(0, 6).map(line)}
+  ${xs.length > 6 ? html`<span class="dim" style="font-size:12.5px" title="${xs.slice(6).map(x => x.value).join('\n')}">and ${xs.length - 6} more</span>` : ''}</div>` : '';
+const monthOf = iso => { const d = asDate(iso); return iso && !isNaN(d) ? d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) : ''; };
+function personSummary(c, p) {
+  const f = p.profile || {}, names = f.names || [], born = f.born || [], year = new Date().getFullYear();
+  if (!['names', 'born', 'places', 'phones', 'emails', 'usernames'].some(k => f[k]?.length)) return '';
+  return html`<div id="person-summary" class="panel" style="width:min(880px,100%);padding:18px 20px;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;gap:6px 12px;align-items:baseline;flex-wrap:wrap">
+      <span style="font-weight:600;font-size:22px" title="${names[0]?.sources.join('\n') || 'The case’s name: no account or record judged to be them gives one'}">${names[0]?.value || c.details.label}</span>
+      ${born.length ? html`<span class="t2" title="${born[0].sources.join('\n')}">age ${year - born[0].value - 1} or ${year - born[0].value}, born ${born[0].value}</span>` : ''}
+      ${born.length > 1 ? html`<span class="tag warn" title="${born.slice(1).map(b => `${b.value}: ${b.sources.join(', ')}`).join('\n')}">another source says ${born.slice(1).map(b => b.value).join(' or ')}</span>` : ''}
+      ${names.length > 1 ? html`<span class="muted" style="font-size:14px">also ${names.slice(1, 5).map((x, i) => html`${i ? ', ' : ''}<span title="${x.sources.join('\n')}">${x.value}</span>`)}${names.length > 5 ? ` and ${names.length - 5} more` : ''}</span>` : ''}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px 24px">
+      ${factCol('Places, newest first', f.places, x => factLine(x, monthOf(x.as_of)))}${factCol('Phones', f.phones)}${factCol('Emails', f.emails)}${factCol('Usernames', f.usernames)}
+      <div id="pc-relatives"></div></div>
+    <div class="dim" style="font-size:12.5px">Only from the accounts and records judged to be them. Hover a fact for its sources.</div></div>`;
+}
+// People-search sites (GET /person's people_search; none on a background case): prefilled, for her to search by hand
+const peopleSearch = (slug, p) => {
+  const by = Object.entries((p.people_search || []).reduce((g, l) => ((g[l.label] ||= []).push(l), g), {}));
+  return by.length ? html`<div class="panel" style="width:min(880px,100%);padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+    <div><b>People-search sites</b> <span class="muted" style="font-size:13.5px">· search by hand in the Hunt Browser; Hunt never opens or reads them itself</span></div>
+    <div class="reason warn"><span class="ic">!</span><span>Check their terms: not for employment or tenant screening.</span></div>
+    ${by.map(([label, ls]) => html`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="t2" style="flex:1;min-width:180px;font-size:14px">${label}</span>
+      ${ls.map(l => html`<button class="btn ghost sm" data-act="browser-open" data-url="${l.url}" data-case="${slug}" title="Opens ${l.url} in the Hunt Browser">${l.site}</button>`)}</div>`)}</div>` : '';
 };
 
 /* Possibly theirs: 0.2 ≤ p < 0.55, usually a handle-only match capped at "roughly even" until a second identifier
@@ -679,18 +718,41 @@ const identityTabs = (slug, now) => html`<nav style="display:flex;gap:6px;align-
   html`<a class="step ${k === now ? 'now' : ''}" href="#/case/${slug}/${k}" style="padding:7px 14px">${label}</a>`)}</nav>`;
 const sureness = c => c >= 0.9 ? 'stated' : c >= 0.6 ? 'likely' : 'a hint';
 const SOURCE_WORD = { post: 'a post', bio: 'a profile bio', record: 'a public record', photo: 'your mark on a kept photo', name: 'the name' };
+// "withheld" only for a possible minor; someone a record puts at the subject's address stays unnamed (AN6)
+const personTitle = x => x.name || (x.minor ? `${x.labels[0]} (name withheld)` : x.types.includes('same address') ? x.labels[0] : `${x.labels[0]}, not named`);
+const citeLine = ct => ct.kind !== 'record' ? `“${ct.quote}”` : ct.type === 'same address' ? `at the subject’s address in ${ct.quote}`
+  : ct.type === 'co-officer' ? `an officer with the subject in ${ct.quote}` : `“${ct.quote}”`; // the address itself is never shown (A2)
 function personCard(slug, x) {
-  const title = x.name || (x.minor ? `${x.labels[0]} (name withheld)` : `${x.labels[0]}, not named`); // "withheld" only for a possible minor
   return html`<div class="panel" style="padding:16px 18px;display:flex;flex-direction:column;gap:8px;${x.hidden ? 'opacity:.55' : ''}">
-    <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><b style="font-size:16.5px">${title}</b>
+    <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><b style="font-size:16.5px">${personTitle(x)}</b>
       ${x.types.map(t => html`<span class="tag">${t}</span>`)}<span class="muted" style="font-size:13px">${sureness(x.confidence)}</span>
       ${x.minor ? html`<span class="tag warn" title="Minors are never named, searched or face-compared">possible minor</span>` : ''}</div>
     <div style="display:flex;flex-direction:column;gap:4px">${x.cites.map(ct => html`<div style="font-size:14px" class="t2">
-      <span class="muted">${SOURCE_WORD[ct.kind] || ct.kind}:</span> ${ct.kind === 'record' && ct.type === 'same address' ? 'lists them at the subject’s address' : html`“${ct.quote}”`}
+      <span class="muted">${SOURCE_WORD[ct.kind] || ct.kind}:</span> ${citeLine(ct)} <span class="dim" style="font-size:12.5px">${sureness(ct.confidence)}</span>
       ${/^https?:\/\//.test(ct.url || '') ? html` <a href="${ct.url}" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:13px">the ${ct.kind === 'post' ? 'post' : ct.kind === 'record' ? 'record' : 'profile'} ↗</a>` : ''}</div>`)}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn ghost sm" data-act="person-hide" data-id="${x.id}" data-hidden="${x.hidden ? '' : '1'}">${x.hidden ? 'Show again' : 'Not relevant'}</button>
       ${!x.minor && x.name ? html`<button class="btn ghost sm" data-act="person-case" data-name="${x.name}" title="A new case about this person, with its own purpose. Nothing else is carried over">Open as a new case…</button>` : ''}</div></div>`;
+}
+/* The family tree: a row above or below the subject only where the wording names a generation (graph.TREE); family
+   wording that names none, or two, sits apart with no generation guessed. Each name's sources show on hover. */
+function familyTree(xs) {
+  const fam = xs.filter(x => x.tree);
+  if (!fam.length) return '';
+  const node = (x, me) => html`<div title="${me ? '' : x.cites.map(ct => `${SOURCE_WORD[ct.kind] || ct.kind}: ${citeLine(ct)} (${sureness(ct.confidence)})`).join('\n')}"
+    style="padding:8px 12px;border-radius:var(--r);background:var(--panel-2);text-align:center;max-width:240px;${me ? 'box-shadow:inset 0 0 0 1.5px var(--am)' : ''}">
+    <b style="font-size:14.5px">${me ? 'The subject' : personTitle(x)}</b>${me ? '' : html`<div class="muted" style="font-size:12.5px">${x.minor ? 'possible minor · ' : x.name ? `${x.labels.join(' · ')} · ` : ''}${sureness(x.confidence)}</div>`}</div>`;
+  const row = (...kinds) => fam.filter(x => kinds.includes(x.tree)).map(x => node(x));
+  const line = html`<div style="width:1.5px;height:16px;background:var(--line-2);margin:0 auto"></div>`;
+  const rows = [row('grandparent'), row('parent'), [...row('sibling'), node(null, true), ...row('partner')], row('child'), row('grandchild')]
+    .filter(r => r.length).map(r => html`<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;align-items:center">${r}</div>`);
+  const apart = row('relative');
+  return html`<div class="panel" style="padding:16px 18px;display:flex;flex-direction:column;gap:0">
+    <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:12px"><b style="font-size:16.5px">Family tree</b>
+      <span class="muted" style="font-size:13px">a generation only where the subject’s own words name one (“my dad”, “Dad to …”); hover a name for its sources</span></div>
+    ${rows.flatMap((r, i) => i ? [line, r] : [r])}
+    ${apart.length ? html`<div class="muted" style="font-size:13px;text-align:center;margin:16px 0 8px">Family wording or records that name no generation</div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">${apart}</div>` : ''}</div>`;
 }
 screens.people = async slug => {
   const [c, r] = await Promise.all([loadCase(slug), api(`/api/cases/${encodeURIComponent(slug)}/people`)]);
@@ -700,7 +762,7 @@ screens.people = async slug => {
     <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:8px"><div class="h2" style="text-align:center">People around the subject</div>
       <div class="sub" style="text-align:center">${r.notice}</div></div>
     <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
-      ${c.details.kind === 'background' ? '' : shown.length ? shown.map(x => personCard(slug, x)) : html`<div class="empty">Nobody else is named in the subject’s posts, bios or records yet${hidden.length ? ' (apart from those you marked not relevant)' : ''}.</div>`}
+      ${c.details.kind === 'background' ? '' : shown.length ? [familyTree(shown), ...shown.map(x => personCard(slug, x))] : html`<div class="empty">Nobody else is named in the subject’s posts, bios or records yet${hidden.length ? ' (apart from those you marked not relevant)' : ''}.</div>`}
       ${hidden.length ? html`<details><summary class="muted" style="cursor:pointer;padding:6px 0">Marked not relevant (${hidden.length})</summary><div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">${hidden.map(x => personCard(slug, x))}</div></details>` : ''}
       <span class="dim" style="font-size:12.5px">The report quotes what was observed, with its source, and never states a relationship. Children are never named. Employment screening reports leave this section out.</span></div>
   </main>`);
