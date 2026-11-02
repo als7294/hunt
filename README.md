@@ -75,6 +75,7 @@ flowchart LR
 - **"Have we seen this person before?"** across your cases.
 - **Move a case between Macs** in one encrypted, hash-checked archive.
 - **People around the subject:** names and quotes from the subject's own posts, bios and records. Never searched, never contacted, children never named.
+- **Search for yourself:** describe yourself once, locked on your Mac, and Hunt picks your accounts out from everyone who shares your name. Nothing in it is searched or sent.
 
 More in [docs/qol.md](docs/qol.md).
 
@@ -147,7 +148,7 @@ Every hit is scored against everything the case knows, Fellegi–Sunter style. E
 
 ## Status
 
-**0.1.0, the first release.** [CHANGELOG.md](CHANGELOG.md) lists what it does and what isn't built yet. Coming next: the reference-photo screen for the face check, and **Locate a photo** (photo geolocation, built and benchmarked, on hold). See the [roadmap](docs/roadmap.md).
+**0.1.0, the first release.** [CHANGELOG.md](CHANGELOG.md) lists what it does and what isn't built yet. Coming next: **Locate a photo** (photo geolocation, built and benchmarked, on hold). See the [roadmap](docs/roadmap.md).
 
 ## Docs
 

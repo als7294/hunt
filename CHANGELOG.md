@@ -4,7 +4,42 @@ What Hunt does, release by release, in an investigator's words. How to use each 
 
 ## Unreleased
 
-Changes since 0.1.0, mostly from the compliance audit and the decisions in [Hunt's rules](docs/research/legal.md#decisions-provisional-2026-10-30). Those decisions are provisional, and Aaron may overrule them.
+Changes since 0.1.0: what's new, then what the compliance audit and the decisions in [Hunt's rules](docs/research/legal.md#decisions-provisional-2026-10-30) changed. Those decisions are provisional, and Aaron may overrule them.
+
+### Added
+- **Search for yourself.** Describe yourself once on **About you** (`hunt me`). Hunt reads it on your Mac and locks it there, encrypted, with its key in your Keychain. Tick **This is me** when you open a case, and every account is checked against your description, so yours stand out from everyone who shares your name.
+  - **Nothing in it is searched or sent anywhere.** A search starts only from what you type into the case.
+  - **Shown once,** right after you lock it. After that Hunt shows only its date, its fingerprint and how many names, places and so on it holds. **Add** to it any time without writing it again.
+  - **Common words count for less:** a word that many of the accounts found also say (a home state, a hobby) weighs less than a rare one.
+  - **`hunt doctor` checks it still opens:** its key is in the Keychain and it matches its fingerprint. Nothing it says is shown.
+- **More to search.** After a search, Hunt lists the usernames, emails and sites found on the accounts that look like the person, all ticked. **Search the ticked** searches them; nothing is searched before you press it.
+  - A display name that looks like a handle ("JRBakes91") counts as a username.
+  - Accounts found under a rare username are followed too. Their leads come after the likely accounts' leads, marked "not yet confirmed".
+- **Claim vs evidence.** Once a claim states restrictions, the Posts step opens on each one set against what came after the injury:
+  - the leads, most confident first, to keep or set aside
+  - a timeline of posts, records and events around the injury date
+  - The report gains a **Claim and evidence** section with the leads you kept.
+- **People around the subject.** A screen and a report section for the people that the subject's own posts, bios and records name, each quoted as observed. None of them is searched, and nothing about them is a finding. You can mark any of them **Not relevant**.
+- **Sport and competition records:**
+  - powerlifting meets from OpenPowerlifting (a one-time download of about 170 MB, shown before it starts)
+  - links to race-results sites, for you to search by hand
+  - A meet after the injury is a lead. **Is it them?** groups court and competition records, and the report says what each one shows.
+- **Comments.** Hunt Capture keeps the comments you could see on each post, without opening more, and a post's detail shows them.
+- **Comparing faces with a reference photo,** in the new-case form:
+  - off unless you turn it on, and only where the subject's recorded home allows it, with your legal basis and your own photo
+  - **Is it them?** shows the two photos side by side. A face result is one reason among the others, never the verdict.
+  - The face models aren't downloaded from the app yet.
+- **The demo case** (`hunt demo`, or from an empty Home): a finished, fictional investigation to look through, marked DEMO on every step.
+- **Apify:**
+  - before you confirm, shows what reading the accounts would cost and the credit you have left
+  - never reads a platform that has blocked your account
+  - Watch reads through Apify only for a case you turn that on for
+- **The media scan** tells photos from posters, cartoons and screenshots, and finds travel more reliably.
+- **Smaller fixes:**
+  - The report's web page stays readable under a dark theme, and says "1 item was kept" in the singular.
+  - Narrow windows fit: the top bar wraps, and wide tables scroll inside the report.
+  - Leaving the start screen early no longer shows an error.
+- **For developers:** `scripts/train_find.py` measures how far a search for yourself gets from a few details, following the leads round by round. It's scored against your locked description and prints nothing from it.
 
 ### Changed
 - **Facebook is read one profile at a time,** only when you click **Read public preview**, never as part of a batch search.
@@ -22,7 +57,7 @@ Changes since 0.1.0, mostly from the compliance audit and the decisions in [Hunt
   - in the evidence bundle's log, where the names you give people in photos are withheld (they stay in the case)
 - **Relationships are quoted, not labelled:** "posted 'my brother Dan'", never "brother: Dan".
 - **"Seen before"** compares only the subject's own photos and videos, never a friend's post captured in passing.
-- **The face check** (still not in the app) runs only for a subject whose recorded home is a place it recognises and doesn't block. California is always blocked.
+- **The face check** runs only for a subject whose recorded home is a place it recognises and doesn't block. California is always blocked.
 - **Retention is a reminder:** at 90 days Hunt asks you to delete, hold or trim the case. Deleting a case leaves only a minimal record: the time, a hash of the case's name, its opening date, the reason, and the log entry's number. Never its name, label or purpose.
 - **Guided mode is off until you turn it on.** The switch is on the Accounts screen. Turning it on asks you to tick that you understand what it does, and lets you add a note (for example, your counsel's go-ahead). Both are logged. It runs only on accounts you confirmed, and every press is logged too.
 - **Background-check reports are always the screening version.**
@@ -51,7 +86,6 @@ Hunt finds a person's accounts, helps you decide which are really theirs, looks 
   - **Startup checks:** your cases, evidence fingerprints, the local AI, the internet and your proxy, every source, the Hunt Browser, and retention dates. The version is shown there too.
   - **Connect your accounts:** sign in once, as yourself, in the Hunt Browser.
   - **Free keys (optional).**
-- **A demo case** (`hunt demo`): a finished, fictional investigation to look through, marked DEMO everywhere and read-only.
 - **`hunt doctor`** checks everything Hunt needs and gives a plain fix for each problem.
 - **`hunt update`** updates Hunt.
 - **`hunt uninstall`** removes Hunt. It asks separately before moving your cases to the Trash.

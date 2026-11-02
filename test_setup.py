@@ -93,6 +93,23 @@ assert all(r["fix"] for r in rows.values() if not r["ok"]) and all(not r["fix"] 
 state["ollama"] = False
 assert setup.doctor()[3]["detail"] in ("not installed", "installed, not running")
 
+# doctor: a locked About you must open on this Mac (key in the Keychain, fingerprint matching); what it says never shows
+from hunt import profile  # noqa: E402
+assert "me" not in rows  # nothing locked, nothing to check
+profile._key = lambda create=False: "0" * 64  # the real key lives in the login Keychain
+profile._write({"format": profile.FORMAT, "text": "I'm Jordan Reyes, a made-up baker in Austin, Texas",
+                "criteria": {"names": ["Jordan Reyes"]}, "saved": "2026-11-01T09:00:00Z", "read_by": "rules"})
+me = lambda: {r["id"]: r for r in setup.doctor()}["me"]
+assert me()["ok"] and me()["detail"] == f"opens; fingerprint {profile.status()['fingerprint']}", me()
+profile._key = lambda create=False: None  # locked on another Mac: its key isn't in this Keychain
+assert not me()["ok"] and "Keychain" in me()["detail"] and "hunt me" in me()["fix"], me()
+profile._key = lambda create=False: "0" * 64
+body = profile.PATH.read_text().partition("\n")[2]
+profile.PATH.write_text(f"{profile.FORMAT} sha256={'0' * 64}\n{body}")  # changed outside Hunt
+assert not me()["ok"] and "fingerprint" in me()["detail"], me()
+assert "Jordan" not in json.dumps(setup.doctor()) and "Austin" not in json.dumps(setup.doctor())
+profile.PATH.unlink()
+
 # plan: Ollama is pointed to, not installed; the model and the browser come with their download sizes
 assert asyncio.run(setup.plan())[0] == {
     "id": "ollama", "label": "Ollama", "installable": False, "size": None,

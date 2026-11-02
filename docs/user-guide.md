@@ -122,6 +122,7 @@ Hunt then:
 - lists the court websites that don't allow automated searches, as links for you to search by hand
 - notes every source it asked, including the ones that found nothing (your methodology section needs those)
 - screenshots the likely matches as evidence
+- **suggests more to search:** the usernames, emails and sites listed on the accounts that look like them. All are ticked to start with; untick any you don't want, then press **Search the ticked**. Nothing is searched until you press it. Leads from an account found only under a rare username come last, marked "not yet confirmed".
 
 ### Is it them?
 
@@ -213,6 +214,31 @@ Hunt grades how likely each account is to be the subject's. It uses the wording 
   - Both Macs log the move with the same fingerprints.
   - Send the passphrase separately from the file.
 
+### Search for yourself
+
+To see what's public about you, describe yourself once on **About you**. Run `hunt me` to open it, or use the link under the new-case form. Write in your own words, up to 8,000 characters: places you've lived, schools, jobs, the names and usernames you go by, the year you were born, and what you post about.
+
+- **What's stored:**
+  - your description
+  - what Hunt read from it: names, usernames, emails, phones, sites, places, employers, schools, lines of work, interests, other names, and your birth date, birth year or age
+  - **How it's read:** on your Mac, by Hunt's own rules and by the local model (Ollama, if it's running). A name, place or job that isn't in your description is dropped.
+- **Where:** one file, `~/Hunt/me.locked`. It's kept apart from your cases, so a packed case or an evidence bundle never carries it.
+- **How it's locked:**
+  - **Encrypted** (AES-256), with a random key kept in your login Keychain as "Hunt profile".
+  - **Only your account can read the file,** and Time Machine leaves it out of backups.
+  - **A fingerprint (SHA-256) catches any change made outside Hunt.** `hunt doctor` checks that the file still opens.
+  - **It won't open on another Mac,** since the key stays in this Mac's Keychain. Write it again there.
+- **Shown once:** right after you lock it, Hunt shows what it read so you can check it. After that it shows only the date, the fingerprint and how many of each kind it holds. **Add** puts more in without your writing it all again. **Write it again** replaces it.
+- **Using it:**
+  - Tick **This is me** when you open a case, or press **Search for yourself** on About you.
+  - Hunt checks every account it finds against your description, so yours stand out from everyone who shares your name, and the screens ask "Is this you?".
+  - The case's log records the description's fingerprint, never what it says.
+- **Never searched or sent:**
+  - A search starts only from what you type into the case.
+  - Nothing in your description is searched, sent to a site, or sent to OpenStreetMap: your places are compared on your Mac.
+  - One thing does show: a reason can quote a word that's both in an account and in your description, for example "mentions 'Lumen Bakery', a job in your description". It shows on screen and in the report.
+- **To remove it,** move `~/Hunt/me.locked` to the Trash. The key can be deleted in Keychain Access.
+
 ## 7. Handing over the evidence
 
 **The evidence bundle,** on the Report screen, is a `.zip` for your client, counsel or the court. It contains:
@@ -246,7 +272,7 @@ Hunt is built for lawful, purpose-bound investigations:
 - **It never contacts or notifies the person:** no follows, messages or email checks that could alert them.
 - **It never fetches anything from Instagram or Facebook by itself.** The one exception is an Apify run you start on your own account.
 - **TikTok videos** are fetched only from public pages TikTok lets software read, and only when the uploader allows downloads. Otherwise Hunt keeps just the cover picture.
-- **No face search.** A one-to-one check of your own reference photo against candidate profile photos is built, but it isn't in the app yet. When it is, it will be off unless you turn it on, and it runs only when you've recorded where the subject lives. A place it doesn't recognise, or no place at all, blocks it. **California is always blocked**, and so are Illinois, Texas, Washington, Colorado, the EU, the UK and Canada.
+- **No face search.** A one-to-one check of your own reference photo against candidate profile photos is in the new-case form. It's off unless you turn it on, and it runs only when you've recorded where the subject lives. A place it doesn't recognise, or no place at all, blocks it. **California is always blocked**, and so are Illinois, Texas, Washington, Colorado, the EU, the UK and Canada.
 - **Children are never named.** When a post mentions a child ("my son Leo"), Hunt shows them only as "a child", never by name, in the people it notices around the subject, in the report, and in the evidence bundle's log. Your own notes are kept as you write them, so leave children's names out of them.
 - **It never sends your cases anywhere.** If you use Apify, Apify receives the addresses of the accounts you ask it to read, and nothing else from the case.
 
@@ -259,6 +285,7 @@ The reasoning, with sources, is in [legal.md](research/legal.md). It's engineeri
 - **Where everything lives:** your Mac, in `~/Hunt`:
   - each case in its own folder, with its log and its evidence named by fingerprint
   - the Hunt Browser's profile, holding your logins
+  - your description on About you, if you wrote one (`me.locked`, encrypted; section 6)
 - **What leaves your Mac:**
   - the requests to the sites and public records being checked, and to TikTok's and YouTube's public pages (through your proxy, if you set one)
   - place names, never people's names, sent to OpenStreetMap to compare locations
