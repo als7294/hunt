@@ -366,14 +366,16 @@ assert by["Dan"]["labels"] == ["my brother", "marked in a photo"] and by["Dan"][
 assert by["Ines Vell"]["labels"] == ["Married to", "mi esposa"] and {c["kind"] for c in by["Ines Vell"]["cites"]} == {"bio", "post"}
 unnamed = {p["labels"][0]: p for p in r["people"] if not p["name"] and not p["minor"]}
 assert set(unnamed) == {"my little sister", "with mom"} and unnamed["with mom"]["cites"][0]["quote"] == "Back with mom for dinner."
-assert by["Sam Lee"]["labels"] == ["my coworker"] and by["Rafa Ortiz"]["labels"] == ["tagged"]
+assert by["Sam Lee"]["labels"] == ["my coworker"] and by["Rafa Ortiz"]["labels"] == ["tagged with the subject in 2 posts"]
 assert by["Example Builders LLC"]["labels"] == ["co-party"]
-# AN6: no "same address" entries, and no address in any quote
+# AN6: the seed address is never compared (only the subject's own records' are: test_family.py), and no address in
+# any quote
 assert "Marta Ruiz" not in by and "12 Alder Lane" not in json.dumps(r)
-# AN7: observed wording, never a generated relationship; a shared surname is only that
-REL = {"mother", "father", "brother", "sister", "parent", "sibling", "partner", "possible relative", "child", "co-worker", "friend"}
+# AN7: observed wording, never a generated relationship word. "possible relative (…)" may label an entry in the app
+# (Aaron's decision of 2026-11-01, legal.md) but never appears in the report: test_family.py checks the report
+REL = {"mother", "father", "brother", "sister", "parent", "sibling", "partner", "child", "co-worker", "friend"}
 assert not any(set(p["types"]) & REL or set(p["labels"]) & REL for p in r["people"])
-assert "shares the surname" in by["Kim Vell"]["labels"] and by["Kim Vell"]["confidence"] == 0.6
+assert "shares the surname" in by["Kim Vell"]["labels"] and by["Kim Vell"]["confidence"] == 0.6 and by["Kim Vell"]["tree"] == "relative"
 # AN1: possible minors are "a child", with no name anywhere
 assert {tuple(p["labels"]) for p in kids} == {("a child",)} and all(p["name"] is None for p in kids)
 assert any("[name withheld]" in c["quote"] for p in kids for c in p["cites"]) and all(c["words"] is None for p in kids for c in p["cites"])

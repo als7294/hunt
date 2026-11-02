@@ -330,6 +330,15 @@ def _header(rest: str) -> tuple[str | None, str | None, str | None]:
     return (rest if ACTIVITY.match(_fold(rest)) else None), place, None
 
 
+def _with(rest: str) -> str | None:
+    """Who a header line tags: "is with Mara Quill and 2 others at Iron Harbor Gym" → "Mara Quill and 2 others"
+    (kept as extra.with: graph.associates counts who is tagged with the subject, and how often)."""
+    rest = re.sub(r"^[\s—–-]+|[\s.。]+$", "", rest)
+    if LIFE.search(_fold(rest)) or not (m := WITH.search(rest.lower())):
+        return None
+    return re.sub(r"^(?:(?:is|está|esta|est) )?(?:with|con|avec) ", "", rest[m.start():m.end()], flags=re.I).strip() or None
+
+
 def _num(s: str) -> int:
     s = re.sub(r"\s", "", s.lower())
     if s[-1] in "km":
@@ -495,6 +504,7 @@ def _one(el, ctx) -> dict | None:
         line = _text(header).replace("\n", " ")
         rest = line[len(p["author"]):] if line.startswith(p["author"]) else line.replace(p["author"], "", 1)
         p["activity"], p["place"], p["life_event"] = _header(rest)
+        p["with"] = _with(rest)
     ft = _data_ft(el)
     p["fb_id"] = p["fb_id"] or ft.get("content_owner_id_new")
 
@@ -751,6 +761,7 @@ def parse_screenshot(path, lines: list[str] | None = None, taken: datetime | Non
     if m := CONNECT.search(_fold(header)):
         p["author"], rest = header[:m.start()].strip(" ✓"), header[m.start():]
         p["activity"], p["place"], p["life_event"] = _header(rest)
+        p["with"] = _with(rest)
     else:
         p["author"] = header.strip(" ✓") or None
     body, tail = [], []

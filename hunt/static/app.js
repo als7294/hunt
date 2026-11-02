@@ -717,7 +717,7 @@ const sourceRows = rows => html`${rows.map(r => { const url = /^https?:/.test(r.
 const identityTabs = (slug, now) => html`<nav style="display:flex;gap:6px;align-self:center">${[['identity', 'Accounts'], ['people', 'People around the subject']].map(([k, label]) =>
   html`<a class="step ${k === now ? 'now' : ''}" href="#/case/${slug}/${k}" style="padding:7px 14px">${label}</a>`)}</nav>`;
 const sureness = c => c >= 0.9 ? 'stated' : c >= 0.6 ? 'likely' : 'a hint';
-const SOURCE_WORD = { post: 'a post', bio: 'a profile bio', record: 'a public record', photo: 'your mark on a kept photo', name: 'the name' };
+const SOURCE_WORD = { post: 'a post', comment: 'a comment on their post', bio: 'a profile bio', record: 'a public record', photo: 'your mark on a kept photo', name: 'the name' };
 // "withheld" only for a possible minor; someone a record puts at the subject's address stays unnamed (AN6)
 const personTitle = x => x.name || (x.minor ? `${x.labels[0]} (name withheld)` : x.types.includes('same address') ? x.labels[0] : `${x.labels[0]}, not named`);
 const citeLine = ct => ct.kind !== 'record' ? `“${ct.quote}”` : ct.type === 'same address' ? `at the subject’s address in ${ct.quote}`
@@ -727,32 +727,38 @@ function personCard(slug, x) {
     <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><b style="font-size:16.5px">${personTitle(x)}</b>
       ${x.types.map(t => html`<span class="tag">${t}</span>`)}<span class="muted" style="font-size:13px">${sureness(x.confidence)}</span>
       ${x.minor ? html`<span class="tag warn" title="Minors are never named, searched or face-compared">possible minor</span>` : ''}</div>
+    ${x.minor || !x.name ? '' : html`<div style="font-size:14px">${x.labels.join(' · ')}</div>`}
     <div style="display:flex;flex-direction:column;gap:4px">${x.cites.map(ct => html`<div style="font-size:14px" class="t2">
       <span class="muted">${SOURCE_WORD[ct.kind] || ct.kind}:</span> ${citeLine(ct)} <span class="dim" style="font-size:12.5px">${sureness(ct.confidence)}</span>
-      ${/^https?:\/\//.test(ct.url || '') ? html` <a href="${ct.url}" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:13px">the ${ct.kind === 'post' ? 'post' : ct.kind === 'record' ? 'record' : 'profile'} ↗</a>` : ''}</div>`)}</div>
+      ${/^https?:\/\//.test(ct.url || '') ? html` <a href="${ct.url}" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:13px">the ${ct.kind === 'post' ? 'post' : ct.kind === 'comment' ? 'comment' : ct.kind === 'record' ? 'record' : 'profile'} ↗</a>` : ''}</div>`)}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn ghost sm" data-act="person-hide" data-id="${x.id}" data-hidden="${x.hidden ? '' : '1'}">${x.hidden ? 'Show again' : 'Not relevant'}</button>
       ${!x.minor && x.name ? html`<button class="btn ghost sm" data-act="person-case" data-name="${x.name}" title="A new case about this person, with its own purpose. Nothing else is carried over">Open as a new case…</button>` : ''}</div></div>`;
 }
-/* The family tree: a row above or below the subject only where the wording names a generation (graph.TREE); family
-   wording that names none, or two, sits apart with no generation guessed. Each name's sources show on hover. */
+/* The family tree: a generation only where the wording names one (graph.TREE: "my dad", "Dad to …", "love you son");
+   family wording that names none, or two, a shared surname, a record at the subject's address or co-tags at family events
+   sit apart as possible relatives, each saying why (Aaron's decision of 2026-11-01, legal.md). Sources show on hover. */
 function familyTree(xs) {
   const fam = xs.filter(x => x.tree);
   if (!fam.length) return '';
   const node = (x, me) => html`<div title="${me ? '' : x.cites.map(ct => `${SOURCE_WORD[ct.kind] || ct.kind}: ${citeLine(ct)} (${sureness(ct.confidence)})`).join('\n')}"
-    style="padding:8px 12px;border-radius:var(--r);background:var(--panel-2);text-align:center;max-width:240px;${me ? 'box-shadow:inset 0 0 0 1.5px var(--am)' : ''}">
-    <b style="font-size:14.5px">${me ? 'The subject' : personTitle(x)}</b>${me ? '' : html`<div class="muted" style="font-size:12.5px">${x.minor ? 'possible minor · ' : x.name ? `${x.labels.join(' · ')} · ` : ''}${sureness(x.confidence)}</div>`}</div>`;
-  const row = (...kinds) => fam.filter(x => kinds.includes(x.tree)).map(x => node(x));
-  const line = html`<div style="width:1.5px;height:16px;background:var(--line-2);margin:0 auto"></div>`;
-  const rows = [row('grandparent'), row('parent'), [...row('sibling'), node(null, true), ...row('partner')], row('child'), row('grandchild')]
-    .filter(r => r.length).map(r => html`<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;align-items:center">${r}</div>`);
-  const apart = row('relative');
+    style="padding:8px 12px;border-radius:var(--r);background:var(--panel-2);text-align:center;max-width:260px;${me ? 'box-shadow:inset 0 0 0 1.5px var(--am)' : ''}">
+    <b style="font-size:14.5px">${me ? 'The subject' : personTitle(x)}</b>${me ? '' : html`<div class="muted" style="font-size:12.5px">${x.minor ? 'possible minor · '
+      : x.name ? `${x.labels[0]}${x.labels.length > 1 ? ` +${x.labels.length - 1}` : ''} · ` : ''}${sureness(x.confidence)}</div>`}</div>`;
+  const group = (title, kind) => { const ns = fam.filter(x => x.tree === kind).map(x => node(x));
+    return ns.length ? html`<div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+      <span class="dim" style="font-size:11.5px;text-transform:uppercase;letter-spacing:.06em">${title}</span>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">${ns}</div></div>` : ''; };
+  const line = html`<div style="width:1.5px;height:16px;background:var(--line-2);margin:4px auto"></div>`;
+  const rows = [group('Grandparents', 'grandparent'), group('Parents', 'parent'),
+    html`<div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;align-items:flex-end">${group('Siblings', 'sibling')}${node(null, true)}${group('Spouse or partner', 'partner')}</div>`,
+    group('Children', 'child'), group('Grandchildren', 'grandchild')].filter(Boolean);
+  const apart = group('Possible relatives, no generation named', 'relative');
   return html`<div class="panel" style="padding:16px 18px;display:flex;flex-direction:column;gap:0">
     <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:12px"><b style="font-size:16.5px">Family tree</b>
-      <span class="muted" style="font-size:13px">a generation only where the subject’s own words name one (“my dad”, “Dad to …”); hover a name for its sources</span></div>
+      <span class="muted" style="font-size:13px">a generation only where the words say so (“my dad”, “Dad to …”, “love you son”); hover a name for its sources</span></div>
     ${rows.flatMap((r, i) => i ? [line, r] : [r])}
-    ${apart.length ? html`<div class="muted" style="font-size:13px;text-align:center;margin:16px 0 8px">Family wording or records that name no generation</div>
-      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">${apart}</div>` : ''}</div>`;
+    ${apart ? html`<div style="margin-top:18px">${apart}</div>` : ''}</div>`;
 }
 screens.people = async slug => {
   const [c, r] = await Promise.all([loadCase(slug), api(`/api/cases/${encodeURIComponent(slug)}/people`)]);
@@ -764,7 +770,7 @@ screens.people = async slug => {
     <div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
       ${c.details.kind === 'background' ? '' : shown.length ? [familyTree(shown), ...shown.map(x => personCard(slug, x))] : html`<div class="empty">Nobody else is named in the subject’s posts, bios or records yet${hidden.length ? ' (apart from those you marked not relevant)' : ''}.</div>`}
       ${hidden.length ? html`<details><summary class="muted" style="cursor:pointer;padding:6px 0">Marked not relevant (${hidden.length})</summary><div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">${hidden.map(x => personCard(slug, x))}</div></details>` : ''}
-      <span class="dim" style="font-size:12.5px">The report quotes what was observed, with its source, and never states a relationship. Children are never named. Employment screening reports leave this section out.</span></div>
+      <span class="dim" style="font-size:12.5px">“Possible relative” is this screen’s reading, saying why; the report quotes only what was observed, with its source, and never states a relationship. Children are never named. Employment screening reports leave this section out.</span></div>
   </main>`);
 };
 

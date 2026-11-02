@@ -10,6 +10,7 @@ because namesakes share exactly those.
 import hashlib
 import re
 from collections import Counter
+from datetime import date
 
 from . import match, pivot
 from .seed import _handle
@@ -155,10 +156,11 @@ def _key(platform: str) -> str:
 # --- family and associates, from what the case already holds --------------------------------------
 #
 # Minimisation (legal.md C13, A5, A6): an associate is a name and the evidence that names them, nothing more.
-# Hunt never searches or collects on an associate, and never generates a relationship label: entries carry
-# the observed wording ("my brother") or how they were found ("tagged", "co-party"). A possible minor is
-# "a child": their name is withheld everywhere, in every entry and every quote. Contact details, addresses
-# and health words are withheld from quotes. A record of someone at the subject's address is cited, never named (AN6).
+# Hunt never searches or collects on an associate. Entries carry the observed wording ("my brother") or how they
+# were found ("tagged", "co-party"); in the app only, a record at the subject's address, a shared surname or co-tags
+# at family events also read "possible relative", saying why (Aaron's decision of 2026-11-01, legal.md). The report
+# never does. A possible minor is "a child": their name is withheld everywhere, in every entry and every quote.
+# Contact details, addresses and health words are withheld from quotes.
 
 MINIMISED = ("Associates are named in the subject's own posts, bios and records, or marked by you in kept photos. "
              "Hunt hasn't searched for any of them; open one as its own case, with its own purpose, to do that.")
@@ -232,21 +234,62 @@ _STREET_WORD = {"street": "st", "avenue": "ave", "road": "rd", "drive": "dr", "l
                 "place": "pl", "terrace": "ter", "circle": "cir", "highway": "hwy", "parkway": "pkwy", "north": "n",
                 "south": "s", "east": "e", "west": "w", "apt": "", "apartment": "", "unit": "", "suite": "", "ste": ""}
 _RECORD_DAY = ("filed", "registered", "formed", "issued", "first_date", "last_date", "status_date", "last_update")
+# Tags: who the subject's posts are "with", tag, or @-mention ("my dad @victor.vell" names a generation; a bare
+# @mention alone is weak). Tagged in 3+ posts over 2+ months reads as close, once as an acquaintance.
+MENTION = re.compile(r"(?<![\w@.])@([A-Za-z0-9_](?:[A-Za-z0-9_.]{0,28}[A-Za-z0-9_])?)")
+REL_HANDLE = re.compile(rf"(?i:\b(?:my|our|mi|mis|nuestra|nuestro|nuestras|nuestros)\s+{_ADJ}({_WORDS}))(?:'s|’s)?,?\s+"
+                        rf"@([A-Za-z0-9_](?:[A-Za-z0-9_.]{{0,28}}[A-Za-z0-9_])?)")
+FAMILY_EVENT = re.compile(r"(?i)\b(christmas|xmas|thanksgiving|easter|hanukkah|passover|eid|diwali|birthday|bday|wedding|"
+                          r"anniversary|reunion|quincea[ñn]era|baby shower|christening|baptism|mother'?s day|father'?s day|"
+                          r"family|navidad|nochebuena|cumplea[ñn]os|boda|aniversario|bautizo|familia)\b")
+CLOSE_POSTS, CLOSE_DAYS, EVENT_POSTS = 3, 60, 2
+# What a commenter on the subject's post calls them, and so what the commenter is: "love you son" is a parent's.
+COMMENT_KIN = {**{w: ("parent", False) for w in "son daughter kiddo mijo mija hijo hija".split()},
+               **{w: ("sibling", False) for w in "sis sister bro brother hermano hermana hermanito hermanita".split()},
+               **{w: ("child", True) for w in "mom mum mama mommy dad daddy papa mami papi mamá papá".split()},
+               **{w: ("grandchild", True) for w in "grandma grandpa nana abuela abuelo abuelita abuelito".split()},
+               **{w: ("grandparent", False) for w in "grandson granddaughter nieto nieta".split()},
+               **{w: ("partner", False) for w in "wife husband hubby esposa esposo".split()},
+               **{w: ("relative", True) for w in "auntie aunt tia tía uncle tio tío".split()},  # a niece or nephew writes
+               **{w: ("relative", False) for w in "niece nephew sobrino sobrina cousin cuz primo prima".split()}}
+_SLANG = {"bro", "sis", "cuz"}  # friends say these too
+_KIN = "|".join(sorted(map(re.escape, COMMENT_KIN), key=len, reverse=True))
+ADDRESSED = re.compile(rf"(?i:\b(?:love you|luv you|love ya|proud of you|miss you|happy (?:birthday|bday|anniversary)|congrats|"
+                       rf"congratulations|thank you|thanks|te quiero|te amo|feliz cumplea[ñn]os|felicidades)[\s,!.]*"
+                       rf"(?:(?:my|mi)\s+)?(?:(?:little|lil|big|baby)\s+)?({_KIN})\b|"
+                       rf"\bproud of (?:my|mi)\s+(?:(?:little|lil|big|baby)\s+)?({_KIN})\b)")
+
+
+def _at_address(name: str, kin: bool, src: str) -> tuple[str | None, str]:
+    """How someone a held record puts at the subject's address is shown: (name, label). Named in the app, by Aaron's
+    decision of 2026-11-01 (legal.md); the report says only "a public record lists them at the subject's address",
+    and the address itself is never shown anywhere (A2)."""
+    return name, f"possible relative (same address in {src})" if kin else f"possible household member (same address in {src})"
+
+
+def _months(days: list[str]) -> str:
+    """'Mar 2025–Oct 2026' from sorted ISO dates; one month alone; '' without dates."""
+    ms = list(dict.fromkeys(date.fromisoformat(d).strftime("%b %Y") for d in (days[0], days[-1]))) if days else []
+    return "–".join(ms)
 
 
 def associates(posts: list[dict], candidates: list[dict], subject: list, photo_labels: list[dict] = (),
                case_key: str = "") -> dict:
     """Family and associates found in what the case already holds:
     {notice, people: [{id, name, minor, labels, types, confidence, tree, cites: [{kind, type, ref, url, quote, how,
-    words, confidence}]}]}, most confident first. `labels` are the observed wording ("my brother", "tagged",
-    "co-party", "marked in a photo", "shares the surname") or how a record shows them ("associate (co-officer in
-    <source>, <date>)"), or ["a child"] for a possible minor, whose name is withheld everywhere. `tree` is the
-    generation the wording names (TREE), "relative" for family wording or a same-surname record that names none, or
-    None. `id` is salted with `case_key` (the case's name), so it means nothing outside the case.
+    words, confidence}]}]}, most confident first. `labels` are the observed wording ("my brother", "commented “love
+    you son”", "co-party", "marked in a photo", "shares the surname"), how often they're tagged ("tagged with the
+    subject in 3 posts, Dec 2024–Nov 2025"), how a record shows them ("associate (co-officer in <source>, <date>)",
+    "possible relative (same address in <source>, <date>)"), or ["a child"] for a possible minor, whose name is
+    withheld everywhere. `tree` is the generation the words name (TREE), "relative" for family wording that names
+    none or two, a shared surname, a same-surname record at the subject's address or co-tags at family events, or
+    None. A cite's kind is post, comment, bio, record, photo or name. `id` is salted with `case_key` (the case's
+    name), so it means nothing outside the case.
 
-    `posts` are posts.list_posts(case); only the person's accounts' posts and posts the investigator added count.
-    `candidates` are search.build()'s: the person's accounts give bios, the person's records give co-parties, and
-    every record the case holds gives co-officers and, unnamed, people at one of the subject's records' addresses.
+    `posts` are posts.list_posts(case); only the person's accounts' posts and posts the investigator added count,
+    with their tags (extra.with, extra.tagged, "with X", @mentions) and visible_comments.
+    `candidates` are search.build()'s: the person's accounts give bios, the person's records give co-parties and a
+    voter roll's household, and every record the case holds gives co-officers and people at the subject's addresses.
     `subject` is the case's seeds (names, for surnames and to leave the subject out). `photo_labels` are
     label_photo() rows.
     """
@@ -295,7 +338,10 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
     mine = {match.norm_url(c["url"]) for c in person}
     me = {_norm(s.value) for s in subject if s.kind == "name"}
     surnames = {n.split()[-1] for n in me if " " in n}
+    handles = {s.value.lstrip("@").lower() for s in subject if s.kind == "username"} | \
+        {h.lower() for c in person if (h := _handle(c["url"]))}  # the subject's own, never "mentioned"
     raw, hide = [], set()  # every mention; every name tied to a possible minor, as written
+    post_day, post_events = {}, {}  # E-id → the post's date; → the family-event words in it
 
     def add(name, words, how, role, minor, confidence, kind, ref, url, quote):
         if (m := AGE_MINOR.search(quote)) and int(next(g for g in m.groups() if g)) < 18 and how not in ("co-party", "co-officer"):
@@ -308,9 +354,14 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
                     "kind": kind, "ref": ref, "url": url, "quote": quote.strip()[:240]})
 
     def relations(text, kind, ref, url, named_conf, unnamed_conf):
+        for m in REL_HANDLE.finditer(text):  # "my dad @victor.vell"
+            role, _, minor = RELATIONS[m[1].lower()]
+            add(f"@{m[2]}", text[m.start():m.end(1)], "named", role, minor, named_conf, kind, ref, url, _around(text, m))
         for m in POSSESSIVE.finditer(text):
             role, _, minor = RELATIONS[m[1].lower()]
             name, words = m[2], text[m.start():m.end(1)]
+            if not name and re.match(r"(?:'s|’s)?,?\s+@\w", text[m.end():]):
+                continue  # REL_HANDLE has it, by handle
             if minor and not name:  # "Leo Vell, my stepson" / "my daughter emma": the name sits beside the word
                 before = re.search(rf"{_NAME},?\s*(?:(?:is|was|es)\s+)?$", text[:m.start()])
                 after = re.match(r"\s*,?\s*([a-záéíóúñü]+)\b", text[m.end():])
@@ -326,7 +377,24 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
                 and not post.get("account_url")):
             continue
         text, ref, url = post.get("text") or "", f"E-{post['id']}", post.get("url")
+        post_day[ref] = (post.get("posted_at") or "")[:10] if re.match(r"\d{4}-\d\d-\d\d", post.get("posted_at") or "") else None
+        post_events[ref] = list(dict.fromkeys(m.lower() for m in FAMILY_EVENT.findall(text)))
         relations(text, "post", ref, url, 0.9, 0.8)
+        for h in dict.fromkeys(MENTION.findall(text)):
+            if h.lower() not in handles:
+                add(f"@{h}", None, "mentioned", None, False, 0.4, "post", ref, url, _quote_name(text, f"@{h}"))
+        for cm in post.get("visible_comments") or []:  # "love you son" on the subject's post: the commenter is a parent
+            said, handle, to = cm.get("text") or "", (cm.get("handle") or "").lstrip("@"), cm.get("reply_to") or ""
+            who = cm.get("author") or (f"@{handle}" if handle else None)
+            if not (m := ADDRESSED.search(said)) or not who or handle.lower() in handles or \
+                    match.norm_url(cm.get("account_url") or "") in mine or \
+                    to and _norm(to) not in me and to.lstrip("@").lower() not in handles:  # a reply speaks to its thread
+                continue
+            kin, minor = COMMENT_KIN[(m[1] or m[2]).lower()]
+            if minor and handle:
+                hide.add(f"@{handle}")
+            add(who, f"commented “{m[0].strip()}”", "commented", kin, minor, 0.5 if (m[1] or m[2]).lower() in _SLANG else 0.7,
+                "comment", ref, cm.get("url") or url, said if minor or not handle else f"@{handle}: {said}")
         for m in BARE_WITH.finditer(text):
             role, _, minor = RELATIONS[m[1].lower()]
             add(None, m[0], "named", role, minor, 0.7, "post", ref, url, _around(text, m))
@@ -358,10 +426,18 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
     # Public records the case holds (the subject's, and others found under the subject's own seeds, A1): who shares
     # a business or an address with the subject's records. An address is compared, never kept or shown (A2).
     from .report import RECORDS
-    held = [c for c in candidates if set(c.get("found_by") or ()) & RECORDS.keys()]
+    sources = RECORDS.keys() | {"voter"}  # voter rolls aren't in the report's list of record sources yet
+    held = [c for c in candidates if set(c.get("found_by") or ()) & sources]
     own = {id(c) for c in held if in_person(c)}
     homes = {_address(c["attrs"]) for c in held if id(c) in own} - {None}
     firms = {_firm(c["attrs"]) for c in held if id(c) in own} - {None}
+
+    def at_address(c, n, src):
+        kin = bool(w := _person(n)[0]) and w[-1] in surnames
+        name, label = _at_address(_shown(n), kin, src)
+        add(name, label, "same address", "relative" if kin else "household", False, 0.5 if kin else 0.3, "record",
+            c["url"], c["url"], src)
+
     for c in held:
         a, theirs = c["attrs"], id(c) not in own
         day = next((a[k] for k in _RECORD_DAY if a.get(k)), None)
@@ -372,12 +448,11 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
                 add(n, f"associate (co-officer in {src})", "co-officer", None, False, 0.9, "record", c["url"], c["url"],
                     f"the {c['site']} record" + (f" ({day})" if day else ""))  # not the business: their employer (A2)
         if theirs and (n := a.get("fullname")) and not _is_subject(n, me) and _address(a) in homes:
-            if _person(n)[0][-1:] and _person(n)[0][-1] in surnames:  # named nowhere: a stranger's record (AN6)
-                add(None, "someone with the subject's surname, at the subject's address", "same address", "relative", False, 0.5,
-                    "record", c["url"], c["url"], src)
-            else:
-                add(None, "someone else at the subject's address", "same address", "household", False, 0.3,
-                    "record", c["url"], c["url"], src)
+            at_address(c, n, src)
+        if not theirs:  # the subject's own record names who else lives there: a voter roll's household
+            for n in a.get("household") or []:
+                if not _is_subject(n, me):
+                    at_address(c, n, f"{c['site']}, {a['data_date']}" if a.get("data_date") else src)
     for row in photo_labels:  # the investigator's own marking: same label in several kept photos = one person
         label, ref = row["label"], f"E-{row['post_id']}" if row.get("post_id") else f"media {row['media_id']}"
         m = POSSESSIVE.search(label) or re.search(rf"(?i:\b({_WORDS})\b)", label)
@@ -411,12 +486,34 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
                 q["cites"] += p["cites"]
                 q["confidence"] = max(q["confidence"], p["confidence"])
                 del people[key]
-    for p in people.values():  # a shared surname is a hint, never a relationship; only where none was stated
-        if p["name"] and p["name"].split()[-1].lower() in surnames and "named" not in p["types"]:
-            p["labels"].append("shares the surname")
-            p["types"].append("shares the surname")
-            p["cites"].append({"kind": "name", "ref": None, "url": None, "quote": "shares the subject's surname",
-                               "how": "shares the surname", "words": None, "confidence": 0.3})
+    for p in people.values():  # how often, and over how long, the subject's posts tag or @-mention them
+        tags = {}
+        for c in p["cites"]:
+            if c["how"] in ("tagged", "mentioned") and c["ref"] in post_day:
+                tags[c["ref"]] = "tagged" if c["how"] == "tagged" else tags.get(c["ref"], "mentioned")
+        if not tags:
+            continue
+        n, days, tagged = len(tags), sorted(d for r in tags if (d := post_day[r])), "tagged" in tags.values()
+        span = (date.fromisoformat(days[-1]) - date.fromisoformat(days[0])).days if days else 0
+        label = ("tagged with the subject" if tagged else "@-mentioned in the subject's posts") + \
+            (" once" if n == 1 else f" in {n} posts") + (f", {_months(days)}" if days else "")
+        close = n >= CLOSE_POSTS and span >= CLOSE_DAYS
+        p["labels"] = list(dict.fromkeys(label if x in ("tagged", "mentioned") else x for x in p["labels"]))
+        p["confidence"] = max([(0.9 if close else 0.8 if n > 1 else 0.6) if tagged else 0.6 if close else 0.4]
+                              + [c["confidence"] for c in p["cites"] if c["how"] not in ("tagged", "mentioned")])
+        if len(events := [r for r in tags if post_events.get(r)]) >= EVENT_POSTS:  # say why, in the posts' own words
+            if not p["minor"]:
+                p["labels"].append(f"possible relative (tagged in {len(events)} family-event posts: "
+                                   f"{', '.join(dict.fromkeys(w for r in events for w in post_events[r]))})")
+            p["kinds"].append("relative")
+    for p in people.values():  # a shared surname, where nothing else says how they're related: a possible relative in
+        if p["name"] and p["name"].split()[-1].lower() in surnames and not {"named", "same address"} & set(p["types"]):
+            p["labels"].append("shares the surname")  # the app, never in the report (Aaron's decision of 2026-11-01,
+            p["types"].append("shares the surname")  # legal.md)
+            p["kinds"].append("relative")
+            p["cites"].append({"kind": "name", "type": "shares the surname", "ref": None, "url": None,
+                               "quote": "shares the subject's surname", "how": "shares the surname", "words": None,
+                               "confidence": 0.3})
     names = sorted({n for n in hide} | {n.split()[0] for n in hide}, key=len, reverse=True)
     for key, p in people.items():
         p["id"] = hashlib.sha256(f"{case_key}\n{key}".encode()).hexdigest()[:10]
