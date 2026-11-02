@@ -1,9 +1,10 @@
-"""Self-check for the family tree and the people public records put beside the subject (graph.associates).
-Run: uv run python test_family.py
+"""Self-check for the family tree: relatives from the subject's own words, tags and comments, and the people public
+records put beside the subject (graph.associates). Run: uv run python test_family.py
 
-Offline; every person, record and address is fictional. Relatives are listed, never searched or seeded (C13, A1);
-a possible minor is never named (A5); an employment screening shows none of them (A8); the wording says what was
-observed, and an address is compared, never kept (A2, AN6).
+Offline; every person, record, post and address is fictional. Relatives are listed, never searched or seeded (C13,
+A1); a possible minor is never named (A5); an employment screening shows none of them (A8). "possible relative" and
+"possible household member" label entries in the app only (Aaron's decision of 2026-11-01, legal.md), never the
+report, and an address is compared, never shown (A2).
 """
 
 import json
@@ -17,6 +18,7 @@ warnings.filterwarnings("ignore", message="Using `httpx` with")
 from starlette.testclient import TestClient  # noqa: E402
 
 from hunt import app as server  # noqa: E402
+from hunt import facebook as fb_parser  # noqa: E402
 from hunt import graph  # noqa: E402
 from hunt.case import Case  # noqa: E402
 from hunt.seed import Finding, Seed  # noqa: E402
@@ -58,20 +60,37 @@ cands = [
         filed="2023-02-14"),                                                                   # same surname, same address
     rec("licences", "Arizona ROC licence", 5, 0.2, fullname="Marta Ruiz", address="12 Alder Lane", location="Tucson, AZ",
         issued="2022-08-01"),                                                                  # another surname
+    rec("voter", "Florida voter roll", 9, 0.95, fullname="DORIAN VELL", address="88 Gulf Breeze Dr, Gainesville, FL 32601",
+        location="Gainesville, FL", registered="2015-03-01", data_date="2026-10-16",
+        household=["NICO VELL", "OMAR LUND", "LEO VELL"]),                                    # the subject's own household
     rec("licences", "Arizona ROC licence", 6, 0.2, fullname="Dorian J Vell", address="12 Alder Lane", location="Tucson, AZ"),
     rec("courts", "Maricopa County court", 7, 0.2, fullname="Pia Vell", address="12 Alder Lane, Phoenix, AZ"),  # other town
     rec("fec", "FEC contributions", 8, 0.2, fullname="Kim Vell", location="Tucson, AZ"),          # no street: never compared
     {"site": "Instagram", "url": "https://instagram.com/x", "found_by": ["maigret"], "probability": 0.2, "decision": None,
-     "attrs": {"fullname": "Omar Lund", "address": "12 Alder Lane, Tucson, AZ"}},              # an account, not a record
+     "attrs": {"fullname": "Pim Hart", "address": "12 Alder Lane, Tucson, AZ"}},               # an account, not a record
 ]
-posts = [{"id": i, "account_url": fb, "url": f"{fb}/posts/{i}", "origin": "fetched", "extra": None, "text": t}
-         for i, t in enumerate([
-             "Sunday lunch with my dad Victor and my sister Nell.",
-             "Dad to Leo and Emma. Anniversary dinner with my wife Ines!",
-             "Visiting my grandma today.",
-             "My cousin Rafa is in town. My brother Theo and my dad Theo both came, two different guys.",
-             "Day off with my friend Victor.",
-         ], 1)]
+said_ = [  # (text, posted, extra, comments)
+    ("Sunday lunch with my dad Victor and my sister Nell.", "2025-01-05", None, []),
+    ("Dad to Leo and Emma. Anniversary dinner with my wife Ines!", "2025-02-14", None, []),
+    ("Visiting my grandma today.", None, None, []),
+    ("My cousin Rafa is in town. My brother Theo and my dad Theo both came, two different guys.", None, None, []),
+    ("Day off with my friend Victor.", None, None, []),
+    ("Christmas at the lake", "2024-12-25T18:00:00", {"with": "Sol Ardent and 2 others"}, []),
+    ("Thanksgiving dinner, so much food", "2025-11-27", {"tagged": ["Sol Ardent"]}, []),
+    ("Ridge hike", "2025-06-01", {"with": "Sol Ardent"}, []),
+    ("Coffee — with Jun Park", "2025-03-09", None, []),
+    ("Fishing with my dad @victor.vell and @kit.lane, thanks @dorian.vell for the boat", "2025-03-03", None, []),
+    ("Proud of my son @leo.v today", "2025-04-04", None, []),
+    ("Birthday cake!", "2025-05-05", None, [
+        {"author": "Mara Vell", "handle": "mara.vell", "text": "Love you son! So proud", "url": f"{fb}/posts/12?comment_id=1"},
+        {"author": "Ty Vell", "handle": "ty.v", "text": "love you dad", "url": f"{fb}/posts/12?comment_id=2"},
+        {"author": "Gus Moro", "handle": "gusm", "text": "thanks bro", "reply_to": "Pia Lane"},   # answers someone else
+        {"author": "Dorian Vell", "handle": "dorian.vell", "text": "thanks mom"},                 # the subject
+        {"author": "Bo Reyes", "handle": "boreyes", "text": "Happy birthday sis!"},
+        {"author": "Cal Dune", "handle": "cald", "text": "great cake"}]),
+]
+posts = [{"id": i, "account_url": fb, "url": f"{fb}/posts/{i}", "origin": "fetched", "posted_at": d, "extra": x, "text": t,
+          "visible_comments": cm} for i, (t, d, x, cm) in enumerate(said_, 1)]
 r = graph.associates(posts, cands, subject, case_key="vell")
 dump = json.dumps(r)
 named = {p["name"]: p for p in r["people"] if p["name"]}
@@ -83,31 +102,59 @@ assert named["Nell"]["tree"] == "sibling" and named["Ines"]["tree"] == "partner"
 assert unnamed["my grandma"]["tree"] == "grandparent" and named["Rafa"]["tree"] == "relative"
 assert named["Theo"]["tree"] == "relative", named["Theo"]  # "my brother" and "my dad": no generation guessed
 kids = [p for p in r["people"] if p["minor"]]
-assert kids and all(p["tree"] == "child" and p["name"] is None and p["labels"] == ["a child"] for p in kids)
-assert "Leo" not in dump and "Emma" not in dump  # minors are never named, in any entry or quote (A5)
+assert kids and all(p["tree"] in ("child", None) and p["name"] is None and p["labels"] == ["a child"] for p in kids)
+for leak in ("Leo", "Emma", "leo.v", "Ty Vell", "ty.v"):  # minors are never named, tagged or quoted by name (A5)
+    assert leak not in dump, leak
+
+# Tags: how often and over how long; next to a relation word, a generation; at family events, a possible relative, saying why
+sol = named["Sol Ardent"]
+assert sol["labels"][0] == "tagged with the subject in 3 posts, Dec 2024–Nov 2025" and sol["confidence"] == 0.9, sol
+assert sol["labels"][1] == "possible relative (tagged in 2 family-event posts: christmas, thanksgiving)" and sol["tree"] == "relative"
+assert named["Jun Park"]["labels"] == ["tagged with the subject once, Mar 2025"] and named["Jun Park"]["confidence"] == 0.6
+assert named["Jun Park"]["tree"] is None
+assert named["@victor.vell"]["tree"] == "parent" and named["@victor.vell"]["labels"][0] == "my dad"
+assert named["@kit.lane"]["labels"] == ["@-mentioned in the subject's posts once, Mar 2025"] and named["@kit.lane"]["confidence"] == 0.4
+assert "@dorian.vell" not in named and "my dad, not named" not in unnamed  # the subject's own handle; "my dad @x" is @x
+# Comments that call the subject by a family word, quoted: "love you son" is written by a parent; a reply to someone
+# else, the subject's own replies and plain comments count for nothing
+mara = named["Mara Vell"]
+assert mara["tree"] == "parent" and mara["labels"][0] == "commented “Love you son”" and mara["confidence"] == 0.7
+assert mara["cites"][0]["kind"] == "comment" and mara["cites"][0]["quote"] == "@mara.vell: Love you son! So proud"
+assert named["Bo Reyes"]["tree"] == "sibling" and named["Bo Reyes"]["confidence"] == 0.5  # "sis": friends say it too
+assert "Gus Moro" not in named and "Cal Dune" not in named
+assert any(p["minor"] and any(c["kind"] == "comment" and c["quote"] == "love you dad" for c in p["cites"]) for p in kids)
 
 # Shared business officers: an associate, named, with the record cited; never a generation
-ana, mara = named["Ana Brook"], named["Mara Quill"]
+ana, quill = named["Ana Brook"], named["Mara Quill"]
 assert ana["labels"] == ["associate (co-officer in FMCSA motor carrier, 2019-01-01)"] and ana["types"] == ["co-officer"]
 assert ana["tree"] is None and ana["confidence"] == 0.9 and ana["cites"][0]["url"] == "https://records.example/fmcsa/2"
 assert ana["cites"][0]["quote"] == "the FMCSA motor carrier record (2019-01-01)", ana["cites"]
-assert mara["labels"] == ["associate (co-officer in Oregon business (SOS), 2020-05-05)"]
+assert quill["labels"] == ["associate (co-officer in Oregon business (SOS), 2020-05-05)"]
 
-# Same address as one of the subject's records: the record and its date are cited; the address never is (A2), and the
-# person stays unnamed (AN6): what the record names is hers to read, by opening it
-kin, household = unnamed["someone with the subject's surname, at the subject's address"], unnamed["someone else at the subject's address"]
-assert kin["tree"] == "relative" and kin["confidence"] == 0.5 and kin["types"] == ["same address"]
-assert [(c["url"], c["quote"], c["type"]) for c in kin["cites"]] == [
-    ("https://records.example/courts/4", "Pima County court, 2023-02-14", "same address")], kin["cites"]
-assert household["tree"] is None and [c["url"] for c in household["cites"]] == ["https://records.example/licences/5"]
-for leak in ("Nico", "Marta", "Ruiz", "Alder", "Depot", "Pia", "Kim Vell", "Omar", "Dorian J"):
+# Same address as one of the subject's records, or in the household a voter roll lists with them: named in the app
+# (Aaron's decision of 2026-11-01, legal.md), the record and its date cited, the address never shown (A2)
+assert graph._at_address("Nico Vell", True, "X, 2023") == ("Nico Vell", "possible relative (same address in X, 2023)")
+nico, marta, omar = named["Nico Vell"], named["Marta Ruiz"], named["Omar Lund"]
+assert nico["labels"] == ["possible relative (same address in Pima County court, 2023-02-14)",
+                          "possible relative (same address in Florida voter roll, 2026-10-16)"], nico["labels"]
+assert nico["tree"] == "relative" and nico["confidence"] == 0.5 and nico["types"] == ["same address"]
+assert [c["url"] for c in nico["cites"]] == ["https://records.example/courts/4", "https://records.example/voter/9"]
+assert marta["labels"] == ["possible household member (same address in Arizona ROC licence, 2022-08-01)"]
+assert marta["tree"] is None and marta["confidence"] == 0.3
+assert omar["labels"] == ["possible household member (same address in Florida voter roll, 2026-10-16)"]
+for leak in ("Alder", "Depot", "Gulf Breeze", "Pia Vell", "Kim Vell", "Pim Hart", "Dorian J"):
     assert leak not in dump, leak
 assert all(p["cites"] and all("confidence" in c and (c["quote"] or c["url"]) for c in p["cites"]) for p in r["people"])
 
-# Relatives are listed, never searched or seeded (C13, A1): a seed naming one is refused
-hits = graph.conflicts(r["people"], [Seed("name", "Ana Brook"), Seed("name", "Mara Quill"), Seed("name", "Sam Ortiz"),
+# Facebook keeps who a post's header tags, for the counts above
+assert fb_parser._with("is with Mara Quill and 2 others at Iron Harbor Gym.") == "Mara Quill and 2 others"
+assert fb_parser._with(" — with Rafa Ortiz and Kim Vell.") == "Rafa Ortiz and Kim Vell" and fb_parser._with("is at Iron Harbor Gym.") is None
+
+# Relatives and tagged people are listed, never searched or seeded (C13, A1): a seed naming one is refused
+hits = graph.conflicts(r["people"], [Seed("name", "Ana Brook"), Seed("name", "Nico Vell"), Seed("name", "Sol Ardent"),
+                                     Seed("username", "kit.lane"), Seed("username", "mara.vell"), Seed("name", "Sam Ortiz"),
                                      Seed("employer", "Vell Hauling")])  # the subject's own business stays a seed
-assert [s.value for s, _ in hits] == ["Ana Brook", "Mara Quill"], hits
+assert [s.value for s, _ in hits] == ["Ana Brook", "Nico Vell", "Sol Ardent", "kit.lane", "mara.vell"], hits
 
 # Through the app: the People screen's data, and an employment screening that shows no one (A8)
 TOKEN, PORT = "test-token", 8124
@@ -119,7 +166,7 @@ assert c.get(f"/login?t={TOKEN}").status_code == 303
 def case(label, kind):
     k = Case.create(label, "Insurer XYZ claim 9, legitimate interest", kind=kind, subject_residence="US-AZ")
     k.add_seeds(subject, typed=True)
-    for x in cands[1:3] + cands[3:5]:
+    for x in cands[1:7]:
         k.add_finding(Finding(x["found_by"][0], Seed("name", "Dorian Vell"), x["site"], x["url"], x["attrs"]))
         if x["decision"] == "him":
             k.decide(x["url"], "him")
@@ -129,12 +176,15 @@ def case(label, kind):
 claim = case("Vell claim", "insurance")
 people = c.get(f"/api/cases/{claim}/people").json()["people"]
 assert {p["name"] for p in people} >= {"Ana Brook", "Mara Quill"}, people
-assert any(p["tree"] == "relative" and p["types"] == ["same address"] for p in people) and "Alder" not in json.dumps(people)
+# without the posts that make Leo a child, the voter roll's household names him: only posts or an age mark a minor
+assert {p["name"] for p in people if p["tree"] == "relative" and p["types"] == ["same address"]} == {"Nico Vell", "Leo Vell"}
+assert "Alder" not in json.dumps(people) and "Gulf Breeze" not in json.dumps(people)
 assert c.post(f"/api/cases/{claim}/seeds", content=json.dumps({"seeds": ["Ana Brook"]}),
               headers={"origin": BASE, "content-type": "application/json"}).status_code == 409
 said = lambda q: [s["text"] for s in c.get(f"/api/cases/{claim}/report{q}").json()["sentences"] if s["section"] == "people"]
 assert "Ana Brook is a party in the FMCSA motor carrier record (2019-01-01)." in said(""), said("")
-assert not any("Alder" in s or "Nico" in s for s in said(""))  # the subject's own records only, never an address
+assert not any("Alder" in s or "Gulf" in s for s in said(""))  # never an address
+assert "possible relative" not in json.dumps(said("")) and "household" not in json.dumps(said(""))  # app only (D7 as amended)
 assert said("?screening=1") == ["This screening version leaves out the people around the subject."]
 assert "Ana Brook" not in c.get(f"/api/cases/{claim}/report?screening=1").text
 check = case("Vell check", "background")
