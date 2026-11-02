@@ -17,7 +17,7 @@ from dataclasses import asdict
 import httpx
 from PIL import Image
 
-from . import emails, entity, browser, enrich, geo, match, photo
+from . import emails, entity, browser, enrich, geo, match, news, photo
 from .capture import screenshots
 from .case import Case
 from .seed import Seed, now
@@ -63,6 +63,7 @@ async def run(case: Case, seeds: list[Seed], emit, capture: bool = True, pause: 
     await avatars(case, report, emit)
     await compare_faces(case, build(case, places), emit)
     await emails.collect(case, build(case, places), emit)  # what the sites they run publish: leads, never searched unticked
+    await news.collect(case, build(case, places), emit)  # hometown papers naming them with a place, relative or employer
     if capture:
         async with HEAVY:
             await screenshot(case, build(case, places), emit)

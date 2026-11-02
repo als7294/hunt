@@ -69,6 +69,11 @@ def source(name, kinds, make):
     return types.SimpleNamespace(NAME=name, KINDS=kinds, search=search_)
 
 
+
+async def no_news(case, report, emit=None):  # hometown papers have their own check (test_news.py)
+    return 0
+search.news.collect = no_news
+
 search.SOURCES = [
     source("maigret", {"username"}, lambda s: [
         Finding("maigret", s, "Bluesky", "https://bsky.app/profile/kestrel_vane88", {"fullname": "Bob Vance"},
