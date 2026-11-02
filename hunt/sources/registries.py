@@ -10,57 +10,25 @@ directors, members and organisers, with each entity's status). One search per st
 DETAILS entity pages, one at a time with a gap.
 """
 
-import asyncio
-import html
 import re
 
 from ..seed import Finding
-from ._api import Limited, client, tidy
-from ._socrata import _named, day, first_last
+from . import _pages
+from ._api import client, tidy
+from ._pages import cells, get, hidden
+from ._socrata import _named, day
 
 NAME = "registries"
 KINDS = {"name"}
 DETAILS = 10  # entity pages per state per name
-GAP = 1.0  # seconds between requests to one host
 AL = "https://arc-sos.state.al.us"
 KY = "https://sosbes.sos.ky.gov/BusSearchNProfile/Offsearch.aspx"
-WALL = re.compile(r"captcha|cf-chl|just a moment|attention required|access denied|request rejected|enable javascript",
-                  re.I)  # a challenge or bot-wall page: stop, never work around it (C7)
 HEALTH = [f"{AL}/CGI/CORPAGENT.MBR/INPUT", KY]
-
-
-class Blocked(Exception):
-    """The host refused or challenged us: stop asking it this run."""
-
-
-async def _get(c, method: str, url: str, **kw):
-    r = await c.request(method, url, **kw)
-    if r.status_code == 429:
-        raise Limited(f"{r.url.host} rate limit reached")
-    if r.status_code in (401, 403) or (r.status_code == 200 and WALL.search(r.text[:20000])):
-        raise Blocked(f"{r.url.host} refused ({r.status_code}{', a challenge page' if r.status_code == 200 else ''})")
-    r.raise_for_status()
-    return r
-
-
-def _text(fragment: str) -> str:
-    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", fragment))).strip()
-
-
-def _cells(page: str) -> list[list[str]]:
-    """Every table row's cell texts, with each row's first link as a last cell (None if it has none)."""
-    out = []
-    for tr in re.findall(r"<tr.*?</tr>", page, re.S | re.I):
-        cells = [_text(c) for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", tr, re.S | re.I)]
-        link = re.search(r'href="([^"]+)"', tr)
-        if any(cells):
-            out.append(cells + [html.unescape(link[1]) if link else None])
-    return out
 
 
 def _al_detail(page: str, person: str) -> dict:
     """An entity page: label/value rows. The person's street address is the 'Street Address' row after their name."""
-    pairs = [(c[0], c[1]) for c in _cells(page) if len(c) >= 3 and c[1]]
+    pairs = [(c[0], c[1]) for c in cells(page) if len(c) >= 3 and c[1]]
     facts = dict(pairs)
     address = None
     for i, (label, value) in enumerate(pairs):
@@ -79,8 +47,8 @@ def _postal(line: str) -> str:  # "…Montgomery, Al 36104" → "…Montgomery, 
 
 async def _alabama(source, seed, first, last) -> list[Finding]:
     async with client(timeout=30, Accept="text/html") as c:
-        r = await _get(c, "POST", f"{AL}/cgi/corpagent.mbr/output", data={"search": f"{first} {last}", "place": "ALL"})
-        hits = [row for row in _cells(r.text) if len(row) == 5 and row[4] and "corpdetail" in row[4]
+        r = await get(c, "POST", f"{AL}/cgi/corpagent.mbr/output", data={"search": f"{first} {last}", "place": "ALL"})
+        hits = [row for row in cells(r.text) if len(row) == 5 and row[4] and "corpdetail" in row[4]
                 and _named({"name": row[2]}, "name", first, last)]
         found = {}
         for entity_id, business, name, position, href in hits:
@@ -90,8 +58,8 @@ async def _alabama(source, seed, first, last) -> list[Finding]:
                 continue
             attrs, body = {}, r.text
             if len(found) < DETAILS:
-                await asyncio.sleep(GAP)
-                detail = await _get(c, "GET", url)
+                await _pages.sleep()
+                detail = await get(c, "GET", url)
                 attrs, body = _al_detail(detail.text, name), detail.text
             found[url] = Finding(source, seed, "Alabama business entity (SOS)", url,
                                  tidy({"fullname": name, "roles": [position.lower()], "business": business,
@@ -99,21 +67,17 @@ async def _alabama(source, seed, first, last) -> list[Finding]:
         return list(found.values())
 
 
-def _hidden(page: str) -> dict:  # an ASP.NET form's state fields, posted back as the page sent them
-    return dict(re.findall(r'<input type="hidden" name="([^"]+)" id="[^"]*" value="([^"]*)"', page))
-
-
 async def _kentucky(source, seed, first, last) -> list[Finding]:
     """Current Representative Search (officers, directors, members, organisers), active and inactive: one row per role,
     # · Name ("Vance , Robert J.") · Title · Organization Name (linked to its profile) · Status · Org. ID."""
     async with client(timeout=30, Accept="text/html") as c:
-        form = await _get(c, "GET", KY)
-        await asyncio.sleep(GAP)
-        r = await _get(c, "POST", KY, data={**_hidden(form.text), "ctl00$MainContent$tLastName": last,
+        form = await get(c, "GET", KY)
+        await _pages.sleep()
+        r = await get(c, "POST", KY, data={**hidden(form.text), "ctl00$MainContent$tLastName": last,
                                             "ctl00$MainContent$tFirstName": first, "ctl00$MainContent$tMiddleName": "",
                                             "ctl00$MainContent$SrchButt": "Search"})
         found = {}
-        for row in _cells(r.text):
+        for row in cells(r.text):
             if len(row) != 7 or not (row[6] or "").startswith("Profile.aspx") or not _named({"name": row[1]}, "name", first, last):
                 continue
             _, name, title, business, status, org_id, href = row
@@ -131,20 +95,4 @@ STATES = [("Alabama SOS (its robots.txt says Disallow: /)", _alabama), ("Kentuck
 
 
 async def search(seed):
-    if not (named := first_last(seed)):
-        return [], 0, "needs a first and a last name; not searched"
-    first, last = named
-    results = await asyncio.gather(*(fn(NAME, seed, first, last) for _, fn in STATES), return_exceptions=True)
-    found, parts = [], []
-    for (label, _), r in zip(STATES, results):
-        if isinstance(r, (Limited, Blocked)):
-            parts.append(f"{label} stopped: {r}")
-        elif isinstance(r, Exception):
-            parts.append(f"{label} failed ({type(r).__name__})")
-        else:
-            found += r
-            parts.append(f"{label} {len(r)}")
-    answered = sum(not isinstance(r, Exception) for r in results)
-    return found, answered, (f"searched {answered} of {len(STATES)} state registry pages for {first.title()}… {last.title()}"
-                             f" (public pages read logged out under Hunt's User-Agent, legal.md D2): "
-                             + "; ".join(parts))
+    return await _pages.run(NAME, seed, STATES, "state registry pages")

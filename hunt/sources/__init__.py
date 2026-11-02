@@ -52,11 +52,13 @@ SOURCES += [reddit, snapchat, telegram, pinterest, tumblr, medium, substack, lin
             flickr, deviantart, letterboxd, untappd, goodreads]
 
 # Per-state records work (docs/research/tools.md, "State records" and after): one block, so merges stay simple
-from . import discipline, parcels, registries, ucc  # noqa: E402
+from . import boards, discipline, opencorporates, parcels, registries, ucc  # noqa: E402
 SOURCES += [parcels,  # name → property owned (assessors' rolls; Florida's statewide roll indexed on this Mac)
             ucc,  # name → UCC financing statements and liens naming the person (debtor or secured party)
             discipline,  # name → board actions and federal health-program exclusions (the OIG list indexed on this Mac)
-            registries]  # name → state business registries read as public pages, logged out (robots.txt-only by-hand ones)
+            registries,  # name → state business registries read as public pages, logged out (robots.txt-only by-hand ones)
+            boards,  # name → state licensing boards' lookups read as public pages, logged out
+            opencorporates]  # name → company officers in every state (optional: the investigator's own key)
 
 
 def _key_status(src, is_set: bool) -> str:
