@@ -9,7 +9,7 @@ Per round it prints every account Hunt rates likely or better, graded: ✓ yours
 (ask the person); and the accounts that are yours but rated lower (missed), with Hunt's reasons. Nothing from the answer
 key is searched or printed: only the bits given here, and leads found on accounts the key says are certainly yours
 (rules S3/S4, D17 in docs/research/legal.md): through the associate guard and the deny list, at most 3 rounds, each
-audited.
+audited. scripts/train_suite.py runs the same on fixed pairs of bits, for one score to compare.
 """
 
 import argparse
@@ -25,36 +25,43 @@ MAX_ROUNDS = 3
 MARK = {"certain": "✓", "probable": "✓", "not": "✗", None: "?"}
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("bits", nargs="+", help="what Hunt is given, as you'd type it in a case")
-    ap.add_argument("--rounds", type=int, default=2, help=f"rounds of following leads after the first search (≤{MAX_ROUNDS})")
-    a = ap.parse_args()
-    if a.rounds > MAX_ROUNDS:
-        raise SystemExit(f"at most {MAX_ROUNDS} rounds of leads")
+def answer_key() -> dict:
+    """The locked answer key's criteria, with the sources' keys loaded; exits when nothing is locked."""
     cli.load_keys()
     if not profile.status().get("fingerprint"):
         raise SystemExit("lock an answer key first: hunt me")
-    key = profile.load()["criteria"]
-    case = Case.create("train " + " + ".join(a.bits), "Training: the person who runs Hunt, searching for themselves as the "
+    return profile.load()["criteria"]
+
+
+def new_case(bits: list[str]) -> Case:
+    return Case.create("train " + " + ".join(bits), "Training: the person who runs Hunt, searching for themselves as the "
                        "consenting subject, to grade what Hunt finds from a few bits", kind="diligence", tool="person")
-    seeds, start = [s for b in a.bits for s in detect(b)], time.time()
-    for rnd in range(a.rounds + 1):
+
+
+def grade(candidates: list[dict], key: dict) -> dict:
+    """Each account graded against the answer key (profile.judge, in `by_url`), and sorted: `locked`, yours and rated
+    likely or better; `possible`, yours and shown as possibly theirs on Is it them?, to confirm; `missed`, yours but
+    rated unlikely; `wrong`, rated likely or better but not yours; `unknown`, rated likely or better, the key can't tell."""
+    by_url = {c["url"]: profile.judge(c, key) for c in candidates}
+    kind = lambda c: (by_url[c["url"]] or ("",))[0]
+    yours = [c for c in candidates if kind(c) in ("certain", "probable")]
+    likely = [c for c in candidates if search.in_person(c)]
+    return {"by_url": by_url, "locked": [c for c in yours if search.in_person(c)],
+            "possible": [c for c in yours if not search.in_person(c) and c["probability"] >= 0.2],
+            "missed": [c for c in yours if not search.in_person(c) and c["probability"] < 0.2],
+            "wrong": [c for c in likely if kind(c) == "not"], "unknown": [c for c in likely if not by_url[c["url"]]]}
+
+
+def train(case: Case, seeds: list, key: dict, rounds: int):
+    """Search `seeds`, then the leads of the accounts the key says are certainly yours, as if you'd confirmed them
+    (S3, D17), up to `rounds` times more. Yields (round, seeds searched, report, grade(report)) after each search."""
+    for rnd in range(rounds + 1):
         report = asyncio.run(search.run(case, seeds, lambda e: None, capture=False))
-        grade = {c["url"]: profile.judge(c, key) for c in report["candidates"]}
-        likely = [c for c in report["candidates"] if search.in_person(c)]
-        right = sum(bool(grade[c["url"]]) and grade[c["url"]][0] != "not" for c in likely)
-        wrong = sum(bool(grade[c["url"]]) and grade[c["url"]][0] == "not" for c in likely)
-        print(f"\n== round {rnd} ({time.time() - start:.0f}s): searched {[s.value for s in seeds]}; "
-              f"{len(report['candidates'])} accounts; rated likely or better: {len(likely)} "
-              f"({right} yours, {wrong} not yours, {len(likely) - right - wrong} the key can't tell)")
-        for c in likely:
-            g = grade[c["url"]]
-            print(f"  {MARK[g and g[0]]} {c['probability']:.2f} {c['site'][:16]:16} {c['url'][:66]:66} {g[1] if g else ''}")
-        if rnd == a.rounds:
-            break
-        # Leads only from accounts the key says are certainly yours, as if you'd confirmed them (S3, D17)
-        mine = [{**c, "decision": "him"} for c in report["candidates"] if (grade[c["url"]] or ("",))[0] == "certain"]
+        graded = grade(report["candidates"], key)
+        yield rnd, seeds, report, graded
+        if rnd == rounds:
+            return
+        mine = [{**c, "decision": "him"} for c in report["candidates"] if (graded["by_url"][c["url"]] or ("",))[0] == "certain"]
         leads = [x for x in pivot.suggestions({**report, "candidates": mine}) if x["kind"] in ("username", "email", "url")
                  and not (x["kind"] == "url" and denied(x["value"]))][:12]  # C6: never read a denied site
         picked = [(x, s) for x in leads for s in detect(f"{x['kind']}:{x['value']}")]
@@ -66,13 +73,30 @@ def main():
         case.audit("lead round", {"round": rnd + 1, "searched": [{"kind": s.kind, "value": s.value, "source_url": x["source_url"]}
                                                                  for x, s in picked]})  # exactly what goes to search.run
         if not seeds:
-            break
-    yours = [c for c in report["candidates"] if (grade[c["url"]] or ("",))[0] in ("certain", "probable")]
-    possible = [c for c in yours if not search.in_person(c) and c["probability"] >= 0.2]  # on Is it them?, to confirm
-    missed = [c for c in yours if not search.in_person(c) and c["probability"] < 0.2]
-    print(f"\nfound {len(yours)} of your accounts: {len(yours) - len(possible) - len(missed)} rated likely or better, "
-          f"{len(possible)} shown as possibly theirs, {len(missed)} rated unlikely (missed); case {case.name}")
-    for c in missed[:40]:
+            return
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("bits", nargs="+", help="what Hunt is given, as you'd type it in a case")
+    ap.add_argument("--rounds", type=int, default=2, help=f"rounds of following leads after the first search (≤{MAX_ROUNDS})")
+    a = ap.parse_args()
+    if a.rounds > MAX_ROUNDS:
+        raise SystemExit(f"at most {MAX_ROUNDS} rounds of leads")
+    key = answer_key()
+    case, start = new_case(a.bits), time.time()
+    for rnd, seeds, report, g in train(case, [s for b in a.bits for s in detect(b)], key, a.rounds):
+        likely = [c for c in report["candidates"] if search.in_person(c)]
+        print(f"\n== round {rnd} ({time.time() - start:.0f}s): searched {[s.value for s in seeds]}; "
+              f"{len(report['candidates'])} accounts; rated likely or better: {len(likely)} "
+              f"({len(g['locked'])} yours, {len(g['wrong'])} not yours, {len(g['unknown'])} the key can't tell)")
+        for c in likely:
+            x = g["by_url"][c["url"]]
+            print(f"  {MARK[x and x[0]]} {c['probability']:.2f} {c['site'][:16]:16} {c['url'][:66]:66} {x[1] if x else ''}")
+    print(f"\nfound {len(g['locked']) + len(g['possible']) + len(g['missed'])} of your accounts: {len(g['locked'])} rated "
+          f"likely or better, {len(g['possible'])} shown as possibly theirs, {len(g['missed'])} rated unlikely (missed); "
+          f"case {case.name}")
+    for c in g["missed"][:40]:
         print(f"  missed {c['probability']:.2f} {c['site'][:16]:16} {c['url'][:60]:60} {' | '.join(c['reasons'][:2])}")
 
 

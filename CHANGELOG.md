@@ -39,6 +39,7 @@ Changes since 0.1.0: what's new, then what the compliance audit and the decision
   - **The answer key only grades.** It never changes how a case is scored or worded, and nothing in it is searched or sent.
   - **Locked on the Mac:** encrypted, with its key in the Keychain. It's shown once, and afterwards only as a fingerprint and counts.
   - **`hunt doctor` checks it still opens:** its key is in the Keychain and it matches its fingerprint. Nothing it says is shown.
+  - **A scorecard,** `scripts/train_suite.py`: the same training on five pairs of a developer's details (name, handle, state, email), scored as locked + 0.25 × possible − 3 × wrong. It saves only the counts, under `~/Hunt/training/`, and shows the change since the last run.
 
 ### Changed
 - **Facebook is read one profile at a time,** only when you click **Read public preview**, never as part of a batch search.
