@@ -142,6 +142,23 @@ try:
 except LookupError:
     pass
 
+# The app: marking a voter record "him" on Is it them? keeps its household, through the decisions route
+import warnings  # noqa: E402
+warnings.filterwarnings("ignore", message="Using `httpx` with")
+from starlette.testclient import TestClient  # noqa: E402
+from hunt import app as server  # noqa: E402
+BASE = "http://127.0.0.1:8125"
+client = TestClient(server.make_app("t", 8125), base_url=BASE, follow_redirects=False).__enter__()
+client.get("/login?t=t")
+viaapp = Case.create("voter via app", "Test: confirming a voter record in the app", kind="insurance")
+viaapp.add_seeds(seeds)
+asyncio.run(search.fan_out(viaapp, seeds, events.append))
+url = viaapp.rows("select url from findings where source = 'voter'")[0]["url"]
+r = client.post(f"/api/cases/{viaapp.name}/decisions", json={"url": url, "decision": "him"},
+                headers={"origin": BASE, "content-type": "application/json"})
+assert r.status_code == 200, r.text
+assert '"household": ["Jane M Vance"]' in viaapp.rows("select attrs from findings where source = 'voter'")[0]["attrs"]
+
 background = Case.create("voter screen", "Test: no voter data in a background case", kind="background")
 background.add_seeds(seeds)
 asyncio.run(search.fan_out(background, seeds, events.append))

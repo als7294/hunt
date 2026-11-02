@@ -9,10 +9,10 @@ import httpx
 from ..seed import detect
 
 UA = "Hunt/0.1 (+https://github.com/als7294/hunt)"  # as geo.py: says what is asking, never for whom
-# Hosts whose robots.txt denies unnamed agents or that are login-walled (legal.md C1, C6; compliance audit DS2, decision
-# D2 (b)): no automatic request ever goes to them. The investigator opens them herself, from the worklist.
-ROBOTS_DENY = ("facebook.com", "fb.com", "instagram.com", "threads.net", "threads.com", "linkedin.com", "x.com", "twitter.com",
-               "reddit.com", "strava.com", "snapchat.com")
+# Login-walled platforms (legal.md C1): no automatic request ever goes to them; logged out they show a login wall, and
+# the investigator opens them herself, in the Hunt Browser. Since D2 was revised (Aaron, 2026-11-02) robots.txt no longer
+# keeps Hunt off a public page: it reads logged out, under its own name, and stops at the first refusal (C6).
+ROBOTS_DENY = ("facebook.com", "fb.com", "instagram.com", "threads.net", "threads.com", "linkedin.com", "x.com", "twitter.com")
 
 
 def denied(url: str) -> bool:

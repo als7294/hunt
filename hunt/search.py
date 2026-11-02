@@ -30,7 +30,8 @@ HEAVY = asyncio.Lock()  # one heavy job at a time on the machine: Playwright, th
 # ponytail: site default avatars recognised by URL only. Upgrade: remember hashes seen on many
 # unrelated handles across cases and treat those as defaults too.
 DEFAULT_AVATAR = re.compile(r"default|placeholder|blank|anonymous|mystery|[?&]d=mm|identicon|no[-_]?avatar|"
-                            r"avatar[-_]?(?:default|missing)|/defaults?/|silhouette", re.I)
+                            r"avatar[-_]?(?:default|missing)|/defaults?/|silhouette|personalProfileImage", re.I)
+OWN = ("username", "email", "url")  # seeds that name an account outright, as a name never does
 
 
 async def run(case: Case, seeds: list[Seed], emit, capture: bool = True, pause: asyncio.Event | None = None) -> dict:
@@ -295,16 +296,20 @@ def in_person(c: dict) -> bool:
 def avatar_url(attrs: dict) -> str | None:
     """The profile's own picture, unless its URL says it's the site's default one."""
     url = attrs.get("image") or attrs.get("avatar")
+    if isinstance(url, str) and url.startswith("//"):  # a page's protocol-relative link, as Maigret sometimes parses it
+        url = "https:" + url
     return url if isinstance(url, str) and url.startswith("http") and not DEFAULT_AVATAR.search(url) else None
 
 
 async def avatars(case: Case, report: dict, emit, top: int = 40, most: int = 150):
     """Fetch and hash profile photos, so a reused photo can link accounts (hunt/entity.py): the best `top`, and every
-    account that is locked or "possibly theirs" (a handle-only hit), up to `most` in all."""
+    account that is locked or "possibly theirs" (a handle-only hit), up to `most` in all. Hits from the subject's own
+    handle, email or URL go first: in a name-and-handle case the top by probability can be all namesakes."""
     have = {r["url"] for r in case.rows("select url from avatars")}
-    pick = report["candidates"][:top] + [c for c in report["candidates"][top:] if in_person(c) or c["probability"] >= 0.2]
-    todo = list(dict.fromkeys(u for c in pick
-                              if c["decision"] != "not him" and (u := avatar_url(c["attrs"])) and u not in have))[:most]
+    cands = [c for c in report["candidates"] if c["decision"] != "not him"]
+    ordered = sorted(cands, key=lambda c: c["seed"]["kind"] not in OWN)  # stable: by probability within each half
+    pick = ordered[:top] + [c for c in ordered[top:] if in_person(c) or c["probability"] >= 0.2]
+    todo = list(dict.fromkeys(u for c in pick if (u := avatar_url(c["attrs"])) and u not in have))[:most]
     if not todo:
         return
     emit({"type": "log", "message": f"fetching {len(todo)} profile photos"})

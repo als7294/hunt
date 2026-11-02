@@ -6,6 +6,7 @@ no CORS, a strict CSP. Long work runs as jobs whose events stream over SSE.
 """
 
 import asyncio
+import contextlib
 import hashlib
 import hmac
 import importlib
@@ -48,6 +49,7 @@ from . import browser, extension  # docs/capture.md
 from .case import ABROAD, DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, KINDS, RETENTION_DAYS, Case, all_cases, residence  # watch.py reads RETENTION_DAYS here
 from .match import ICD203, norm_url
 from .seed import Seed, detect, now
+from .sources import voter
 
 STATIC = Path(__file__).parent / "static"
 COOKIE = "hunt"
@@ -932,6 +934,9 @@ async def post_decision(req: Request):
         urls = [x["url"] for x in (await search.snapshot(c))["candidates"] if search.in_person(x)] + [""]
     for u in urls:
         c.decide(u, decision, note if isinstance(note, str) else None)
+        if decision == "him" and u.split("#")[0] in voter.BUILT.values():  # a voter record is theirs: keep its household (V5)
+            with contextlib.suppress(LookupError, ValueError, OSError):  # not in this case, or the local table is gone
+                voter.confirm(c, u)
     return JSONResponse({"decision": decision, "accounts": [u for u in urls if u]})
 
 
