@@ -32,8 +32,13 @@ def main():
     contacts = [x.lower() for x in (*crit["emails"], *crit["websites"])] + [re.sub(r"\D", "", p)[-10:] for p in crit["phones"]]
 
     def mine(c) -> bool:
-        flat = str(c["attrs"]).lower()
-        return (_handle(c["url"]) or "").lower() in handles or any(x in flat or x in re.sub(r"\D", "", flat) for x in contacts if x)
+        """Certainly the subject's: one of their handles in the address or as the display name, their email or phone
+        or site listed, or a site saying their email is registered there (an email hit has no handle to show)."""
+        flat, a = str(c["attrs"]).lower(), c["attrs"]
+        shown = {re.sub(r"\W", "", str(a.get(k) or "")).lower() for k in ("fullname", "name", "display_name")}
+        return ((_handle(c["url"]) or "").lower() in handles or bool(shown & {re.sub(r"\W", "", h) for h in handles})
+                or c["seed"]["kind"] == "email" and c["seed"]["value"].lower() in contacts
+                or any(x in flat or x in re.sub(r"\D", "", flat) for x in contacts if x))
 
     case = Case.create("train " + " + ".join(a.bits), "Self-search training: the subject searching himself, as the "
                        "consenting subject, to measure what Hunt finds from a few bits", kind="diligence", tool="person",
