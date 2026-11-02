@@ -16,14 +16,15 @@ User-Agent).
 import asyncio
 import os
 
-from . import (activity, bluesky, businesses, courtlistener, courts, edgar, facebook, fec, fmcsa, github, gravatar,
-               keybase, licences, maigret, mastodon, npi, openpgp, phone, stackexchange, user_scanner, voter, wayback, wmn)
+from . import (activity, bluesky, businesses, courtlistener, courts, edgar, facebook, fec, fmcsa, github, gravatar, holehe,
+               keybase, licences, maigret, mastodon, npi, openpgp, phone, social_analyzer, stackexchange, user_scanner, voter,
+               wayback, wmn)
 from . import athlinks, crossfit, ultrasignup, usapl, utr  # published results, read logged out (_results)
 from ._api import client, probe
 
 # `facebook` is not here (compliance audit DS5): batch search never requests Facebook; the app calls
 # sources.facebook.search for one profile when the investigator asks (docs/facebook.md).
-SOURCES = [maigret, wmn, user_scanner, phone,
+SOURCES = [maigret, wmn, social_analyzer, user_scanner, holehe, phone,
            github, keybase, bluesky, mastodon, stackexchange, wayback,  # username / name → profiles
            gravatar, openpgp,  # email → verified name and accounts
            fec, edgar, npi, courtlistener, courts,  # name → public records (courts.search_links: portals opened by hand)
