@@ -46,27 +46,48 @@ def serve(routes):
     return seen
 
 
+KY_FORM = ('<form method="post" action="./Offsearch.aspx"><input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="vs1" />'
+           '<input type="hidden" name="__EVENTVALIDATION" id="__EVENTVALIDATION" value="ev1" /></form>')
+KY_RESULTS = """<table><tr><td></td></tr><tr><th></th><th>Name</th><th>Title</th><th>Organization Name</th><th>Status</th>
+<th>Org. ID</th></tr>
+<tr><td>0999001</td><td><span>Vance , Robert J. </span></td><td><span>President</span></td>
+<td><a href="Profile.aspx?ctr=999001"><b>VANCE BIRDING LLC</b></a></td><td><span>A-Active - Good</span></td><td>0999001</td></tr>
+<tr><td>0999001</td><td><span>Vance , Robert J. </span></td><td><span>Member</span></td>
+<td><a href="Profile.aspx?ctr=999001"><b>VANCE BIRDING LLC</b></a></td><td><span>A-Active - Good</span></td><td>0999001</td></tr>
+<tr><td>0999002</td><td><span>Vancey , Robert </span></td><td><span>Director</span></td>
+<td><a href="Profile.aspx?ctr=999002"><b>HOLT MAPS INC.</b></a></td><td><span>I-Inactive</span></td><td>0999002</td></tr></table>"""
+
+
 # Alabama: one search, then the matched entity's page once; two roles merge; a namesake (VANCEY) isn't fetched
-seen = serve({"corpagent.mbr/output": (200, RESULTS), "corpdetail.mbr/detail?corp=000999001": (200, DETAIL)})
+seen = serve({"corpagent.mbr/output": (200, RESULTS), "corpdetail.mbr/detail?corp=000999001": (200, DETAIL),
+              "Offsearch.aspx": (200, KY_FORM + KY_RESULTS)})
 found, checked, note = asyncio.run(registries.search(Seed("name", "Robert Vance")))
-assert checked == 1 and len(found) == 1, (found, note)
-f = found[0]
+assert checked == 2 and len(found) == 2, (found, note)
+by = {x.site: x for x in found}
+f = by["Alabama business entity (SOS)"]
 assert f.url == registries.AL + "/cgi/corpdetail.mbr/detail?corp=000999001"
 assert {k: f.attrs[k] for k in ("fullname", "roles", "business", "entity_type", "status", "formed", "business_location",
                                 "address")} == {
     "fullname": "VANCE, ROBERT J", "roles": ["member", "registered agent"], "business": "Vance Birding, LLC",
     "entity_type": "Domestic Limited Liability Company", "status": "Exists", "formed": "2019-03-14",
     "business_location": "MOBILE, AL", "address": "10 Example St Mobile, AL 36602"}, f.attrs
-post = seen[0]
-assert post.method == "POST" and b"search=ROBERT+VANCE" in post.content and post.headers["user-agent"] == _api.UA
-assert [r.url.params.get("corp") for r in seen[1:]] == ["000999001"]
-assert "Alabama SOS 1" in note and "robots.txt asks robots to stay away" in note
+al = [r for r in seen if "arc-sos" in str(r.url)]
+assert al[0].method == "POST" and b"search=ROBERT+VANCE" in al[0].content and al[0].headers["user-agent"] == _api.UA
+assert [r.url.params.get("corp") for r in al[1:]] == ["000999001"]
+ky = by["Kentucky business entity (SOS)"]
+assert ky.url == "https://sosbes.sos.ky.gov/BusSearchNProfile/Profile.aspx?ctr=999001"
+assert (ky.attrs["fullname"], ky.attrs["roles"], ky.attrs["business"], ky.attrs["status"]) == (
+    "Vance , Robert J.", ["member", "president"], "VANCE BIRDING LLC", "A-Active - Good"), ky.attrs
+ky_post = next(r for r in seen if "Offsearch" in str(r.url) and r.method == "POST")
+assert b"__VIEWSTATE=vs1" in ky_post.content and b"tLastName=VANCE" in ky_post.content
+assert "Alabama SOS (its robots.txt says Disallow: /) 1" in note and "legal.md D2" in note
 
 # A challenge page or a 403 stops the host and says so; nothing is retried
 for answer_ in [(200, "<html><title>Just a moment...</title>cf-chl</html>"), (403, "Forbidden")]:
-    seen = serve({"corpagent.mbr/output": answer_})
+    seen = serve({"corpagent.mbr/output": answer_, "Offsearch.aspx": (200, KY_FORM)})
     found, checked, note = asyncio.run(registries.search(Seed("name", "Robert Vance")))
-    assert not found and checked == 0 and "Alabama SOS stopped: arc-sos.state.al.us refused" in note and len(seen) == 1, note
+    assert not found and checked == 1 and "Alabama SOS (its robots.txt says Disallow: /) stopped: arc-sos.state.al.us refused" in note, note
+    assert sum("arc-sos" in str(r.url) for r in seen) == 1
 assert asyncio.run(registries.search(Seed("name", "Cher")))[:2] == ([], 0)
 
 if "--live" in sys.argv:

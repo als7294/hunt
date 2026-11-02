@@ -2,10 +2,11 @@
 the person is an officer, agent, incorporator or member of.
 
 For registries with no open data whose search page is public, logged out and free of CAPTCHAs,
-which were by hand only because robots.txt asks automated agents to stay away (legal.md C6,
-revised D2: Hunt reads them under its own User-Agent, says so in the note, and stops a host at the
+which were by hand only because robots.txt asks automated agents to stay away or because they
+are forms (legal.md C6, revised D2: Hunt reads them under its own User-Agent, says so in the note, and stops a host at the
 first 403, 429, login wall, CAPTCHA or bot-wall page). Covered: Alabama (officer, agent and
-incorporator search, then each entity's page). One search per state per name, then at most
+incorporator search, then each entity's page) and Kentucky (current representatives: officers,
+directors, members and organisers, with each entity's status). One search per state per name, then at most
 DETAILS entity pages, one at a time with a gap.
 """
 
@@ -22,9 +23,10 @@ KINDS = {"name"}
 DETAILS = 10  # entity pages per state per name
 GAP = 1.0  # seconds between requests to one host
 AL = "https://arc-sos.state.al.us"
+KY = "https://sosbes.sos.ky.gov/BusSearchNProfile/Offsearch.aspx"
 WALL = re.compile(r"captcha|cf-chl|just a moment|attention required|access denied|request rejected|enable javascript",
                   re.I)  # a challenge or bot-wall page: stop, never work around it (C7)
-HEALTH = [f"{AL}/CGI/CORPAGENT.MBR/INPUT"]
+HEALTH = [f"{AL}/CGI/CORPAGENT.MBR/INPUT", KY]
 
 
 class Blocked(Exception):
@@ -97,7 +99,35 @@ async def _alabama(source, seed, first, last) -> list[Finding]:
         return list(found.values())
 
 
-STATES = [("Alabama SOS", _alabama)]  # (label, search): robots.txt on every host here asks robots to stay away
+def _hidden(page: str) -> dict:  # an ASP.NET form's state fields, posted back as the page sent them
+    return dict(re.findall(r'<input type="hidden" name="([^"]+)" id="[^"]*" value="([^"]*)"', page))
+
+
+async def _kentucky(source, seed, first, last) -> list[Finding]:
+    """Current Representative Search (officers, directors, members, organisers), active and inactive: one row per role,
+    # · Name ("Vance , Robert J.") · Title · Organization Name (linked to its profile) · Status · Org. ID."""
+    async with client(timeout=30, Accept="text/html") as c:
+        form = await _get(c, "GET", KY)
+        await asyncio.sleep(GAP)
+        r = await _get(c, "POST", KY, data={**_hidden(form.text), "ctl00$MainContent$tLastName": last,
+                                            "ctl00$MainContent$tFirstName": first, "ctl00$MainContent$tMiddleName": "",
+                                            "ctl00$MainContent$SrchButt": "Search"})
+        found = {}
+        for row in _cells(r.text):
+            if len(row) != 7 or not (row[6] or "").startswith("Profile.aspx") or not _named({"name": row[1]}, "name", first, last):
+                continue
+            _, name, title, business, status, org_id, href = row
+            url = f"{KY.rsplit('/', 1)[0]}/{href}"
+            if url in found:
+                found[url].attrs["roles"] = sorted(set(found[url].attrs["roles"]) | {title.lower()})
+            else:
+                found[url] = Finding(source, seed, "Kentucky business entity (SOS)", url,
+                                     tidy({"fullname": name, "roles": [title.lower()], "business": business, "status": status,
+                                           "entity_id": org_id}), body=r.text)
+        return list(found.values())
+
+
+STATES = [("Alabama SOS (its robots.txt says Disallow: /)", _alabama), ("Kentucky SOS", _kentucky)]  # (label, search)
 
 
 async def search(seed):
@@ -116,5 +146,5 @@ async def search(seed):
             parts.append(f"{label} {len(r)}")
     answered = sum(not isinstance(r, Exception) for r in results)
     return found, answered, (f"searched {answered} of {len(STATES)} state registry pages for {first.title()}… {last.title()}"
-                             f" (logged out, Hunt's User-Agent; their robots.txt asks robots to stay away): "
+                             f" (public pages read logged out under Hunt's User-Agent, legal.md D2): "
                              + "; ".join(parts))
