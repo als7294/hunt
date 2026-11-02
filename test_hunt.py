@@ -283,4 +283,32 @@ for extra, ok in (([], False), (["--kind", "diligence"], True)):
 sys.argv = argv
 assert Case.open("cli-kind-check").details()["kind"] == "diligence"
 
+# A big case's locations take minutes to place (OpenStreetMap allows one a second), so the search says how far it
+# has got, about once a second, and sends the likely accounts before placing starts, not after
+geo_cache, saved_locate, saved_every, saved_sources = search.geo._load(), search.geo.locate, search.PLACES_EVERY, search.SOURCES
+
+
+async def slow_locate(texts):
+    for t in texts:
+        await asyncio.sleep(0.03)
+        geo_cache[search.geo._queries(t)[0]] = []  # as locate does: each answer lands in geo's cache
+    return dict.fromkeys(texts)
+search.geo.locate, search.PLACES_EVERY, search.SOURCES = slow_locate, 0.01, []
+places_case = Case("placing progress", "Test: progress while placing")
+places_case.add_seeds([Seed("username", "kestrel_vane88"), Seed("location", "Testville 0, Nowhere")])
+for i in range(1, 6):
+    places_case.add_finding(Finding("maigret", Seed("username", "kestrel_vane88"), f"Site{i}", f"https://site{i}.example/kestrel_vane88",
+                                    {"location": f"Testville {i}, Nowhere"}))
+got = []
+asyncio.run(search.run(places_case, [], got.append, capture=False))
+search.geo.locate, search.PLACES_EVERY, search.SOURCES = saved_locate, saved_every, saved_sources
+for i in range(6):
+    geo_cache.pop(search.geo._queries(f"Testville {i}, Nowhere")[0], None)
+kinds = [e["type"] for e in got]
+progress = [e for e in got if e["type"] == "places"]
+assert kinds.index("account") < kinds.index("places"), kinds  # the accounts first, then the placing
+assert progress[0]["total"] == 6 and progress[-1] == {"type": "places", "done": 6, "total": 6, "left_s": 0}, progress
+assert len(progress) >= 3 and [e["done"] for e in progress] == sorted(e["done"] for e in progress), progress
+assert progress[0]["left_s"] == 6 - progress[0]["done"]  # a floor: one second per string still to ask
+
 print("ok")
