@@ -87,7 +87,7 @@ def day(value) -> str | None:
         return (datetime(1970, 1, 1) + timedelta(milliseconds=int(v))).date().isoformat()
     if re.fullmatch(r"\d{8}", v):  # mmddccyy, or ccyymmdd when the first two digits can't be a month
         return f"{v[4:]}-{v[:2]}-{v[2:4]}" if v[:2] <= "12" else f"{v[:4]}-{v[4:6]}-{v[6:]}"
-    if m := re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{4})", v):
+    if m := re.fullmatch(r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})", v):  # 1/31/2026, or WCCA's 01-31-2026
         return f"{m[3]}-{int(m[1]):02}-{int(m[2]):02}"
     if (m := re.fullmatch(r"(\d{1,2})-([A-Za-z]{3})-(\d{2})", v)) and m[2].upper() in MONTHS:
         year = 2000 + int(m[3])

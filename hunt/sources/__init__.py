@@ -16,7 +16,8 @@ User-Agent).
 import asyncio
 import os
 
-from . import (activity, bluesky, businesses, courtlistener, courts, edgar, facebook, fec, fmcsa, github, gravatar, holehe,
+from . import (activity, bluesky, businesses, courtlistener, courts, courts_az, courts_ct, courts_fl, courts_ga, courts_mi, courts_oh,
+               courts_ok, courts_pa, courts_tx, courts_wi, edgar, facebook, fec, fmcsa, github, gravatar, holehe,
                keybase, licences, maigret, mastodon, npi, openpgp, phone, social_analyzer, stackexchange, user_scanner, voter,
                wayback, wmn)
 from . import athlinks, crossfit, ultrasignup, usapl, utr  # published results, read logged out (_results)
@@ -31,7 +32,9 @@ SOURCES = [maigret, wmn, social_analyzer, user_scanner, holehe, phone,
            licences, businesses, fmcsa,  # name → work and driving records
            activity,  # name → published competition results (a local copy of OpenPowerlifting; activity.search_links for the rest)
            athlinks, ultrasignup, usapl, crossfit, utr,  # name → race finishes, ultras, USAPL meets, CrossFit ranks, UTR ratings
-           voter]  # name → registered voters, from a state's own extract indexed on this Mac (Florida)
+           voter,  # name → registered voters, from a state's own files indexed on this Mac (FL, NC, OH)
+           # court portals read logged out under C6 (revised D2, 2026-11-02): public, no login, no CAPTCHA; a refusal stops the host
+           courts_fl, courts_pa, courts_ct, courts_ok, courts_tx, courts_mi, courts_ga, courts_oh, courts_az, courts_wi]
 
 # Family-tree sources (legal.md D25, C6): name → memorials and wedding registries, read logged out, with the family
 # each lists. Their relatives reach the tree only once the record matches the subject by name plus place or date;

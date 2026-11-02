@@ -70,6 +70,9 @@ RECORDS = {"fec": "FEC itemized political contributions", "edgar": "SEC EDGAR fi
            "npi": "the NPI healthcare provider registry", "courtlistener": "federal court dockets in CourtListener's RECAP archive",
            "licences": "state occupational and professional licences", "businesses": "state business registries",
            "fmcsa": "the FMCSA motor-carrier census", "courts": "state, county and city court records published as open data",
+           **{f"courts_{st}": f"{name}'s public court portals" for st, name in (("pa", "Pennsylvania"), ("fl", "Florida"), ("ct", "Connecticut"),
+                                                                            ("ok", "Oklahoma"), ("tx", "Texas"), ("mi", "Michigan"), ("ga", "Georgia"),
+                                                                            ("oh", "Ohio"), ("az", "Arizona"), ("wi", "Wisconsin"))},
            "activity": "published powerlifting results (OpenPowerlifting)", "voter": "the states' voter files (Florida, North Carolina, Ohio)",
            "news": "newspaper stories (Chronicling America, Internet Archive, GDELT) naming them with a place, relative or employer"}
 # Screening (employment) mode leaves these sources out entirely: what they reveal is protected in several states
@@ -800,7 +803,7 @@ def _screened(c: dict) -> bool:
     if src in SCREENED:
         return True
     text = " ".join(str(c["attrs"].get(k) or "") for k in ("case", "case_type", "nature_of_suit", "cause"))
-    return src in ("courtlistener", "courts") and bool(SENSITIVE_CASE.search(text) or PROTECTED.search(text))
+    return bool(src) and src.startswith("court") and bool(SENSITIVE_CASE.search(text) or PROTECTED.search(text))  # courtlistener, courts, courts_*
 
 
 def minors(case: Case, posts: list[dict], candidates: list[dict] | None = None):
@@ -823,7 +826,7 @@ def _summary(c: dict, injury: str | None = None, screening: bool = False) -> str
     """What a public record says, in one line, from the fields its source sets; with the injury date, the
     competition results after it. Screening gives a court record's court and docket only: its caption names others."""
     a, src = c["attrs"], _record(c)
-    if screening and src in ("courtlistener", "courts"):
+    if screening and src and src.startswith("court"):
         return ", ".join(str(b) for b in (a.get("court"), f"docket {a['docket_number']}" if a.get("docket_number") else None) if b) \
             or c["site"]
     bits = []
@@ -864,7 +867,7 @@ def _summary(c: dict, injury: str | None = None, screening: bool = False) -> str
         bits = [a.get("case"), f"{a['court']}, docket {a.get('docket_number')}" if a.get("court") else None,
                 f"filed {a['filed']}" if a.get("filed") else None, f"terminated {a['terminated']}" if a.get("terminated") else None,
                 f"nature of suit: {a['nature_of_suit']}" if a.get("nature_of_suit") else None]
-    elif src == "courts":
+    elif src == "courts" or (src or "").startswith("courts_"):
         bits = [a.get("case"), a.get("case_type"), f"as {' and '.join(a['roles'])}" if a.get("roles") else None, a.get("court"),
                 f"docket {a['docket_number']}" if a.get("docket_number") else None, f"filed {a['filed']}" if a.get("filed") else None,
                 a.get("status"), a.get("disposition"), f"employer {a['employer']}" if a.get("employer") else None, a.get("location")]
