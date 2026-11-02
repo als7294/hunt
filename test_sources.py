@@ -438,7 +438,8 @@ seen = serve({**{f"resource/{k}.json": (200, v) for k, v in rows.items()}, "pzzh
               "data.delaware.gov": (429, {"message": "slow down"}), "/resource/": (200, [])})
 found, checked, note = run(licences, "name", "Robert J. Vance Jr.")
 by = {f.site: f for f in found}
-assert len(found) == 5 and checked == 9, (len(found), checked, note)
+answering = [d for d in licences.DATASETS if d.id != "pzzh-kp68" and d.domain != "data.delaware.gov"]  # IL fails, DE 429s
+assert len(found) == 5 and checked == len(answering), (len(found), checked, note)
 tx = by["Texas TDLR licence"]
 assert (tx.attrs["fullname"], tx.attrs["expires"], tx.attrs["roles"]) == ("VANCE, ROBERT J", "2027-01-31", ["licence holder"])
 assert tx.url == "https://data.texas.gov/resource/7358-krk7.json?license_number=TACLA1"
