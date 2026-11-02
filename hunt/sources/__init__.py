@@ -30,6 +30,14 @@ SOURCES = [maigret, wmn, user_scanner, phone,
            activity,  # name → published competition results (a local copy of OpenPowerlifting; activity.search_links for the rest)
            voter]  # name → registered voters, from a state's own extract indexed on this Mac (Florida)
 
+# Family-tree sources (legal.md D25, C6): name → memorials and wedding registries, read logged out, with the family
+# each lists. Their relatives reach the tree only once the record matches the subject by name plus place or date;
+# never run on a background case (A8). Legacy.com, TributeArchive and Dignity Memorial refuse Hunt (403); Echovita
+# searches by POST only; FamilySearch needs sign-in; Zola's results come from a client-side API: none is read.
+from . import findagrave, knot  # noqa: E402
+
+SOURCES += [findagrave, knot]  # name → Find a Grave memorials, The Knot wedding registries
+
 
 def _key_status(src, is_set: bool) -> str:
     if not getattr(src, "KEY", None):
