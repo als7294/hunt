@@ -294,6 +294,17 @@ _Checked 2026-11-02. Method: the Socrata catalogue for parcel, assessment, tax-r
 
 **Not surfaced by default:** as for officers, show the town and the parcel; the street is one click away (the report decides).
 
+## UCC filings and discipline
+
+_Checked 2026-11-02 (Socrata catalogue; the OIG's download page). No person's name was searched._
+
+| Source | Tables | Record carries |
+|---|---|---|
+| `ucc` | Colorado UCC debtors (`8upq-58vz`) and farm-products financing statements (`ej2c-jkvh`); Connecticut UCC and lien filings (`xfev-8smz`), the person as debtor or as secured party | `roles` (debtor, additional debtor, secured party), `filing`, `lien`, `filing_type`, `status`, `filed`, `lapses`, the other party (`secured_party` or `debtor`), `collateral`, `address`, `location` |
+| `discipline` | HHS-OIG List of Excluded Individuals/Entities (a local table: `… update us-leie`, 11 MB, monthly; individuals only, with **date of birth**); NY Board for Professional Medical Conduct (`ebmi-8ctw`, with year of birth); Delaware DPR (`dz6p-akeq`); Connecticut DCP and real-estate decisions (`2twc-xaxs`, `9ky9-v9uu`); NYC Buildings licensees (`ndq3-kuef`) and process servers (`b9yk-4pzk`) | `action`, `effective` (and `until`, `reinstated`), `licence`, `licence_number`, `case`, `decided`, `document` (the decision), `dob` or `year_of_birth`, `npi`; one record per action |
+
+Not built: Connecticut DPH hearing decisions (`262e-rymj`, empty on 2026-11-02); SAM.gov exclusions (an API key); every other state's UCC search (by-hand forms or paid bulk, as for the business registries above) and board actions (PDF lists or lookups). Florida's federal tax liens are in Sunbiz's quarterly files (`flr`), behind the same shared login as its corporate data: a candidate for the investigator's own download.
+
 ## Court records
 
 _Checked 2026-10-29. Method: the Socrata discovery API for court, docket, litigation, judgment, warrant and hearing tables with a party-name column (catalogue metadata only, then three sample rows of each candidate); ArcGIS Hub's dataset search; each portal's `robots.txt`, then one GET of its search page with Hunt's User-Agent where robots allowed it; the terms pages that answer to a script. "WAF 403" means the portal refused Hunt's honest request outright. Nothing here was fetched past a 403, a CAPTCHA or a robots.txt disallow._

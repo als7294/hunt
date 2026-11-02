@@ -31,8 +31,10 @@ SOURCES = [maigret, wmn, user_scanner, phone,
            voter]  # name → registered voters, from a state's own extract indexed on this Mac (Florida)
 
 # Per-state records work (docs/research/tools.md, "State records" and after): one block, so merges stay simple
-from . import parcels  # noqa: E402
-SOURCES += [parcels]  # name → property owned (assessors' rolls; Florida's statewide roll indexed on this Mac)
+from . import discipline, parcels, ucc  # noqa: E402
+SOURCES += [parcels,  # name → property owned (assessors' rolls; Florida's statewide roll indexed on this Mac)
+            ucc,  # name → UCC financing statements and liens naming the person (debtor or secured party)
+            discipline]  # name → board actions and federal health-program exclusions (the OIG list indexed on this Mac)
 
 
 def _key_status(src, is_set: bool) -> str:
