@@ -51,11 +51,19 @@ COMMON = 0.2  # a handle a stranger holds this often on a site is common: a plac
 
 
 BIO_KEYS = ("bio", "description", "about", "headline")
+POSTS_PLACE = "_posts_place"  # search.py puts post_place() here, for accounts whose posts were collected
+POSTS_AGREE = 2  # posts that must state a place before it counts: one could be a trip
 
 
-class FromBio(str):
-    """A place the profile's bio states, not its location field: the reason reads "bio says 'Florida'"."""
+class Said(str):
+    """A place a profile states outside its location field. .said opens its reason: "bio says 'Florida'",
+    "3 posts say 'Tampa, FL'"."""
     said = "bio says"
+
+    def __new__(cls, place: str, said: str = "bio says"):
+        s = super().__new__(cls, place)
+        s.said = said
+        return s
 
 
 def place_text(attrs: dict) -> str:
@@ -63,7 +71,8 @@ def place_text(attrs: dict) -> str:
 
     Placeholder fields are dropped first ('N/A' + country 'US' → 'US'); geo.locate only
     sees whole strings, so it can't strip a joke part from a real one. With no location,
-    the place its bio clearly states (geo.bio_place), as a FromBio.
+    the place its bio clearly states (geo.bio_place), else the one its posts state
+    (attrs[POSTS_PLACE]), as a Said.
     """
     if attrs.get("address"):  # a record's street address, with its town and state when it leaves them out
         out = str(attrs["address"]).strip()  # (NPI and FMCSA keep "City, ST" in location; others in city and state)
@@ -74,7 +83,24 @@ def place_text(attrs: dict) -> str:
     parts = [str(attrs[k]).strip() for k in ("location", "city", "state", "country") if attrs.get(k)]
     if out := ", ".join(p for p in parts if " ".join(p.lower().split()) not in geo.NOT_PLACES | {""}):
         return out
-    return next((FromBio(p) for k in BIO_KEYS if (p := geo.bio_place(str(attrs.get(k) or "")))), "")
+    bio = next((Said(p) for k in BIO_KEYS if (p := geo.bio_place(str(attrs.get(k) or "")))), "")
+    return bio or attrs.get(POSTS_PLACE) or ""
+
+
+def post_place(posts: list[dict]) -> str:
+    """The place an account's posts state (a caption's clear place by geo.bio_place, or a Facebook
+    check-in's), when at least POSTS_AGREE posts state it and no other place is stated as often, as a Said
+    ("3 posts say"); '' otherwise. Captions never leave the machine; only that place is geocoded."""
+    said = {}
+    for p in posts:
+        if place := geo.bio_place(str((p.get("extra") or {}).get("place") or "")) or geo.bio_place(p.get("text") or ""):
+            q = (geo._queries(place) or [place.lower()])[0]
+            same = (hit := geo._local(q)) and hit[0]["display_name"]  # '#florida', 'FL' and 'Sunshine State' are one place
+            said.setdefault(same or q, []).append(place)
+    ranked = sorted(said.values(), key=len, reverse=True)
+    if not ranked or len(ranked[0]) < POSTS_AGREE or len(ranked) > 1 and len(ranked[1]) == len(ranked[0]):
+        return ""
+    return Said(ranked[0][0], f"{len(ranked[0])} posts say")
 
 
 def username_u(handle: str, taken: tuple[int, int] | None = None) -> tuple[float, str]:

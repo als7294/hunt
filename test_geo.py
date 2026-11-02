@@ -187,20 +187,40 @@ assert geo._local("georgia") is geo._local("washington") is geo._local("new york
 assert geo._local("georgia, united states")[0]["address"]["ISO3166-2-lvl4"] == "US-GA"
 
 # A place a bio states: only a piece of it that is wholly a place, or one after a marker. All bios here are made up.
+TX_FLAG = "\U0001F3F4" + "".join(chr(0xE0000 + ord(c)) for c in "ustx") + "\U000E007F"  # 🏴 tagged 'us' 'tx'
 said = {
     "Ceramicist\nKilns + Glazes\n🌴 Florida 🌴": "Florida",  # a line, with its decorations stripped
     "Trail runner | Tampa, FL | she/her": "Tampa, FL", "Barista • Tampa FL": "Tampa, FL",
     "Sound tech / gigs, SLC. dm me": "SLC", "🗺 NYC": "NYC", "Weekend sailor. PNW": "PNW", "SoCal surfer · SoCal": "SoCal",
     "Hi! I live in Vermont with two dogs": "Vermont", "Welder living in Ohio. Union 55": "Ohio",
     "📍 St. Petersburg, Florida | coffee": "St. Petersburg, Florida", "Reporter, Boise-based": "Boise",
-    "Illustrator based in London": "London",  # after a marker any GeoNames place, asked like a location field
+    "Illustrator based in London": "London",  # after a marker of where they live, any GeoNames place
+    # nicknames, demonyms, city shorthands, regions, hashtags, area codes and flags
+    "Proud Texan": "Texan", "Native Floridian 🌴": "Floridian", "Sunshine State": "Sunshine State", "Philly ✈️": "Philly",
+    "ATX | tacos": "ATX", "NOLA": "NOLA", "the Windy City": "the Windy City", "Proud New Yorker": "New Yorker",
+    "Hoosier, always": "Hoosier", "South Florida": "South Florida", "upstate NY | maker": "upstate NY",
+    "#TampaBay sunsets": "#TampaBay", "#florida #beach": "#florida", "the 813 💙": "the 813", "#802 forever": "#802",
+    TX_FLAG + " ranch life": "Texas", "🏠 Clearwater, FL": "Clearwater, FL", "St. Pete": "St. Pete",
+    # where they're from, after a residence would have won: 'Tampa native', 'from Ohio'
+    "Tampa native": "Tampa", "From Ohio, now elsewhere": "Ohio", "Originally from Boise, now in Denver": "Denver",
+    "Boise-born": "Boise", "Husband. Hiker. Native New Mexican": "New Mexican",
+    "Moving day in Asheville, NC 🏔": "Asheville, NC",  # the town before a state code, not the code alone
 }
 for bio, place in said.items():
     assert geo.bio_place(bio) == place, (bio, geo.bio_place(bio))
-for bio in ("Washington Commanders fan", "Proud Texan", "Me", "OK then", "OH!", "#Florida #Texas", "fl", "Plant-based cook",
-            "Living in the moment", "Senator for Montana", "Native New Mexican", "From Ohio, now elsewhere", "Georgia peach fan",
-            "Writer | Iowa product", "Earth", "LA writer and Iowa product"):
+for bio in ("Washington Commanders fan", "Texans fan", "Golden State Warriors fan", "Sunshine State girl", "Me", "OK then",
+            "OH!", "#me", "fl", "Nola", "Kc", "Plant-based cook", "React Native dev", "Living in the moment",
+            "Senator for Montana", "Georgia peach fan", "Georgian", "USA", "🇺🇸", "Native American", "360 video",
+            "born in 1990", "away from Twitter", "Messages from God", "Writer | Iowa product", "Earth",
+            "LA writer and Iowa product"):
     assert geo.bio_place(bio) is None, (bio, geo.bio_place(bio))
+for said_as, query in (("Texan", "texas, united states"), ("Philly", "philadelphia, pa"), ("#TampaBay", "tampa, fl"),
+                       ("the 813", "florida, united states"), ("#802", "vermont, united states"), ("NOLA", "new orleans, louisiana")):
+    assert geo._queries(said_as)[0] == query and geo._local(query), said_as  # and placed on this Mac
+assert geo._local("south florida")[0]["address"]["ISO3166-2-lvl4"] == "US-FL" and geo._local("upstate ny")
+assert [geo._local(s)[0]["address"]["ISO3166-2-lvl4"] for s in ("north carolina", "west virginia", "north carolina, usa")] \
+    == ["US-NC", "US-WV", "US-NC"]  # a direction that is part of the state's name
+assert geo._area_code("365") is None and geo._area_code("100") is None  # Ontario's; no such code
 
 # place_text takes the bio's place only when the profile has no location, and says so in the reason
 assert match.place_text({"bio": "🌴 Florida 🌴", "location": "Boise, ID"}) == "Boise, ID"
@@ -211,6 +231,21 @@ seeds = [Seed("username", "glazequeen"), Seed("location", "Tampa, FL")]
 places = asyncio.run(geo.locate(["Tampa, FL", "Florida"]))
 why = match.score(Seed("username", "glazequeen"), "https://site.test/glazequeen", bio, seeds, places=places)[2]
 assert any("bio says 'Florida' is in the same region as 'Tampa, FL'" in w for w in why), why
+
+# Captions: a place counts when at least two posts state it and none other as often; one trip doesn't
+post = lambda text, place=None: {"text": text, "extra": {"place": place} if place else None}
+assert match.post_place([post("Clay day"), post("Paris! 📍 Paris"), post("Kiln day")]) == ""  # one post: maybe a trip
+bay = [post("Sunset over the bay #TampaBay"), post("Moving day in Tampa, FL 🌴"), post("📍 Paris")]
+assert match.post_place(bay) == "#TampaBay" and match.post_place(bay).said == "2 posts say"  # one town, two ways
+home = [post("Kiln opening #florida"), post("Beach day 🌴 Florida"), post("Sunshine State 🌞"), post("📍 Paris")]
+assert match.post_place(home) == "#florida" and match.post_place(home).said == "3 posts say"  # one state, three ways
+assert match.post_place([post("New mugs", "Tampa, Florida"), post("Glaze test", "Tampa, Florida")]) == "Tampa, Florida"
+assert match.post_place([post("Ohio 🌽"), post("Ohio 🏈"), post("Texas!"), post("Texas 🤠")]) == ""  # a tie
+account = {"fullname": "Rae Okafor", match.POSTS_PLACE: match.post_place(home)}
+assert match.place_text(account) == "#florida" and match.place_text(account | {"bio": "Ohio"}) == "Ohio"  # bio first
+places = asyncio.run(geo.locate(["Tampa, FL", "#florida"]))
+why = match.score(Seed("username", "glazequeen"), "https://site.test/glazequeen", account, seeds, places=places)[2]
+assert any("3 posts say '#florida' is in the same region as 'Tampa, FL'" in w for w in why), why
 
 n = len(calls)
 asyncio.run(geo.locate(["Tucson", "Pale Blue Dot", "Washington", "Tampa, FL"]))

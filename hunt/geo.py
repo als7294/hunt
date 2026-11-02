@@ -1,24 +1,24 @@
 """Free-text place strings → coordinates, so 'Phoenix' and 'Scottsdale, AZ' can be compared.
 
-What leaves the machine: nothing for a US town given with its state ("Tampa, FL",
-"St. Petersburg, Florida, USA", or the town of a public record's "123 Main St, Tampa,
-FL 33601"), a US state ("Florida", "FL", "SoCal") or the US itself. Those are looked up on
-this Mac in GeoNames' cities1000 table, which the reverse_geocoder package ships
-(geonames.org, CC BY 4.0: credit GeoNames wherever such a Place's label is shown; its raw
-hit says "source": "GeoNames"). That was 267 of the 329 place strings in a Florida
-training case. Everything else is a place name sent to OpenStreetMap's public Nominatim
-(nominatim.openstreetmap.org, run by the OSM Foundation), through HUNT_PROXY if set: a
-profile's location field as written; for a profile with none, the place its bio states
-(bio_place), never the bio itself; and for a street address the table can't place, only
-its town and state, "tampa, fl". A street, house number, suite or ZIP code never leaves
-the machine, and a street line with no town isn't sent at all. The table doesn't answer,
-and Nominatim is asked as before, for a town without a state ("Springfield", or a bio's
-"Sacramento-based"), a town under 1,000 people, two towns of one name in one state, a
-state code that is also a country's ("London, CA"), or a bare name that is more than a
-state ("Georgia", "Washington", "New York"). Each query is sent at
-most once: every answer, "no such place" included, is cached in
-~/Hunt/cache/geocode.json, so records in the same town share one lookup. We follow the
-usage policy (operations.osmfoundation.org/policies/nominatim): at most 1
+What leaves the machine: nothing for a US town given with its state ("Tampa, FL", "St.
+Petersburg, Florida, USA", or the town of a public record's "123 Main St, Tampa, FL 33601"),
+a US state ("Florida", "FL", "SoCal", "Sunshine State", "Texan", "the 813") or the US
+itself. Those are looked up on this Mac in GeoNames' cities1000 table, which the
+reverse_geocoder package ships (geonames.org, CC BY 4.0: credit GeoNames wherever such a
+Place's label is shown; its raw hit says "source": "GeoNames"). That was 269 of the 333
+place strings in a Florida training case. Everything else is a place name sent to
+OpenStreetMap's public Nominatim (nominatim.openstreetmap.org, run by the OSM Foundation),
+through HUNT_PROXY if set: a profile's location field as written; for a profile with none,
+the place its bio states, or else its collected posts' captions (bio_place), never the bio
+or a caption itself; and for a street address the table can't place, only its town and
+state, "tampa, fl". A street, house number, suite or ZIP code never leaves the machine, and
+a street line with no town isn't sent at all. The table doesn't answer, and Nominatim is
+asked as before, for a town without a state ("Springfield", or a bio's "Sacramento-based"),
+a town under 1,000 people, two towns of one name in one state, a state code that is also a
+country's ("London, CA"), or a bare name that is more than a state ("Georgia", "Washington",
+"New York"). Each query is sent at most once: every answer, "no such place" included, is
+cached in ~/Hunt/cache/geocode.json, so records in the same town share one lookup. We follow
+the usage policy (operations.osmfoundation.org/policies/nominatim): at most 1
 request/second, an identifying User-Agent, no bulk lists. Nominatim's results are ©
 OpenStreetMap contributors (ODbL): credit them wherever a Place's label is shown.
 
@@ -97,6 +97,56 @@ ALIASES = {code: f"{name}, united states" for code, name in STATES.items()} | {
     "socal": "california, united states", "norcal": "california, united states", "pnw": "united states",
     "nyc": "new york, ny",
 }
+# More ways people name a state or city, in a location field, a bio or a caption: nicknames, demonyms
+# ('Proud Texan'; not Georgian, Hawaiian or Washingtonian, which mean more) and city shorthands.
+ALIASES |= {k: f"{state}, united states" for k, state in {
+    "sunshine state": "florida", "lone star state": "texas", "golden state": "california", "empire state": "new york",
+    "garden state": "new jersey", "keystone state": "pennsylvania", "buckeye state": "ohio", "bluegrass state": "kentucky",
+    "peach state": "georgia", "show me state": "missouri", "show-me state": "missouri", "hoosier state": "indiana",
+    "volunteer state": "tennessee", "evergreen state": "washington", "aloha state": "hawaii", "last frontier": "alaska",
+    "big sky country": "montana", "treasure state": "montana", "land of lincoln": "illinois", "prairie state": "illinois",
+    "old dominion": "virginia", "badger state": "wisconsin", "great lakes state": "michigan", "wolverine state": "michigan",
+    "tar heel state": "north carolina", "palmetto state": "south carolina", "magnolia state": "mississippi",
+    "pelican state": "louisiana", "beehive state": "utah", "silver state": "nevada", "grand canyon state": "arizona",
+    "centennial state": "colorado", "sooner state": "oklahoma", "natural state": "arkansas", "hawkeye state": "iowa",
+    "sunflower state": "kansas", "cornhusker state": "nebraska", "first state": "delaware", "ocean state": "rhode island",
+    "green mountain state": "vermont", "granite state": "new hampshire", "pine tree state": "maine", "bay state":
+    "massachusetts", "constitution state": "connecticut", "nutmeg state": "connecticut", "mountain state": "west virginia",
+    "gem state": "idaho", "equality state": "wyoming", "cowboy state": "wyoming", "north star state": "minnesota",
+    "land of enchantment": "new mexico", "yellowhammer state": "alabama", "heart of dixie": "alabama",
+    "beaver state": "oregon", "mount rushmore state": "south dakota", "peace garden state": "north dakota",
+    "old line state": "maryland", "soflo": "florida",
+    "floridian": "florida", "texan": "texas", "californian": "california", "new yorker": "new york", "ohioan": "ohio",
+    "hoosier": "indiana", "michigander": "michigan", "virginian": "virginia", "west virginian": "west virginia",
+    "coloradan": "colorado", "arizonan": "arizona", "nevadan": "nevada", "utahn": "utah", "idahoan": "idaho",
+    "montanan": "montana", "alaskan": "alaska", "kentuckian": "kentucky", "tennessean": "tennessee",
+    "alabamian": "alabama", "mississippian": "mississippi", "louisianan": "louisiana", "louisianian": "louisiana",
+    "arkansan": "arkansas", "missourian": "missouri", "iowan": "iowa", "minnesotan": "minnesota",
+    "wisconsinite": "wisconsin", "illinoisan": "illinois", "pennsylvanian": "pennsylvania", "marylander": "maryland",
+    "vermonter": "vermont", "mainer": "maine", "nebraskan": "nebraska", "kansan": "kansas", "oklahoman": "oklahoma",
+    "new mexican": "new mexico", "north carolinian": "north carolina", "south carolinian": "south carolina",
+    "north dakotan": "north dakota", "south dakotan": "south dakota", "rhode islander": "rhode island",
+    "new jerseyan": "new jersey", "delawarean": "delaware", "oregonian": "oregon", "wyomingite": "wyoming",
+    "new hampshirite": "new hampshire", "bay stater": "massachusetts", "connecticuter": "connecticut",
+}.items()} | {
+    "philly": "philadelphia, pa", "philadelphian": "philadelphia, pa", "chi-town": "chicago, il", "chitown": "chicago, il",
+    "chi town": "chicago, il", "windy city": "chicago, il", "chicagoan": "chicago, il", "atx": "austin, tx",
+    "austinite": "austin, tx", "htx": "houston, tx", "h-town": "houston, tx", "houstonian": "houston, tx",
+    "satx": "san antonio, tx", "dallasite": "dallas, tx", "nola": "new orleans, louisiana", "big easy": "new orleans, louisiana",
+    "new orleanian": "new orleans, louisiana", "big apple": "new york, ny", "brooklynite": "brooklyn, ny",
+    "motor city": "detroit, mi", "detroiter": "detroit, mi", "sin city": "las vegas, nv", "music city": "nashville, tn",
+    "nashvegas": "nashville, tn", "nashvillian": "nashville, tn", "mile high city": "denver, co", "denverite": "denver, co",
+    "beantown": "boston, ma", "bostonian": "boston, ma", "stl": "st. louis, mo", "kc": "kansas city, mo",
+    "okc": "oklahoma city, ok", "pdx": "portland, or", "jax": "jacksonville, fl", "st. pete": "st. petersburg, fl",
+    "st pete": "st. petersburg, fl", "tampa bay": "tampa, fl", "miamian": "miami, fl", "dtla": "los angeles, california",
+    "angeleno": "los angeles, california", "rva": "richmond, va", "twin cities": "minneapolis, mn", "the burgh":
+    "pittsburgh, pa", "pittsburgher": "pittsburgh, pa", "cbus": "columbus, oh", "clt": "charlotte, nc",
+    "atlantan": "atlanta, georgia", "seattleite": "seattle, wa", "san franciscan": "san francisco, california",
+    "clevelander": "cleveland, oh", "baltimorean": "baltimore, md",
+}
+for k in [k for k in ALIASES if k.startswith(("big ", "windy ", "mile ", "motor ", "sin ", "music "))]:
+    ALIASES["the " + k] = ALIASES[k]  # 'the Big Apple', 'the Windy City'
+COMPACT = {k.replace(" ", "").replace("-", ""): k for k in ALIASES if " " in k or "-" in k}  # '#TampaBay', '#SunshineState'
 # Joke 'locations' that Nominatim matches to a real namesake ('Earth' is a village in Texas, 'Mars'
 # one in France). Only a whole-string match is skipped, so 'Paradise, CA' still geocodes.
 # ponytail: hand-picked list. Upgrade: learn it from the geocodes analysts reject.
@@ -200,7 +250,31 @@ def _queries(text: str) -> list[str]:
         text = town
     parts = [text, text.rpartition(",")[2]] if "," in text else [text]
     keys = (" ".join("".join(c for c in p if unicodedata.category(c) != "So").lower().split()) for p in parts)
-    return [ALIASES.get(k, k) for k in keys if k and k not in NOT_PLACES]
+    return [_alias(k) for k in keys if k and k not in NOT_PLACES]
+
+
+def _alias(key: str) -> str:
+    """What to ask for `key`: its alias ('#TampaBay' → 'tampa, fl'), or its area code's state ('the 813' → Florida)."""
+    key = key.removeprefix("#")
+    if (m := re.fullmatch(r"(?:the )?(\d{3})", key)) and (state := _area_code(m[1])):
+        return state
+    return ALIASES.get(key := COMPACT.get(key, key), key)
+
+
+@functools.cache
+def _area_code(code: str) -> str | None:
+    """'florida, united states' for a US area code ('813'), from libphonenumber's offline tables; None for none."""
+    import phonenumbers
+    from phonenumbers import geocoder
+    try:
+        n = phonenumbers.parse(f"+1{code}2000000")
+    except phonenumbers.NumberParseException:
+        return None
+    if phonenumbers.region_code_for_number(n) != "US":
+        return None  # not a number, or Canada's ('365' is Ontario)
+    said = geocoder.description_for_number(n, "en").lower()  # 'Florida', 'New York, NY', 'Washington State'
+    state = STATES.get(said.rpartition(", ")[2], said.removesuffix(" state"))
+    return f"{state}, united states" if state in STATES.values() else None
 
 
 # A house number, PO box or numbered road opening the first comma part: '123 Main St', '116-38 228 Street',
@@ -225,12 +299,14 @@ def _town(text: str) -> str | None:
 
 TOWN_STATES = STATES | {"la": "louisiana"}  # after a town, LA is Louisiana
 NOT_ONLY_STATES = {"georgia", "washington", "new york"}  # bare, also a country, DC or the city: Nominatim decides
+DIRECTION = re.compile(r"^(?:(?:north|south)(?:east|west)?|east|west|central|upstate|downstate)(?:ern)?[\s-]+")
 CODES = {name: code.upper() for code, name in TOWN_STATES.items()}  # 'florida' → 'FL'
 USA = {"usa", "us", "u.s.", "u.s.a.", "united states", "united states of america"}
 TOWN_RANK = 16  # Nominatim's city rank: city-sized for compare()
 TOWN_KM = 15  # median bounding-box diagonal of Nominatim's 128 cached US towns, measured 2026-11-01
 # GeoNames cities1000: (name key, state name) → [(lat, lon, label)] for US towns, and (name key, country code) → []
-# for towns in a country whose code is also a state's: London, CA (Canada) or Berlin, DE (Germany).
+# for towns in a country whose code is also a state's: London, CA (Canada) or Berlin, DE (Germany). Also
+# (name key, 'us') and (name key, '*') → [] for a town of that name in the US, or anywhere.
 _towns: dict | None = None
 
 
@@ -243,8 +319,10 @@ def _local(query: str) -> list[dict] | None:
     parts, us = [p for p in (p.strip() for p in query.split(",")) if p], False
     while len(parts) > 1 and parts[-1] in USA:
         parts, us = parts[:-1], True
-    if len(parts) == 1:
+    if len(parts) == 1:  # 'florida', 'new york state', 'south florida', 'upstate ny'
         state = parts[0].removesuffix(" state")
+        if state not in CODES and (part := DIRECTION.sub("", state)) != state:  # not 'north carolina' itself
+            state = TOWN_STATES.get(part, part)  # a code only after a direction: bare 'me' or 'in' isn't a state
         if parts[0] in USA or state in CODES and (us or state != parts[0] or state not in NOT_ONLY_STATES):
             return _region(None if parts[0] in USA else state)
         return None
@@ -295,12 +373,13 @@ def _table() -> dict:
             spec = importlib.util.find_spec("reverse_geocoder")
             with open(os.path.join(spec.submodule_search_locations[0], "rg_cities1000.csv"), newline="") as f:
                 for r in csv.DictReader(f):
-                    _towns[(key := _key(r["name"])), "*"] = []
+                    _towns[(key := _key(r["name"])), "*"] = []  # a place of that name somewhere ('us': in the US)
                     if r["cc"] == "US":
                         name, state = ("Washington", "District of Columbia") if r["admin1"] == "Washington, D.C." \
                             else (r["name"], r["admin1"])
                         label = ", ".join(filter(None, [name, r["admin2"], state, "United States"]))
                         _towns.setdefault((_key(name), state.lower()), []).append((float(r["lat"]), float(r["lon"]), label))
+                        _towns[key, "us"] = []
                     elif (cc := r["cc"].lower()) in TOWN_STATES:
                         _towns[key, cc] = []
         except (AttributeError, TypeError, OSError):
@@ -308,50 +387,78 @@ def _table() -> dict:
     return _towns
 
 
-# What a bio says about where its owner is, e.g. TikTok's 'Creative Director ⏎ Bikes + Marketing ⏎ 🌴 Florida 🌴'.
+# What a bio or caption says about where its owner is, e.g. TikTok's 'Creative Director ⏎ Bikes + Marketing ⏎ 🌴 Florida 🌴'.
 PIECE = re.compile(r"[^\w\s,.'’#@&-]+|\s[-–—]\s")  # emoji, bars, bullets, slashes, brackets and spaced dashes
-# ponytail: 'from X' is skipped (often where they grew up), and so is a foreign place without a marker ('Leeds
-# | Writer'). Upgrade: country and admin1 names from the same table, measured against location fields.
-MARKER = re.compile(r"📍|\b(?:based|living|lives|live|located)\s+in\s+", re.I)
+# ponytail: US places, plus foreign ones only after a marker. Country flags (🇮🇪 is often heritage) and sports
+# teams ('Bucs fan') are skipped. Upgrade: country and admin1 names, measured against location fields.
+# Where they are now, then where they're from. Each is followed by the place, or preceded by it ('Tampa-based').
+LIVES = re.compile(r"📍|📌|🏠|🏡|\b(?:(?:based|living|lives|live|located|residing|now|currently)\s+in|based out of|"
+                   r"resident of)\s+", re.I)
+FROM = re.compile(r"\b(?:from|native of|raised in|born in|grew up in)\s+", re.I)
+LIVES_AFTER, FROM_AFTER = re.compile(r"-based\b", re.I), re.compile(r"(?:-born|-raised|\s+native|\s+born and raised)\b", re.I)
+QUALIFIER = re.compile(r"^(?:(?:a|an|proud|native|lifelong|true|transplanted|born and raised)\s+)+", re.I)  # 'Proud Texan'
+FLAG = re.compile("\U0001F3F4([\U000E0061-\U000E007A]{4})\U000E007F")  # a US state's flag: 🏴 + tags 'ustx'
 WORDS = {"in", "or", "ok", "hi", "me", "oh"}  # state codes that are words, even in capitals ('OH!')
 
 
-def bio_place(bio: str) -> str | None:
-    """The place a bio clearly states, as written ('Florida', 'Tampa, FL', 'NYC'), or None. Clear means a
-    piece of the bio that is nothing but a US state, an alias ('PNW', 'SoCal') or a 'town, ST' the table
-    knows: a line, the text between emoji, bars or bullets, a sentence, or a comma part. Or any known
-    place name after 'based in', 'living in' or 📍, or before '-based'. Never a word inside a sentence:
-    'Washington Commanders fan' and '#Florida' say nothing."""
-    for m in MARKER.finditer(bio):
-        words = PIECE.split(bio[m.end():], 1)[0].split()
-        if p := next(filter(None, (_said(" ".join(words[:n]), True) for n in range(min(len(words), 6), 0, -1))), None):
-            return p
-    for m in re.finditer(r"-based\b", bio):
-        words = PIECE.split(bio[:m.start()])[-1].split()
-        if p := next(filter(None, (_said(" ".join(words[-n:]), True) for n in range(min(len(words), 4), 0, -1))), None):
-            return p
-    for piece in PIECE.split(bio):
+def bio_place(text: str) -> str | None:
+    """The place a bio (or a post's caption) clearly states, as written ('Florida', 'Tampa, FL', 'Proud
+    Texan' as 'Texan', '#TampaBay', 'the 813'), or None. In order: a place after a marker of where they
+    live ('based in', 'living in', 'now in', 📍, 🏠) or before '-based'; a state's flag emoji; a piece of the
+    text that is wholly a place; a place after a marker of where they're from ('from', 'native of', 'born
+    in') or before one ('Tampa native'). A piece is a line, the text between emoji, bars or bullets, a
+    sentence, a comma part or a hashtag, and wholly a place means a US state, its nickname or demonym, a
+    city shorthand ('Philly', 'ATX'), an area code ('the 813', '#813'), a region ('South Florida') or a
+    'town, ST' the table knows. After a marker any US town counts ('Tampa native'), and after one of where
+    they live any GeoNames place ('based in London'). Never a word
+    inside a sentence: 'Washington Commanders fan' and 'Texans fan' say nothing."""
+    def after(marker, known):
+        for m in marker.finditer(text):
+            words = PIECE.split(text[m.end():], 1)[0].split()
+            if p := next(filter(None, (_said(" ".join(words[:n]), known) for n in range(min(len(words), 6), 0, -1))), None):
+                return p
+
+    def before(marker, known):
+        for m in marker.finditer(text):
+            words = PIECE.split(text[:m.start()])[-1].split()
+            if p := next(filter(None, (_said(" ".join(words[-n:]), known) for n in range(min(len(words), 4), 0, -1))), None):
+                return p
+
+    if p := after(LIVES, "*") or before(LIVES_AFTER, "*"):
+        return p
+    for m in FLAG.finditer(text):
+        tags = "".join(chr(ord(c) - 0xE0000) for c in m[1])
+        if tags[:2] == "us" and tags[2:] in STATES:
+            return STATES[tags[2:]].title()
+    for piece in PIECE.split(text):
         for sentence in [piece, *re.split(r"\.\s+", piece)]:
-            parts = sentence.split(",")
-            for said in [sentence, *(f"{a},{b}" for a, b in zip(parts, parts[1:])), *parts]:
+            parts, pairs = sentence.split(","), list(zip(sentence.split(","), sentence.split(",")[1:]))
+            towns = [f"{' '.join(a.split()[-n:])},{b}" for a, b in pairs for n in (3, 2, 1)]  # 'Back home in Tampa, FL'
+            for said in [sentence, *(f"{a},{b}" for a, b in pairs), *towns, *parts, *re.findall(r"#\w+", sentence)]:
                 if p := _said(said):
                     return p
-    return None
+    return after(FROM, "us") or before(FROM_AFTER, "us")  # US towns only: 'Messages from God' (Hungary)
 
 
-def _said(text: str, marked: bool = False) -> str | None:
-    """`text`, tidied, if it is wholly a place bio_place accepts; 'Tampa FL' comes back as 'Tampa, FL'."""
-    text = " ".join(text.strip(" .,'’-").split())
-    key, (head, _, last) = text.lower(), text.rpartition(" ")
-    if not key or key in NOT_PLACES:
+def _said(text: str, known: str = "") -> str | None:
+    """`text`, tidied, if it is wholly a place bio_place accepts; 'Tampa FL' comes back as 'Tampa, FL'.
+    After a marker, `known` also takes a bare town name: 'us' a US one, '*' one anywhere."""
+    text = QUALIFIER.sub("", " ".join(text.strip(" .,'’-").split()))
+    tag, bare = text.startswith("#"), text.lstrip("#")
+    key, (head, _, last) = bare.lower(), bare.rpartition(" ")
+    key = COMPACT.get(key, key) if tag else key
+    if not key or key in NOT_PLACES or key in WORDS:
         return None
-    if key in CODES or key in ALIASES and key not in WORDS and (len(key) > 3 or text.isupper()):
-        return text  # 'Florida', 'FL', 'NYC', 'Bay Area'; not 'Me', 'fl' or 'OK'
-    if "," in key and _local(key):
-        return text
-    if head and (last.isupper() and last.lower() in STATES or last.lower() in CODES) and _local(f"{head}, {last}".lower()):
+    if key in CODES or key in ALIASES and (tag or len(key) > 4 or bare.isupper()):
+        return text  # 'Florida', 'FL', 'NYC', 'NOLA', 'Bay Area', '#florida'; not 'Me', 'fl', 'Nola' or 'OK'
+    if (tag or key.startswith("the ")) and (m := re.fullmatch(r"(?:the )?(\d{3})", key)) and _area_code(m[1]):
+        return text  # 'the 813', '#813'; not a bare number ('360 video')
+    if not tag and key not in USA and _local(key):
+        return text  # 'Tampa, FL', 'South Florida', 'upstate NY'
+    if not tag and head and (last.isupper() and last.lower() in STATES or last.lower() in CODES) \
+            and _local(f"{head}, {last}".lower()):
         return f"{head}, {last}"
-    if marked and text[0].isupper() and (_key(text), "*") in _table():
+    if known and not tag and text[0].isupper() and (_key(text), known) in _table():
         return text  # 'based in London', 'Sacramento-based': a GeoNames place, asked as a location field is
     return None
 

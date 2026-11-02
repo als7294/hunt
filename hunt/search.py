@@ -10,6 +10,7 @@ import io
 import json
 import os
 import re
+import sqlite3
 from collections import Counter, defaultdict
 from dataclasses import asdict
 
@@ -113,7 +114,9 @@ async def geocode(case: Case, emit=None, audit: bool = True, live: bool = True) 
     texts = {s.value for s in case.seeds() if s.kind in ("address", "location")}
     if not texts:
         return {}
-    texts |= {t for r in case.rows("select attrs from findings") if (t := match.place_text(json.loads(r["attrs"])))}
+    posted = posted_places(case)
+    texts |= {t for r in case.rows("select url, attrs from findings")
+              if (t := match.place_text(json.loads(r["attrs"]) | posted.get(match.norm_url(r["url"] or ""), {})))}
     if emit:
         emit({"type": "log", "message": f"placing {len(texts)} locations (US towns on this Mac from GeoNames; the rest OpenStreetMap, 1/s, cached)"})
     if not live:
@@ -124,6 +127,22 @@ async def geocode(case: Case, emit=None, audit: bool = True, live: bool = True) 
         case.audit("geocode", {"strings": len(texts), "placed": sum(p is not None for p in places.values()),
                                "service": "nominatim.openstreetmap.org (uncached strings only)"})
     return places
+
+
+def posted_places(case: Case) -> dict:
+    """norm_url(account) → {match.POSTS_PLACE: the place its collected posts state}, for the accounts that have one."""
+    try:  # read only: posts.list_posts would create the tables, committing whatever is open
+        rows = case.rows("select id, account_url, text from posts where account_url is not null")
+    except sqlite3.OperationalError:
+        return {}  # nothing collected yet
+    try:
+        extra = {r["post_id"]: json.loads(r["extra"]) for r in case.rows("select post_id, extra from post_extra")}
+    except sqlite3.OperationalError:
+        extra = {}  # no imported Facebook posts
+    by = defaultdict(list)
+    for p in rows:
+        by[match.norm_url(p["account_url"])].append(p | {"extra": extra.get(p["id"])})
+    return {u: {match.POSTS_PLACE: said} for u, ps in by.items() if (said := match.post_place(ps))}
 
 
 PLACES_EVERY = 1.0  # seconds: at most one "places" progress event a second
@@ -188,8 +207,11 @@ def build(case: Case, places: dict | None = None) -> dict:
         t = taken[r["seed"].lower()]
         taken[r["seed"].lower()] = (t[0] + r["found"], t[1] + r["checked"])
 
+    posted = posted_places(case)
+
     def rate(c, extra=None):
-        p, verdict, reasons, tags = match.score(Seed(**c["seed"]), c["url"], c["attrs"], subject, taken, places, extra, him,
+        attrs = c["attrs"] | posted.get(match.norm_url(c["url"]), {})  # a copy: the place its posts state, for score only
+        p, verdict, reasons, tags = match.score(Seed(**c["seed"]), c["url"], attrs, subject, taken, places, extra, him,
                                                 facts, derived=derived)
         c.update(verdict=verdict, probability=round(p, 3), reasons=reasons, tags=tags)
 
