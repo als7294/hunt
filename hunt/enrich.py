@@ -5,8 +5,9 @@ be tied to anything and stays "possibly theirs". So, once per search, the accoun
 email or URL seed (never name-only namesakes) that came with neither a name nor a picture get their public
 page read once, logged out, with Hunt's own
 User-Agent, and only what the page itself offers for previews is kept: og:title, og:description, og:image,
-their twitter: twins, and <title>. That goes into the finding as fullname (unless the title just echoes the
-handle or the site's name), bio and image, with enriched_from naming the page.
+their twitter: twins, and <title>, plus whatever socid_extractor (MIT, Maigret's own profile parser) reads
+from the page on the sites it knows. That goes into the finding as fullname (unless the title just echoes
+the handle or the site's name), bio, image, location and website, with enriched_from naming the page.
 
 Rules (legal.md C1, C6, C7, D2 as revised 2026-11-02, D8): public pages are read logged out, with no
 cookies, even where robots.txt disallows them; what robots.txt says is read once per host per day
@@ -26,6 +27,7 @@ from urllib.parse import urljoin, urlsplit
 from urllib.robotparser import RobotFileParser
 
 import httpx
+from socid_extractor import extract as socid
 
 from . import people_search
 from .case import HOME, Case
@@ -90,6 +92,18 @@ def fields(m: dict, url: str, handle: str) -> dict:
     return out
 
 
+def parsed(page: str) -> dict:
+    """What socid_extractor reads from a page of a site it knows (164 schemes: GitHub, Gravatar, Chess.com, Last.fm…), in
+    Hunt's field names; {} elsewhere. Structured, so it wins over the preview tags where both speak."""
+    try:
+        d = socid(page)
+    except Exception:  # a scheme's regex or JSON tripped on an odd page: nothing read
+        return {}
+    out = {"fullname": d.get("fullname") or d.get("name"), "image": d.get("image"), "bio": d.get("bio") or d.get("description"),
+           "location": d.get("location") or d.get("city"), "website": d.get("website")}
+    return {k: v.strip() for k, v in out.items() if isinstance(v, str) and v.strip() and (k != "image" or v.startswith("http"))}
+
+
 async def run(case: Case, candidates: list[dict], emit) -> dict:
     """Read the pages of up to MOST accounts from the subject's own seeds that have neither a name nor a picture yet, and
     merge what they offer into their findings. An account a source already described is left to that source.
@@ -138,7 +152,7 @@ async def run(case: Case, candidates: list[dict], emit) -> dict:
                         break
                     if r.status_code != 200 or denied(str(r.url)):  # gone, moved onto a wall, or sent to a deny-list host
                         continue
-                    if found := fields(meta(r.text), str(r.url), c["seed"]["value"]):
+                    if found := fields(meta(r.text), str(r.url), c["seed"]["value"]) | parsed(r.text):
                         _merge(case, c, found, str(r.url))
                         counts["enriched"] += 1
         await asyncio.gather(*(host_run(h, u) for h, u in todo.items()))
