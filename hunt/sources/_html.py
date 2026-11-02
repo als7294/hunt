@@ -7,7 +7,9 @@ or disguises anything (C7). Parsing is stdlib only: a small element tree, `text(
 """
 
 import asyncio
+import os
 import re
+import ssl
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from urllib.parse import urljoin
@@ -21,10 +23,13 @@ VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "met
 BLOCK = {"div", "p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "li", "ul", "ol", "tr", "td", "th", "table", "form", "section",
          "article", "header", "footer", "dd", "dt", "option"}
 SKIP = {"script", "style", "noscript", "template", "svg", "title", "head"}
-# What a refusal looks like in a 200 page. Matched case-insensitively against the HTML (not just its text).
-WALLS = (("CAPTCHA", r"recaptcha|hcaptcha|h-captcha|botdetect|captcha|cf-turnstile|challenges\.cloudflare"),
-         ("bot wall", r"_incapsula_|incapsula|imperva|akamai.*bot|cf-chl|just a moment\.\.\.|attention required|access denied|"
-                      r"request unsuccessful|distil_r|px-captcha|perimeterx|datadome"),
+# What a refusal looks like in a 200 page: a CAPTCHA widget or its answer field (not a site-wide script include: many
+# court sites load reCAPTCHA for a contact form), a bot-wall page, or a password field. Matched against the HTML itself.
+WALLS = (("CAPTCHA", r"class=[\"']?(?:g-recaptcha|h-captcha|cf-turnstile)\b|data-sitekey=|g-recaptcha-response|h-captcha-response|"
+                     r"botdetect|captchaimage|LBD_VCT|name=[\"']?captcha\b|verify (?:that )?you are (?:a )?human|verify your humanity|"
+                     r"i'm not a robot|not a robot box"),
+         ("bot wall", r"_incapsula_|incapsula|imperva|akamai.*bot|cf-chl|cf-mitigated|just a moment\.\.\.|attention required|access denied|"
+                      r"request unsuccessful|the requested url was rejected|distil_r|px-captcha|perimeterx|datadome|security check"),
          ("login wall", r"<input[^>]+type=[\"']?password"))
 PAUSE = 1.0  # seconds between requests to one host
 
@@ -88,20 +93,22 @@ def text(e, sep: str = " ") -> str:
     return sep.join(line for line in lines if line)
 
 
-def tables(root, header_words=()) -> list[list[dict]]:
+def tables(root, header_words=(), cell_sep: str = " ") -> list[list[dict]]:
     """Each <table> as a list of row dicts keyed by header text (or col0, col1… without headers). With
-    `header_words`, only tables whose headers mention every word. Links in a cell are kept as `<key> href`."""
+    `header_words`, only tables whose headers mention every word. Links in a cell are kept as `<key> href`;
+    `cell_sep` joins a cell's lines (a <br>-separated list reads back with "\n")."""
     out = []
     for t in root.iter("table"):
         rows = [tr for tr in t.iter("tr") if any(c.tag in ("td", "th") for c in tr)]
         if not rows:
             continue
-        heads = [text(c) for c in rows[0] if c.tag in ("td", "th")]
-        if not all(c.tag == "th" for c in rows[0] if c.tag in ("td", "th")) and not header_words:
-            heads = [f"col{i}" for i in range(len(heads))]
+        hdr = next((i for i, tr in enumerate(rows[:3]) if all(c.tag == "th" for c in tr if c.tag in ("td", "th"))), None)
+        if hdr is None:  # no <th> row (a pager row may sit above one): positional keys, every row is a body row
+            heads = [f"col{i}" for i in range(len([c for c in rows[0] if c.tag in ("td", "th")]))]
             body = rows
         else:
-            body = rows[1:]
+            heads = [text(c) for c in rows[hdr] if c.tag in ("td", "th")]
+            body = rows[hdr + 1:]
         if header_words and not all(any(w.lower() in h.lower() for h in heads) for w in header_words):
             continue
         parsed = []
@@ -110,7 +117,7 @@ def tables(root, header_words=()) -> list[list[dict]]:
             row = {}
             for i, c in enumerate(cells):
                 key = heads[i] if i < len(heads) and heads[i] else f"col{i}"
-                row[key] = text(c)
+                row[key] = text(c, cell_sep)
                 a = next(c.iter("a"), None)
                 if a is not None and a.get("href"):
                     row[f"{key} href"] = a.get("href")
@@ -144,16 +151,26 @@ def forms(root, base: str = "") -> list[dict]:
     return out
 
 
-def client(timeout: float = 30) -> httpx.AsyncClient:
-    """_api.client (Hunt's UA, HUNT_PROXY, redirects) accepting HTML: one session's own cookies only."""
-    return _api.client(timeout, Accept="text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
+ACCEPT = "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8"
+
+
+def client(timeout: float = 30, legacy_tls: bool = False) -> httpx.AsyncClient:
+    """_api.client (Hunt's UA, HUNT_PROXY, redirects) accepting HTML: one session's own cookies only. `legacy_tls` lets
+    a server that offers only an RSA-key-exchange cipher (no forward secrecy; some court hosts) complete the handshake,
+    with the certificate still verified: Hunt accepts the server's own cipher, it never imitates a browser's (C7)."""
+    if not legacy_tls:
+        return _api.client(timeout, Accept=ACCEPT)
+    ctx = ssl.create_default_context()
+    ctx.set_ciphers("DEFAULT:@SECLEVEL=1")
+    return httpx.AsyncClient(timeout=timeout, follow_redirects=True, proxy=os.environ.get("HUNT_PROXY"), verify=ctx,
+                             headers={"User-Agent": _api.UA, "Accept": ACCEPT})
 
 
 def _check(r: httpx.Response) -> httpx.Response:
     if r.status_code in (401, 403, 429):
         raise Limited(f"{r.url.host} refused ({r.status_code}); stopped for this run")
     r.raise_for_status()
-    if "html" in r.headers.get("content-type", "") and (w := walled(r.text)):
+    if ("html" in r.headers.get("content-type", "") or r.text[:300].lstrip().startswith("<")) and (w := walled(r.text)):
         raise Limited(f"{r.url.host} showed a {w}; stopped for this run")
     return r
 
