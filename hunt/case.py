@@ -26,7 +26,9 @@ DETAILS = ("label", "kind", "reference", "injury_date", "limits", "look_for", "t
            "subject_residence", "mhmda_basis",
            # a subject in the UK, Canada or the EEA (F4): the lawful basis (GDPR Art. 6(1)(f), DPA 2018 Sch. 2 para 2,
            # PIPEDA s.7(1)(b)) and why they weren't told (Art. 14(5)(b)); no work runs until both are written down
-           "abroad_basis", "no_notice")
+           "abroad_basis", "no_notice",
+           # searching yourself: the fingerprint of your locked description (profile.py), which scores the accounts
+           "about_me")
 # ISO 3166-1 alpha-2 (and XK, Kosovo), and the US states, DC and territories: the only residences a case accepts.
 # One list, for the API and face.gate's allow-list. UK and EL are the EU's own spellings of GB and GR.
 COUNTRIES = frozenset("""AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT

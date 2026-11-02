@@ -130,13 +130,14 @@ def main():
     dm = sub.add_parser("demo", parents=[proxy], help="build a finished, fictional demo case to look through")
     dm.add_argument("--reset", action="store_true", help="move the demo case to the Trash and build it again")
     sub.add_parser("app", parents=[proxy], help="open the Hunt app in your browser (this machine only)")
+    sub.add_parser("me", parents=[proxy], help="describe yourself once, locked on this Mac, to search for yourself")
     args = ap.parse_args()
 
     if getattr(args, "proxy", None):
         os.environ["HUNT_PROXY"] = args.proxy
-    if args.cmd == "app":
+    if args.cmd in ("app", "me"):
         from .app import serve
-        return serve()
+        return serve(args.cmd)
     if args.cmd == "watch":
         return watch_cmd(args)
     if args.cmd in ("pack", "unpack", "seen", "doctor", "setup", "update", "uninstall", "minimise", "demo"):

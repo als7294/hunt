@@ -41,7 +41,7 @@ from starlette.responses import HTMLResponse, FileResponse, JSONResponse, Redire
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from . import graph, keys, leads, report, search, sources, vendor, vlm
+from . import graph, keys, leads, pivot, profile, report, search, sources, vendor, vlm
 from . import bundle, demo, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
 from . import browser, extension  # docs/capture.md
@@ -119,7 +119,7 @@ class Guard:
 
 
 async def login(req: Request):
-    r = RedirectResponse("/", 303)
+    r = RedirectResponse("/#/me" if req.query_params.get("to") == "me" else "/", 303)  # `hunt me` opens About you
     r.set_cookie(COOKIE, req.app.state.token, httponly=True, samesite="strict", path="/")
     return r
 
@@ -465,8 +465,16 @@ async def create_case(req: Request):
     if not b.get("subject_residence"):  # F4: where they live decides what may run; "unknown" is an answer, on record
         raise HTTPException(400, "subject_residence is required: where the subject lives, or unknown")
     seeds = [s for raw in _str_list(b.get("seeds"), "seeds") for s in detect(raw)]
+    if b.get("about_me") is True:  # searching yourself: scored against your locked description (profile.py)
+        me = profile.status()
+        if not me.get("fingerprint"):
+            raise HTTPException(400, me.get("error") or "describe yourself on About you first")
+        details["about_me"] = me["fingerprint"]
     c = Case.create(label, purpose, **details)
     c.add_seeds(seeds)
+    if "about_me" in details:
+        c.audit("about me", {"fingerprint": details["about_me"], "note": "accounts are scored against the subject's own "
+                             "locked description; it stays on this Mac and nothing in it is searched"})
     c.audit("case details", {"label": label, **details, "subject_residence": details.get("subject_residence", "unknown"),
                              "seeds": [asdict(s) for s in seeds]})
     return JSONResponse({"slug": c.name}, 201)
@@ -639,6 +647,12 @@ async def add_seeds(req: Request):
     return JSONResponse({"seeds": [{"kind": s.kind, "value": s.value} for s in c.seeds()]})
 
 
+async def get_suggestions(req: Request):
+    """More to search, from the accounts that look like the person (pivot.suggestions): handles, emails and sites
+    they list. Leads to check, searched only when the investigator says so."""
+    return JSONResponse({"suggestions": pivot.suggestions(await search.snapshot(_case(req)))[:24]})
+
+
 async def case_json(req: Request):
     return JSONResponse(await search.snapshot(_case(req)))
 
@@ -699,7 +713,9 @@ async def start_scan(req: Request):
 
 SUMMARY = {"username": "use one of the subject's usernames", "name": "show a matching name", "place": "are in a matching place",
            "email": "are tied to the subject's email", "link": "link to another of the subject's profiles",
-           "photo": "share a profile photo", "confirmed": "were confirmed by you"}
+           "photo": "share a profile photo", "confirmed": "were confirmed by you", "phone": "list the subject's phone number",
+           "dob": "show a matching birth date or age", "employer": "name the subject's employer",
+           "described": "mention something from your description"}
 
 
 def _plain(reason: str) -> str:
@@ -1044,6 +1060,23 @@ async def get_keys(req: Request):
 async def post_keys(req: Request):
     try:
         return JSONResponse({"keys": keys.save(await _body(req))})
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+async def get_me(req: Request):
+    """About you: what's locked (a fingerprint and counts), never what it says (hunt/profile.py)."""
+    return JSONResponse(profile.status())
+
+
+async def post_me(req: Request):
+    """Lock your description, replacing the last one ({"add": true}: adding to it). The criteria come back this once."""
+    b = await _body(req)
+    text = b.get("text")
+    if not isinstance(text, str):
+        raise HTTPException(400, "text must be your description")
+    try:
+        return JSONResponse(await profile.lock(text, add=b.get("add") is True))
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -2023,10 +2056,13 @@ def make_app(token: str, port: int) -> Guard:
     routes = [
         Route("/login", login),
         Route("/api/startup", startup),
+        Route("/api/me", get_me),
+        Route("/api/me", post_me, methods=["POST"]),
         Route("/api/cases", list_cases),
         Route("/api/cases", create_case, methods=["POST"]),
         Route("/api/cases/{slug}", get_case),
         Route("/api/cases/{slug}/seeds", add_seeds, methods=["POST"]),
+        Route("/api/cases/{slug}/suggestions", get_suggestions),
         Route("/api/cases/{slug}/case.json", case_json),
         Route("/api/cases/{slug}/search", start_search, methods=["POST"]),
         Route("/api/cases/{slug}/scan", start_scan, methods=["POST"]),
@@ -2071,14 +2107,15 @@ def make_app(token: str, port: int) -> Guard:
     return Guard(app, token, port)
 
 
-def serve():
-    """`hunt app`: this machine only, a random port, the browser opened with a one-time sign-in link."""
+def serve(to: str = ""):
+    """`hunt app`: this machine only, a random port, the browser opened with a one-time sign-in link
+    (`to="me"`: on the About you page, for `hunt me`)."""
     import uvicorn
     token = secrets.token_urlsafe(32)
     sock = socket.socket()
     sock.bind(("127.0.0.1", int(os.environ.get("HUNT_PORT") or 0)))  # HUNT_PORT: a fixed port, for development
     port = sock.getsockname()[1]
-    url = f"http://127.0.0.1:{port}/login?t={token}"
+    url = f"http://127.0.0.1:{port}/login?t={token}" + ("&to=me" if to == "me" else "")
     app = make_app(token, port)
     app.app.router.lifespan_context = _watching(app.app)  # watched cases are checked while Hunt runs (docs/qol.md)
     server = uvicorn.Server(uvicorn.Config(app, log_level="warning", timeout_graceful_shutdown=1))

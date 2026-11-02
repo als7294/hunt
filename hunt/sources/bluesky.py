@@ -13,7 +13,7 @@ NAME = "bluesky"
 KINDS = {"username", "name"}
 API = "https://public.api.bsky.app/xrpc/"
 HEALTH = API + "_health"
-RESULTS = 25
+RESULTS = 100  # searchActors' maximum: a common name has many namesakes, and the subject must be among them
 
 
 def _finding(seed, a, body):

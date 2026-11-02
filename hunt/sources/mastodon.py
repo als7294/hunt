@@ -65,10 +65,10 @@ async def search(seed):
         if seed.kind == "username" and "@" in seed.value:
             return await _webfinger(c, seed)
         r = await fetch(c, f"{INSTANCE}/api/v2/search",
-                        {"q": seed.value, "type": "accounts", "resolve": "false", "limit": 40})
+                        {"q": seed.value, "type": "accounts", "resolve": "false", "limit": 80})
     accounts = r.json()["accounts"]
     if seed.kind == "username":
         accounts = [a for a in accounts if a["username"].lower() == seed.value.lower()]
-    what = "with that exact handle" if seed.kind == "username" else "returned (at most 40)"
+    what = "with that exact handle" if seed.kind == "username" else "returned (at most 80; servers may send fewer)"
     return ([_finding(seed, a, r.text) for a in accounts], 1,
             f"searched accounts mastodon.social knows for '{seed.value}': {len(accounts)} {what}")

@@ -63,6 +63,7 @@ STATES = {
     "or": "oregon", "pa": "pennsylvania", "ri": "rhode island", "sc": "south carolina", "sd": "south dakota",
     "tn": "tennessee", "tx": "texas", "ut": "utah", "vt": "vermont", "va": "virginia", "wv": "west virginia",
     "wi": "wisconsin", "wy": "wyoming", "pr": "puerto rico",
+    "ny": "new york", "wa": "washington", "dc": "district of columbia",  # ALIASES below reads these three its own way
 }
 ALIASES = {code: f"{name}, united states" for code, name in STATES.items()} | {
     "ny": "new york state", "wa": "washington state", "dc": "district of columbia", "dmv": "district of columbia",

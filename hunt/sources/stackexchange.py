@@ -27,7 +27,7 @@ async def search(seed):
     global _resume
     await asyncio.sleep(max(0.0, _resume - time.monotonic()))
     async with client() as c:
-        r = await c.get(API, params={"inname": seed.value, "site": "stackoverflow", "pagesize": 30,
+        r = await c.get(API, params={"inname": seed.value, "site": "stackoverflow", "pagesize": 100,
                                      "sort": "reputation", "order": "desc"})
     data = r.json()
     if data.get("backoff"):
@@ -49,5 +49,5 @@ async def search(seed):
         found.append(Finding(NAME, seed, "Stack Overflow", u["link"], tidy(attrs), body=r.text))
     kept = f", {len(users)} exactly '{seed.value}'" if seed.kind == "username" else ""
     return found, 1, (f"Stack Overflow display names containing '{seed.value}': {len(data['items'])} returned "
-                      f"(at most 30, by reputation){kept}; "
+                      f"(at most 100, by reputation){kept}; "
                       f"{data.get('quota_remaining')} of {data.get('quota_max')} daily requests left")
