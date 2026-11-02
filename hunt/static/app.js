@@ -549,14 +549,22 @@ const possibleBlock = (p, me) => {
   const xs = p.possible || [];
   if (!xs.length) return '';
   const byHandle = list => Object.entries(list.reduce((g, x) => ((g[x.handle || handleOf(x.url)] ||= []).push(x), g), {}));
-  const total = Object.fromEntries(byHandle(xs).map(([h, l]) => [h, l.length]));
+  const all = Object.fromEntries(byHandle(xs)), whose = me ? 'mine' : 'theirs';
   const row = x => html`<div class="row" style="padding:10px 12px"><span class="dot" style="background:${siteColor(x.site)}"></span>
     <div style="flex:1;min-width:0"><div><b style="font-weight:500">${x.site}</b> <span class="muted">${pct(x.probability)} ${capped(x.verdict)}</span></div>
       <div class="muted" style="font-size:13.5px">${x.why}${x.why === 'only the username agrees' ? `: confirm it’s ${me ? 'yours' : 'theirs'}` : ''}</div></div>
+    <a class="btn ghost sm" href="${x.url}" target="_blank" rel="noopener noreferrer" title="Check the account before deciding">Open ↗</a>
     <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="him">${x.decision === 'him' ? '✓ ' : ''}${me ? 'Mine' : 'Theirs'}</button>
     <button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="not him">${me ? 'Not me' : 'Not them'}</button></div>`;
+  // The bulk buttons sit on a group's first header only, and cover the whole group (also the rows behind Show all)
+  const bulk = h => { const urls = all[h].map(x => x.url).join(' '), n = all[h].length; return html`
+    <button class="btn ghost sm" data-act="decide-group" data-urls="${urls}" data-decision="him"
+      data-ask="Mark all ${n} accounts with the username ${h} as ${whose}? Each is logged in the case.">All ${n} are ${whose}</button>
+    <button class="btn ghost sm" data-act="decide-group" data-urls="${urls}" data-decision="not him"
+      data-ask="Mark none of the ${n} accounts with the username ${h} as ${whose}? Each is logged as ${me ? 'not me' : 'not them'}.">None are</button>`; };
   const groups = list => byHandle(list).map(([h, l]) => html`<div style="display:flex;flex-direction:column;gap:6px">
-    <div class="muted" style="font-size:14px;padding:2px">${h} · ${total[h]} account${total[h] > 1 ? 's' : ''} with this username</div>${l.map(row)}</div>`);
+    <div style="display:flex;align-items:center;gap:8px;padding:2px"><span class="muted" style="font-size:14px;flex:1">${h} · ${all[h].length} account${all[h].length > 1 ? 's' : ''} with this username</span>
+      ${l[0] === all[h][0] && all[h].length > 1 ? bulk(h) : ''}</div>${l.map(row)}</div>`);
   return html`<div style="width:min(880px,100%);display:flex;flex-direction:column;gap:10px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px"><span style="font-weight:600;font-size:19px">${me ? 'Possibly yours' : 'Possibly theirs'}</span>
       <span class="muted" style="font-size:14.5px">${me ? 'Only your username agrees so far: say which are yours' : 'Usually only the username agrees: confirm or rule out each'}</span></div>
@@ -1617,6 +1625,14 @@ const actions = {
       await api(`/api/cases/${encodeURIComponent(slug)}/search`, { method: 'POST', body: {} }); await render(); } catch (e) { fail(e); } // render() subscribes to the new job
   },
   decide: async el => { const slug = route().slug; try { await api(`/api/cases/${encodeURIComponent(slug)}/decisions`, { method: 'POST', body: { url: el.dataset.url, decision: el.dataset.decision } }); render(); } catch (e) { fail(e); } },
+  'decide-group': async el => { // a whole handle group in Possibly theirs: asked first, then one audited decision each
+    const slug = route().slug, urls = el.dataset.urls.split(' ').filter(Boolean);
+    if (!confirm(el.dataset.ask)) return;
+    el.disabled = true;
+    try { for (const url of urls) await api(`/api/cases/${encodeURIComponent(slug)}/decisions`, { method: 'POST', body: { url, decision: el.dataset.decision } }); }
+    catch (e) { fail(e); }
+    render();
+  },
   'decide-all': async el => {
     const slug = route().slug;
     try { await api(`/api/cases/${encodeURIComponent(slug)}/decisions`, { method: 'POST', body: { decision: el.dataset.decision } });
