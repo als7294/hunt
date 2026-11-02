@@ -140,6 +140,20 @@ assert any("date of birth 1991-03-03 matches" in x for x in born[2]), born
 again = score("https://github.com/jr_reyes91", {"fullname": "JR"}, seed=Seed("username", "jr_reyes91"))
 assert sum("jr_reyes91" in x for x in again[2]) == 1, "a username hit doesn't count its own handle twice"
 
+# --- Leads: a handle-like display name, and accounts under a rare username even before they're confirmed ----------
+from hunt import pivot  # noqa: E402
+assert {"kind": "username", "value": "BreadByJR", "how": "uses the display name 'BreadByJR'", "rank": 2} in \
+    pivot.facts({"fullname": "BreadByJR"}, "https://github.com/jr_reyes91")
+assert not [f for f in pivot.facts({"fullname": "Jordan Reyes", "name": "Jordan"}, "https://x.example/jr") if "display name" in f["how"]]
+assert not [f for f in pivot.facts({"name": "jr_reyes91"}, "https://github.com/jr_reyes91") if "display name" in f["how"]]
+runs = lambda found: [{"seed_kind": "username", "seed": "jr_reyes91", "status": "found", "found": found, "checked": 300}]
+capped = {"url": "https://gitlab.com/jr_reyes91", "site": "GitLab", "probability": 0.5, "verdict": "roughly even chance",
+          "seed": {"kind": "username", "value": "jr_reyes91"}, "attrs": {"links": ["https://twitter.com/jr_bakes"]}}
+leads = pivot.suggestions({"subject_seeds": [{"kind": "username", "value": "jr_reyes91"}], "candidates": [capped],
+                           "methodology": runs(3)})
+assert [x["value"] for x in leads] == ["jr_bakes"] and "not yet confirmed" in leads[0]["why"], leads
+assert not pivot.suggestions({"subject_seeds": [], "candidates": [capped], "methodology": runs(200)}), "a common handle isn't followed"
+
 # --- A case about you: scored on the description, which never reaches the report or a search ------
 case = Case.create("Jordan Reyes", "Self-search: what's public about me", kind="diligence", tool="person", about_me="x")
 case.add_seeds([name])
