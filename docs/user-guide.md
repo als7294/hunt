@@ -261,6 +261,7 @@ The reasoning, with sources, is in [legal.md](research/legal.md). It's engineeri
   - each case in its own folder, with its log and its evidence named by fingerprint
   - the Hunt Browser's profile, holding your logins
   - the training answer key from About you, if a developer wrote one (`me.locked`, encrypted; section 11)
+  - the training scores, if a developer ran `train_suite.py` (`training/`, counts only; section 11)
 - **What leaves your Mac:**
   - the requests to the sites and public records being checked, and to TikTok's and YouTube's public pages (through your proxy, if you set one)
   - place names that aren't in the US town table on her Mac (GeoNames), never people's names, sent to OpenStreetMap to compare locations
@@ -301,12 +302,40 @@ To measure how well Hunt finds a real person, a developer can train it on themse
 uv run python scripts/train_find.py "Your Name" "location: Your State" --rounds 2
 ```
 
-- **How it runs:** Hunt searches those details, then follows the leads its likely accounts give, as **Search the ticked** does. It repeats that round after round (`--rounds`, 2 by default).
+- **How it runs:** Hunt searches those details. Then it follows the leads on the accounts the answer key says are certainly yours, as **Search the ticked** does once you've confirmed them. It repeats that round after round (`--rounds`, 2 by default, at most 3).
+- **How it grades:** an account is yours when it carries one of the key's usernames, emails, phones or sites, or names one of its distinctive names, such as an employer or school. It isn't yours when it shows someone else's real name under one of your handles.
 - **Each round prints:**
   - what was searched
-  - every account rated "likely" or better, ticking those that carry one of the answer key's own usernames, emails, phones or sites
-- **At the end** it lists the accounts that carry them but were rated below "likely": the ones Hunt missed.
+  - every account rated "likely" or better, graded: ✓ yours, ✗ not yours, ? the key can't tell
+- **At the end** it counts the accounts of yours it found:
+  - rated "likely" or better
+  - shown as possibly theirs
+  - rated unlikely: the ones Hunt missed, listed with Hunt's reasons
 - **The case:** it opens a case named "train …" in `~/Hunt`. Delete it when you're done.
+
+3. **Score it** with `scripts/train_suite.py`, to see whether a change to Hunt made it better. It runs the same training on five pairs of your details, each in its own "train …" case: name and handle, name and state, handle and state, name and email, handle and email.
+
+```bash
+uv run python scripts/train_suite.py --name "Your Name" --handle yourhandle --state "Your State" --email you@example.com
+```
+
+- **Per pair it counts:**
+  - **locked:** your accounts rated "likely" or better
+  - **possible:** yours, shown as possibly theirs for you to confirm
+  - **missed:** yours, rated unlikely
+  - **wrong:** rated "likely" or better, but not yours
+  - **unknown:** rated "likely" or better, and the key can't tell
+  - **time:** the seconds it took
+- **The score** is locked + 0.25 × possible − 3 × wrong, for each pair and in total.
+- **The table** shows each score's change since the last run with the same details and rounds, and the total's change since the first run (the baseline).
+- **Saved:** each run goes in `~/Hunt/training/suite-<date and time>.json`, which holds:
+  - the counts
+  - the Hunt commit
+  - the answer key's fingerprint
+  - a fingerprint of the details, so only runs from the same ones are compared
+
+  It never holds an account, a detail or anything from the key.
+- **`--dry`** runs a made-up person through a canned search, sending nothing, for the self-check.
 
 **What's stored, and how it's locked:**
 - **Where:** one file, `~/Hunt/me.locked`, kept apart from every case. A case, a packed case, a report or an evidence bundle never carries it.
@@ -316,5 +345,5 @@ uv run python scripts/train_find.py "Your Name" "location: Your State" --rounds 
   - It won't open on another Mac.
 - **A fingerprint (SHA-256) catches any change made outside Hunt.** `hunt doctor` checks that the file still opens.
 - **Shown once:** right after you lock it, About you shows what it read. After that it shows only the date, the fingerprint and how many of each kind it holds. **Add** puts more in; **Write it again** replaces it.
-- **Never searched or sent:** nothing in it is searched, geocoded or sent anywhere, and `train_find.py` prints nothing from it. A search starts only from the details you give.
+- **Never searched or sent:** nothing in it is searched, geocoded or sent anywhere, and the training scripts print nothing from it. A search starts only from the details you give.
 - **To remove it,** move `~/Hunt/me.locked` to the Trash and delete the "Hunt profile" key in Keychain Access.

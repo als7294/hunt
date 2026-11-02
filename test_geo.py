@@ -14,8 +14,9 @@ os.environ["HUNT_HOME"] = tempfile.mkdtemp()  # before importing hunt: never tou
 
 import httpx
 
-from hunt import geo
+from hunt import geo, match
 from hunt.geo import Place, compare
+from hunt.seed import Seed
 
 US = Place("USA", 39.784, -100.446, "us", None, 4, "United States", 36495)
 ARIZONA = Place("Arizona", 34.395, -111.763, "us", "US-AZ", 8, "Arizona, United States", 800)
@@ -168,13 +169,48 @@ assert r["Ft Lauderdale, FL"].label.startswith("Fort Lauderdale,") and r["New Yo
 assert [r[t].region for t in towns[4:]] == ["US-NY", "US-NY", "US-LA", "US-IL"]  # after a town, LA is Louisiana
 assert geo._load()["tampa, fl"][0]["source"] == "GeoNames"  # cached like an answer, so search.py's progress counts it
 # Not sent: every town above. Sent: no state, two Georgetowns in Georgia, CA also Canada (London, Ontario),
-# a village under 1,000 people that the table hasn't got. (The fake knows none of them, so each falls back to its state.)
-assert calls[n:] == ["springfield", "georgetown, ga", "georgia, united states", "london, ca", "california, united states",
-                     "morrison, co", "colorado, united states"], calls[n:]
+# a village under 1,000 people that the table hasn't got. The fake knows none of them, and each falls back to its
+# state, which is answered offline too.
+assert calls[n:] == ["springfield", "georgetown, ga", "london, ca", "morrison, co"], calls[n:]
+assert (r["Georgetown, GA"].region, r["Georgetown, GA"].rank, r["Morrison, CO"].region) == ("US-GA", 8, "US-CO"), r
 assert geo._local("tampa, fl") and geo._local("tampa") is geo._local("perth, wa") is geo._local("berlin, de") is None
 towns_table, geo._towns = geo._towns, {}  # no reverse_geocoder: everything goes to Nominatim, as before
 assert geo._local("tampa, fl") is None
 geo._towns = towns_table
+
+# States and the US itself are answered offline too, except a bare name that is more than a state
+florida = geo._place("Florida", "florida", geo._local("florida"))
+assert (florida.region, florida.rank, florida.label) == ("US-FL", 8, "Florida, United States") and florida.size_km > 500
+assert geo._local("fl") is None and geo._queries("FL") == ["florida, united states"] and geo._local("florida, united states")
+assert geo._local("new york state")[0]["address"]["ISO3166-2-lvl4"] == "US-NY" and geo._local("usa")[0]["place_rank"] == 4
+assert geo._local("georgia") is geo._local("washington") is geo._local("new york") is None  # a country, DC, the city
+assert geo._local("georgia, united states")[0]["address"]["ISO3166-2-lvl4"] == "US-GA"
+
+# A place a bio states: only a piece of it that is wholly a place, or one after a marker. All bios here are made up.
+said = {
+    "Ceramicist\nKilns + Glazes\n🌴 Florida 🌴": "Florida",  # a line, with its decorations stripped
+    "Trail runner | Tampa, FL | she/her": "Tampa, FL", "Barista • Tampa FL": "Tampa, FL",
+    "Sound tech / gigs, SLC. dm me": "SLC", "🗺 NYC": "NYC", "Weekend sailor. PNW": "PNW", "SoCal surfer · SoCal": "SoCal",
+    "Hi! I live in Vermont with two dogs": "Vermont", "Welder living in Ohio. Union 55": "Ohio",
+    "📍 St. Petersburg, Florida | coffee": "St. Petersburg, Florida", "Reporter, Boise-based": "Boise",
+    "Illustrator based in London": "London",  # after a marker any GeoNames place, asked like a location field
+}
+for bio, place in said.items():
+    assert geo.bio_place(bio) == place, (bio, geo.bio_place(bio))
+for bio in ("Washington Commanders fan", "Proud Texan", "Me", "OK then", "OH!", "#Florida #Texas", "fl", "Plant-based cook",
+            "Living in the moment", "Senator for Montana", "Native New Mexican", "From Ohio, now elsewhere", "Georgia peach fan",
+            "Writer | Iowa product", "Earth", "LA writer and Iowa product"):
+    assert geo.bio_place(bio) is None, (bio, geo.bio_place(bio))
+
+# place_text takes the bio's place only when the profile has no location, and says so in the reason
+assert match.place_text({"bio": "🌴 Florida 🌴", "location": "Boise, ID"}) == "Boise, ID"
+bio = {"fullname": "Rae Okafor", "bio": "Ceramicist\n🌴 Florida 🌴"}
+assert match.place_text(bio) == "Florida" and match.place_text(bio).said == "bio says"
+assert match.place_text({"bio": "Ceramicist", "location": "N/A"}) == "" and not hasattr(match.place_text({"location": "Ohio"}), "said")
+seeds = [Seed("username", "glazequeen"), Seed("location", "Tampa, FL")]
+places = asyncio.run(geo.locate(["Tampa, FL", "Florida"]))
+why = match.score(Seed("username", "glazequeen"), "https://site.test/glazequeen", bio, seeds, places=places)[2]
+assert any("bio says 'Florida' is in the same region as 'Tampa, FL'" in w for w in why), why
 
 n = len(calls)
 asyncio.run(geo.locate(["Tucson", "Pale Blue Dot", "Washington", "Tampa, FL"]))
