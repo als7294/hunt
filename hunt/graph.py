@@ -158,7 +158,7 @@ def _key(platform: str) -> str:
 # Hunt never searches or collects on an associate, and never generates a relationship label: entries carry
 # the observed wording ("my brother") or how they were found ("tagged", "co-party"). A possible minor is
 # "a child": their name is withheld everywhere, in every entry and every quote. Contact details, addresses
-# and health words are withheld from quotes.
+# and health words are withheld from quotes. A record of someone at the subject's address is cited, never named (AN6).
 
 MINIMISED = ("Associates are named in the subject's own posts, bios and records, or marked by you in kept photos. "
              "Hunt hasn't searched for any of them; open one as its own case, with its own purpose, to do that.")
@@ -222,18 +222,31 @@ _STREET = re.compile(r"\b\d{1,6}\s+(?:[A-Z][\w'’-]*\s+){1,4}(?:St|Street|Ave|A
                      r"\b(?:Calle|Avenida|Av\.)\s+[\w'’ -]{2,40}\s+\d{1,5}\b")
 _URL = re.compile(r"https?://\S+|\bwww\.\S+", re.I)
 WITHHELD, DETAIL = "[name withheld]", "[detail withheld]"
+# The family tree's rows, top down: only where the observed wording names one ("my dad", "Dad to Leo", "my sister").
+# Family wording that names no generation ("my cousin"), or two, is "relative": no generation guessed.
+TREE = ("grandparent", "parent", "sibling", "partner", "child", "grandchild")
+_KIND = {role: kind for role, kind, _ in RELATIONS.values()}
+_SUFFIXES = {"jr", "sr", "ii", "iii", "iv"}
+_FIRM = {"llc", "inc", "corp", "corporation", "co", "company", "ltd", "lp", "llp", "pllc", "pc", "the"}
+_STREET_WORD = {"street": "st", "avenue": "ave", "road": "rd", "drive": "dr", "lane": "ln", "boulevard": "blvd", "court": "ct",
+                "place": "pl", "terrace": "ter", "circle": "cir", "highway": "hwy", "parkway": "pkwy", "north": "n",
+                "south": "s", "east": "e", "west": "w", "apt": "", "apartment": "", "unit": "", "suite": "", "ste": ""}
+_RECORD_DAY = ("filed", "registered", "formed", "issued", "first_date", "last_date", "status_date", "last_update")
 
 
 def associates(posts: list[dict], candidates: list[dict], subject: list, photo_labels: list[dict] = (),
                case_key: str = "") -> dict:
     """Family and associates found in what the case already holds:
-    {notice, people: [{id, name, minor, labels, types, confidence, cites: [{kind, ref, url, quote, how, words,
-    confidence}]}]}, most confident first. `labels` are the observed wording ("my brother", "tagged",
-    "co-party", "marked in a photo", "shares the surname"), or ["a child"] for a possible minor, whose name is
-    withheld everywhere. `id` is salted with `case_key` (the case's name), so it means nothing outside the case.
+    {notice, people: [{id, name, minor, labels, types, confidence, tree, cites: [{kind, type, ref, url, quote, how,
+    words, confidence}]}]}, most confident first. `labels` are the observed wording ("my brother", "tagged",
+    "co-party", "marked in a photo", "shares the surname") or how a record shows them ("associate (co-officer in
+    <source>, <date>)"), or ["a child"] for a possible minor, whose name is withheld everywhere. `tree` is the
+    generation the wording names (TREE), "relative" for family wording or a same-surname record that names none, or
+    None. `id` is salted with `case_key` (the case's name), so it means nothing outside the case.
 
     `posts` are posts.list_posts(case); only the person's accounts' posts and posts the investigator added count.
-    `candidates` are search.build()'s: the person's accounts give bios, the person's records give co-parties.
+    `candidates` are search.build()'s: the person's accounts give bios, the person's records give co-parties, and
+    every record the case holds gives co-officers and, unnamed, people at one of the subject's records' addresses.
     `subject` is the case's seeds (names, for surnames and to leave the subject out). `photo_labels` are
     label_photo() rows.
     """
@@ -285,7 +298,7 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
     raw, hide = [], set()  # every mention; every name tied to a possible minor, as written
 
     def add(name, words, how, role, minor, confidence, kind, ref, url, quote):
-        if (m := AGE_MINOR.search(quote)) and int(next(g for g in m.groups() if g)) < 18 and how != "co-party":
+        if (m := AGE_MINOR.search(quote)) and int(next(g for g in m.groups() if g)) < 18 and how not in ("co-party", "co-officer"):
             minor = True
         if name and _norm(name) in me:
             return
@@ -335,13 +348,36 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
                     _around(bio, m))
             else:
                 add(None, m[0], "named", "children", True, 0.8, "bio", c["url"], c["url"], _around(bio, m))
-        parties = c["attrs"].get("parties") or c["attrs"].get("co_parties") or []
+        parties = c["attrs"].get("parties") or c["attrs"].get("co_parties") or c["attrs"].get("respondents") or []
         parties = parties if isinstance(parties, list) else [parties]
         caption = str(c["attrs"].get("caption") or c["attrs"].get("case") or "")
         parties += [p.strip() for p in re.split(r"\s+v(?:s)?\.?\s+", caption) if p.strip()] if " v" in caption else []
         for party in dict.fromkeys(str(p) for p in parties):
             if not any(_norm(party).startswith(n.split()[-1]) or n in _norm(party) for n in me if n):
                 add(party, None, "co-party", None, False, 0.9, "record", c["url"], c["url"], caption or party)
+    # Public records the case holds (the subject's, and others found under the subject's own seeds, A1): who shares
+    # a business or an address with the subject's records. An address is compared, never kept or shown (A2).
+    from .report import RECORDS
+    held = [c for c in candidates if set(c.get("found_by") or ()) & RECORDS.keys()]
+    own = {id(c) for c in held if in_person(c)}
+    homes = {_address(c["attrs"]) for c in held if id(c) in own} - {None}
+    firms = {_firm(c["attrs"]) for c in held if id(c) in own} - {None}
+    for c in held:
+        a, theirs = c["attrs"], id(c) not in own
+        day = next((a[k] for k in _RECORD_DAY if a.get(k)), None)
+        src = f"{c['site']}, {day}" if day else c["site"]
+        if _firm(a) in firms:  # the report reads "<name> is a party in <quote>"
+            for n in dict.fromkeys(_shown(n) for n in [a.get("fullname") if theirs else None, *(a.get("officers") or [])]
+                                   if n and not _is_subject(n, me)):
+                add(n, f"associate (co-officer in {src})", "co-officer", None, False, 0.9, "record", c["url"], c["url"],
+                    f"the {c['site']} record" + (f" ({day})" if day else ""))  # not the business: their employer (A2)
+        if theirs and (n := a.get("fullname")) and not _is_subject(n, me) and _address(a) in homes:
+            if _person(n)[0][-1:] and _person(n)[0][-1] in surnames:  # named nowhere: a stranger's record (AN6)
+                add(None, "someone with the subject's surname, at the subject's address", "same address", "relative", False, 0.5,
+                    "record", c["url"], c["url"], src)
+            else:
+                add(None, "someone else at the subject's address", "same address", "household", False, 0.3,
+                    "record", c["url"], c["url"], src)
     for row in photo_labels:  # the investigator's own marking: same label in several kept photos = one person
         label, ref = row["label"], f"E-{row['post_id']}" if row.get("post_id") else f"media {row['media_id']}"
         m = POSSESSIVE.search(label) or re.search(rf"(?i:\b({_WORDS})\b)", label)
@@ -357,20 +393,20 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
         minor = r["minor"] or bool(n and (n in hidden or n.split()[0] in hidden))
         key = (f"minor:{n.split()[0]}" if n else f"minor:role:{r['role']}") if minor else n or f"role:{r['role']}"
         p = people.setdefault(key, {"name": None if minor else r["name"], "minor": minor, "labels": [], "types": [],
-                                    "confidence": 0.0, "cites": []})
+                                    "confidence": 0.0, "cites": [], "kinds": []})
         label = "a child" if minor else r["words"] or r["how"]
-        for k, v in (("labels", label), ("types", r["how"])):
-            if v not in p[k]:
+        for k, v in (("labels", label), ("types", r["how"]), ("kinds", _KIND.get(r["role"], r["role"]))):
+            if v and v not in p[k]:
                 p[k].append(v)
         p["confidence"] = max(p["confidence"], r["confidence"])
-        p["cites"].append({"kind": r["kind"], "ref": r["ref"], "url": r["url"], "quote": r["quote"], "how": r["how"],
-                           "words": None if minor else r["words"], "confidence": r["confidence"]})
+        p["cites"].append({"kind": r["kind"], "type": r["how"], "ref": r["ref"], "url": r["url"], "quote": r["quote"],
+                           "how": r["how"], "words": None if minor else r["words"], "confidence": r["confidence"]})
     for key, p in list(people.items()):  # "Ines" and "Ines Vell": one person, when only one full name fits
         if p["name"] and " " not in p["name"].strip():
             full = [q for k, q in people.items() if q is not p and q["name"] and _norm(q["name"]).startswith(key + " ")]
             if len(full) == 1:
                 q = full[0]
-                for k in ("labels", "types"):
+                for k in ("labels", "types", "kinds"):
                     q[k] += [x for x in p[k] if x not in q[k]]
                 q["cites"] += p["cites"]
                 q["confidence"] = max(q["confidence"], p["confidence"])
@@ -384,6 +420,9 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
     names = sorted({n for n in hide} | {n.split()[0] for n in hide}, key=len, reverse=True)
     for key, p in people.items():
         p["id"] = hashlib.sha256(f"{case_key}\n{key}".encode()).hexdigest()[:10]
+        kinds = p.pop("kinds")
+        gens = [k for k in kinds if k in TREE]
+        p["tree"] = gens[0] if len(gens) == 1 else "relative" if gens or "relative" in kinds else None
         for c in p["cites"]:
             c["quote"] = _withhold(c["quote"], names)
     out = sorted(people.values(), key=lambda p: (-p["confidence"], p["name"] or p["labels"][0]))
@@ -416,6 +455,43 @@ def photo_labels(case) -> list[dict]:
     if not case.rows("select 1 from sqlite_master where type = 'table' and name = 'media'"):
         return case.rows("select id, media_id, label, null as post_id from photo_people")
     return case.rows("select pp.id, pp.media_id, pp.label, m.post_id from photo_people pp left join media m on m.id = pp.media_id")
+
+
+def _person(name: str) -> tuple[list[str], set[str]]:
+    """A name's words, first to last ("Vell, Ines" reads "Ines Vell"), and its generational suffixes apart."""
+    last, comma, first = str(name).partition(",")
+    words = _norm(f"{first} {last}" if comma else str(name)).replace(".", "").split()
+    return [w for w in words if w not in _SUFFIXES], {w for w in words if w in _SUFFIXES}
+
+
+def _is_subject(name: str, me: set[str]) -> bool:
+    """Could this record's name be the subject's? Same first and last name, middle names aside, unless both carry
+    a different suffix (Dorian Vell Sr beside Dorian Vell Jr)."""
+    w, suf = _person(name)
+    return any(w and mw and w[0] == mw[0] and w[-1] == mw[-1] and not (suf and ms and suf != ms)
+               for mw, ms in map(_person, me))
+
+
+def _shown(name: str) -> str:
+    """A record's name as a person writes it: 'VELL, INES' → 'Ines Vell'."""
+    last, comma, first = str(name).partition(",")
+    name = " ".join(f"{first} {last}".split()) if comma and not _person(first)[1] else " ".join(str(name).split())
+    return name.title() if name.isupper() else name
+
+
+def _address(attrs: dict) -> str | None:
+    """A record's street line and town, folded so two spellings meet ('12 Alder Lane, Tucson' and '12 ALDER LN',
+    location 'Tucson, AZ'); None without a numbered street or a town. Compared only, never shown (A2)."""
+    parts = [p for p in str(attrs.get("address") or "").split(",") if p.strip()]
+    town = parts[1] if len(parts) > 1 else str(attrs.get("location") or attrs.get("city") or "").split(",")[0]
+    fold = lambda s: " ".join(w for w in (_STREET_WORD.get(w, w) for w in re.findall(r"[a-z0-9]+", _norm(s))) if w)
+    return f"{fold(parts[0])} | {fold(town)}" if parts and re.match(r"\s*\d", parts[0]) and fold(town) else None
+
+
+def _firm(attrs: dict) -> str | None:
+    """The business a record names, folded ('VELL HAULING, L.L.C.' = 'Vell Hauling LLC'), or None."""
+    words = re.findall(r"[a-z0-9]+", _norm(str(attrs.get("business") or attrs.get("carrier") or "")).replace(".", ""))
+    return " ".join(w for w in words if w not in _FIRM) or None
 
 
 def _norm(s: str) -> str:
