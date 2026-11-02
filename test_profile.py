@@ -190,4 +190,40 @@ profile.PATH.unlink()
 profile._cache = None
 assert app.post("/api/cases", json=new, headers=JSON).status_code == 400, "no description, no 'this is me'"
 
+# --- A handle-like display name (fictional people) ------------------------------------------------
+# (a) "BakeCraft" on github.com/jr_reyes91 is another username Jordan uses: evidence for, never a rival name
+subj = [Seed("name", "Jordan Reyes"), Seed("username", "jr_reyes91"), Seed("username", "BakeCraft")]
+hit = lambda display, seed="jr_reyes91": match.score(Seed("username", seed), f"https://github.com/{seed}", {"fullname": display}, subj)
+p, v, why, tags = hit("BakeCraft")
+assert p > 0.9 and any("display name 'BakeCraft' is a username the subject uses" in w for w in why), why
+assert "username" in tags and not any("conflicts" in w for w in why), why
+assert not any("is a username the subject uses" in w for w in hit("BakeCraft", seed="BakeCraft")[2]), "its own handle is an echo"
+subj.append(Seed("username", "jordanreyes"))
+assert not any("is a username the subject uses" in w for w in hit("Jordan Reyes")[2]), "a real name that collapses to a handle"
+# (b) a one-word handle or brand never conflicts with a two-word real name; a nickname still counts
+assert match.compare_names("gamerdude99", "Jordan Reyes") is None and match.compare_names("SmittyTech", "Aaron Smith") is None
+assert match.compare_names("Bob", "Robert Vale")[1] == "name 'Bob' is part of 'Robert Vale'"
+assert match.compare_names("Maria Lopez", "Jordan Reyes")[0] < 0, "two words that differ still conflict"
+p, v, why, tags = hit("gamerdude99")
+assert v == "roughly even chance" and "name" not in tags, why  # no name reason at all
+
+# --- Possibly theirs: handle-only matches between namesakes and the person, grouped by handle ----------
+pc = Case.create("Possibly test", "Self-check, fictional", kind="insurance", tool="person")
+handle = Seed("username", "kestrelvane77")
+pc.add_seeds([Seed("name", "Robin Vale"), handle])
+pc.add_run("maigret", handle, "found", 4, 600, "")
+for site in ("SiteA", "SiteB", "SiteC"):
+    pc.add_finding(Finding("maigret", handle, site, f"https://{site.lower()}.test/kestrelvane77", {}))
+pc.add_finding(Finding("maigret", handle, "SiteD", "https://sited.test/kestrelvane77", {"fullname": "Robin Vale"}))  # the person
+pc.add_finding(Finding("licences", Seed("name", "Robin Vale"), "Licence", "https://lic.test/1", {"fullname": "Robin Vale"}))
+pc.decide("https://sitec.test/kestrelvane77", "not him")
+person = app.get(f"/api/cases/{pc.name}/person").json()
+maybe = person["possible"]
+assert [x["site"] for x in maybe] == ["SiteA", "SiteB"], maybe  # not SiteC (ruled out), SiteD (likely) or the record
+assert all(x["handle"] == "kestrelvane77" and x["why"] == "only the username agrees" and 0.2 <= x["probability"] < 0.55
+           for x in maybe), maybe
+assert [a["site"] for a in person["accounts"]] == ["SiteD"]
+r = app.post(f"/api/cases/{pc.name}/decisions", json={"url": maybe[0]["url"], "decision": "him"}, headers=JSON)
+assert r.status_code == 200 and [x["site"] for x in app.get(f"/api/cases/{pc.name}/person").json()["possible"]] == ["SiteB"]
+
 print("test_profile: all checks passed")

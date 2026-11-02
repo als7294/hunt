@@ -93,7 +93,8 @@ def compare_names(profile: str, known: str, handle: str = "") -> tuple[float, st
         if handle and _alnum(shared[0]) == _alnum(handle):
             return None
         return bits(0.5, 0.1), f"name '{profile}' is part of '{known}'"
-    if sim < 50:
+    # A one-word display name ("SmittyTech", "gamerdude99") is a handle or a brand, not a rival real name.
+    if sim < 50 and (" " in profile.strip() or len(_clean(known).split()) < 2):
         return bits(0.9, 0.01, agree=False), f"name '{profile}' conflicts with '{known}'"
     return None
 
@@ -147,6 +148,16 @@ def score(seed, url: str, attrs: dict, subject: list,
     profile_names = [n for n in profile_names if n not in echoes]
     if names and echoes and not profile_names:
         add("name", 0.0, f"display name '{echoes[0]}' only repeats the username, so it isn't counted")
+    # A handle-like display name (one word: "SmittyTech" on github.com/als7294) that is another handle the subject
+    # uses is evidence for, weighed like that handle, and never a rival real name. A real name that only collapses to
+    # a handle ("Dorian Vell" for dorianvell) isn't: every namesake shows it. The account's own handle is an echo.
+    own, theirs = _alnum(seed.value if seed.kind == "username" else (_handle(url) if url else "") or ""), \
+        {_alnum(h): h for h in handles}
+    if used := next((n for n in profile_names if not re.search(r"\s", n.strip()) and _alnum(n) in theirs
+                     and _alnum(n) != own), None):
+        u, basis = username_u(theirs[_alnum(used)], (taken or {}).get(theirs[_alnum(used)].lower()))
+        add("username", bits(0.9, u), f"display name '{used}' is a username the subject uses ({basis})")
+        profile_names = [n for n in profile_names if n != used]
     # Best pair wins: one alias matching outweighs another known name not matching.
     handle = seed.value if seed.kind == "username" else ""
     if pairs := [c for p in profile_names for s in names if (c := compare_names(p, s, handle))]:
