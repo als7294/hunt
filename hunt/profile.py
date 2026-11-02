@@ -25,7 +25,7 @@ from datetime import date
 
 import phonenumbers
 
-from . import vlm
+from . import match, vlm
 from .case import HOME
 from .geo import STATES
 from .pivot import EMAIL, MENTION
@@ -186,6 +186,9 @@ def judge(candidate: dict, c: dict) -> tuple[str, str] | None:
     alnum = lambda v: re.sub(r"[\W_]", "", str(v).lower())
     handles = {alnum(u) for u in c.get("usernames", [])}
     own = alnum(_handle(url) or "") if url else ""
+    shown = next((str(a[k]) for k in ("fullname", "name") if a.get(k) and " " in str(a[k]).strip()), "")
+    if shown and c.get("names") and all((r := match.compare_names(shown, n)) and r[0] < 0 for n in c["names"]):
+        return "not", f"it's named '{shown}', not you: someone else with the same handle"
     if own and own in handles:
         return "certain", "its address carries one of your usernames"
     if any(alnum(a.get(k) or "") in handles for k in ("fullname", "name", "display_name") if a.get(k)):

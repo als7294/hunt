@@ -116,6 +116,8 @@ assert judge("https://example.org/bakers", {"bio": "call 512-555-0147"})[0] == "
 assert judge("https://x.example/jr", {"bio": "Head baker at Lumen Bakery"})[0] == "probable"
 assert judge("https://github.com/jordanreyes", {"fullname": "Jordan Reyes", "location": "London"}) is None, "a namesake: can't tell"
 assert judge("https://github.com/jordanreyes", {}, decision="not him")[0] == "not"
+assert judge("https://gitlab.com/jr_reyes91", {"fullname": "Kevin Smith"})[0] == "not", "same handle, someone else's name"
+assert judge("https://chess.example/jr_reyes91", {"fullname": "Jordan Reyes"})[0] == "certain"
 assert "described" not in str(match.score.__doc__), "the key never reaches scoring"
 
 # --- General scoring fixes found by training (fictional subject) -----------------------------------------
