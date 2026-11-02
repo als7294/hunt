@@ -263,19 +263,19 @@ An **associate** is anyone in the case other than the subject: a commenter, some
 | A9 | **An associate's own health or other sensitive details are never kept.** A comment about the *subject's* health is about the subject; for a Washington subject it follows F3 | MHMDA; CCPA sensitive personal information; GINA in screenings | [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
 | A10 | **Associates stay in their case.** They are never identifiers in "Have we seen this person before?" (`seen.py` compares only the subject's; keep it that way), never in the learning store, and are deleted with the case (K6) | Linking third parties across cases would build files on people no case is about [I] | [qol.md](../qol.md) |
 
-### Self-search
+### Training on yourself
 
-_Added 2026-11-01, for "About you" (`hunt/profile.py`), "This is me" on a case (meta `about_me`), lead suggestions ("Search the ticked") and `scripts/train_find.py`. The review is in [compliance-audit.md §7](compliance-audit.md#7-self-search-review-main-at-b31a800-2026-11-01)._
+_Added 2026-11-01, for the training answer key (`hunt/profile.py`; "This is me" on a case was removed the same day), lead suggestions ("Search the ticked") and `scripts/train_find.py`. The review is in [compliance-audit.md §7](compliance-audit.md#7-self-search-review-main-at-b31a800-2026-11-01)._
 
 Training on yourself (revised 2026-11-01: Aaron chose a training answer key, not a product feature). The person using Hunt describes themselves once (`hunt me`). The description is locked on this Mac and read by the local model into criteria, and `scripts/train_find.py` uses it only to grade an ordinary search of them (`profile.judge`). It never changes how any case is scored, worded or reported, and there is no "This is me" on a case. **Hunt can't verify that the describer is the subject.** These rules limit what a false answer key could gain.
 
 | # | Rule | Why | Reasoned in |
 |---|---|---|---|
-| S1 | **The answer key is a self-declaration, with the attestation on record.** At lock the person confirms "This describes me, the person who uses this Mac account, and no one else" (required), and every lock, addition and forget is logged in `~/Hunt/me.log` with its time and fingerprint, never the text | Unverifiable, so the use is fenced: it only grades a training run, and the attestation puts the claim on record | D16 |
+| S1 | **The answer key is a self-declaration, with the attestation on record.** At the first lock the person confirms "This describes me, the person who uses this Mac account, and no one else" (required; an addition keeps that attestation), and every lock, addition and forget is logged in `~/Hunt/me.log` with its time and fingerprint, never the text | Unverifiable, so the use is fenced: it only grades a training run, and the attestation puts the claim on record | D16 |
 | S2 | **The description stays on this Mac and out of every case.** It is never searched, geocoded or sent, and never scores or enters a case, report, bundle or export. The person can forget it: the file goes to the Trash and its Keychain key is deleted (`hunt me --forget`, Forget on the page) | Minimisation; their own data, under their control | D20 |
-| S3 | **Automatic lead rounds run only in the trainer,** and only from accounts the answer key says are certainly theirs (one of their locked handles, emails, phones or sites, or marked "him"). At most 3 rounds and 12 leads a round, each audited as `lead round` with every lead and its source. No capture, no vendor, through the associate guard (`graph.conflicts`) and without deny-list hosts | Following "likely", unconfirmed accounts unattended collects on namesakes and associates. The consent covers only the person themselves | D17 |
+| S3 | **Automatic lead rounds run only in the trainer,** and only from accounts the answer key says are certainly theirs (one of their locked handles, emails, phones or sites, or marked "him"). At most 3 rounds and 12 leads a round, each audited as `lead round` with every lead and its source. No capture, no vendor, through the associate guard (`graph.conflicts`), and no link lead on a deny-list host. A handle taken from such a link is searched like any handle: one existence check per site (D1) | Following "likely", unconfirmed accounts unattended collects on namesakes and associates. The consent covers only the person themselves | D17 |
 | S4 | **Everywhere else, a lead is searched only when she ticks it.** No lead comes from a sentence that names a relationship or a minor, whatever its kind (handle, link, site or email). A ticked lead that appears in an associate's citing quote is refused, like a seed naming an associate | C13, A1, A5: an associate's or a child's handle is collection on them | D18 |
-| S5 | **Training cases are the developer's own.** They're ordinary cases with a training purpose on record; run training on a Mac that holds no client cases, or remove the training cases afterwards | Their identifiers have no place beside client work | D16 |
+| S5 | **Training cases are the developer's own.** They're ordinary cases with a training purpose on record, filed as `diligence` for want of a closer kind (none of K1's kinds fits a self-test); run training on a Mac that holds no client cases, or remove the training cases afterwards | Their identifiers have no place beside client work | D16 |
 
 ### Decisions (provisional, 2026-10-30)
 
@@ -300,7 +300,7 @@ These were taken by the main session on Aaron's behalf (D1–D15 on 2026-10-30, 
 | D14 | Whole-image CLIP embeddings | **Leave them:** F1 is about face templates | F1 |
 | D15 | The report's "no one was contacted" sentence | **Hunt's statement about its own code,** worded so | C4 |
 | D16 | "This is me" can't be verified: could it be used for someone else? (2026-11-01, revised) | **Removed from the product.** Aaron chose a training answer key only: it grades `train_find`'s ordinary search and never scores a case. Fenced by the required attestation, logged at lock | S1, S5, C5 |
-| D17 | Are automatic lead rounds acceptable, and where? (2026-11-01) | **Only in the trainer,** and only from accounts the answer key says are certainly the person's. Capped (3 rounds, 12 leads), audited per round, no capture, no vendor, no deny-list hosts. In every case a lead waits for her tick | S3, S4, A1, C13, C6 |
+| D17 | Are automatic lead rounds acceptable, and where? (2026-11-01) | **Only in the trainer,** and only from accounts the answer key says are certainly the person's. Capped (3 rounds, 12 leads), audited per round, no capture, no vendor, no deny-list hosts. In every other case a lead waits for her tick | S3, S4, A1, C13, C6 |
 | D18 | Do lead suggestions keep C13? (2026-11-01) | **Now they do** (ec723e3): the relationship filter covers every lead kind and sentences naming a minor, and `graph.conflicts` refuses a ticked lead or seed found in an associate's citing quote | S4, C13, A1, A5 |
 | D19 | Which kind is a self-search? (2026-11-01) | **Withdrawn with D16:** there is no self-search kind. Training cases are ordinary cases with a training purpose | K1 |
 | D20 | How long does the description live? (2026-11-01) | **Until the person forgets it.** It isn't tied to any case's retention, because it's in no case | S2, K6 |
@@ -377,12 +377,7 @@ Still open:
   - Capturing an associate's page keeps and scans all its posts; only the archive should be kept whole.
   - Those posts' media hashes become `seen.py` identifiers.
 - **A2, A6, A9 (D7):** `graph.associates` stores an address in "same address" entries, keeps unfiltered quotes (an associate's health included), and generates relationship labels ("mother", "possible relative") for the map and the UI.
-- **S1–S5 (D16–D20), checked at `b31a800`:**
-  - `pivot.suggestions` offers handles from sentences naming a wife and a 9-year-old son, and `add_seeds` lets them through.
-  - `scripts/train_find.py` follows every likely account's leads unattended, bypassing that guard.
-  - "This is me" works on any kind (the wizard and the script use `diligence`), alongside claim fields, with no attestation.
-  - Self cases are in "Have we seen this person before?".
-  - The description can't be forgotten, and scoring uses whatever is locked now, not the fingerprint the case recorded.
+- **S1–S5 (D16–D20), rechecked at `00a0fa2`:** SS1, SS2, SS3, SS5 and SS7 are done (ec723e3); SS4, SS6, SS8 and SS9 were withdrawn with "This is me". Open: S5 is policy only. Training cases sit beside client cases in "Have we seen this person before?" unless the developer removes them.
 
   Findings SS1–SS9 are in [compliance-audit.md §7](compliance-audit.md#7-self-search-review-main-at-b31a800-2026-11-01).
 

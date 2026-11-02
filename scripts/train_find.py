@@ -57,12 +57,13 @@ def main():
         mine = [{**c, "decision": "him"} for c in report["candidates"] if (grade[c["url"]] or ("",))[0] == "certain"]
         leads = [x for x in pivot.suggestions({**report, "candidates": mine}) if x["kind"] in ("username", "email", "url")
                  and not (x["kind"] == "url" and denied(x["value"]))][:12]  # C6: never read a denied site
-        seeds = [s for x in leads for s in detect(f"{x['kind']}:{x['value']}")]
+        picked = [(x, s) for x in leads for s in detect(f"{x['kind']}:{x['value']}")]
         people = graph.associates([], report["candidates"], case.seeds())["people"]
-        blocked = {s.value for s, _ in graph.conflicts(people, seeds)}  # someone around you: never searched (C13)
-        seeds = [s for s in seeds if s.value not in blocked]
-        case.audit("lead round", {"round": rnd + 1, "leads": [{k: x[k] for k in ("kind", "value", "source_url")}
-                                                              for x in leads if x["value"] not in blocked]})
+        blocked = {(s.kind, s.value) for s, _ in graph.conflicts(people, [s for _, s in picked])}  # never searched (C13)
+        picked = [(x, s) for x, s in picked if (s.kind, s.value) not in blocked]
+        seeds = [s for _, s in picked]
+        case.audit("lead round", {"round": rnd + 1, "searched": [{"kind": s.kind, "value": s.value, "source_url": x["source_url"]}
+                                                                 for x, s in picked]})  # exactly what goes to search.run
         if not seeds:
             break
     yours = [c for c in report["candidates"] if (grade[c["url"]] or ("",))[0] in ("certain", "probable")]
