@@ -72,6 +72,18 @@ for leak in ("Kit", "Aaron", "Tampa", "vellfamily@example.com", "https://example
     assert leak not in kept, leak
 assert sum(1 for r in a["relatives"] if r["minor"] and r["name"] is None) == 2  # Kit (died at 8) and the son in the bio
 
+# Obituary-style text, read with graph's relationship words (RELATIONS) and name rules (_NAME, _split)
+said = lambda t: [(r["name"], r["relation"], r["place"]) for r in _kin.from_text(t)]
+assert said("She leaves her husband, Dan Ortiz, and her mother Rosa of Mesa, Arizona.") == \
+    [("Dan Ortiz", "partner", None), ("Rosa", "parent", "Mesa, Arizona")]
+assert said("Survived by his loving brother Theo (Ocala, FL) and his sister Kim of Tampa.") == \
+    [("Theo", "sibling", "Ocala, FL"), ("Kim", "sibling", "Tampa")]
+assert said("He was the son of Victor and Ana Vell.") == [("Victor", "parent", None), ("Ana Vell", "parent", None)]
+assert said("He married Ines Ortiz in 1990.") == [("Ines Ortiz", "partner", None)]
+assert said("Survived by his daughter Nell (Phoenix).") == [(None, "child", None)]  # a possible minor: no name, no place
+assert _kin.from_text("Survived by his daughter Nell (Phoenix).")[0]["quote"] == "Survived by his daughter [name withheld] ([detail withheld])."
+assert said("He leaves his best friend Sam Lee and his coworker Ana Brook.") == []  # family words only
+
 # The first refusal stops the host for the day; nothing works around it (C6)
 _kin.STOPPED.clear()
 seen.clear()

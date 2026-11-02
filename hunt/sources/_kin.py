@@ -19,6 +19,8 @@ from urllib.robotparser import RobotFileParser
 
 import httpx
 
+from .. import graph
+from . import _api
 from ._api import UA, Limited
 
 GAP = 2.0  # seconds between requests to one host
@@ -36,9 +38,8 @@ class Refused(Exception):
 
 
 def client(timeout: float = 20) -> httpx.AsyncClient:
-    import os
-    return httpx.AsyncClient(timeout=timeout, follow_redirects=True, proxy=os.environ.get("HUNT_PROXY"),
-                             headers={"User-Agent": UA, "Accept": "text/html,application/xhtml+xml"})
+    """_api.client, asking for pages rather than JSON."""
+    return _api.client(timeout, Accept="text/html,application/xhtml+xml")
 
 
 def refusal(status: int, url: str, html: str) -> str | None:
@@ -95,22 +96,18 @@ async def robots_note(c: httpx.AsyncClient, url: str) -> str:
 
 # --- the family a page's words name -------------------------------------------------------------------------------
 
-# word → (relation to the page's person, may be a minor)
-KIN = {**{w: ("partner", False) for w in "wife husband spouse spouses partner fiancé fiancée fiance fiancee".split()},
-       **{w: ("child", True) for w in "son sons daughter daughters children child stepson stepdaughter".split()},
-       **{w: ("parent", False) for w in "mother father parents mom dad stepmother stepfather".split()},
-       **{w: ("sibling", False) for w in "brother brothers sister sisters siblings".split()},
-       **{w: ("grandchild", True) for w in "grandson grandsons granddaughter granddaughters grandchildren".split()},
-       **{w: ("grandparent", False) for w in "grandmother grandfather grandparents".split()}}
+# graph.RELATIONS is the vocabulary, the same one posts and bios are read with; only family words count here
+FAMILY_KINDS = {"parent", "sibling", "child", "grandparent", "grandchild", "partner", "relative"}
 # "son of X": the page's person is the son, so X is a parent
 INVERSE = {"partner": "partner", "child": "parent", "parent": "child", "sibling": "sibling", "grandchild": "grandparent",
-           "grandparent": "grandchild"}
-_W = "|".join(sorted(KIN, key=len, reverse=True))
-_N = r"[A-Z][a-zA-Z'’.-]+(?:\s+(?:[A-Z][a-zA-Z'’.-]+|\([A-Z][a-zA-Z'’.-]+\)))*"  # "Mary (Ruiz) Smith"
-_PLACE = r"(?:\s*\(([A-Z][\w .,'’-]{1,40})\)|\s+of\s+([A-Z][\w .'’-]{1,40}?(?:,\s*[A-Z][\w .'’-]+)?)(?=[,;.]|\s+and\b|$))?"
-NAMED = re.compile(rf"\b(?:(?:his|her|their|the|beloved|loving)\s+)*({_W})\b(?:\s+of)?,?\s+((?:{_N}{_PLACE}(?:,\s*|\s+and\s+|,\s+and\s+)?)+)")
-OF = re.compile(rf"\b({_W})\s+of\s+")
-MARRIED = re.compile(rf"\b(?:married|wed)\s+({_N})")
+           "grandparent": "grandchild", "relative": "relative"}
+_W = "|".join(sorted((re.escape(w) for w, (_, kind, _) in graph.RELATIONS.items() if kind in FAMILY_KINDS),
+                     key=len, reverse=True))
+_THIRD = r"(?:(?:his|her|their|the|beloved|loving|late)\s+)*"  # obituaries speak of the person, not as them
+NAMED = re.compile(rf"(?i:\b{_THIRD}{graph._ADJ}({_W}))\b(\s+of)?,?\s+"  # the names run to the next relation
+                   rf"([A-Z][^;:.]*?)(?=,?\s+(?:and\s+)?(?:his|her|their)\s|[;:.]|$)")
+ONE = re.compile(rf"^{graph._NAME}(?:\s*\(([^)]{{1,40}})\)|\s+of\s+([A-Z][\w .'’‚-]{{1,40}}))?$")  # "Aaron (Tampa)", "Theo of Ocala"
+MARRIED = re.compile(rf"\b(?:married|wed)\s+{graph._NAME}")
 URLISH = re.compile(r"https?://\S+|www\.\S+|\S+@\S+\.\w+|@\w+")
 
 
@@ -125,6 +122,8 @@ def relative(name: str | None, relation: str, quote: str, minor: bool, place: st
     """One relative as a finding keeps it: a possible minor's name and place never (A5), and no link, email or handle
     in the quote (S4)."""
     quote = URLISH.sub("[detail withheld]", " ".join(quote.split()))[:240]
+    if minor and place:  # where a child lives is theirs too
+        quote = quote.replace(place, "[detail withheld]")
     if minor and name:
         quote = re.sub(rf"(?<!\w){re.escape(name)}(?!\w)", "[name withheld]", quote)
         for part in name.split():
@@ -134,20 +133,25 @@ def relative(name: str | None, relation: str, quote: str, minor: bool, place: st
 
 
 def from_text(text: str) -> list[dict]:
-    """The family an obituary-style text names, each as the text says it ("survived by his son Aaron (Tampa)",
-    "son of John and Mary Smith", "his wife of 40 years, Ana"). Children and grandchildren are possible minors."""
+    """The family an obituary-style text names, each as the text says it ("survived by his son Aaron (Tampa)", "son of
+    John and Mary Smith", "his wife Ines"), read with graph's relationship words and name rules (RELATIONS, _NAME,
+    _split). Children, grandchildren, nieces and nephews are possible minors, as in posts."""
     out = []
     for sentence in re.split(r"(?<=[.;])\s+", text or ""):
         for m in NAMED.finditer(sentence):
-            rel, minor = KIN[m[1].lower()]
-            if OF.match(sentence, m.start(1)) and sentence[m.end(1):m.end(1) + 4] == " of ":
-                rel, minor = INVERSE[rel], INVERSE[rel] in ("child", "grandchild")
-            names = re.finditer(rf"({_N}){_PLACE}", m[2])
-            for n in names:
-                name, place = n[1].strip().rstrip(".,"), (n[2] or n[3] or "").strip() or None
-                if name.split()[0].lower() in ("and", "the", "his", "her"):
-                    continue
-                out.append(relative(name, rel, sentence.strip(), minor, place, f"“{m[1]}” in the text"))
-        out += [relative(m[1].strip().rstrip(".,"), "partner", sentence.strip(), False, how="“married” in the text")
+            _, kind, minor = graph.RELATIONS[m[1].lower()]
+            if kind not in FAMILY_KINDS:
+                continue
+            if m[2]:  # "daughter of John and Mary": the page's person is the daughter
+                kind = INVERSE[kind]
+                minor = kind in ("child", "grandchild")
+            names = re.sub(r"\(([^)]*)\)", lambda p: "(" + p[1].replace(",", "‚") + ")", m[3].split(" in ")[0])
+            names = re.sub(r"(\bof\s+[A-Z][\w'’.-]*(?:\s+[A-Z][\w'’.-]*)*),\s+([A-Z][\w'’.-]*(?:\s+[A-Z][\w'’.-]*)?)"
+                           r"(?=\s*(?:,|\band\b|$))", r"\1‚ \2", names)  # a place's own comma: "of Mesa, Arizona"
+            for part in graph._split(names):
+                if one := ONE.match(part.strip().rstrip(".,")):
+                    place = (one[2] or one[3] or "").replace("‚", ",").strip() or None
+                    out.append(relative(one[1], kind, sentence.strip(), minor, place, f"“{m[1]}” in the text"))
+        out += [relative(m[1], "partner", sentence.strip(), False, how="“married” in the text")
                 for m in MARRIED.finditer(sentence)]
     return out
