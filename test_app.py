@@ -515,13 +515,13 @@ assert [x["value"] for x in f["emails"]] == ["dquell@example.test"], f["emails"]
 assert {x["value"] for x in f["usernames"]} == {"dquell_ex", "dq_alt"} and f["usernames"][0]["sources"] == ["SiteQ dquell_ex", "SiteR dquell_ex"], f
 assert not any("Boise" in x["value"] or "Mara" in x["value"] for k in f for x in f[k] if isinstance(x["value"], str)), f
 ps = {(x["site"], x["url"]) for x in c.get(f"/api/cases/{pc}/person").json()["people_search"]}
-assert ps == {("TruePeopleSearch", "https://www.truepeoplesearch.com/results?name=Dorian%20Quell&citystatezip=Tucson%2C%20AZ"),
-              ("FastPeopleSearch", "https://www.fastpeoplesearch.com/name/dorian-quell_tucson-az"),
+assert ps == {("FastPeopleSearch", "https://www.fastpeoplesearch.com/name/dorian-quell_tucson-az"),  # no TruePeopleSearch (P2)
               ("Whitepages", "https://www.whitepages.com/name/Dorian-Quell/Tucson-AZ"),
-              ("TruePeopleSearch", "https://www.truepeoplesearch.com/resultphone?phoneno=5205550143"),
               ("FastPeopleSearch", "https://www.fastpeoplesearch.com/520-555-0143"),
-              ("Whitepages", "https://www.whitepages.com/phone/1-520-555-0143"),
-              ("TruePeopleSearch", "https://www.truepeoplesearch.com/resultemail?email=dquell%40example.test")}, ps
+              ("Whitepages", "https://www.whitepages.com/phone/1-520-555-0143")}, ps
+for kind in ("diligence", "journalism"):  # the case kinds they may be offered on, besides insurance
+    qc.db.execute("insert or replace into meta values ('kind', ?)", (kind,))
+    assert len(c.get(f"/api/cases/{pc}/person").json()["people_search"]) == 4, kind
 assert server._town_st("12 Sample Rd, Apt 4, Phoenix, Arizona 85001") == "Phoenix, AZ" and server._town_st("Washington, DC") == "Washington, DC"
 qc.db.execute("insert or replace into meta values ('kind', 'background')")
 bp = c.get(f"/api/cases/{pc}/person").json()

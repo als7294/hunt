@@ -224,6 +224,16 @@ assert r.status_code == 200 and r.json()["post"], r.text
 assert view("https://www.facebook.com/dorian.vell/photos").json()["post"] is None  # the same screenshot: nothing new
 assert view("https://example.com/").status_code == 400
 assert view("https://www.linkedin.com/in/dorian-vell/").status_code == 403  # never recorded: its terms name plugins
+# People-search sites are never recorded (legal.md P4): each upload refused with the reason, and the refusal audited
+for path, field, url in (("view", "screenshot", "https://www.whitepages.com/name/Dorian-Vell/Port-Alder-WA"),
+                         ("page", "archive", "https://fastpeoplesearch.com/name/dorian-vell_port-alder-wa"),
+                         ("recording", "video", "https://m.truepeoplesearch.com/find/person/px1")):
+    r = c.post(f"/api/capture/{path}", data={"case": slug, "url": url}, files={field: ("f", shot, "image/jpeg")}, headers=UP)
+    assert r.status_code == 451 and "people-search" in r.json()["error"], (path, r.text)
+refused = [json.loads(a["detail"]) for a in case.rows("select detail from audit where action = 'people-search capture refused'")]
+assert [(x["host"], x["kind"]) for x in refused] == [("www.whitepages.com", "screenshot"), ("fastpeoplesearch.com", "archive"),
+                                                     ("m.truepeoplesearch.com", "video")], refused
+assert not any("Dorian" in a["detail"] for a in case.rows("select detail from audit where action = 'people-search capture refused'"))  # host only
 assert view("https://www.facebook.com/x", case_slug="nope").status_code == 404
 assert view("https://www.facebook.com/x", data=b"<svg onload=alert(1)>").status_code == 415
 assert c.post("/api/capture/view", data={"case": slug, "url": "https://x.com/a"}, files={"screenshot": ("s.jpg", shot, "image/jpeg")},
