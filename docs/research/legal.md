@@ -220,7 +220,7 @@ Disclaimers alone are not enough: the FTC has said so, and OpenOSINT was critici
 
 | # | Rule | Why | Reasoned in |
 |---|---|---|---|
-| K1 | **A purpose on record before any search,** and one of four kinds (D9):<br>• `insurance`: a claim, not a consumer report, unless the report is reused for underwriting, renewal or employment<br>• `background`: employment or eligibility, a consumer report<br>• `diligence`: not a consumer report when about a business transaction, but one if used for employment or eligibility [I]<br>• `journalism`: not a consumer report<br>Background cases carry the FCRA disclaimer and always get the screening version, which drops protected traits and the sources that reveal them (D9). She confirms the subject's identity before anything reaches an employment report | Claims reports aren't consumer reports; anything used "in whole or in part" for eligibility is | [FCRA](#fcra), [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
+| K1 | **A purpose on record before any search,** and one of five kinds (D9, D19):<br>• `insurance`: a claim, not a consumer report, unless the report is reused for underwriting, renewal or employment<br>• `background`: employment or eligibility, a consumer report<br>• `diligence`: not a consumer report when about a business transaction, but one if used for employment or eligibility [I]<br>• `journalism`: not a consumer report<br>• `self`: a self-search by the person using Hunt; not a consumer report and never a client deliverable (S1, D19)<br>Background cases carry the FCRA disclaimer and always get the screening version, which drops protected traits and the sources that reveal them (D9). She confirms the subject's identity before anything reaches an employment report | Claims reports aren't consumer reports; anything used "in whole or in part" for eligibility is | [FCRA](#fcra), [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
 | K2 | **Audit log** of every query, capture, import, worklist open, hard stop and export | Retraceable method; GLBA/DPPA-style accountability | [Knogin](https://knogin.com/api/docs/modules/analyst-driven-osint) [S] |
 | K3 | **Audience flag.** Anything the platform shows with an audience other than Public is flagged and kept out of the report unless counsel approves. Media with no audience recorded aren't flagged (D10) | The CCPA, Virginia and Texas "publicly available" exclusions stop at content "restricted … to a specific audience" | [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
 | K4 | **Scan everything, report what's material.** Scan hits are leads that she confirms, never findings on their own. Only hits she marks `in report` reach the report; `kept` keeps a hit for the file only (D4) | Insurers may not seek information "not reasonably required" (10 CCR §2695.7(d)); FCRA accuracy (§1681e(b)) | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
@@ -263,9 +263,23 @@ An **associate** is anyone in the case other than the subject: a commenter, some
 | A9 | **An associate's own health or other sensitive details are never kept.** A comment about the *subject's* health is about the subject; for a Washington subject it follows F3 | MHMDA; CCPA sensitive personal information; GINA in screenings | [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
 | A10 | **Associates stay in their case.** They are never identifiers in "Have we seen this person before?" (`seen.py` compares only the subject's; keep it that way), never in the learning store, and are deleted with the case (K6) | Linking third parties across cases would build files on people no case is about [I] | [qol.md](../qol.md) |
 
+### Self-search
+
+_Added 2026-11-01, for "About you" (`hunt/profile.py`), "This is me" on a case (meta `about_me`), lead suggestions ("Search the ticked") and `scripts/train_find.py`. The review is in [compliance-audit.md §7](compliance-audit.md#7-self-search-review-main-at-b31a800-2026-11-01)._
+
+A self-search is the person using Hunt looking themselves up. She describes herself once on "About you". The description is locked on this Mac and read by the local model into criteria, and a case marked "This is me" scores accounts against them. **Hunt can't verify that the describer is the subject.** These rules limit what a false "This is me" could gain.
+
+| # | Rule | Why | Reasoned in |
+|---|---|---|---|
+| S1 | **"This is me" is a self-declaration, made only on a `self` case, with her attestation on record.** At lock she confirms "This describes me, the person who uses this Mac account, and no one else", and the lock is logged with its time and fingerprint. A `self` case has a fixed purpose and no client, adjuster, file number, claim, injury or assignment date. It can't change kind. Its report is a self-search report: no client header, no investigator certification, never a client deliverable | Unverifiable, so the use is fenced. Describing a subject as "me" would put a false purpose on record: a K1 and C5 breach by the investigator, and the attestation makes it hers on the record | D16, D19 |
+| S2 | **The description stays on this Mac and out of every case.** It is never searched, geocoded or sent, and never written into a case, report, bundle or export; only its fingerprint is. A case scores against it only while the case's recorded fingerprint matches the one locked. She can forget it: the file goes to the Trash and its Keychain key is deleted | Minimisation. Scoring stays retraceable to what was locked when the case ran (K2, K5). Her own data, under her control | D20 |
+| S3 | **Automatic lead rounds run only in a `self` case,** and only from accounts certainly hers: they carry one of her locked handles, emails, phones or sites, or she marked them "him". At most 3 rounds and 12 leads a round. Each round is audited with every lead and where it came from. No capture, no vendor, and no lead whose host is on C6's deny list | Leads come from "likely", unconfirmed accounts. Following them unattended collects on namesakes and associates. Her consent covers only herself | D17 |
+| S4 | **Everywhere else, a lead is searched only when she ticks it.** No lead comes from a sentence that names a relationship or a minor, whatever its kind (handle, link, site or email). A ticked lead that appears in an associate's citing quote is refused, like a seed naming an associate | C13, A1, A5: an associate's or a child's handle is collection on them | D18 |
+| S5 | **Self cases stay apart.** They're never shown in, and never look into, "Have we seen this person before?" | Her own identifiers have no place in client work, and client cases have none in hers | D16 |
+
 ### Decisions (provisional, 2026-10-30)
 
-These were taken by the main session on Aaron's behalf, and Aaron may overrule them. The options and the conflicts behind them are in [compliance-audit.md §4](compliance-audit.md#4-rule-text-that-needs-a-decision). The rule text above already reflects them.
+These were taken by the main session on Aaron's behalf (D1–D15 on 2026-10-30, D16–D20 on 2026-11-01), and Aaron may overrule them. The options and the conflicts behind them are in [compliance-audit.md §4](compliance-audit.md#4-rule-text-that-needs-a-decision), and for D16–D20 in [§7](compliance-audit.md#7-self-search-review-main-at-b31a800-2026-11-01). The rule text above already reflects them.
 
 | # | Question | Decision | Rules |
 |---|---|---|---|
@@ -285,6 +299,11 @@ These were taken by the main session on Aaron's behalf, and Aaron may overrule t
 | D13 | A LinkedIn notice script | **None:** Hunt's code stays off LinkedIn. Warnings come from Hunt's screens and the popup only | C10, A4 |
 | D14 | Whole-image CLIP embeddings | **Leave them:** F1 is about face templates | F1 |
 | D15 | The report's "no one was contacted" sentence | **Hunt's statement about its own code,** worded so | C4 |
+| D16 | "This is me" can't be verified: could it be used for someone else? (2026-11-01) | **Yes, so fence it rather than trust it:**<br>• a self-declaration with an attestation, logged at lock<br>• only on a `self` case without client or claim fields<br>• a self-search report that is never a client deliverable<br>• kept out of "Have we seen this person before?"<br>A false "This is me" is a false purpose on record, and the investigator's breach | S1, S5, K1, C5 |
+| D17 | Are automatic lead rounds acceptable, and where? (2026-11-01) | **Only in a `self` case,** and only from accounts certainly hers. Capped (3 rounds, 12 leads), audited per round, no capture, no vendor, no deny-list hosts. In every other case a lead waits for her tick | S3, S4, A1, C13, C6 |
+| D18 | Do lead suggestions keep C13? (2026-11-01) | **Not today.** The relationship filter covers emails only. Extend it to every lead kind and to sentences naming a minor, and check ticked leads against associates' citing quotes, not just their names | S4, C13, A1, A5 |
+| D19 | Which kind is a self-search? (2026-11-01) | **A fifth kind, `self`:** not a consumer report (nothing is furnished to anyone), never a client deliverable. Not `diligence`, which D9 defines by a business transaction | K1, S1 |
+| D20 | How long does the description live? (2026-11-01) | **Until she forgets it.** It isn't tied to any case's retention, because it's her own and in no case. A Forget action, and scoring only while a case's fingerprint matches | S2, K6 |
 
 ### Not yet enforced
 
@@ -358,6 +377,15 @@ Still open:
   - Capturing an associate's page keeps and scans all its posts; only the archive should be kept whole.
   - Those posts' media hashes become `seen.py` identifiers.
 - **A2, A6, A9 (D7):** `graph.associates` stores an address in "same address" entries, keeps unfiltered quotes (an associate's health included), and generates relationship labels ("mother", "possible relative") for the map and the UI.
+- **S1–S5 (D16–D20), checked at `b31a800`:**
+  - `pivot.suggestions` offers handles from sentences naming a wife and a 9-year-old son, and `add_seeds` lets them through.
+  - `scripts/train_find.py` follows every likely account's leads unattended, bypassing that guard.
+  - "This is me" works on any kind (the wizard and the script use `diligence`), alongside claim fields, with no attestation.
+  - Self cases are in "Have we seen this person before?".
+  - The description can't be forgotten, and scoring uses whatever is locked now, not the fingerprint the case recorded.
+
+  Findings SS1–SS9 are in [compliance-audit.md §7](compliance-audit.md#7-self-search-review-main-at-b31a800-2026-11-01).
+
 
 ## FBI / IC portfolio relevance
 
