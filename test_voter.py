@@ -4,6 +4,8 @@ Nothing leaves the machine. The people here are fictional; the file layout is th
 """
 
 import asyncio
+import io
+import gzip
 import os
 import sqlite3
 import tempfile
@@ -15,7 +17,9 @@ os.environ["HUNT_HOME"] = tempfile.mkdtemp()  # before hunt.case reads it
 
 from hunt.match import DOB_KEYS
 from hunt.seed import Seed
-from hunt.sources import SOURCES, voter
+import httpx
+
+from hunt.sources import SOURCES, _api, voter
 
 FL = voter.DIR / "FL"
 FL.mkdir(parents=True)
@@ -84,7 +88,7 @@ found, checked, note = asyncio.run(voter.search(Seed("name", "Robert Vance"), [S
 assert found == [] and note.startswith("not run:"), note
 found, checked, note = run(("name", "Robert Vance"), ("age", str(date.today().year - 1975)), ("age", str(date.today().year - 1989)))
 assert checked == 1 and len(found) == 2 and len({f.url for f in found}) == 2, [f.url for f in found]
-assert note == "Florida extract of 2026-10-16, narrowed by the case's place, date of birth or age: 2 FL voters named Robert… Vance", note
+assert note == "Florida file of 2026-10-16, narrowed by the case's place, date of birth or age: 2 FL voters named Robert… Vance", note
 jr = next(f for f in found if f.attrs["voter_id"] == "100000001")
 assert jr.site == "Florida voter roll" and jr.url == voter.BUILT["FL"] + "#FL-100000001" and jr.body is None
 assert jr.attrs == {"fullname": "Robert J Vance Jr", "dob": "1989-03-14", "address": "100 Example St, Gainesville, FL 32601",
@@ -165,11 +169,124 @@ asyncio.run(search.fan_out(background, seeds, events.append))
 runs = background.rows("select * from runs where source = 'voter'")
 assert len(runs) == 1 and runs[0]["status"] == "skipped" and "V4" in runs[0]["note"] and runs[0]["found"] == 0, runs
 assert background.rows("select 1 from findings where source = 'voter'") == []
-assert report.SCREENED["voter"] == "political activity" and report.RECORDS["voter"] == "the Florida voter extract"
+assert report.SCREENED["voter"] == "political activity" and report.RECORDS["voter"] == "the states' voter files (Florida, North Carolina, Ohio)"
 assert report._screened({"found_by": ["voter"], "attrs": {}}) is True
 line = report._summary({"found_by": ["voter"], "attrs": attrs, "site": "Florida voter roll"})
 assert line == ("Robert J Vance Jr, born 1989-03-14, 100 Example St, Gainesville, FL 32601, registered 2008-10-06, active, "
                 "Florida voter extract dated 2026-10-16"), line
+
+# --- North Carolina: Hunt downloads the State Board's file itself, asking first when it is over 500 MB
+NC_HEAD = ["county_desc", "voter_reg_num", "ncid", "last_name", "first_name", "middle_name", "name_suffix_lbl", "status_cd",
+           "voter_status_desc", "res_street_address", "res_city_desc", "state_cd", "zip_code", "full_phone_number", "confidential_ind",
+           "registr_dt", "race_code", "ethnic_code", "party_cd", "gender_code", "birth_year", "age_at_year_end"]
+
+
+def nc(**kw):
+    return "\t".join(kw.get(h, "") for h in NC_HEAD)
+
+
+nc_text = "\n".join(["\t".join(NC_HEAD),
+                     nc(county_desc="WAKE", voter_reg_num="000011", ncid="AA100001", last_name="VANCE", first_name="ROBERT", middle_name="K",
+                        status_cd="A", voter_status_desc="ACTIVE", res_street_address="500 SAMPLE DR", res_city_desc="RALEIGH", state_cd="NC",
+                        zip_code="27601", full_phone_number="9195550100", confidential_ind="N", registr_dt="04/04/2012", race_code="W",
+                        party_cd="UNA", gender_code="M", birth_year="1989", age_at_year_end="37"),
+                     nc(county_desc="WAKE", voter_reg_num="000012", ncid="AA100002", last_name="VANCE", first_name="ROBERT", status_cd="A",
+                        voter_status_desc="ACTIVE", res_street_address="", res_city_desc="", confidential_ind="Y", registr_dt="01/01/2001",
+                        party_cd="DEM", birth_year="1950"),  # confidential by statute: dropped whole
+                     nc(county_desc="DURHAM", voter_reg_num="000013", ncid="AA100003", last_name="VANCE", first_name="ROBERTO", status_cd="R",
+                        voter_status_desc="REMOVED", res_street_address="7 TEST LN", res_city_desc="DURHAM", state_cd="NC", zip_code="27701",
+                        confidential_ind="N", registr_dt="02/02/2002", party_cd="REP", birth_year="1961")]) + "\n"
+nc_zip = io.BytesIO()
+with zipfile.ZipFile(nc_zip, "w") as z:
+    z.writestr("ncvoter_Statewide.txt", nc_text)
+nc_zip = nc_zip.getvalue()
+seen = []
+
+
+def serve(length):
+    def answer(request):
+        seen.append(request)
+        headers = {"content-length": str(length), "last-modified": "Mon, 02 Nov 2026 01:18:20 GMT"}
+        if request.method == "HEAD":
+            return httpx.Response(200, headers=headers)
+        return httpx.Response(200, content=nc_zip, headers=headers)
+    return lambda timeout=20, **h: httpx.AsyncClient(transport=httpx.MockTransport(answer), headers={"User-Agent": _api.UA, **h})
+
+
+real_client = voter._api.client
+assert voter.SPECS["NC"].download.startswith("https://s3.amazonaws.com/dl.ncsbe.gov/")
+voter._api.client = serve(526_250_080)  # the real file's size on 2026-11-02
+try:
+    asyncio.run(voter.update("NC"))
+    raise AssertionError("a 502 MB download needs a yes")
+except voter.TooLarge as e:
+    assert "501 MB" in str(e) and "yes" in str(e), e
+assert [r.method for r in seen] == ["HEAD"] and voter.meta("NC") == {}  # nothing fetched, nothing loaded
+info = asyncio.run(voter.update("NC", allow_large=True))
+assert [r.method for r in seen] == ["HEAD", "HEAD", "GET"] and all(r.headers["user-agent"] == _api.UA for r in seen)
+assert info["state"] == "NC" and info["rows"] == "2" and info["skipped"] == "1" and info["data_date"] == "2026-11-02", info
+assert info["last_modified"] == "Mon, 02 Nov 2026 01:18:20 GMT" and (voter.DIR / "NC" / "ncvoter_Statewide.zip").exists()
+assert asyncio.run(voter.update("NC")) == info and [r.method for r in seen][-1] == "HEAD"  # unchanged upstream: one HEAD, no load
+voter._api.client = serve(100)  # the copy Hunt fetched is checked upstream (one HEAD) and not reloaded while unchanged
+seen.clear()
+assert asyncio.run(voter.update("NC")) == info and [r.method for r in seen] == ["HEAD"]
+assert asyncio.run(voter.update("NC", force=True))["loaded_at"] >= info["loaded_at"] and [r.method for r in seen] == ["HEAD", "HEAD", "GET"]
+voter._api.client = real_client
+raw = voter._db("NC").read_bytes()
+assert b"UNA" not in raw and b"9195550100" not in raw and b"RALEIGH" in raw
+found, checked, note = run(("name", "Robert Vance"), ("location", "Raleigh, NC"))
+assert checked == 2 and [f.attrs["state"] for f in found] == ["NC"], note  # FL searched too, nothing there
+nc1 = found[0]
+assert nc1.site == "North Carolina voter roll" and nc1.url == voter.BUILT["NC"] + "#NC-AA100001"
+assert nc1.attrs["birth_year"] == "1989" and "dob" not in nc1.attrs and nc1.attrs["address"] == "500 Sample Dr, Raleigh, NC 27601"
+assert nc1.attrs["county"] == "WAKE" and nc1.attrs["registered"] == "2012-04-04" and nc1.attrs["status"] == "active"
+assert "household" not in nc1.attrs and "party" not in nc1.attrs and "race" not in nc1.attrs
+assert [f.attrs["state"] for f in run(("name", "Robert Vance"), ("dob", "1989-03-14"))[0]] == ["FL", "NC"]  # a year-only file matches on the year
+assert run(("name", "Robert Vance"), ("dob", "1989-07-07"))[0][-1].attrs["state"] == "NC"  # same year: the matcher weighs the rest
+assert run(("name", "Roberto Vance"), ("location", "Durham, NC"))[0][0].attrs["status"] == "removed"
+
+# --- Ohio: the Secretary of State's files, downloaded by hand (the site refuses Hunt's User-Agent)
+OH_HEAD = ["SOS_VOTERID", "COUNTY_NUMBER", "COUNTY_ID", "LAST_NAME", "FIRST_NAME", "MIDDLE_NAME", "SUFFIX", "DATE_OF_BIRTH",
+           "REGISTRATION_DATE", "VOTER_STATUS", "PARTY_AFFILIATION", "RESIDENTIAL_ADDRESS1", "RESIDENTIAL_SECONDARY_ADDR",
+           "RESIDENTIAL_CITY", "RESIDENTIAL_STATE", "RESIDENTIAL_ZIP", "RESIDENTIAL_ZIP_PLUS4", "MAILING_ADDRESS1", "PRECINCT_NAME",
+           "PRIMARY-03/19/2024", "GENERAL-11/05/2024"]
+
+
+def oh(**kw):
+    return ",".join(kw.get(h, "") for h in OH_HEAD)
+
+
+(voter.DIR / "OH").mkdir()
+with gzip.open(voter.DIR / "OH" / "SWVF_1_22.txt.gz", "wt", newline="") as f:
+    f.write("\n".join([",".join(OH_HEAD),
+                       oh(SOS_VOTERID="OH0000001", COUNTY_NUMBER="25", COUNTY_ID="123", LAST_NAME="VANCE", FIRST_NAME="ROBERT",
+                          DATE_OF_BIRTH="1989-03-14", REGISTRATION_DATE="2010-06-01", VOTER_STATUS="ACTIVE", PARTY_AFFILIATION="D",
+                          RESIDENTIAL_ADDRESS1="900 FIXTURE WAY", RESIDENTIAL_CITY="COLUMBUS", RESIDENTIAL_STATE="OH", RESIDENTIAL_ZIP="43215",
+                          **{"PRIMARY-03/19/2024": "D", "GENERAL-11/05/2024": "X"})]) + "\n")
+with gzip.open(voter.DIR / "OH" / "SWVF_23_44.txt.gz", "wt", newline="") as f:
+    f.write(",".join(OH_HEAD) + "\n" + oh(SOS_VOTERID="OH0000002", COUNTY_NUMBER="31", LAST_NAME="VANCE", FIRST_NAME="ROBERT", MIDDLE_NAME="A",
+                                           DATE_OF_BIRTH="1975-09-09", REGISTRATION_DATE="2001-01-01", VOTER_STATUS="CONFIRMATION",
+                                           PARTY_AFFILIATION="R", RESIDENTIAL_ADDRESS1="1 SAMPLE ST", RESIDENTIAL_CITY="CLEVELAND",
+                                           RESIDENTIAL_STATE="OH", RESIDENTIAL_ZIP="44113") + "\n")
+assert voter.SPECS["OH"].download is None
+info = asyncio.run(voter.update("OH"))
+assert info["state"] == "OH" and info["files"] == "2" and info["rows"] == "2" and info["skipped"] == "0", info
+raw = voter._db("OH").read_bytes()
+assert b"PRIMARY-03" not in raw and b"43215" in raw and b"FIXTURE WAY" in raw
+oh1 = run(("name", "Robert Vance"), ("location", "Columbus, OH"))[0]
+assert len(oh1) == 1 and oh1[0].site == "Ohio voter roll" and oh1[0].url == voter.BUILT["OH"] + "#OH-OH0000001"
+assert oh1[0].attrs["dob"] == "1989-03-14" and oh1[0].attrs["address"] == "900 Fixture Way, Columbus, OH 43215" and oh1[0].attrs["county"] == "25"
+assert run(("name", "Robert Vance"), ("location", "Cleveland, OH"))[0][0].attrs["status"] == "inactive (confirmation notice)"
+found, checked, note = run(("name", "Robert Vance"), ("dob", "1989-03-14"))
+assert checked == 3 and [f.attrs["state"] for f in found] == ["FL", "NC", "OH"] and note.count(" file of ") == 3, note
+assert voter.loaded() == ["FL", "NC", "OH"]
+(voter.DIR / "OH" / "SWVF_45_66.txt.gz").write_bytes(gzip.compress(b"NOT,A,VOTER,FILE\n1,2,3,4\n"))
+try:
+    asyncio.run(voter.update("OH"))
+    raise AssertionError("a file with the wrong header must fail loudly, not load empty")
+except ValueError as e:
+    assert "header lacks" in str(e) and "SWVF_45_66.txt" in str(e), e
+assert voter.meta("OH") == info  # the failed run left the table alone
 
 # --- nothing to index, or a state that isn't built
 voter.DIR = Path(tempfile.mkdtemp())
@@ -177,12 +294,12 @@ try:
     asyncio.run(voter.update())
     raise AssertionError("update() with no files should fail")
 except FileNotFoundError as e:
-    assert "voter extract" in str(e)
+    assert "voter file" in str(e)
 try:
     asyncio.run(voter.update("PA"))
     raise AssertionError("PA is not built")
 except ValueError as e:
     assert "tools.md" in str(e)
-assert voter.meta() == info  # the failed run left the table alone
+assert voter.meta("OH") == info  # the failed run left the table alone
 
 print("ok")
