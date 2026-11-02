@@ -23,6 +23,7 @@ from .case import Case
 from .seed import Seed, now
 from .sources import SOURCES
 from .sources._api import Limited
+from .sources._page import Refused
 from .sources._api import UA  # Hunt's own, honest User-Agent (C7), never a browser's
 
 LIKELY = 0.55  # ICD 203 "likely" or better: screenshot it and pivot from it
@@ -98,6 +99,9 @@ async def fan_out(case: Case, seeds: list[Seed], emit):
                 found, checked, note = await (source.search(seed, narrowing[source.NAME]) if source.NAME in narrowing
                                               else source.search(seed))
                 status = "found" if found else "nothing found"
+            except Refused as e:  # a public page refused or walled off: stopped, never worked around (legal.md C6)
+                found, checked, note, status = [], 0, str(e), "failed"
+                held = f"skipped: {source.NAME} refused an earlier read in this search"
             except Limited as e:
                 found, checked, note, status = [], 0, f"rate limit reached: {e}", "failed"
                 held = f"skipped: {source.NAME} was rate-limited earlier in this search"
