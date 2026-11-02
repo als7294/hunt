@@ -19,6 +19,7 @@ import os
 from . import (activity, bluesky, businesses, courtlistener, courts, edgar, facebook, fec, fmcsa, github, gravatar, holehe,
                keybase, licences, maigret, mastodon, npi, openpgp, phone, social_analyzer, stackexchange, user_scanner, voter,
                wayback, wmn)
+from . import athlinks, crossfit, ultrasignup, usapl, utr  # published results, read logged out (_results)
 from ._api import client, probe
 
 # `facebook` is not here (compliance audit DS5): batch search never requests Facebook; the app calls
@@ -29,7 +30,26 @@ SOURCES = [maigret, wmn, social_analyzer, user_scanner, holehe, phone,
            fec, edgar, npi, courtlistener, courts,  # name → public records (courts.search_links: portals opened by hand)
            licences, businesses, fmcsa,  # name → work and driving records
            activity,  # name → published competition results (a local copy of OpenPowerlifting; activity.search_links for the rest)
+           athlinks, ultrasignup, usapl, crossfit, utr,  # name → race finishes, ultras, USAPL meets, CrossFit ranks, UTR ratings
            voter]  # name → registered voters, from a state's own extract indexed on this Mac (Florida)
+
+# Family-tree sources (legal.md D25, C6): name → memorials and wedding registries, read logged out, with the family
+# each lists. Their relatives reach the tree only once the record matches the subject by name plus place or date;
+# never run on a background case (A8). Checked 2026-11-02 and not read: Legacy.com, Tribute Archive, Dignity Memorial,
+# Ever Loved and FrontRunner's ObitTree refuse Hunt (403 or a bot wall); Echovita searches by POST only; Funeral
+# Innovations' Obitio covers about 20 homes; Batesville and FrontRunner sites have no cross-home name search;
+# FamilySearch (and its BSD-2 SDK) needs sign-in; Zola's results come from a client-side API. scrape-a-grave (MIT) is a
+# citation script that skips the family sections, so Find a Grave keeps its own short reader.
+from . import findagrave, knot  # noqa: E402
+
+SOURCES += [findagrave, knot]  # name → Find a Grave memorials, The Knot wedding registries
+
+# Public profiles read logged out, stopping at the first refusal (_page.py; legal.md C6, decision D2): username → the
+# profile's own fields and, where public, its latest posts. One block, so other sources' registrations don't collide.
+from . import (aboutme, deviantart, flickr, goodreads, kick, letterboxd, linktree, medium, pinterest, reddit,  # noqa: E402
+               snapchat, soundcloud, substack, telegram, tumblr, twitch, untappd)
+SOURCES += [reddit, snapchat, telegram, pinterest, tumblr, medium, substack, linktree, aboutme, twitch, kick, soundcloud,
+            flickr, deviantart, letterboxd, untappd, goodreads]
 
 
 def _key_status(src, is_set: bool) -> str:

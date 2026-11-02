@@ -1,0 +1,64 @@
+"""DeviantArt: a username → the profile page (deviantart.com/<name>), read from the state the page carries
+(window.__INITIAL_STATE__): the "about" module (country, tagline, website, social links, and the age or date of birth
+if the member shows one) and the owner's stats (joined, deviations, watchers). Mutual watchers are other people and are
+never kept (C13). A profile that says its owner is under 18 is withheld (A5). robots.txt allows profile pages.
+"""
+
+import json
+import re
+
+from ..seed import Finding
+from ._api import client, handles, tidy
+from ._page import get, handle, minor
+
+NAME = "deviantart"
+KINDS = {"username"}
+HEALTH = "https://www.deviantart.com/"
+ROBOTS = "robots.txt allows profile pages"
+STATE = re.compile(r'window\.__INITIAL_STATE__ = JSON\.parse\("((?:[^"\\]|\\.)*)"\)', re.S)
+
+
+def _state(page: str) -> dict:
+    m = STATE.search(page)
+    try:
+        return json.loads(json.loads('"' + m[1].replace("\\'", "'") + '"')) if m else {}
+    except ValueError:
+        return {}
+
+
+def _about(o) -> dict | None:
+    """The profile's "about" module: the first dict carrying countryId and tagline."""
+    if isinstance(o, dict):
+        if "countryId" in o and "tagline" in o:
+            return o
+        o = list(o.values())
+    for v in o if isinstance(o, list) else []:
+        if (found := _about(v)) is not None:
+            return found
+    return None
+
+
+async def search(seed):
+    h = handle(seed.value)
+    if not h or len(h) < 3 or len(h) > 20:
+        return [], 0, f"'{seed.value}' can't be a DeviantArt username"
+    async with client() as c:
+        r = await get(c, f"https://www.deviantart.com/{h.lower()}")
+    state = _state(r.text) if r else {}
+    owner = state.get("profileOwner") or {}
+    about = _about(state.get("@@gruser") or {}) or {}
+    if not owner:
+        return [], 1, f"no DeviantArt profile {h} ({ROBOTS})"
+    name = about.get("username") or h
+    y, mo, d = about.get("dobYear"), about.get("dobMonth"), about.get("dobDay")
+    socials = [s.get("value") or s.get("url") for s in about.get("socialLinks") or [] if isinstance(s, dict)]
+    socials = [s for s in socials if isinstance(s, str) and s.startswith("http")]
+    stats = owner.get("stats") or {}
+    attrs = {"bio": about.get("tagline") or owner.get("tagline"), "location": about.get("country"), "age": about.get("age"),
+             "dob": f"{y}-{mo:02d}-{d:02d}" if y and mo and d else None, "birth_year": y if y and not (mo and d) else None,
+             "website": about.get("website") or None, "links": socials, "other_usernames": sorted(set(handles(socials)) - {name}),
+             "created_at": stats.get("joinDate"), "deviations": stats.get("deviations"), "watchers": stats.get("watchers")}
+    if minor(attrs):
+        return [], 1, f"DeviantArt profile {name} withheld: it says its owner is under 18 (legal.md A5)"
+    return [Finding(NAME, seed, "DeviantART", f"https://{name.lower()}.deviantart.com", tidy(attrs), body=r.text)], 1, \
+        f"read deviantart.com/{name.lower()} ({ROBOTS})"

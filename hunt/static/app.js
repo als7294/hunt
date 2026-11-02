@@ -719,7 +719,7 @@ const sourceRows = rows => html`${rows.map(r => { const url = /^https?:/.test(r.
 const identityTabs = (slug, now) => html`<nav style="display:flex;gap:6px;align-self:center">${[['identity', 'Accounts'], ['people', 'People around the subject']].map(([k, label]) =>
   html`<a class="step ${k === now ? 'now' : ''}" href="#/case/${slug}/${k}" style="padding:7px 14px">${label}</a>`)}</nav>`;
 const sureness = c => c >= 0.9 ? 'stated' : c >= 0.6 ? 'likely' : 'a hint';
-const SOURCE_WORD = { post: 'a post', comment: 'a comment on their post', bio: 'a profile bio', record: 'a public record', photo: 'your mark on a kept photo', name: 'the name' };
+const SOURCE_WORD = { post: 'a post', comment: 'a comment on their post', bio: 'a profile bio', record: 'a public record', 'family record': 'a memorial or announcement', photo: 'your mark on a kept photo', name: 'the name' };
 // "withheld" only for a possible minor; someone a record puts at the subject's address stays unnamed (AN6)
 const personTitle = x => x.name || (x.minor ? `${x.labels[0]} (name withheld)` : x.types.includes('same address') ? x.labels[0] : `${x.labels[0]}, not named`);
 const citeLine = ct => ct.kind !== 'record' ? `“${ct.quote}”` : ct.type === 'same address' ? `at the subject’s address in ${ct.quote}`
@@ -732,7 +732,7 @@ function personCard(slug, x) {
     ${x.minor || !x.name ? '' : html`<div style="font-size:14px">${x.labels.join(' · ')}</div>`}
     <div style="display:flex;flex-direction:column;gap:4px">${x.cites.map(ct => html`<div style="font-size:14px" class="t2">
       <span class="muted">${SOURCE_WORD[ct.kind] || ct.kind}:</span> ${citeLine(ct)} <span class="dim" style="font-size:12.5px">${sureness(ct.confidence)}</span>
-      ${/^https?:\/\//.test(ct.url || '') ? html` <a href="${ct.url}" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:13px">the ${ct.kind === 'post' ? 'post' : ct.kind === 'comment' ? 'comment' : ct.kind === 'record' ? 'record' : 'profile'} ↗</a>` : ''}</div>`)}</div>
+      ${/^https?:\/\//.test(ct.url || '') ? html` <a href="${ct.url}" target="_blank" rel="noopener noreferrer" style="color:var(--ac);font-size:13px">the ${ct.kind === 'post' ? 'post' : ct.kind === 'comment' ? 'comment' : ct.kind === 'record' || ct.kind === 'family record' ? 'record' : 'profile'} ↗</a>` : ''}</div>`)}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn ghost sm" data-act="person-hide" data-id="${x.id}" data-hidden="${x.hidden ? '' : '1'}">${x.hidden ? 'Show again' : 'Not relevant'}</button>
       ${!x.minor && x.name ? html`<button class="btn ghost sm" data-act="person-case" data-name="${x.name}" title="A new case about this person, with its own purpose. Nothing else is carried over">Open as a new case…</button>` : ''}</div></div>`;

@@ -17,12 +17,13 @@ from dataclasses import asdict
 import httpx
 from PIL import Image
 
-from . import entity, browser, enrich, geo, match, photo
+from . import emails, entity, browser, enrich, geo, match, photo
 from .capture import screenshots
 from .case import Case
 from .seed import Seed, now
 from .sources import SOURCES
 from .sources._api import Limited
+from .sources._page import Refused
 from .sources._api import UA  # Hunt's own, honest User-Agent (C7), never a browser's
 
 LIKELY = 0.55  # ICD 203 "likely" or better: screenshot it and pivot from it
@@ -61,6 +62,7 @@ async def run(case: Case, seeds: list[Seed], emit, capture: bool = True, pause: 
     await step("checking")
     await avatars(case, report, emit)
     await compare_faces(case, build(case, places), emit)
+    await emails.collect(case, build(case, places), emit)  # what the sites they run publish: leads, never searched unticked
     if capture:
         async with HEAVY:
             await screenshot(case, build(case, places), emit)
@@ -89,6 +91,8 @@ async def fan_out(case: Case, seeds: list[Seed], emit):
         held = f"Facebook is stopped: {stopped['Facebook']['reason']}" if source.NAME == "facebook" and "Facebook" in stopped else None
         if source.NAME == "voter" and background:
             held = "a background case never uses voter data (legal.md V4)"
+        if getattr(source, "FAMILY", False) and background:
+            held = "a background case never collects relatives (legal.md A8)"
         for seed in mine:
             if held:
                 done(source, seed, "skipped", [], 0, held)
@@ -99,6 +103,9 @@ async def fan_out(case: Case, seeds: list[Seed], emit):
                 found, checked, note = await (source.search(seed, narrowing[source.NAME]) if source.NAME in narrowing
                                               else source.search(seed))
                 status = "found" if found else "nothing found"
+            except Refused as e:  # a public page refused or walled off: stopped, never worked around (legal.md C6)
+                found, checked, note, status = [], 0, str(e), "failed"
+                held = f"skipped: {source.NAME} refused an earlier read in this search"
             except Limited as e:
                 found, checked, note, status = [], 0, f"rate limit reached: {e}", "failed"
                 held = f"skipped: {source.NAME} was rate-limited earlier in this search"
@@ -280,6 +287,7 @@ def build(case: Case, places: dict | None = None) -> dict:
         "candidates": candidates,
         "attributes": attributes,
         "pivots": pivots,
+        "published_emails": emails.stored(case),
         "decision": decided.get("", {}).get("decision"),
         "photos": [{"file": r["name"], "at": r["ts"], "evidence": r["evidence"], **json.loads(r["analysis"])}
                    for r in case.rows("select * from photos order by id")],
