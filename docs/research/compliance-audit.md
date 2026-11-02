@@ -852,3 +852,130 @@ Still open:
 - The browser-capture note's status line says guided mode goes beyond the text in "four ways", but its detailed list has seven items, G1–G7.
 
 **Confidence.** The coordinator re-checked six findings against the code, marked [confirmed]. The rest rest on one reader each, at `9e1e39c`.
+
+## 7. Self-search review (main at b31a800, 2026-11-01)
+
+**Scope.** Everything added for searching yourself:
+- `hunt/profile.py`: "About you", the locked description
+- "This is me" on a case: meta `about_me`, set in `app.create_case` (`app.py:468-477`)
+- `match._described`, the scoring against the description
+- `pivot.suggestions` and "Search the ticked" (`app.js:1585-1588` → `POST /seeds` → `/search`)
+- `scripts/train_find.py`
+
+The rules are S1–S5 in [legal.md](legal.md#self-search), with decisions D16–D20 in its [Decisions table](legal.md#decisions-provisional-2026-10-30). Docs only: no code was changed.
+
+**How it was checked:**
+- **Code reading:** every path above.
+- **Two offline probes** (no network), in the scratchpad as `probe_leads.py` and `probe_guard.py`. Both ran a fictional "likely" Bluesky profile whose bio reads, in part: "My wife Ines is at instagram.com/ines_v and her email is ines.vell@example.com. My son's channel: youtube.com/@leo_vell (he's 9). Follow my brother Dan: twitter.com/danvell."
+
+### The three questions
+
+**1. Could "This is me" be misused for someone else?** Yes [judgement]. Nothing ties the description to the person using Hunt.
+- `profile.lock` takes any 20–8,000 characters, with no attestation, and the lock isn't logged.
+- `create_case` accepts `about_me: true` with any kind, alongside claim fields (`client`, `adjuster`, `injury_date`…), so a claimant could be described as "me" and the claim case scored against that description.
+- The description sits outside the case (`~/Hunt/me.locked`). It escapes the case's audit and retention, and the report's identity reasons quote it as "in your description" (`match.py:289`, printed via `report.py:466`, `:552`).
+- The fix isn't verification, which Hunt can't do. It's fencing what a false "This is me" can reach (S1, S2, S5, D16): attestation and a lock log, a separate `self` kind with no client or claim fields, a report that is never a client deliverable, and no cross-case lookups.
+
+**2. Are automatic lead rounds acceptable only in a self-search?** Yes, and only from accounts that are certainly hers (S3, D17).
+- `train_find.py` follows the leads of every account at "likely" or better (`pivot.suggestions(report)`, from `min_p` 0.55), round after round.
+- Those are unconfirmed accounts, so a namesake's or a relative's links become searches with no human decision. That's collection on third parties, against A1 and C13's purpose limits.
+- Her consent in a self-search covers her alone. In every other case the investigator ticks each lead, and that has to stay (S4).
+
+**3. Do the lead suggestions keep C13?** No.
+- `pivot.suggestions` skips bio @mentions, and emails in sentences naming a relationship (`pivot.py:75`, `_about_someone`). It doesn't skip handles, links or sites in those sentences.
+- The probe got `ines_v` (the wife's Instagram) and `leo_vell` (the 9-year-old son's YouTube) as leads. The wife's email was filtered.
+- The son's handle carries the child's name into the UI, against A5.
+- `add_seeds`' associate guard (`app.py:634-646`) compares a seed with associates' folded *names* only. `ines_v`, `leo_vell` and `danvell` all pass it: `graph.associates` names them "Ines", a child with no name, and "Dan".
+
+### Findings for the main session
+
+Ordered by harm. Owners use the mapping in §3. `profile.py` and `scripts/` aren't in it, so they go to the main session.
+
+**SS1. Lead suggestions drop every lead from a relationship or minor sentence** (C13, A1, A5; S4, D18)
+- **Where:** `hunt/pivot.py`, `suggestions()` (`:75`).
+- **Change:**
+  - Apply `_about_someone(bio, f["value"])` to every lead kind, not only `email`: drop `f["kind"] == "email" and`.
+  - Also skip a lead whose sentence names a minor. Reuse graph's minor detection: child or grandchild words, and an age under 18 ("he's 9", "9 años").
+  - `_about_someone` already matches "My wife…" and "My son's…" sentences in the probe.
+- **Test** (`test_analysis.py`, or a new `test_pivot.py`): with the probe bio, `suggestions()` contains no `ines_v`, `leo_vell` or `danvell`, and still none of the emails. The subject's own `kvane` and `kv_runs` stay.
+- **Owner:** analysis.
+
+**SS2. The associate guard checks handles, links and emails against associates' citing quotes** (A1, A5, C13; S4, D18)
+- **Where:** `hunt/app.py`, `add_seeds()` (`:634-646`).
+- **Change:**
+  - Besides the folded-name match, refuse (409) any seed whose value, or a handle or URL form of it, appears in the quote an associate entry cites. That includes entries for minors, which have no name.
+  - Factor the check into a function, e.g. `graph.conflicts(case, seeds) -> [(seed, entry)]`, so the app, the CLI and `train_find.py` share it.
+- **Test** (`test_app.py`): for a case whose candidate carries the probe bio, `POST /seeds` with `ines_v`, `leo_vell` or `instagram.com/ines_v` returns 409. `kv_runs` is accepted.
+- **Owner:** app screens (`app.py`); analysis (`graph.conflicts`).
+
+**SS3. `train_find.py` runs rounds only on a self case, from accounts certainly hers** (S3, D17; A1, C6, K2)
+- **Where:** `scripts/train_find.py`, `main()`.
+- **Change:**
+  - Create the case as kind `self` (SS4).
+  - Mine leads only from candidates where `mine(c)` is true or the decision is "him": `pivot.suggestions({**report, "candidates": [c for c in likely if mine(c)]})`.
+  - Pass the leads through `graph.conflicts` (SS2) and drop any lead whose host is on C6's deny list (the shared `denied(url)` helper the audit proposed for CO1 and DS3).
+  - Cap `--rounds` at 3, and keep `[:12]`.
+  - Audit each round as `lead round` `{round, leads: [{kind, value, source_url}]}`.
+  - Keep `capture=False`, and never call `vendor`.
+- **Test** (`test_profile.py`, or a new one): stub `search.run` with two likely candidates, one carrying a locked handle and one not. Assert that only the first one's leads are searched next round, that a 4th round is refused, and that each round's audit row exists.
+- **Owner:** main session.
+
+**SS4. A `self` kind: "This is me" only on it, with no client or claim fields** (S1, D16, D19; K1)
+- **Where:**
+  - `hunt/case.py` `KINDS` (`:62`)
+  - `hunt/app.py` `create_case` (`:452-480`)
+  - `hunt/static/app.js` `'me-search'` (`:1566`, today `kind: 'diligence'`)
+  - `hunt/report.py`: the title, `NOT_CONSUMER`, `CERTIFY` (`:81`), and the reasons at `:466` and `:552`
+- **Change:**
+  - Add `self` to `KINDS`. `about_me: true` requires `kind == "self"`, and `self` refuses `client`, `adjuster`, `file_number`, `injury_date`, `assignment_date` and `reference` (400).
+  - The wizard's "Search yourself" sets `kind: 'self'`. `train_find.py` uses `kind="self"`.
+  - For `self`, the report is titled "Self-search report". It states that it is about the person who ran it, isn't a consumer report and isn't for a client. It has no client header and no `CERTIFY` block.
+  - Its `described` reasons read "matches the subject's own description (fingerprint …)", never "your description" on another kind.
+- **Tests:**
+  - `test_app.py`: `about_me` with kind `insurance` → 400; `self` with `injury_date` → 400.
+  - `test_report.py`: a `self` case's report has the self-search title and no certification block.
+- **Owner:** app screens; `case.py` with it.
+
+**SS5. Attestation at lock, and a lock log** (S1, D16; K2)
+- **Where:** `hunt/profile.py` `lock()`; `hunt/app.py` `post_me` (`:1072-1081`); the About you page (`app.js:1146-1165`); `hunt me` in `cli.py`.
+- **Change:**
+  - `lock()` takes `attest: bool` and raises `ValueError` without it. The UI shows a required checkbox: "This describes me, the person who uses this Mac account, and no one else." The CLI asks the same question.
+  - Each lock appends `{ts, fingerprint, attested: true, add}` to `~/Hunt/me.log` (mode 600).
+  - `create_case`'s `about me` audit adds `attested_at`.
+- **Test** (`test_profile.py`): lock without `attest` → `ValueError`; with it, `me.log` gains one line holding the fingerprint and no text.
+- **Owner:** main session (`profile.py`); app screens (route, page).
+
+**SS6. Scoring only against the description the case recorded** (S2, D20; K2, K5)
+- **Where:** `hunt/profile.py` `criteria(case)`.
+- **Change:**
+  - Return `{}` unless `case.meta("about_me")` equals the current `_fingerprint()`.
+  - Expose why (for example `status()["matches_case"]`), so the case can say "the description changed since this case was opened; accounts aren't scored against it".
+- **Test** (`test_profile.py`): lock, create a case, lock again with different text, and `criteria(case)` is `{}`.
+- **Owner:** main session.
+
+**SS7. Forget the description** (S2, D20)
+- **Where:** `hunt/profile.py` (a new `forget()`); `DELETE /api/me`; `hunt me --forget`.
+- **Change:**
+  - Move `me.locked` to the Trash (`inbox._trash`), delete the Keychain item (`security delete-generic-password -s "Hunt profile" -a <path>`), clear `_cache`, and log `{ts, fingerprint, forgotten: true}` to `me.log`.
+  - Cases keep only the fingerprint.
+- **Test** (`test_profile.py`, `security` and the Trash stubbed): after `forget()`, `status()["exists"]` is False, and the delete command ran with that service and account.
+- **Owner:** main session; app screens (button).
+
+**SS8. Self cases stay out of "Have we seen this person before?"** (S5, D16)
+- **Where:** `hunt/seen.py`, where screenings are excluded (`SCREENING = "background"`).
+- **Change:** treat kind `self` (or `about_me`) like a screening in both directions. A self case's lookup opens no other case, and no other case's lookup sees it.
+- **Test** (`test_seen.py`): a self case sharing a handle with a claim case appears in neither one's lookup.
+- **Owner:** QOL.
+
+**SS9. The description's words don't reach any other kind's report** (S2; K5)
+- **Where:** `hunt/report.py` `:466`, `:552`, where reasons are joined.
+- **Change:** only a `self` report may show `described`-tagged reasons, worded as in SS4. On other kinds, which SS4 makes unreachable, drop them defensively.
+- **Test** (`test_report.py`): a non-self case given a `described` reason doesn't print it.
+- **Owner:** app screens.
+
+**Fine as it is:**
+- **Locked and local.** The description stays on this Mac: AES-256 with a PBKDF2 key in the login Keychain, mode 600, excluded from Time Machine.
+- **Never searched.** `profile.seeds()` is used for scoring only (`search.py:130-131`). The description's own places are compared offline (`search.py:106`).
+- **Shown once.** The text is shown once and only its fingerprint and counts after that.
+- **Fixed at creation.** "This is me" can't be switched on after a case is created (`EDITABLE` leaves out `about_me`).
+- **Human-ticked leads.** "Search the ticked" goes through `POST /seeds` and its guard. That's the right shape, once SS1 and SS2 close the gaps.
