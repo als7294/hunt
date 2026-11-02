@@ -47,6 +47,7 @@ PLACE_TIERS = {
     "different country": (bits(0.9, 0.5, agree=False), "is in a different country from"),
 }
 CORROBORATES = 2.0  # bits a non-handle reason needs to count as a second identifier
+COMMON = 0.2  # a handle a stranger holds this often on a site is common: a place beside it isn't a second identifier
 
 
 BIO_KEYS = ("bio", "description", "about", "headline")
@@ -156,7 +157,8 @@ def score(seed, url: str, attrs: dict, subject: list,
 
     if seed.kind == "username":  # stays reasons[0]: the corroboration cap below relies on it
         u, basis = username_u(seed.value, (taken or {}).get(seed.value.lower()))
-        how = "common" if u >= 0.2 else "fairly distinctive" if u >= 0.05 else "rare"
+        common = u >= COMMON
+        how = "common" if common else "fairly distinctive" if u >= 0.05 else "rare"
         add("username", bits(0.9, u), f"username '{seed.value}' is {how} ({basis})")
     if url and norm_url(url) in confirmed:
         add("confirmed", bits(0.99, 0.0001), "the investigator confirmed this account is the subject's")
@@ -213,6 +215,8 @@ def score(seed, url: str, attrs: dict, subject: list,
         if pairs:  # closest of the subject's known places wins
             (tier, km), k = max(pairs, key=lambda p: PLACE_TIERS[p[0][0]][0])
             weight, phrase = PLACE_TIERS[tier]
+            if tier in ("same region", "same area") and (u := geo.share(here)):  # u: the state's share of the people
+                weight = bits(0.8, u) if tier == "same region" else max(weight, bits(0.7, u))  # an area is no commoner
             dist = f"{km:,.0f} km; " if _local(here) and _local(places[k]) else ""  # meaningless for a country or state
             add("place", weight, f"{getattr(profile_place, 'said', 'location')} '{profile_place}' {phrase} '{k}' "
                                  f"({dist}read as {_short(here)})")
@@ -244,15 +248,25 @@ def score(seed, url: str, attrs: dict, subject: list,
     # Tradecraft: one identifier is never enough. If nothing but the handle agrees strongly,
     # the evidence for can't lift the profile above "roughly even chance" (the handle's
     # weight absorbs the cut); evidence against still counts in full. A face match never counts
-    # as the second identifier: it is one capped reason, never a verdict.
+    # as the second identifier: it is one capped reason, never a verdict. Nor does a place beside a
+    # common handle, or beside the name searched for: thousands of strangers share both.
     prior = math.log2(PRIOR / (1 - PRIOR))
     over = prior + sum(w for w, *_ in reasons if w > 0)
-    if seed.kind == "username" and over > 0 and not any(w >= CORROBORATES for w, t, _ in reasons[1:] if t != "face"):
-        w, tag, why = reasons[0]
-        reasons[0] = (max(w - over, 0.0), tag, why + "; capped, no second identifier agrees")
-        if (left := over - w) > 0:  # what the handle couldn't absorb comes off a face match
-            reasons = [(fw - min(fw, left), t, fwhy + "; capped, a face alone isn't a second identifier")
-                       if t == "face" and fw > 0 else (fw, t, fwhy) for fw, t, fwhy in reasons]
+    weak = seed.kind == "name" or (seed.kind == "username" and common)
+    lone = {"face"} | ({"place"} if weak else set())
+    first = 1 if seed.kind == "username" else 0  # a handle hit's handle is its first identifier
+    if (seed.kind == "username" or weak and any(t == "place" and w > 0 for w, t, _ in reasons)) and over > 0 \
+            and not any(w >= CORROBORATES for w, t, _ in reasons[first:] if t not in lone):
+        if seed.kind == "username":
+            w, tag, why = reasons[0]
+            reasons[0] = (max(w - over, 0.0), tag, why + "; capped, no second identifier agrees")
+            over -= w
+        for i, (fw, t, fwhy) in enumerate(reasons):  # what the handle couldn't absorb comes off a face or place
+            if t in lone and fw > 0 and over > 0:
+                cut = min(fw, over)
+                reasons[i] = (fw - cut, t, fwhy + ("; capped, a face alone isn't a second identifier" if t == "face" else
+                                                   "; capped, a place beside a common name or handle isn't a second identifier"))
+                over -= cut
     logit = prior + sum(w for w, *_ in reasons)
     p = 1 / (1 + 2 ** -logit)
     ranked = sorted(reasons, key=lambda r: -abs(r[0]))

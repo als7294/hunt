@@ -81,6 +81,15 @@ STATES = {
     "wi": "wisconsin", "wy": "wyoming", "pr": "puerto rico",
     "ny": "new york", "wa": "washington", "dc": "district of columbia",  # ALIASES below reads these three its own way
 }
+# 2020 Census resident population, thousands: a place's share of the people is how often a stranger shows it
+POPULATION = {
+    "al": 5024, "ak": 733, "az": 7152, "ar": 3012, "ca": 39538, "co": 5774, "ct": 3606, "de": 990, "dc": 690,
+    "fl": 21538, "ga": 10712, "hi": 1455, "id": 1839, "il": 12813, "in": 6786, "ia": 3190, "ks": 2938, "ky": 4506,
+    "la": 4658, "me": 1362, "md": 6177, "ma": 7030, "mi": 10077, "mn": 5706, "ms": 2961, "mo": 6154, "mt": 1084,
+    "ne": 1962, "nv": 3105, "nh": 1378, "nj": 9289, "nm": 2118, "ny": 20201, "nc": 10439, "nd": 779, "oh": 11799,
+    "ok": 3959, "or": 4237, "pa": 13003, "ri": 1097, "sc": 5119, "sd": 887, "tn": 6911, "tx": 29146, "ut": 3272,
+    "vt": 643, "va": 8631, "wa": 7705, "wv": 1794, "wi": 5894, "wy": 577,
+}
 ALIASES = {code: f"{name}, united states" for code, name in STATES.items()} | {
     "ny": "new york state", "wa": "washington state", "dc": "district of columbia", "dmv": "district of columbia",
     "la": "los angeles, california", "sf": "san francisco, california", "bay area": "san francisco, california",
@@ -148,6 +157,12 @@ async def locate(texts: list[str]) -> dict[str, Place | None]:
                     break
             out[text] = place
     return out
+
+
+def share(p: Place) -> float | None:
+    """The share of the US population living in p's state (Florida 0.065, Wyoming 0.0017); None outside the US."""
+    state = (p.region or "").lower().removeprefix("us-")
+    return POPULATION[state] / sum(POPULATION.values()) if p.country_code == "us" and state in POPULATION else None
 
 
 def compare(a: Place, b: Place) -> tuple[str, float]:

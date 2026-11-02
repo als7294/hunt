@@ -570,3 +570,23 @@ bio = lambda b: [r for r in match.score(subj[1], "https://x.test/vellcraft", {"b
 assert bio(f"Dad, {date.today().year - 1990} y/o")[0].startswith("+4.2") and bio("born 1962")[0].startswith("-3.2") and bio("hello") == []
 
 print("ok")
+
+# Place weight: u is the state's share of the people, and a place beside a common handle or the searched name is
+# never the second identifier (fictional people)
+from hunt.geo import Place, share  # noqa: E402
+FL = Place("Florida", 27.76, -81.69, "us", "US-FL", 8, "Florida, United States", 900)
+WY = Place("Wyoming", 43.00, -107.55, "us", "US-WY", 8, "Wyoming, United States", 700)
+assert abs(share(FL) - 0.065) < 0.002 and abs(share(WY) - 0.0017) < 0.0002 and share(Place("Leeds", 53.8, -1.5, "gb", "GB-ENG", 16, "Leeds")) is None
+here = lambda where: dict(places={where.text: where, f"{where.text}, home": where}, attrs={"location": where.text})
+def placed(seed, where, taken=None):
+    pl = here(where)
+    return match.score(seed, "https://tube.test/x", pl["attrs"], [Seed("name", "Dorian Vell"), seed, Seed("location", f"{where.text}, home")],
+                       taken=taken, places=pl["places"])
+rare, common = Seed("username", "velvetforge"), Seed("username", "dorian")
+p_fl, _, why_fl, _ = placed(rare, FL, {"velvetforge": (40, 700)})
+p_wy, _, why_wy, _ = placed(rare, WY, {"velvetforge": (40, 700)})
+assert p_fl >= 0.55 and p_wy > p_fl, (p_fl, p_wy, why_fl)  # a fairly distinctive handle plus a state lifts; a small state more
+p_co, _, why_co, _ = placed(common, FL, {"dorian": (400, 700)})
+assert p_co <= 0.5 and any("place beside a common name or handle" in r for r in why_co), why_co
+p_nm, _, why_nm, _ = placed(Seed("name", "Dorian Vell"), WY)
+assert p_nm <= 0.5 and any("capped" in r for r in why_nm), why_nm  # a namesake in the same small state stays out
