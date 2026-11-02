@@ -239,7 +239,9 @@ _RECORD_DAY = ("filed", "registered", "formed", "issued", "first_date", "last_da
 MENTION = re.compile(r"(?<![\w@.])@([A-Za-z0-9_](?:[A-Za-z0-9_.]{0,28}[A-Za-z0-9_])?)")
 REL_HANDLE = re.compile(rf"(?i:\b(?:my|our|mi|mis|nuestra|nuestro|nuestras|nuestros)\s+{_ADJ}({_WORDS}))(?:'s|’s)?,?\s+"
                         rf"@([A-Za-z0-9_](?:[A-Za-z0-9_.]{{0,28}}[A-Za-z0-9_])?)")
-FAMILY_EVENT = re.compile(r"(?i)\b(christmas|xmas|thanksgiving|easter|hanukkah|passover|eid|diwali|birthday|bday|wedding|"
+# Only picks which posts are family events (D25 as extended 2026-11-02): never stored or shown, since a holiday's name
+# can reveal religion (A9, A8), and nothing about anyone's age, health or religion is read from it.
+FAMILY_EVENT = re.compile(r"(?i)\b(?:christmas|xmas|thanksgiving|easter|hanukkah|passover|eid|diwali|birthday|bday|wedding|"
                           r"anniversary|reunion|quincea[ñn]era|baby shower|christening|baptism|mother'?s day|father'?s day|"
                           r"family|navidad|nochebuena|cumplea[ñn]os|boda|aniversario|bautizo|familia)\b")
 CLOSE_POSTS, CLOSE_DAYS, EVENT_POSTS = 3, 60, 2
@@ -372,7 +374,7 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
     handles = {s.value.lstrip("@").lower() for s in subject if s.kind == "username"} | \
         {h.lower() for c in person if (h := _handle(c["url"]))}  # the subject's own, never "mentioned"
     raw, hide = [], set()  # every mention; every name tied to a possible minor, as written
-    post_day, post_events = {}, {}  # E-id → the post's date; → the family-event words in it
+    post_day, events_ = {}, set()  # E-id → the post's date; the E-ids of public posts about a family event
 
     def add(name, words, how, role, minor, confidence, kind, ref, url, quote, key=None):
         if (m := AGE_MINOR.search(quote)) and int(next(g for g in m.groups() if g)) < 18 and how not in ("co-party", "co-officer"):
@@ -405,11 +407,12 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
 
     for post in posts:
         if not (match.norm_url(post.get("account_url") or "") in mine or post.get("origin") in ("added", "captured")
-                and not post.get("account_url")):
-            continue
+                and not post.get("account_url")) or (post.get("extra") or {}).get("not_subject"):
+            continue  # the subject's own posts, or ones showing them (A3); never an associate's other posts
         text, ref, url = post.get("text") or "", f"E-{post['id']}", post.get("url")
         post_day[ref] = (post.get("posted_at") or "")[:10] if re.match(r"\d{4}-\d\d-\d\d", post.get("posted_at") or "") else None
-        post_events[ref] = list(dict.fromkeys(m.lower() for m in FAMILY_EVENT.findall(text)))
+        if FAMILY_EVENT.search(text) and (post.get("extra") or {}).get("audience") in (None, "Public"):
+            events_.add(ref)  # a co-tag on a post not shown to the public stays out of the tree (K3)
         relations(text, "post", ref, url, 0.9, 0.8)
         for h in dict.fromkeys(MENTION.findall(text)):
             if h.lower() not in handles:
@@ -487,6 +490,8 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
             for n in a.get("household") or []:
                 if not _is_subject(n, me):
                     at_address(c, n, f"{c['site']}, {a['data_date']}" if a.get("data_date") else src)
+    nj = any(_state({"address": s.value}) == "NJ" for s in subject if s.kind in ("address", "location")) or \
+        any(_state(c["attrs"]) == "NJ" for c in held if id(c) in own)  # Daniel's Law: no co-tag relatives (D25)
     for row in photo_labels:  # the investigator's own marking: same label in several kept photos = one person
         label, ref = row["label"], f"E-{row['post_id']}" if row.get("post_id") else f"media {row['media_id']}"
         m = POSSESSIVE.search(label) or re.search(rf"(?i:\b({_WORDS})\b)", label)
@@ -500,6 +505,9 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
     for r in raw:
         n = _norm(r["name"]) if r["name"] else ""
         minor = r["minor"] or bool(n and (n in hidden or n.split()[0] in hidden))
+        if not minor and n.startswith("@") and any(t in hidden for t in re.findall(r"[a-z]+", n)):
+            minor = True  # a handle carrying a child's name ("@leo.vell2015") is the child's (A5)
+            hide.add(r["name"])
         key = (f"minor:{n.split()[0]}" if n else f"minor:role:{r['role']}") if minor else n or r["key"] or f"role:{r['role']}"
         p = people.setdefault(key, {"name": None if minor else r["name"], "minor": minor, "labels": [], "types": [],
                                     "confidence": 0.0, "cites": [], "kinds": []})
@@ -535,10 +543,9 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
         p["labels"] = list(dict.fromkeys(label if x in ("tagged", "mentioned") else x for x in p["labels"]))
         p["confidence"] = max([(0.9 if close else 0.8 if n > 1 else 0.6) if tagged else 0.6 if close else 0.4]
                               + [c["confidence"] for c in p["cites"] if c["how"] not in ("tagged", "mentioned")])
-        if len(events := [r for r in tags if post_events.get(r)]) >= EVENT_POSTS:  # say why, in the posts' own words
-            if not p["minor"]:
-                p["labels"].append(f"possible relative (tagged in {len(events)} family-event posts: "
-                                   f"{', '.join(dict.fromkeys(w for r in events for w in post_events[r]))})")
+        if len(events := [r for r, how in tags.items() if how == "tagged" and r in events_]) >= EVENT_POSTS and not nj:
+            if not p["minor"]:  # a guess, in the app only (D25 as extended): says why, and never which events
+                p["labels"].append(f"possible relative (tagged with the subject in {len(events)} family-event posts)")
             p["kinds"].append("relative")
     for p in people.values():  # a shared surname, where nothing else says how they're related: a possible relative in
         if p["name"] and p["name"].split()[-1].lower() in surnames and not {"named", "same address"} & set(p["types"]):

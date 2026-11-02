@@ -8,6 +8,7 @@ report, and an address is compared, never shown (A2).
 """
 
 import json
+import re
 import os
 import tempfile
 import warnings
@@ -81,6 +82,10 @@ said_ = [  # (text, posted, extra, comments)
     ("Coffee — with Jun Park", "2025-03-09", None, []),
     ("Fishing with my dad @victor.vell and @kit.lane, thanks @dorian.vell for the boat", "2025-03-03", None, []),
     ("Proud of my son @leo.v today", "2025-04-04", None, []),
+    ("Ice cream run with @leo.vell2015", "2025-04-05", None, []),                           # a handle carrying a child's name
+    ("Easter brunch", "2025-04-20", {"with": "Pax Orr"}, []),
+    ("Family reunion", "2025-07-04", {"with": "Pax Orr", "audience": "Friends"}, []),        # not public: stays out (K3)
+    ("Wedding weekend", "2025-08-09", {"with": "Pax Orr", "not_subject": True}, []),          # not about the subject (A3)
     ("Birthday cake!", "2025-05-05", None, [
         {"author": "Mara Vell", "handle": "mara.vell", "text": "Love you son! So proud", "url": f"{fb}/posts/12?comment_id=1"},
         {"author": "Ty Vell", "handle": "ty.v", "text": "love you dad", "url": f"{fb}/posts/12?comment_id=2"},
@@ -103,13 +108,18 @@ assert unnamed["my grandma"]["tree"] == "grandparent" and named["Rafa"]["tree"] 
 assert named["Theo"]["tree"] == "relative", named["Theo"]  # "my brother" and "my dad": no generation guessed
 kids = [p for p in r["people"] if p["minor"]]
 assert kids and all(p["tree"] in ("child", None) and p["name"] is None and p["labels"] == ["a child"] for p in kids)
-for leak in ("Leo", "Emma", "leo.v", "Ty Vell", "ty.v"):  # minors are never named, tagged or quoted by name (A5)
+for leak in ("Leo", "Emma", "leo.v", "vell2015", "Ty Vell", "ty.v"):  # minors are never named, tagged or quoted by name (A5)
     assert leak not in dump, leak
 
 # Tags: how often and over how long; next to a relation word, a generation; at family events, a possible relative, saying why
 sol = named["Sol Ardent"]
 assert sol["labels"][0] == "tagged with the subject in 3 posts, Dec 2024–Nov 2025" and sol["confidence"] == 0.9, sol
-assert sol["labels"][1] == "possible relative (tagged in 2 family-event posts: christmas, thanksgiving)" and sol["tree"] == "relative"
+assert sol["labels"][1] == "possible relative (tagged with the subject in 2 family-event posts)" and sol["tree"] == "relative"
+# the event words only pick the posts: no holiday (which can reveal religion) is stored or shown in any label (A9)
+assert not any(re.search(r"(?i)christmas|thanksgiving|easter|reunion|wedding", " ".join(p["labels"])) for p in r["people"])
+pax = named["Pax Orr"]  # one public family-event post counts; a Friends-only one and a not-the-subject one don't
+assert pax["labels"] == ["tagged with the subject in 2 posts, Apr 2025–Jul 2025"] and pax["tree"] is None, pax
+assert len(pax["cites"]) == 2
 assert named["Jun Park"]["labels"] == ["tagged with the subject once, Mar 2025"] and named["Jun Park"]["confidence"] == 0.6
 assert named["Jun Park"]["tree"] is None
 assert named["@victor.vell"]["tree"] == "parent" and named["@victor.vell"]["labels"][0] == "my dad"
@@ -177,6 +187,13 @@ assert graph._state({"address": "1 Main St, Trenton, New Jersey"}) == "NJ" and g
 for mod in ("match", "entity", "search", "pivot"):
     src = open(f"hunt/{mod}.py", encoding="utf-8").read()
     assert "associates(" not in src and "possible relative" not in src and "household member" not in src, mod
+
+# A post by an associate's own account never feeds the tree (A3); a subject in New Jersey gets no co-tag relatives
+other = [{**x, "account_url": "https://facebook.com/sol.ardent"} for x in posts]
+assert "Sol Ardent" not in {p["name"] for p in graph.associates(other, cands, subject)["people"]}
+jersey = graph.associates(posts, cands[:1], [Seed("name", "Dorian Vell"), Seed("location", "Newark, NJ")])
+sol_nj = next(p for p in jersey["people"] if p["name"] == "Sol Ardent")
+assert sol_nj["tree"] is None and not any("possible relative" in x for x in sol_nj["labels"]), sol_nj
 
 # Facebook keeps who a post's header tags, for the counts above
 assert fb_parser._with("is with Mara Quill and 2 others at Iron Harbor Gym.") == "Mara Quill and 2 others"
