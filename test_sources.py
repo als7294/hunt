@@ -156,19 +156,24 @@ PROFILE = {"login": "kestrel-vane", "html_url": "https://github.com/kestrel-vane
            "avatar_url": "https://avatars.githubusercontent.com/u/1?v=4", "type": "User"}
 seen = serve({"/users/kestrel-vane/social_accounts": (200, [{"provider": "twitter", "url": "https://twitter.com/kvane_tw"},
                                                            {"provider": "generic", "url": "https://kvane.example"}]),
-              "/users/kestrel-vane": (200, PROFILE)})
+              "/users/kestrel-vane": (200, PROFILE),
+              # who shows the handle as their display name: rv-codes does ("Kestrel Vane" ≈ kestrel-vane), kv2 doesn't
+              "/search/users": (200, {"total_count": 2, "items": [{"login": "kestrel-vane"}, {"login": "rv-codes"}, {"login": "kv2"}]}),
+              "/users/rv-codes": (200, PROFILE | {"login": "rv-codes", "html_url": "https://github.com/rv-codes", "name": "Kestrel Vane"}),
+              "/users/kv2": (200, PROFILE | {"login": "kv2", "html_url": "https://github.com/kv2", "name": "K. Vane"})})
 found, checked, note = run(github, "username", "kestrel-vane")
 f = found[0]
 assert (f.url, f.attrs["fullname"], f.attrs["location"], checked) == ("https://github.com/kestrel-vane", "Robert Vance",
-                                                                      "Tucson, AZ", 1), f
+                                                                      "Tucson, AZ", 2), f
 assert f.attrs["other_usernames"] == ["kvane_tw"] and f.attrs["links"] == ["https://kvane.example", "https://twitter.com/kvane_tw"]
 assert "email" not in f.attrs and f.body
+assert [x.url for x in found[1:]] == ["https://github.com/rv-codes"] and "1 other account(s) show it as their name" in note, note
 asked = len(seen)
 run(github, "username", "kestrel-vane")
-assert len(seen) == asked == 2, "second run should come from the cache"
-assert run(github, "username", "nobody-here")[0] == []
-asked = len(seen)
-assert run(github, "username", "kestrel_vane88")[:2] == ([], 0) and len(seen) == asked  # underscores: not a GitHub login
+assert len(seen) == asked, "second run should come from the cache"
+assert [x.url for x in run(github, "username", "nobody-here")[0]] == [], "no account and no display-name match"
+found, checked, _ = run(github, "username", "kestrel_vane88")  # underscores: not a GitHub login, but a display name may be it
+assert found == [] and checked == 2
 
 # GitHub name search: reads profiles until the hourly quota runs out, and says so
 seen = serve({"/search/users": (200, {"total_count": 3, "items": [{"login": "rvance"}, {"login": "bobv"}, {"login": "vr"}]}),

@@ -43,7 +43,7 @@ def main():
         report = asyncio.run(search.run(case, seeds, lambda e: None, capture=False))
         grade = {c["url"]: profile.judge(c, key) for c in report["candidates"]}
         likely = [c for c in report["candidates"] if search.in_person(c)]
-        right = sum(grade[c["url"]] and grade[c["url"]][0] != "not" for c in likely)
+        right = sum(bool(grade[c["url"]]) and grade[c["url"]][0] != "not" for c in likely)
         wrong = sum(bool(grade[c["url"]]) and grade[c["url"]][0] == "not" for c in likely)
         print(f"\n== round {rnd} ({time.time() - start:.0f}s): searched {[s.value for s in seeds]}; "
               f"{len(report['candidates'])} accounts; rated likely or better: {len(likely)} "

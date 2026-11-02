@@ -23,6 +23,7 @@ KINDS = {"username", "name", "email"}
 API = "https://api.github.com"
 CACHE = HOME / "cache" / "github"
 PROFILES = 10  # profiles read per search; each spends one of the hour's 60
+DISPLAYED = 5  # accounts read whose display name is a searched handle
 PROFILES_KEYED = 100  # with HUNT_GITHUB_TOKEN: one search page, 100 of the hour's 5,000
 LOGIN = re.compile(r"[A-Za-z0-9](?:-?[A-Za-z0-9]){0,38}")  # GitHub's own username rule
 KEY = "HUNT_GITHUB_TOKEN"
@@ -59,12 +60,23 @@ async def search(seed):
     token = os.environ.get(KEY)
     async with client(**({"Authorization": f"Bearer {token}"} if token else {})) as c:
         if seed.kind == "username":
-            if not LOGIN.fullmatch(seed.value):
-                return [], 0, f"'{seed.value}' can't be a GitHub username; not searched"
-            if not (r := await _get(c, f"/users/{seed.value}")):
-                return [], 1, f"no GitHub account '{seed.value}'"
-            socials = await _get(c, f"/users/{seed.value}/social_accounts")
-            return [_finding(seed, r, socials.json() if socials else [])], 1, "read the GitHub profile and its social links"
+            found, notes = [], []
+            if LOGIN.fullmatch(seed.value) and (r := await _get(c, f"/users/{seed.value}")):
+                socials = await _get(c, f"/users/{seed.value}/social_accounts")
+                found.append(_finding(seed, r, socials.json() if socials else []))
+                notes.append("read the GitHub profile and its social links")
+            else:
+                notes.append(f"no GitHub account '{seed.value}'")
+            # Someone who uses the handle as their display name under another login ("SmittyTech" on als7294)
+            same = lambda n: re.sub(r"[\W_]", "", str(n or "").lower()) == re.sub(r"[\W_]", "", seed.value.lower())
+            hits = await _get(c, "/search/users", q=f'fullname:"{seed.value}" type:user', per_page=DISPLAYED)
+            for item in (hits.json()["items"] if hits else []):
+                if item["login"].lower() != seed.value.lower() and (r := await _get(c, f"/users/{quote(item['login'])}")) \
+                        and same(r.json().get("name")):
+                    found.append(_finding(seed, r))
+            if len(found) > (1 if notes[0].startswith("read") else 0):
+                notes.append(f"{len(found) - (1 if notes[0].startswith('read') else 0)} other account(s) show it as their name")
+            return found, 2, "; ".join(notes)
 
         q = f'fullname:"{seed.value}" type:user' if seed.kind == "name" else f'"{seed.value}" in:email type:user'
         limit = PROFILES_KEYED if token else PROFILES  # a common name: read enough that the subject is among them
