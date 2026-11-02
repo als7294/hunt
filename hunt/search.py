@@ -17,7 +17,7 @@ from dataclasses import asdict
 import httpx
 from PIL import Image
 
-from . import emails, entity, browser, enrich, geo, match, news, photo
+from . import emails, entity, browser, enrich, geo, match, news, people_index, photo
 from .capture import screenshots
 from .case import Case
 from .seed import Seed, now
@@ -47,6 +47,7 @@ async def run(case: Case, seeds: list[Seed], emit, capture: bool = True, pause: 
     await step("asking")
     await fan_out(case, seeds, emit)
     await enrich.run(case, build(case)["candidates"], emit)  # the handle hits' own pages: a name, a picture, a bio
+    await people_index.feed(case, emit)  # the records on this Mac that join into the best person (hunt/people_index.py)
     await step("finding")
 
     def tell(candidates):
@@ -261,8 +262,10 @@ def build(case: Case, places: dict | None = None) -> dict:
         if shot := next((n for n, ph in case_photos.items() if ph and photo.same_image(h, ph)), None):
             extras[i].append((match.bits(0.9, 0.001), "photo", f"profile photo is the case photo '{shot}'"))
     tied = entity.corroborate(candidates, {candidates[i]["url"]: h for i, h in faces.items()}, subject, derived, in_person)
+    # records of one person: the same name and address, birth date or middle initial as a locked record (people_index)
+    linked = {} if facts.get("kind") == "background" else people_index.ties(candidates, derived, in_person)
     for i, c in enumerate(candidates):
-        extras[i] += tied.get(c["url"], [])
+        extras[i] += tied.get(c["url"], []) + linked.get(c["url"], [])
     if case.meta("face_basis"):  # face comparison is on (docs/analysis.md §5): one capped reason, never a second identifier
         from . import face
         checked = face.results(case)
