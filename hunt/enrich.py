@@ -34,6 +34,9 @@ from .case import HOME, Case
 from .sources._api import UA, denied
 
 OWN = ("username", "email", "url")  # seeds that name an account outright
+# Path words that make a URL a site's own door, not a profile: an email-registration hit is the site's homepage
+# (https://foxnews.com), whose og:title is the site's headline, not the person's name
+DOORS = {"login", "signin", "sign-in", "signup", "sign-up", "register", "account", "accounts", "home", "index.html", "index.php"}
 MOST = 60  # accounts read per search
 HOSTS_AT_ONCE = 4
 CACHE = HOME / "cache" / "enrich.json"  # {"robots": {host: [day, text or null]}, "read": {url: day}}
@@ -104,6 +107,13 @@ def parsed(page: str) -> dict:
     return {k: v.strip() for k, v in out.items() if isinstance(v, str) and v.strip() and (k != "image" or v.startswith("http"))}
 
 
+def is_profile(url: str, handle: str) -> bool:
+    """Does the URL point at one account: a path or query beyond the site's doors, or the handle in the host?"""
+    p = urlsplit(url)
+    return bool(p.query) or any(x.lower() not in DOORS for x in p.path.split("/") if x) \
+        or (bool(_plain(handle)) and _plain(handle) in _plain(p.hostname or ""))
+
+
 async def run(case: Case, candidates: list[dict], emit) -> dict:
     """Read the pages of up to MOST accounts from the subject's own seeds that have neither a name nor a picture yet, and
     merge what they offer into their findings. An account a source already described is left to that source.
@@ -113,7 +123,7 @@ async def run(case: Case, candidates: list[dict], emit) -> dict:
     todo, skipped = {}, 0
     for c in candidates:
         if c["seed"]["kind"] not in OWN or c.get("decision") == "not him" or not c["url"].startswith("http") \
-                or c["attrs"].get("fullname") or c["attrs"].get("image"):
+                or c["attrs"].get("fullname") or c["attrs"].get("image") or not is_profile(c["url"], c["seed"]["value"]):
             continue
         if denied(c["url"]) or people_search.host_of(c["url"]) or cache["read"].get(c["url"]) == today:
             skipped += 1
