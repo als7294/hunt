@@ -84,7 +84,8 @@ def suggestions(report: dict, min_p: float = LIKELY) -> list[dict]:
         if c.get("decision") == "not him" or not (sure or rare(c)):
             continue
         found = facts(c["attrs"], c["url"])
-        if c["seed"]["kind"] != "username" and (own := _handle(c["url"])):  # found by email or phone: its handle is new
+        own = _handle(c["url"])  # found by email or phone, or showing the searched handle as its name: its handle is new
+        if own and (c["seed"]["kind"] != "username" or own.lower() != c["seed"]["value"].lower()):
             found.append({"kind": "username", "value": own, "how": f"account is named '{own}'", "rank": 0})
         bio = " ".join(str(c["attrs"].get(k) or "") for k in TEXT_KEYS)
         for f in found:

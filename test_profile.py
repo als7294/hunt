@@ -160,6 +160,9 @@ leads = pivot.suggestions({"subject_seeds": [{"kind": "username", "value": "jr_r
                            "methodology": runs(3)})
 assert [x["value"] for x in leads] == ["jr_bakes"] and "not yet confirmed" in leads[0]["why"], leads
 assert not pivot.suggestions({"subject_seeds": [], "candidates": [capped], "methodology": runs(200)}), "a common handle isn't followed"
+shown = {**capped, "url": "https://github.com/jr-codes", "probability": 0.9, "attrs": {"fullname": "jr_reyes91"}}
+assert [x["value"] for x in pivot.suggestions({"subject_seeds": [{"kind": "username", "value": "jr_reyes91"}],
+                                               "candidates": [shown], "methodology": []})] == ["jr-codes"], "its own handle is new"
 
 # --- The app: the answer key page's API --------------------------------------------------------
 TOKEN, PORT = "test-token", 8124
