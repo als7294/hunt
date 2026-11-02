@@ -44,11 +44,17 @@ async def run(case: Case, seeds: list[Seed], emit, capture: bool = True, pause: 
     await step("asking")
     await fan_out(case, seeds, emit)
     await step("finding")
+
+    def tell(candidates):
+        for c in candidates:
+            emit({"type": "account", "url": c["url"], "site": c["site"], "verdict": c["verdict"],
+                  "probability": c["probability"]})
+    early = build(case)["candidates"]
+    tell(early)  # the likely accounts now: placing their locations can take minutes, and then sharpens them
     places = await geocode(case, emit)
     report = build(case, places)
-    for c in report["candidates"]:
-        emit({"type": "account", "url": c["url"], "site": c["site"], "verdict": c["verdict"],
-              "probability": c["probability"]})
+    was = {c["url"]: (c["verdict"], c["probability"]) for c in early}
+    tell([c for c in report["candidates"] if was.get(c["url"]) != (c["verdict"], c["probability"])])  # what placing changed
     await step("checking")
     await avatars(case, report, emit)
     await compare_faces(case, build(case, places), emit)
@@ -100,8 +106,10 @@ async def fan_out(case: Case, seeds: list[Seed], emit):
     await asyncio.gather(*(run(src, mine) for src, mine in jobs))
 
 
-async def geocode(case: Case, emit=None, audit: bool = True) -> dict:
-    """Place every location string in the case, if the subject has a known place to compare with."""
+async def geocode(case: Case, emit=None, audit: bool = True, live: bool = True) -> dict:
+    """Place every location string in the case, if the subject has a known place to compare with. Not `live`: only
+    the strings the cache already answers, with no request, so a screen opened mid-search doesn't queue behind the
+    search's own lookups at one a second."""
     texts = {s.value for s in case.seeds() if s.kind in ("address", "location")}
     lived = profile.criteria(case).get("places")  # your own places are compared offline (match._lived), never sent
     if not texts and not lived:
@@ -113,16 +121,53 @@ async def geocode(case: Case, emit=None, audit: bool = True) -> dict:
               if (t := match.place_text(json.loads(r["attrs"]))) and not (lived and not texts and r["source"] in RECORDS)}
     if emit:
         emit({"type": "log", "message": f"placing {len(texts)} locations (OpenStreetMap Nominatim, 1/s, cached)"})
-    places = await geo.locate(sorted(texts))
+    if not live:
+        cache = geo._load()
+        texts = {t for t in texts if _cached(t, cache)}
+    places = await _locate(sorted(texts), emit)
     if audit:
         case.audit("geocode", {"strings": len(texts), "placed": sum(p is not None for p in places.values()),
                                "service": "nominatim.openstreetmap.org (uncached strings only)"})
     return places
 
 
+PLACES_EVERY = 1.0  # seconds: at most one "places" progress event a second
+
+
+def _cached(text: str, cache: dict) -> bool:
+    """Whether geo.locate can answer `text` from its cache alone: its loop, without the requests."""
+    for q in geo._queries(text):
+        if q not in cache:
+            return False
+        if geo._place(text, q, cache[q]):
+            return True
+    return True
+
+
+async def _locate(texts: list[str], emit=None) -> dict:
+    """geo.locate(texts), telling `emit` how far it has got: {type: "places", done, total, left_s}, when the count
+    moves and at most once a second. A string counts as placed once its first query has an answer in geo's cache,
+    the dict locate itself fills; each one still to ask is at least a second (Nominatim allows one request a
+    second), so left_s is a floor. geo.py is untouched: this only reads its cache."""
+    job = asyncio.create_task(geo.locate(texts))
+    if not emit:
+        return await job
+    cache, sent = geo._load(), None
+    firsts = [qs[0] for t in texts if (qs := geo._queries(t))]
+    while True:
+        finished = job.done()  # read before counting, so the last count is complete
+        left = 0 if finished else sum(q not in cache for q in firsts)
+        if left != sent:
+            emit({"type": "places", "done": len(texts) - left, "total": len(texts), "left_s": left})
+            sent = left
+        if finished:
+            return job.result()
+        await asyncio.wait({job}, timeout=PLACES_EVERY)
+
+
 async def snapshot(case: Case) -> dict:
     """build() for viewing: places come from the geocoding cache the search filled; nothing is audited."""
-    return build(case, await geocode(case, audit=False))
+    return build(case, await geocode(case, audit=False, live=False))
 
 
 def build(case: Case, places: dict | None = None) -> dict:

@@ -431,6 +431,8 @@ screens.search = async slug => {
         <input id="more-seeds" class="input" style="flex:1;min-width:160px;background:none;padding:6px" placeholder="Add more…" aria-label="Add more to search"></div>
       <button class="btn primary" style="padding:11px 22px" data-act="search-run" data-slug="${slug}">Search</button>
     </div>
+    <div id="placing" class="hidden" style="width:min(920px,100%);display:flex;flex-direction:column;gap:6px;padding:0 6px" role="status" aria-live="polite">
+      <span class="t2" style="font-size:14px"></span><div class="bar" style="height:3px"><i></i></div></div>
     <div style="position:relative;width:100%;flex:1;min-height:420px;border-radius:22px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--edge);overflow:hidden">
       <hunt-cluster id="cluster" style="position:absolute;inset:0"></hunt-cluster>
       <div style="position:absolute;right:20px;bottom:18px;display:flex;align-items:center;gap:14px;padding:12px 12px 12px 20px;border-radius:16px;background:rgba(27,29,35,.9)">
@@ -463,11 +465,21 @@ async function moreLeads(slug) {
     <div style="display:flex;flex-wrap:wrap;gap:7px">${s.map(x => html`<button type="button" class="tick on" data-act="lead-pick" data-key="${x.kind}:${x.value}" title="${x.why}">✓ ${x.value}</button>`)}</div>
     <div style="display:flex;align-items:center;gap:12px"><button class="btn primary sm" data-act="leads-search" data-slug="${slug}">Search the ${s.length} ticked</button><span class="dim" style="font-size:12.5px">Hover one to see where it came from.</span></div></div>`.s : '';
 }
+// Placing locations runs at OpenStreetMap's one request a second, so a big case takes minutes: say how far it's got
+function placing(ev) {
+  const box = $('#placing'); if (!box) return;
+  box.classList.toggle('hidden', !ev || ev.done >= ev.total);
+  if (!ev) return;
+  const left = ev.left_s >= 90 ? `, about ${Math.round(ev.left_s / 60)} min left` : ev.left_s >= 45 ? ', about a minute left' : ev.left_s > 0 ? ', under a minute left' : '';
+  box.querySelector('span').textContent = `Placing locations: ${ev.done} of ${ev.total}${left} (OpenStreetMap allows one a second)`;
+  box.querySelector('i').style.transform = `scaleX(${ev.total ? ev.done / ev.total : 0})`;
+}
 function watchSearch(slug, job, cl) {
   stopLive();
   const sources = new Map(), accounts = new Map();
   live.es = follow(job, ev => {
-    if (ev.type === 'stage') cl.update({ stage: ev.stage === 'done' ? 'checking' : ev.stage });
+    if (ev.type === 'stage') { cl.update({ stage: ev.stage === 'done' ? 'checking' : ev.stage }); if (ev.stage !== 'finding') placing(null); }
+    if (ev.type === 'places') placing(ev);
     if (ev.type === 'source') {
       sources.set(`${ev.source}:${ev.seed}`, ev);
       const all = [...sources.values()], running = all.filter(s => s.status === 'running').length, checked = all.reduce((n, s) => n + (s.checked || 0), 0);
