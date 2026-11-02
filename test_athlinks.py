@@ -68,7 +68,7 @@ found, checked, note = asyncio.run(athlinks.search(Seed("name", "Robert Vance"))
 assert (found, checked) == ([], 0) and "refused (403)" in note and len(seen) == 1, (note, seen)
 seen = serve({"/find": (200, ATHLETES), "/101/Races": (429, {})})
 found, checked, note = asyncio.run(athlinks.search(Seed("name", "Robert Vance")))
-assert checked == 0 and "429" in note and len(seen) == 2, (note, seen)
+assert checked == 0 and "rate limit reached" in note and len(seen) == 2, (note, seen)
 # A server error is retried once, then stops
 seen = serve({"/find": (500, {})})
 assert "500 twice" in asyncio.run(athlinks.search(Seed("name", "Robert Vance")))[2] and len(seen) == 2

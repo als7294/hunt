@@ -58,5 +58,5 @@ assert m["url"] == "https://games.crossfit.com/leaderboard/open/2026?athlete=1" 
 
 seen = serve({"athletes/search": (429, {})})
 found, checked, note = asyncio.run(crossfit.search(Seed("name", "Marisol Vance")))
-assert (found, checked) == ([], 0) and "refused (429)" in note and len(seen) == 1, note
+assert (found, checked) == ([], 0) and "rate limit reached" in note and len(seen) == 1, note
 print("test_crossfit: all checks passed")

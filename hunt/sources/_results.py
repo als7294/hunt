@@ -7,6 +7,13 @@ whose age, birth year or division says under 18, is dropped before anything is s
 
 Every finding carries `meets`: [{date (YYYY-MM-DD), meet, event, location, place, time, age_group, url}], oldest
 first, the shape leads.py sets against the injury date, plus first_date, last_date and date (the latest).
+
+Requests go through _api's client, fetch and Limited. One reader per platform, never per race: Athlinks also
+carries ChronoTrack's and many timers' results. No maintained open-source client fits (searched 2026-11-02):
+athlinks-races (MIT) is a Scrapy spider for one race's pages, with no athlete search; userlerueda/utr logs in;
+the CrossFit clients are R or read the pre-2019 API; none reads UltraSignup or USAPL; the Strava scrapers log
+in or send cookies. OpenPowerlifting's bulk file (activity.py) stays the dataset for powerlifting history;
+usapl.py adds the federation's own pages, which OpenPowerlifting copies weeks later.
 """
 
 import asyncio
@@ -16,6 +23,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from ._api import Limited, fetch
 from ._socrata import SUFFIXES, words
 
 ADULT = 18
@@ -34,26 +42,28 @@ class Refused(Stopped):
 
 
 async def get(c: httpx.AsyncClient, url: str, params=None) -> httpx.Response | None:
-    """GET after the polite gap: the response, None if it isn't there, Refused at the first refusal, Stopped
-    when the host fails (unreachable, or a server error twice: one retry, a few seconds later)."""
+    """_api.fetch after the polite gap: the response, None if it isn't there, Refused at the first refusal (401,
+    403, 429 or another rate-limit signal, a wall), Stopped when the host fails (unreachable, or a server error
+    twice: one retry, a few seconds later)."""
+    host = urlsplit(url).hostname
     for attempt in (1, 2):
         await asyncio.sleep(GAP if attempt == 1 else RETRY)
         try:
-            r = await c.get(url, params=params)
+            r = await fetch(c, url, params)
+        except Limited as e:
+            raise Refused(f"{e}; stopped, not retried") from e
+        except httpx.HTTPStatusError as e:
+            code = e.response.status_code
+            if code in (401, 403):
+                raise Refused(f"{host} refused ({code}); stopped, not retried") from e
+            if code < 500 or attempt == 2:
+                raise Stopped(f"{host} answered {code}" + (" twice" if code >= 500 else "") + "; stopped") from e
+            continue
         except httpx.HTTPError as e:
-            raise Stopped(f"{urlsplit(url).hostname} unreachable ({type(e).__name__}); not retried") from e
-        if r.status_code < 500:
-            break
-    host = urlsplit(str(r.url)).hostname
-    if r.status_code in (401, 403, 429):
-        raise Refused(f"{host} refused ({r.status_code}); stopped, not retried")
-    if r.status_code in (404, 410):
-        return None
-    if r.status_code >= 400:
-        raise Stopped(f"{host} answered {r.status_code}" + ("" if r.status_code < 500 else " twice") + "; stopped")
-    if "html" in r.headers.get("content-type", "") and WALL.search(r.text[:20000]):
-        raise Refused(f"{host} showed a login wall or bot check; stopped, not worked around")
-    return r
+            raise Stopped(f"{host} unreachable ({type(e).__name__}); not retried") from e
+        if r is not None and "html" in r.headers.get("content-type", "") and WALL.search(r.text[:20000]):
+            raise Refused(f"{host} showed a login wall or bot check; stopped, not worked around")
+        return r
 
 
 def name_parts(name: str) -> tuple[str, str] | None:
