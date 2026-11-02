@@ -855,6 +855,8 @@ Still open:
 
 ## 7. Self-search review (main at b31a800, 2026-11-01)
 
+_Status at ec723e3: Aaron chose a training answer key instead of "This is me" (D16 revised). Done: SS1 and SS2 (C13 lead filter, `graph.conflicts`), SS3 (the trainer), SS5 (attestation and `me.log`), SS7 (Forget). Withdrawn with the feature: SS4, SS6, SS8 and SS9._
+
 **Scope.** Everything added for searching yourself:
 - `hunt/profile.py`: "About you", the locked description
 - "This is me" on a case: meta `about_me`, set in `app.create_case` (`app.py:468-477`)

@@ -43,7 +43,7 @@ Hunt then hashes and stores each file, extracts the posts, and scans the media w
 - **Associates** (family, friends, commenters, co-parties in records): Hunt keeps only their name and the items they appear in. It never searches, contacts or profiles them, and never names a child. Reports state what was observed, with citations, never a relationship as fact; employment screenings leave associates out (being built).
 - **Washington subjects:** findings are worded as observed activity, not physical condition, with the My Health My Data fraud basis recorded.
 - **Retention:** a reminder at 90 days from opening, unless she sets a legal hold. Deleting a case moves it to the Trash, and the deletion log keeps no name or purpose (being built).
-- **Searching yourself.** The investigator can describe herself once ("About you"): encrypted on her computer, never searched or sent. A case marked "This is me" then scores accounts against that description. Hunt can't verify that the describer is the subject. So "This is me" is limited to a separate self-search kind with no client or claim fields and no client report. Her attestation is recorded, and Hunt follows leads automatically only in a self-search, from accounts that carry her own handles or contacts (being built). In every other case she ticks each lead herself.
+- **Training on yourself.** A developer can describe themselves once (`hunt me`): encrypted on their computer, never searched or sent, with an attestation that it describes them. A training script searches them like any subject and uses the description only to grade what Hunt found. It never changes how any case is scored, and there is no self-search mode in cases. The script follows leads automatically only from accounts the description shows are certainly theirs; in every case, the investigator ticks each lead herself.
 
 ## 6. FCRA
 
@@ -90,4 +90,4 @@ Only two things leave her computer. Search terms reach the sites being searched,
 10. Should Ethos seek X's written approval to use its API, or a vendor contract with a lawful-collection warranty and indemnity?
 11. What is the response plan if a platform disables an investigator's account, or sends Ethos or the developer a cease-and-desist letter?
 12. For EU or UK subjects: does Ethos need an Article 27 representative, a legitimate-interests assessment and a published privacy notice?
-13. Is the self-search design enough to keep "This is me" from being used on a subject: the attestation, the separate kind and the self-search-only automatic leads? Should Ethos bar self-searches on work machines altogether?
+13. Is the training design enough to keep it from being used on someone else: the attestation, grading only (never scoring), and automatic leads only from accounts certainly the describer's? Should Ethos bar training runs on work machines?
