@@ -70,7 +70,7 @@ RECORDS = {"fec": "FEC itemized political contributions", "edgar": "SEC EDGAR fi
            "npi": "the NPI healthcare provider registry", "courtlistener": "federal court dockets in CourtListener's RECAP archive",
            "licences": "state occupational and professional licences", "businesses": "state business registries",
            "fmcsa": "the FMCSA motor-carrier census", "courts": "state, county and city court records published as open data",
-           "activity": "published powerlifting results (OpenPowerlifting)", "voter": "the Florida voter extract"}
+           "activity": "published powerlifting results (OpenPowerlifting)", "voter": "the states' voter files (Florida, North Carolina, Ohio)"}
 # Screening (employment) mode leaves these sources out entirely: what they reveal is protected in several states
 SCREENED = {"fec": "political affiliation", "npi": "health", "voter": "political activity"}  # voter: legal.md V4, D23
 # …and court dockets whose subject is health or politics
