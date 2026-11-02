@@ -231,4 +231,47 @@ assert any(x["text"].endswith("use one of the subject's usernames") for x in per
 r = app.post(f"/api/cases/{pc.name}/decisions", json={"url": maybe[0]["url"], "decision": "him"}, headers=JSON)
 assert r.status_code == 200 and [x["site"] for x in app.get(f"/api/cases/{pc.name}/person").json()["possible"]] == ["SiteB"]
 
+# --- Evidence never feeds on itself (fictional people) -----------------------------------------------
+# Seed jsmith finds github.com/jsmith, which shows "CoolCoder"; CoolCoder taken from it as a lead must not
+# corroborate it. Typed, or taken from another account, it still counts.
+gh = "https://github.com/jsmith"
+loop = [Seed("username", "jsmith"), Seed("username", "CoolCoder")]
+js = lambda attrs, derived=None, subj=loop: match.score(Seed("username", "jsmith"), gh + "/", attrs, subj, derived=derived)
+alone = js({"fullname": "CoolCoder"}, subj=loop[:1])[0]
+p, v, why, _ = js({"fullname": "CoolCoder"}, {"coolcoder": gh})
+assert p == alone <= 0.5 and "'CoolCoder' came from this account, so it isn't counted" in " ".join(why), why
+assert js({"fullname": "CoolCoder"})[0] > 0.85, "typed by the investigator: counts"
+assert js({"fullname": "CoolCoder"}, {"coolcoder": "https://gitlab.com/jsmith"})[0] > 0.85, "from another account: counts"
+# ...the same for a link carrying the handle, and for the account's own handle found another way
+p, v, why, _ = js({"website": "https://coolcoder.dev/coolcoder"}, {"coolcoder": gh})
+assert p == js({"website": "https://coolcoder.dev/coolcoder"}, subj=loop[:1])[0] and not any("carries" in w for w in why), why
+other = match.score(Seed("email", "jo@example.org"), "https://github.com/coolcoder", {}, [Seed("email", "jo@example.org"),
+                    Seed("username", "coolcoder")], derived={"coolcoder": "https://github.com/coolcoder"})
+assert not any("is one the subject uses" in w for w in other[2]), other[2]
+
+# Seeds remember the account they came from; typing one later makes it the investigator's own
+dc = Case.create("Derived test", "Self-check, fictional", kind="insurance", tool="person")
+dc.add_seeds([Seed("username", "jsmith")])
+dc.add_seeds([Seed("username", "CoolCoder")], {"coolcoder": gh})
+assert dc.derived() == {"coolcoder": gh}
+dc.add_finding(Finding("maigret", Seed("username", "jsmith"), "GitHub", gh, {"fullname": "CoolCoder"}))
+assert search.build(dc)["candidates"][0]["probability"] <= 0.5
+dc.add_seeds([Seed("username", "CoolCoder")])  # typed now
+assert dc.derived() == {} and search.build(dc)["candidates"][0]["probability"] > 0.85
+# an old case's seeds table gains the column
+import sqlite3  # noqa: E402
+
+old = Case.create("Old seeds", "Self-check, fictional", kind="insurance", tool="person")
+old.db.executescript("drop table seeds; create table seeds (kind text, value text, added text, primary key (kind, value));"
+                     "insert into seeds values ('username', 'x1', '2026-01-01');")
+assert Case.open(old.name).seeds() == [Seed("username", "x1")] and Case.open(old.name).derived() == {}
+# the API: {seeds, from}; leads send "kind:value" keys, plain values work too; anything but a URL is refused
+ac = Case.create("Derived API", "Self-check, fictional", kind="insurance", tool="person")
+r = app.post(f"/api/cases/{ac.name}/seeds", json={"seeds": ["username:CoolCoder", "jo@example.org"],
+                                                  "from": {"username:CoolCoder": gh}}, headers=JSON)
+assert r.status_code == 200 and Case.open(ac.name).derived() == {"coolcoder": gh}, r.text
+assert app.post(f"/api/cases/{ac.name}/seeds", json={"seeds": ["x"], "from": {"x": "javascript:1"}}, headers=JSON).status_code == 400
+assert '"from": {"CoolCoder": "https://github.com/jsmith"}' in Case.open(ac.name).rows(
+    "select detail from audit where action = 'seeds added'")[0]["detail"]
+
 print("test_profile: all checks passed")

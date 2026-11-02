@@ -182,6 +182,7 @@ def build(case: Case, places: dict | None = None) -> dict:
         else:
             attributes.append({"source": f["source"], "seed": f["seed"], "facts": f["attrs"]})
 
+    derived = case.derived()  # seeds taken from an account never count for that account (match.score)
     taken = defaultdict(lambda: (0, 0))  # handle → (sites taken, sites answered), for rarity
     for r in case.rows("select seed, found, checked from runs where seed_kind = 'username' and status != 'failed'"):
         t = taken[r["seed"].lower()]
@@ -189,7 +190,7 @@ def build(case: Case, places: dict | None = None) -> dict:
 
     def rate(c, extra=None):
         p, verdict, reasons, tags = match.score(Seed(**c["seed"]), c["url"], c["attrs"], subject, taken, places, extra, him,
-                                                facts)
+                                                facts, derived=derived)
         c.update(verdict=verdict, probability=round(p, 3), reasons=reasons, tags=tags)
 
     candidates = []

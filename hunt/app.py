@@ -620,8 +620,15 @@ async def remove_reference(req: Request):
 
 
 async def add_seeds(req: Request):
-    c = _case(req)
-    seeds = [s for raw in _str_list((await _body(req)).get("seeds"), "seeds") for s in detect(raw)]
+    """{seeds: [str], from?: {seed: source url}}. `from` names the account a seed was taken from (a lead): the
+    matcher never counts that seed for that account, so an account can't corroborate itself."""
+    c, b = _case(req), await _body(req)
+    seeds = [s for raw in _str_list(b.get("seeds"), "seeds") for s in detect(raw)]
+    taken = b.get("from") or {}
+    if not isinstance(taken, dict) or not all(isinstance(k, str) and isinstance(v, str) and v.startswith(("http://", "https://"))
+                                              and len(v) <= 2000 for k, v in taken.items()):
+        raise HTTPException(400, "from must map each seed to the http(s) URL of the account it came from")
+    sources = {s.value: url for raw, url in taken.items() for s in detect(raw)} | taken  # "username:x" or just "x"
     # Someone the subject's posts, bios or records name, or whose handle or link a quote about them carries, is not
     # a seed: searching them needs its own case (A1, C13, SS2)
     people = graph.associates(await _posts(c), (await search.snapshot(c))["candidates"], c.seeds(),
@@ -630,8 +637,9 @@ async def add_seeds(req: Request):
         s, p = hit[0]
         raise HTTPException(409, f"{s.value} belongs to someone around the subject in what the case holds "
                                  f"({p['labels'][0]}): open them as their own case, with its own purpose")
-    c.add_seeds(seeds)
-    c.audit("seeds added", {"seeds": [asdict(s) for s in seeds]})
+    added_from = {s.value: sources[s.value] for s in seeds if s.value in sources}
+    c.add_seeds(seeds, sources)
+    c.audit("seeds added", {"seeds": [asdict(s) for s in seeds], **({"from": added_from} if added_from else {})})
     return JSONResponse({"seeds": [{"kind": s.kind, "value": s.value} for s in c.seeds()]})
 
 

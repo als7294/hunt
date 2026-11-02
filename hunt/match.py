@@ -107,7 +107,8 @@ def score(seed, url: str, attrs: dict, subject: list,
           taken: dict[str, tuple[int, int]] | None = None,
           places: dict[str, "geo.Place | None"] | None = None,
           extra: list[tuple[float, str, str]] | None = None,
-          confirmed: set[str] | None = None, facts: dict | None = None) -> tuple[float, str, list[str], list[str]]:
+          confirmed: set[str] | None = None, facts: dict | None = None,
+          derived: dict[str, str] | None = None) -> tuple[float, str, list[str], list[str]]:
     """(probability, ICD 203 verdict, reasons, tags) that this finding belongs to the subject.
 
     `taken` maps lowercase handle → (sites taken, sites checked), from the case's runs.
@@ -119,6 +120,12 @@ def score(seed, url: str, attrs: dict, subject: list,
     Each reason has a tag (username, name, place, email, phone, link, photo, face, dob, employer, confirmed), in order.
     Weights are scaled by what learning.py has learned from the investigator's decisions, if anything.
     """
+    # A seed taken from this very account (a lead from its display name, links or bio) is never evidence for it:
+    # the account would be corroborating itself (jsmith shows "CoolCoder", CoolCoder becomes a seed, jsmith looks sure).
+    here = norm_url(url) if url else None
+    taken_here = {v for v, src in (derived or {}).items() if here and norm_url(src) == here}
+    from_here = sorted({s.value for s in subject if s.value.lower() in taken_here})  # as the investigator saw them
+    subject = [s for s in subject if s.value.lower() not in taken_here]
     of = lambda *kinds: [s.value for s in subject if s.kind in kinds]
     names, known_places, emails, handles = of("name"), of("address", "location"), of("email"), of("username")
     confirmed = confirmed or set()
@@ -205,6 +212,9 @@ def score(seed, url: str, attrs: dict, subject: list,
     ages = [int(a) for a in of("age") if str(a).strip().isdigit()]
     reasons += [(w, tag, why) for tag, w, why in _facts(attrs, dobs, ages, of("employer"))]
     reasons += extra or []
+    if from_here:
+        reasons.append((0.0, "username", f"{', '.join(repr(v) for v in from_here)} came from this account, so "
+                                         f"{'it isn' if len(from_here) == 1 else 'they aren'}'t counted"))
     scales = learning.match_scales()  # {} until enough decisions: every weight as hand-set
     reasons = [(max(-learning.FACE_AGAINST, min(learning.FACE_FOR, w)) if tag == "face" else w * scales.get(tag, 1.0),
                 tag, why) for w, tag, why in reasons]

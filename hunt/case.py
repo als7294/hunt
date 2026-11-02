@@ -68,7 +68,7 @@ pragma journal_mode = wal;
 pragma busy_timeout = 5000;
 create table if not exists meta (key text primary key, value text);
 create table if not exists audit (ts text, action text, detail text);
-create table if not exists seeds (kind text, value text, added text, primary key (kind, value));
+create table if not exists seeds (kind text, value text, added text, source text, primary key (kind, value));
 create table if not exists runs (ts text, source text, seed_kind text, seed text, status text, found int, checked int, note text,
     audit int);
 create table if not exists findings (
@@ -102,6 +102,8 @@ class Case:
         self.db.executescript(SCHEMA)
         if "audit" not in {r[1] for r in self.db.execute("pragma table_info(runs)")}:  # cases from before runs were audited
             self.db.execute("alter table runs add column audit int")
+        if "source" not in {r[1] for r in self.db.execute("pragma table_info(seeds)")}:  # ...and before seeds had a source
+            self.db.execute("alter table seeds add column source text")
         if new:
             self.db.executemany("insert into meta values (?, ?)", [("purpose", purpose), ("created", now())])
             self.audit("case opened", {"purpose": purpose})
@@ -193,8 +195,20 @@ class Case:
     def audit(self, action: str, detail: dict) -> int:
         return self.db.execute("insert into audit values (?, ?, ?)", (now(), action, json.dumps(detail))).lastrowid
 
-    def add_seeds(self, seeds: list[Seed]):
-        self.db.executemany("insert or ignore into seeds values (?, ?, ?)", [(s.kind, s.value, now()) for s in seeds])
+    def add_seeds(self, seeds: list[Seed], sources: dict[str, str] | None = None):
+        """`sources` maps a seed's value (any case) to the account URL it was taken from, for a seed added from a
+        lead: match.score never counts it for that account. A seed added without one (typed) counts everywhere."""
+        sources = {k.lower(): v for k, v in (sources or {}).items()}
+        for s in seeds:
+            src = sources.get(s.value.lower())
+            self.db.execute("insert or ignore into seeds (kind, value, added, source) values (?, ?, ?, ?)",
+                            (s.kind, s.value, now(), src))
+            if not src:  # typed now, even if it first came from a lead
+                self.db.execute("update seeds set source = null where kind = ? and value = ?", (s.kind, s.value))
+
+    def derived(self) -> dict[str, str]:
+        """Seed value (lower case) -> the account URL it was taken from, for seeds added from a lead."""
+        return {v.lower(): src for v, src in self.db.execute("select value, source from seeds where source is not null")}
 
     def seeds(self) -> list[Seed]:
         return [Seed(*row) for row in self.db.execute("select kind, value from seeds order by added")]

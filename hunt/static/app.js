@@ -447,11 +447,12 @@ async function showResults(slug, cl) {
   } catch (e) { fail(e); }
 }
 /* More to search (pivot.suggestions): what the likely accounts list. She picks; nothing is searched until she says so */
-let leadPicks = new Set();
+let leadPicks = new Set(), leadFrom = {}; // leadFrom: pick -> the account it came from (never counted for that account)
 async function moreLeads(slug) {
   const { suggestions: s } = await api(`/api/cases/${encodeURIComponent(slug)}/suggestions`).catch(() => ({ suggestions: [] }));
   const box = $('#more-leads'); if (!box) return;
   leadPicks = new Set(s.map(x => `${x.kind}:${x.value}`));
+  leadFrom = Object.fromEntries(s.filter(x => x.source_url).map(x => [`${x.kind}:${x.value}`, x.source_url]));
   box.innerHTML = s.length ? html`<div class="panel" style="padding:16px 18px;display:flex;flex-direction:column;gap:10px">
     <div><b>Found on the accounts that look like them</b> <span class="muted" style="font-size:14px">· search these too? Each came from an account Hunt thinks is theirs.</span></div>
     <div style="display:flex;flex-wrap:wrap;gap:7px">${s.map(x => html`<button type="button" class="tick on" data-act="lead-pick" data-key="${x.kind}:${x.value}" title="${x.why}">✓ ${x.value}</button>`)}</div>
@@ -1624,7 +1625,8 @@ const actions = {
     const b = $('[data-act="leads-search"]'); b.textContent = `Search the ${leadPicks.size} ticked`; b.disabled = !leadPicks.size; },
   'leads-search': async el => {
     const slug = el.dataset.slug; el.disabled = true;
-    try { await api(`/api/cases/${encodeURIComponent(slug)}/seeds`, { method: 'POST', body: { seeds: [...leadPicks] } });
+    const from = Object.fromEntries([...leadPicks].filter(k => leadFrom[k]).map(k => [k, leadFrom[k]]));
+    try { await api(`/api/cases/${encodeURIComponent(slug)}/seeds`, { method: 'POST', body: { seeds: [...leadPicks], from } });
       await api(`/api/cases/${encodeURIComponent(slug)}/search`, { method: 'POST', body: {} }); await render(); } catch (e) { el.disabled = false; fail(e); }
   },
   'search-run': async el => {
