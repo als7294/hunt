@@ -490,6 +490,44 @@ assert c.post("/api/powerlifting", json={"size": 1}, headers={"origin": BASE}).s
 wait_done(c, c.post("/api/powerlifting", json={"size": 170 << 20}, headers={"origin": BASE}).json()["job"])
 assert loaded == [()], loaded
 
+# The person card: only what the accounts and records judged to be them show, each fact with its sources; and the
+# people-search sites, prefilled, to open by hand (none on a background case, and no age there either)
+pc = c.post("/api/cases", content=json.dumps({**new, "label": "Quell claim", "seeds": [
+    "Dorian Quell", "location:Tucson, Arizona", "+15205550143", "dquell@example.test", "dquell_ex"]}), headers=JSON).json()["slug"]
+qc, qh = Case.open(pc), Seed("username", "dquell_ex")
+qc.add_finding(Finding("maigret", qh, "SiteQ", "https://q.test/dquell_ex", {"fullname": "Dorian Quell", "location": "Tucson, Arizona, USA",
+                                                                         "email": "dquell@example.test", "other_usernames": ["dq_alt"]}))
+qc.add_finding(Finding("maigret", qh, "SiteR", "https://r.test/dquell_ex", {"fullname": "dquell_ex", "email": "d***@example.test"}))
+qc.add_finding(Finding("licences", Seed("name", "Dorian Quell"), "AZ licences", "https://lic.test/88", {
+    "fullname": "QUELL, DORIAN M", "address": "12 Sample Rd", "city": "Phoenix", "state": "AZ", "issued": "2019-04-02",
+    "year_of_birth": "1987", "phone": "520-555-0143"}))
+qc.add_finding(Finding("maigret", Seed("username", "dquell_ex"), "SiteZ", "https://z.test/dquell_ex", {"fullname": "Mara Quell",
+                                                                                                      "location": "Boise, ID"}))
+for u in ("https://q.test/dquell_ex", "https://r.test/dquell_ex", "https://lic.test/88"):
+    qc.decide(u, "him")
+qc.decide("https://z.test/dquell_ex", "not him")  # ruled out: none of its facts are theirs
+f = c.get(f"/api/cases/{pc}/person").json()["profile"]
+assert [(x["value"], len(x["sources"])) for x in f["names"]] == [("Dorian Quell", 2)], f["names"]  # "QUELL, DORIAN M" is the same
+assert [(x["value"], x["sources"]) for x in f["born"]] == [(1987, ["AZ licences"])], f["born"]
+assert [x["value"] for x in f["places"]] == ["Tucson, AZ", "Phoenix, AZ"], f["places"]  # the account's now, the 2019 record's after
+assert f["places"][1]["as_of"] == "2019-04-02" and f["phones"][0]["value"] == "(520) 555-0143", f
+assert [x["value"] for x in f["emails"]] == ["dquell@example.test"], f["emails"]  # the masked one isn't an email
+assert {x["value"] for x in f["usernames"]} == {"dquell_ex", "dq_alt"} and f["usernames"][0]["sources"] == ["SiteQ dquell_ex", "SiteR dquell_ex"], f
+assert not any("Boise" in x["value"] or "Mara" in x["value"] for k in f for x in f[k] if isinstance(x["value"], str)), f
+ps = {(x["site"], x["url"]) for x in c.get(f"/api/cases/{pc}/person").json()["people_search"]}
+assert ps == {("TruePeopleSearch", "https://www.truepeoplesearch.com/results?name=Dorian%20Quell&citystatezip=Tucson%2C%20AZ"),
+              ("FastPeopleSearch", "https://www.fastpeoplesearch.com/name/dorian-quell_tucson-az"),
+              ("Whitepages", "https://www.whitepages.com/name/Dorian-Quell/Tucson-AZ"),
+              ("TruePeopleSearch", "https://www.truepeoplesearch.com/resultphone?phoneno=5205550143"),
+              ("FastPeopleSearch", "https://www.fastpeoplesearch.com/520-555-0143"),
+              ("Whitepages", "https://www.whitepages.com/phone/1-520-555-0143"),
+              ("TruePeopleSearch", "https://www.truepeoplesearch.com/resultemail?email=dquell%40example.test")}, ps
+assert server._town_st("12 Sample Rd, Apt 4, Phoenix, Arizona 85001") == "Phoenix, AZ" and server._town_st("Washington, DC") == "Washington, DC"
+qc.db.execute("insert or replace into meta values ('kind', 'background')")
+bp = c.get(f"/api/cases/{pc}/person").json()
+assert Case.open(pc).details()["kind"] == "background" and bp["people_search"] == [] and bp["profile"]["born"] == [], bp
+assert bp["profile"]["places"], bp  # the rest of the card stays
+
 c.__exit__(None, None, None)
 
 print("ok")
