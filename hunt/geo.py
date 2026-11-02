@@ -2,17 +2,20 @@
 
 What leaves the machine: nothing for a US town given with its state ("Tampa, FL",
 "St. Petersburg, Florida, USA", or the town of a public record's "123 Main St, Tampa,
-FL 33601"). Those are looked up on this Mac in GeoNames' cities1000 table, which the
-reverse_geocoder package ships (geonames.org, CC BY 4.0: credit GeoNames wherever such a
-Place's label is shown; its raw hit says "source": "GeoNames"). That was 258 of the 324
-place strings in a Florida training case. Everything else is a place name sent to
-OpenStreetMap's public Nominatim (nominatim.openstreetmap.org, run by the OSM
-Foundation), through HUNT_PROXY if set: a profile's location field as written, and for a
-street address the table can't place, only its town and state, "tampa, fl". A street,
-house number, suite or ZIP code never leaves the machine, and a street line with no town
-isn't sent at all. The table doesn't answer, and Nominatim is asked as before, for a town
-without a state ("Springfield"), a town under 1,000 people, two towns of one name in one
-state, or a state code that is also a country's ("London, CA"). Each query is sent at
+FL 33601"), a US state ("Florida", "FL", "SoCal") or the US itself. Those are looked up on
+this Mac in GeoNames' cities1000 table, which the reverse_geocoder package ships
+(geonames.org, CC BY 4.0: credit GeoNames wherever such a Place's label is shown; its raw
+hit says "source": "GeoNames"). That was 267 of the 329 place strings in a Florida
+training case. Everything else is a place name sent to OpenStreetMap's public Nominatim
+(nominatim.openstreetmap.org, run by the OSM Foundation), through HUNT_PROXY if set: a
+profile's location field as written; for a profile with none, the place its bio states
+(bio_place), never the bio itself; and for a street address the table can't place, only
+its town and state, "tampa, fl". A street, house number, suite or ZIP code never leaves
+the machine, and a street line with no town isn't sent at all. The table doesn't answer,
+and Nominatim is asked as before, for a town without a state ("Springfield", or a bio's
+"Sacramento-based"), a town under 1,000 people, two towns of one name in one state, a
+state code that is also a country's ("London, CA"), or a bare name that is more than a
+state ("Georgia", "Washington", "New York"). Each query is sent at
 most once: every answer, "no such place" included, is cached in
 ~/Hunt/cache/geocode.json, so records in the same town share one lookup. We follow the
 usage policy (operations.osmfoundation.org/policies/nominatim): at most 1
@@ -25,7 +28,7 @@ score a false conflict. Hence the alias table, the joke stoplist, the street/sho
 filter and the ambiguity check below. Ideas from carmen (github.com/mdredze/carmen-python,
 which geolocates Twitter profile locations) and mordecai3 (github.com/ahalterman/mordecai3).
 
-ponytail: offline only for US towns. Upgrade: other countries' towns from the same table
+ponytail: offline only for US towns and states. Upgrade: other countries' towns from the same table
 (their admin1 names would need ISO 3166-2 codes), or point URL at a self-hosted
 Nominatim, and nothing leaves the machine.
 """
@@ -34,6 +37,7 @@ import asyncio
 import contextlib
 import csv
 import dataclasses
+import functools
 import importlib.util
 import json
 import math
@@ -82,6 +86,7 @@ ALIASES = {code: f"{name}, united states" for code, name in STATES.items()} | {
     "la": "los angeles, california", "sf": "san francisco, california", "bay area": "san francisco, california",
     "phx": "phoenix, arizona", "atl": "atlanta, georgia", "slc": "salt lake city, utah", "dfw": "dallas, texas",
     "socal": "california, united states", "norcal": "california, united states", "pnw": "united states",
+    "nyc": "new york, ny",
 }
 # Joke 'locations' that Nominatim matches to a real namesake ('Earth' is a village in Texas, 'Mars'
 # one in France). Only a whole-string match is skipped, so 'Paradise, CA' still geocodes.
@@ -122,9 +127,9 @@ async def locate(texts: list[str]) -> dict[str, Place | None]:
     the investigator sees which place was meant.
     """
     cache, out, offline = _load(), {}, False
-    # US towns are answered from GeoNames on this Mac, into the same cache, so search.py's progress and
-    # cache-only reads see them. Only a first query can be a 'town, ST': the fallback has no comma.
-    if local := {qs[0]: hits for t in texts if (qs := _queries(t)) and qs[0] not in cache and (hits := _local(qs[0]))}:
+    # US towns and states are answered from GeoNames on this Mac, into the same cache, so search.py's progress
+    # and cache-only reads see them.
+    if local := {q: hits for t in texts for q in _queries(t) if q not in cache and (hits := _local(q))}:
         cache |= local
         _save()
     need = any(q not in cache for t in texts for q in _queries(t))
@@ -204,6 +209,7 @@ def _town(text: str) -> str | None:
 
 
 TOWN_STATES = STATES | {"la": "louisiana"}  # after a town, LA is Louisiana
+NOT_ONLY_STATES = {"georgia", "washington", "new york"}  # bare, also a country, DC or the city: Nominatim decides
 CODES = {name: code.upper() for code, name in TOWN_STATES.items()}  # 'florida' → 'FL'
 USA = {"usa", "us", "u.s.", "u.s.a.", "united states", "united states of america"}
 TOWN_RANK = 16  # Nominatim's city rank: city-sized for compare()
@@ -214,13 +220,19 @@ _towns: dict | None = None
 
 
 def _local(query: str) -> list[dict] | None:
-    """A US 'town, ST' answered from GeoNames' cities1000 table, which reverse_geocoder ships, as one
-    Nominatim-shaped hit. None, so that Nominatim is asked as before, when it isn't that shape, the town
-    isn't in the table, two towns of that name in that state are more than AREA_KM apart, or ST is
-    also the code of a country with a town of that name ('London, CA')."""
-    parts = [p for p in (p.strip() for p in query.split(",")) if p]
-    while len(parts) > 2 and parts[-1] in USA:
-        parts.pop()
+    """A US 'town, ST', a state ('florida', 'florida, united states', 'new york state') or the US itself,
+    answered from GeoNames' cities1000 table, which reverse_geocoder ships, as one Nominatim-shaped hit.
+    None, so that Nominatim is asked as before, when it isn't that shape, the town isn't in the table, two
+    towns of that name in that state are more than AREA_KM apart, ST is also the code of a country with a
+    town of that name ('London, CA'), or a bare name is more than a state ('Georgia', 'New York')."""
+    parts, us = [p for p in (p.strip() for p in query.split(",")) if p], False
+    while len(parts) > 1 and parts[-1] in USA:
+        parts, us = parts[:-1], True
+    if len(parts) == 1:
+        state = parts[0].removesuffix(" state")
+        if parts[0] in USA or state in CODES and (us or state != parts[0] or state not in NOT_ONLY_STATES):
+            return _region(None if parts[0] in USA else state)
+        return None
     if len(parts) != 2 or (state := TOWN_STATES.get(parts[1], parts[1])) not in CODES:
         return None
     towns, key = _table(), _key(parts[0])
@@ -233,6 +245,20 @@ def _local(query: str) -> list[dict] | None:
     return [{"lat": str(lat), "lon": str(lon), "place_rank": TOWN_RANK, "importance": 1.0, "display_name": label,
              "boundingbox": [str(lat - d), str(lat + d), str(lon - dlon), str(lon + dlon)], "source": "GeoNames",
              "address": {"country_code": "us", "ISO3166-2-lvl4": f"US-{CODES[state]}"}}]
+
+
+@functools.cache
+def _region(state: str | None) -> list[dict] | None:
+    """A state (None: the whole US) as one hit, placed at the mean of its towns, boxed around them."""
+    rows = [r for (_, s), rs in _table().items() if state in (None, s) for r in rs]
+    if not rows:
+        return None
+    lats, lons = [r[0] for r in rows], [r[1] for r in rows]
+    label = "United States" if state is None else ", ".join(rows[0][2].split(", ")[-2:])  # 'Florida, United States'
+    return [{"lat": str(sum(lats) / len(lats)), "lon": str(sum(lons) / len(lons)), "place_rank": 4 if state is None else 8,
+             "importance": 1.0, "display_name": label, "source": "GeoNames",
+             "boundingbox": [str(min(lats)), str(max(lats)), str(min(lons)), str(max(lons))],
+             "address": {"country_code": "us"} | ({"ISO3166-2-lvl4": f"US-{CODES[state]}"} if state else {})}]
 
 
 SHORT = {"saint": "st", "fort": "ft", "mount": "mt", "north": "n", "south": "s", "east": "e", "west": "w"}
@@ -254,16 +280,65 @@ def _table() -> dict:
             spec = importlib.util.find_spec("reverse_geocoder")
             with open(os.path.join(spec.submodule_search_locations[0], "rg_cities1000.csv"), newline="") as f:
                 for r in csv.DictReader(f):
+                    _towns[(key := _key(r["name"])), "*"] = []
                     if r["cc"] == "US":
                         name, state = ("Washington", "District of Columbia") if r["admin1"] == "Washington, D.C." \
                             else (r["name"], r["admin1"])
                         label = ", ".join(filter(None, [name, r["admin2"], state, "United States"]))
                         _towns.setdefault((_key(name), state.lower()), []).append((float(r["lat"]), float(r["lon"]), label))
                     elif (cc := r["cc"].lower()) in TOWN_STATES:
-                        _towns[_key(r["name"]), cc] = []
+                        _towns[key, cc] = []
         except (AttributeError, TypeError, OSError):
             pass  # no table: every string goes to Nominatim
     return _towns
+
+
+# What a bio says about where its owner is, e.g. TikTok's 'Creative Director ⏎ Bikes + Marketing ⏎ 🌴 Florida 🌴'.
+PIECE = re.compile(r"[^\w\s,.'’#@&-]+|\s[-–—]\s")  # emoji, bars, bullets, slashes, brackets and spaced dashes
+# ponytail: 'from X' is skipped (often where they grew up), and so is a foreign place without a marker ('Leeds
+# | Writer'). Upgrade: country and admin1 names from the same table, measured against location fields.
+MARKER = re.compile(r"📍|\b(?:based|living|lives|live|located)\s+in\s+", re.I)
+WORDS = {"in", "or", "ok", "hi", "me", "oh"}  # state codes that are words, even in capitals ('OH!')
+
+
+def bio_place(bio: str) -> str | None:
+    """The place a bio clearly states, as written ('Florida', 'Tampa, FL', 'NYC'), or None. Clear means a
+    piece of the bio that is nothing but a US state, an alias ('PNW', 'SoCal') or a 'town, ST' the table
+    knows: a line, the text between emoji, bars or bullets, a sentence, or a comma part. Or any known
+    place name after 'based in', 'living in' or 📍, or before '-based'. Never a word inside a sentence:
+    'Washington Commanders fan' and '#Florida' say nothing."""
+    for m in MARKER.finditer(bio):
+        words = PIECE.split(bio[m.end():], 1)[0].split()
+        if p := next(filter(None, (_said(" ".join(words[:n]), True) for n in range(min(len(words), 6), 0, -1))), None):
+            return p
+    for m in re.finditer(r"-based\b", bio):
+        words = PIECE.split(bio[:m.start()])[-1].split()
+        if p := next(filter(None, (_said(" ".join(words[-n:]), True) for n in range(min(len(words), 4), 0, -1))), None):
+            return p
+    for piece in PIECE.split(bio):
+        for sentence in [piece, *re.split(r"\.\s+", piece)]:
+            parts = sentence.split(",")
+            for said in [sentence, *(f"{a},{b}" for a, b in zip(parts, parts[1:])), *parts]:
+                if p := _said(said):
+                    return p
+    return None
+
+
+def _said(text: str, marked: bool = False) -> str | None:
+    """`text`, tidied, if it is wholly a place bio_place accepts; 'Tampa FL' comes back as 'Tampa, FL'."""
+    text = " ".join(text.strip(" .,'’-").split())
+    key, (head, _, last) = text.lower(), text.rpartition(" ")
+    if not key or key in NOT_PLACES:
+        return None
+    if key in CODES or key in ALIASES and key not in WORDS and (len(key) > 3 or text.isupper()):
+        return text  # 'Florida', 'FL', 'NYC', 'Bay Area'; not 'Me', 'fl' or 'OK'
+    if "," in key and _local(key):
+        return text
+    if head and (last.isupper() and last.lower() in STATES or last.lower() in CODES) and _local(f"{head}, {last}".lower()):
+        return f"{head}, {last}"
+    if marked and text[0].isupper() and (_key(text), "*") in _table():
+        return text  # 'based in London', 'Sacramento-based': a GeoNames place, asked as a location field is
+    return None
 
 
 async def named(query: str, near: tuple[float, float, float] | None = None, country: str | None = None) -> list[dict]:
