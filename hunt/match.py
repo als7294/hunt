@@ -55,9 +55,11 @@ def place_text(attrs: dict) -> str:
     sees whole strings, so it can't strip a joke part from a real one.
     """
     if attrs.get("address"):  # a record's street address, with its town and state when it leaves them out
-        addr = str(attrs["address"]).strip()
-        return ", ".join([addr, *(str(attrs[k]).strip() for k in ("city", "state")
-                                  if attrs.get(k) and str(attrs[k]).strip().lower() not in addr.lower())])
+        out = str(attrs["address"]).strip()  # (NPI and FMCSA keep "City, ST" in location; others in city and state)
+        for k in ("location", "city", "state"):
+            if (v := str(attrs.get(k) or "").strip()) and v.lower() not in out.lower():
+                out += f", {v}"
+        return out
     parts = [str(attrs[k]).strip() for k in ("location", "city", "state", "country") if attrs.get(k)]
     return ", ".join(p for p in parts if " ".join(p.lower().split()) not in geo.NOT_PLACES | {""})
 

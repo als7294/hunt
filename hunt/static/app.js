@@ -1005,7 +1005,7 @@ const pathKey = u => { try { const x = new URL(u); return (x.hostname.replace(/^
 // The extension's coverage counter and "open these" list, once docs/capture.md defines them on each checklist account:
 // progress {grid_seen, grid_total, flagged, opened, videos, played}, todo [{url, kind: "post"|"video", file, why}].
 // Until then the line and the list come from what the checklist and the case's hits already say.
-const progressLine = (a, mine) => a.progress ? `grid ${a.progress.grid_seen}/${a.progress.grid_total} · flagged ${a.progress.flagged} · opened ${a.progress.opened} of ${a.progress.flagged} · videos ${a.progress.videos}, played ${a.progress.played}`
+const progressLine = (a, mine) => a.progress ? `grid ${a.progress.grid_seen}${a.progress.grid_total ? `/${a.progress.grid_total}` : ''} · flagged ${a.progress.flagged} · opened ${a.progress.opened} of ${a.progress.flagged} · videos ${a.progress.videos}, played ${a.progress.played}`
   : `${a.sections.filter(x => x.seen).length} of ${a.sections.length} sections opened · ${mine.posts} post${mine.posts === 1 ? '' : 's'} in the case · ${mine.hits.length} flagged`;
 const todoOf = (a, mine) => a.todo || mine.hits.filter(h => h.status === 'new' && /^https?:\/\//.test(h.url || '')).map(h => ({ url: h.url, kind: 'post', file: h.file, why: h.what, blur: h.blur || h.child_visible }));
 const fromGrid = (h, post) => !!(h.from_grid || post?.extra?.from === 'grid' || post?.extra?.grid);
