@@ -864,7 +864,7 @@ _Status at ec723e3: Aaron chose a training answer key instead of "This is me" (D
 - `pivot.suggestions` and "Search the ticked" (`app.js:1585-1588` → `POST /seeds` → `/search`)
 - `scripts/train_find.py`
 
-The rules are S1–S5 in [legal.md](legal.md#self-search), with decisions D16–D20 in its [Decisions table](legal.md#decisions-provisional-2026-10-30). Docs only: no code was changed.
+The rules are S1–S5 in [legal.md](legal.md#training-on-yourself), with decisions D16–D20 in its [Decisions table](legal.md#decisions-provisional-2026-10-30). Docs only: no code was changed.
 
 **How it was checked:**
 - **Code reading:** every path above.
