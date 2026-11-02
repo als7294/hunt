@@ -638,7 +638,7 @@ async def add_seeds(req: Request):
         raise HTTPException(409, f"{s.value} belongs to someone around the subject in what the case holds "
                                  f"({p['labels'][0]}): open them as their own case, with its own purpose")
     added_from = {s.value: sources[s.value] for s in seeds if s.value in sources}
-    c.add_seeds(seeds, sources)
+    c.add_seeds(seeds, sources, typed=True)  # without `from`, she typed it: hers now
     c.audit("seeds added", {"seeds": [asdict(s) for s in seeds], **({"from": added_from} if added_from else {})})
     return JSONResponse({"seeds": [{"kind": s.kind, "value": s.value} for s in c.seeds()]})
 

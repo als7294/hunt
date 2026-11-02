@@ -195,15 +195,16 @@ class Case:
     def audit(self, action: str, detail: dict) -> int:
         return self.db.execute("insert into audit values (?, ?, ?)", (now(), action, json.dumps(detail))).lastrowid
 
-    def add_seeds(self, seeds: list[Seed], sources: dict[str, str] | None = None):
+    def add_seeds(self, seeds: list[Seed], sources: dict[str, str] | None = None, typed: bool = False):
         """`sources` maps a seed's value (any case) to the account URL it was taken from, for a seed added from a
-        lead: match.score never counts it for that account. A seed added without one (typed) counts everywhere."""
+        lead: match.score never counts it for that account. A seed added without one counts everywhere. Re-adding a
+        seed keeps its source unless `typed` (the investigator typed it in herself: it's hers now)."""
         sources = {k.lower(): v for k, v in (sources or {}).items()}
         for s in seeds:
             src = sources.get(s.value.lower())
             self.db.execute("insert or ignore into seeds (kind, value, added, source) values (?, ?, ?, ?)",
                             (s.kind, s.value, now(), src))
-            if not src:  # typed now, even if it first came from a lead
+            if typed and not src:
                 self.db.execute("update seeds set source = null where kind = ? and value = ?", (s.kind, s.value))
 
     def derived(self) -> dict[str, str]:

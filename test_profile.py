@@ -256,7 +256,7 @@ dc.add_seeds([Seed("username", "CoolCoder")], {"coolcoder": gh})
 assert dc.derived() == {"coolcoder": gh}
 dc.add_finding(Finding("maigret", Seed("username", "jsmith"), "GitHub", gh, {"fullname": "CoolCoder"}))
 assert search.build(dc)["candidates"][0]["probability"] <= 0.5
-dc.add_seeds([Seed("username", "CoolCoder")])  # typed now
+dc.add_seeds([Seed("username", "CoolCoder")], typed=True)  # typed now
 assert dc.derived() == {} and search.build(dc)["candidates"][0]["probability"] > 0.85
 # an old case's seeds table gains the column
 import sqlite3  # noqa: E402
@@ -281,5 +281,7 @@ real_fan_out, search.fan_out = search.fan_out, lambda *a, **k: asyncio.sleep(0)
 asyncio.run(search.run(lc, [Seed("username", "coolcoder")], lambda e: None, capture=False))
 search.fan_out = real_fan_out
 assert lc.derived() == {"coolcoder": "https://github.com/jsmith"}, "searching a lead must not make it the investigator's own"
+lc.add_seeds([Seed("username", "coolcoder")])  # any other caller re-adding it keeps the source too
+assert lc.derived() == {"coolcoder": "https://github.com/jsmith"}
 
 print("test_profile: all checks passed")
