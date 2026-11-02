@@ -647,6 +647,7 @@ function recordCard(x) {
     ${facts.length ? html`<div class="muted" style="font-size:13px">${facts.join(' · ')}</div>` : ''}
     <div class="muted" style="font-size:13px">${x.site} · <a href="${/^https?:\/\//.test(x.url) ? x.url : '#'}" target="_blank" rel="noopener noreferrer" style="color:var(--ac)">record page ↗</a>${x.fetched ? ` · fetched ${when(x.fetched)}` : ''}</div>
     ${onFile.length ? html`<details><summary class="dim" style="cursor:pointer;font-size:12.5px">Street address and contact on file</summary><div class="muted" style="font-size:13px">${onFile.join(' · ')}</div></details>` : ''}
+    ${a.household?.length ? html`<div class="muted" style="font-size:13px">Also registered at this address: ${a.household.join(', ')}</div>` : ''}
     ${a.meets?.length > 1 ? html`<details><summary class="dim" style="cursor:pointer;font-size:12.5px">Every meet (${a.meets.length})</summary><div class="muted" style="font-size:13px;display:flex;flex-direction:column;gap:2px;padding-top:4px">
       ${[...a.meets].reverse().map(m => html`<span>${longDay(m.date)} · ${m.meet || 'a meet'}${m.location ? ` · ${m.location}` : ''}${m.total_kg ? ` · total ${m.total_kg} kg` : ''}${m.place ? ` · place ${m.place}` : ''}</span>`)}</div></details>` : ''}
     <div style="display:flex;gap:6px;margin-top:4px;align-items:center"><button class="btn ghost sm" data-act="decide" data-url="${x.url}" data-decision="him">${x.decision === 'him' ? '✓ Theirs' : 'Theirs'}</button>
