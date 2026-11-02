@@ -48,11 +48,20 @@ PLACE_TIERS = {
 CORROBORATES = 2.0  # bits a non-handle reason needs to count as a second identifier
 
 
+BIO_KEYS = ("bio", "description", "about", "headline")
+
+
+class FromBio(str):
+    """A place the profile's bio states, not its location field: the reason reads "bio says 'Florida'"."""
+    said = "bio says"
+
+
 def place_text(attrs: dict) -> str:
     """The profile's location as one geocodable string ('Washington, United States').
 
     Placeholder fields are dropped first ('N/A' + country 'US' → 'US'); geo.locate only
-    sees whole strings, so it can't strip a joke part from a real one.
+    sees whole strings, so it can't strip a joke part from a real one. With no location,
+    the place its bio clearly states (geo.bio_place), as a FromBio.
     """
     if attrs.get("address"):  # a record's street address, with its town and state when it leaves them out
         out = str(attrs["address"]).strip()  # (NPI and FMCSA keep "City, ST" in location; others in city and state)
@@ -61,7 +70,9 @@ def place_text(attrs: dict) -> str:
                 out += f", {v}"
         return out
     parts = [str(attrs[k]).strip() for k in ("location", "city", "state", "country") if attrs.get(k)]
-    return ", ".join(p for p in parts if " ".join(p.lower().split()) not in geo.NOT_PLACES | {""})
+    if out := ", ".join(p for p in parts if " ".join(p.lower().split()) not in geo.NOT_PLACES | {""}):
+        return out
+    return next((FromBio(p) for k in BIO_KEYS if (p := geo.bio_place(str(attrs.get(k) or "")))), "")
 
 
 def username_u(handle: str, taken: tuple[int, int] | None = None) -> tuple[float, str]:
@@ -193,7 +204,8 @@ def score(seed, url: str, attrs: dict, subject: list,
             (tier, km), k = max(pairs, key=lambda p: PLACE_TIERS[p[0][0]][0])
             weight, phrase = PLACE_TIERS[tier]
             dist = f"{km:,.0f} km; " if _local(here) and _local(places[k]) else ""  # meaningless for a country or state
-            add("place", weight, f"location '{profile_place}' {phrase} '{k}' ({dist}read as {_short(here)})")
+            add("place", weight, f"{getattr(profile_place, 'said', 'location')} '{profile_place}' {phrase} '{k}' "
+                                 f"({dist}read as {_short(here)})")
         else:
             missing = profile_place if not here else " / ".join(known_places)
             add("place", 0.0, f"couldn't place '{missing}', so location isn't counted")
