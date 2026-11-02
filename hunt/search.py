@@ -16,7 +16,7 @@ from dataclasses import asdict
 import httpx
 from PIL import Image
 
-from . import browser, geo, match, photo
+from . import entity, browser, geo, match, photo
 from .capture import screenshots
 from .case import Case
 from .seed import Seed, now
@@ -209,8 +209,8 @@ def build(case: Case, places: dict | None = None) -> dict:
     for c in candidates:
         rate(c)
 
-    # Second pass: a profile photo shared with a likely match, or with a photo supplied in the
-    # case, is an independent identifier. One pass only, so evidence can't feed on itself.
+    # Second pass, one only so evidence can't feed on itself: accounts tied to one already locked (the same photo, a
+    # link, an email or phone, a rare display name: hunt/entity.py), and a profile photo that is a case photo.
     stored = {r["url"]: r for r in case.rows("select * from avatars")}
     case_photos = {r["name"]: json.loads(r["analysis"]).get("dhash", "") for r in case.rows("select name, analysis from photos")}
     faces = {}
@@ -218,14 +218,13 @@ def build(case: Case, places: dict | None = None) -> dict:
         if a := stored.get(avatar_url(c["attrs"])):
             c["evidence"].append({"kind": "profile photo", "at": a["ts"], "sha256": a["sha256"], "file": a["evidence"]})
             faces[i] = a["dhash"]
-    likely = {i for i, c in enumerate(candidates) if in_person(c)}
     extras = defaultdict(list)
     for i, h in faces.items():
-        twin = next((j for j in likely & faces.keys() if j != i and photo.same_image(h, faces[j])), None)
-        shot = next((n for n, ph in case_photos.items() if ph and photo.same_image(h, ph)), None)
-        extras[i] += ([(match.bits(0.5, 0.005), "photo", f"same profile photo as {candidates[twin]['site']} "
-                                                        f"(a {candidates[twin]['verdict']} match)")] if twin is not None else []) \
-            + ([(match.bits(0.9, 0.001), "photo", f"profile photo is the case photo '{shot}'")] if shot else [])
+        if shot := next((n for n, ph in case_photos.items() if ph and photo.same_image(h, ph)), None):
+            extras[i].append((match.bits(0.9, 0.001), "photo", f"profile photo is the case photo '{shot}'"))
+    tied = entity.corroborate(candidates, {candidates[i]["url"]: h for i, h in faces.items()}, subject, derived, in_person)
+    for i, c in enumerate(candidates):
+        extras[i] += tied.get(c["url"], [])
     if case.meta("face_basis"):  # face comparison is on (docs/analysis.md §5): one capped reason, never a second identifier
         from . import face
         checked = face.results(case)
@@ -271,11 +270,13 @@ def avatar_url(attrs: dict) -> str | None:
     return url if isinstance(url, str) and url.startswith("http") and not DEFAULT_AVATAR.search(url) else None
 
 
-async def avatars(case: Case, report: dict, emit, top: int = 40):
-    """Fetch and hash the best candidates' profile photos, so a reused photo can link accounts."""
+async def avatars(case: Case, report: dict, emit, top: int = 40, most: int = 150):
+    """Fetch and hash profile photos, so a reused photo can link accounts (hunt/entity.py): the best `top`, and every
+    account that is locked or "possibly theirs" (a handle-only hit), up to `most` in all."""
     have = {r["url"] for r in case.rows("select url from avatars")}
-    todo = list(dict.fromkeys(u for c in report["candidates"][:top]
-                              if c["decision"] != "not him" and (u := avatar_url(c["attrs"])) and u not in have))
+    pick = report["candidates"][:top] + [c for c in report["candidates"][top:] if in_person(c) or c["probability"] >= 0.2]
+    todo = list(dict.fromkeys(u for c in pick
+                              if c["decision"] != "not him" and (u := avatar_url(c["attrs"])) and u not in have))[:most]
     if not todo:
         return
     emit({"type": "log", "message": f"fetching {len(todo)} profile photos"})
