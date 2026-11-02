@@ -130,6 +130,12 @@ DATASETS = [
                              "violation": r.get("violation_description"), "violation_date": day(r.get("violation_date")),
                              "address": _addr(r.get("address"), "Chicago", "IL"), "location": "Chicago, IL"},
             key="docket_number"),
+    Dataset("Gainesville code enforcement case", "data.cityofgainesville.org", "vu9p-a5f7", {"primary_party": "respondent (owner)"},
+            lambda r, role: {"court": "City of Gainesville Code Enforcement (special magistrate)", "docket_number": r.get("number"),
+                             "case_type": r.get("case_type"), "filed": day(r.get("infraction")), "status": r.get("status"),
+                             "violation": r.get("infraction_description"), "parcel": r.get("parcel"),
+                             "address": _addr(r.get("address"), "Gainesville", "FL"), "location": "Gainesville, FL"},
+            key="number"),
     Dataset("Texas TCEQ civil judgment", "data.texas.gov", "7ift-kbgd", {"respondent_name": "respondent"},
             lambda r, role: {"court": "Texas district court (Attorney General for TCEQ)",
                              "docket_number": r.get("district_court_docket_no"), "case_number": r.get("case_no"),
@@ -193,50 +199,64 @@ PORTALS = {  # checked 2026-10-29: docs/research/tools.md has each one's terms a
            ("San Francisco Superior Court case query", "https://webapps.sftc.org/ci/CaseInfo.dll"),
            ("San Diego Superior Court register of actions", "https://odyroa.sdcourt.ca.gov/"),
            ("Orange County Superior Court case access", "https://www.occourts.org/online-services/case-access/"),
-           ("Santa Clara County Superior Court portal", "https://portal.scscourt.org/")],
+           ("Santa Clara County (San Jose) Superior Court portal", "https://portal.scscourt.org/")],
     "TX": [("re:SearchTX, statewide civil records (free registration)", "https://research.txcourts.gov/CourtRecordsSearch/"),
            ("Texas appellate courts case search", "https://search.txcourts.gov/CaseSearch.aspx"),
-           ("Harris County district courts", "https://www.hcdistrictclerk.com/edocs/public/search.aspx"),
-           ("Harris County civil, probate and misdemeanor courts", "https://www.cclerk.hctx.net/Applications/WebSearch/"),
-           ("Harris County justice courts", "https://jpwebsite.harriscountytx.gov/PublicExtracts/search.jsp"),
+           ("Harris County (Houston) district courts", "https://www.hcdistrictclerk.com/edocs/public/search.aspx"),
+           ("Harris County (Houston) civil, probate and misdemeanor courts", "https://www.cclerk.hctx.net/Applications/WebSearch/"),
+           ("Harris County (Houston) justice courts", "https://jpwebsite.harriscountytx.gov/PublicExtracts/search.jsp"),
            ("Dallas County courts portal", "https://courtsportal.dallascounty.org/DALLASPROD/"),
-           ("Tarrant County courts", "https://portal-txtarrant.tylertech.cloud/PublicAccess/default.aspx")],
-    "FL": [("Florida district courts of appeal (ACIS)", "https://acis.flcourts.gov/portal"),
-           ("Miami-Dade civil, family and probate courts", "https://www2.miamidadeclerk.gov/ocs/"),
-           ("Miami-Dade criminal courts", "https://www2.miamidadeclerk.gov/cjis/"),
-           ("Broward County courts", "https://www.browardclerk.org/Web2/CaseSearchECA/"),
+           ("Tarrant County (Fort Worth, Arlington) courts", "https://portal-txtarrant.tylertech.cloud/PublicAccess/default.aspx")],
+    "FL": [("Miami-Dade County (Miami): civil, family and probate courts", "https://www2.miamidadeclerk.gov/ocs/"),
+           ("Miami-Dade County (Miami): criminal courts", "https://www2.miamidadeclerk.gov/cjis/"),
+           ("Broward County (Fort Lauderdale, Hollywood) courts", "https://www.browardclerk.org/Web2/CaseSearchECA/"),
+           ("Palm Beach County (West Palm Beach, Boca Raton) courts", "https://appsgp.mypalmbeachclerk.com/eCaseView/"),
+           ("Hillsborough County (Tampa) courts, HOVER", "https://hover.hillsclerk.com/"),
            ("Orange County (Orlando) courts", "https://myeclerk.myorangeclerk.com/Cases/Search"),
-           ("Palm Beach County courts", "https://appsgp.mypalmbeachclerk.com/eCaseView/"),
-           ("Pinellas County courts", "https://courtrecords.mypinellasclerk.gov/"),
-           ("Duval County (Jacksonville) courts", "https://core.duvalclerk.com/CoreCms.aspx")],
+           ("Pinellas County (St. Petersburg, Clearwater) courts", "https://courtrecords.mypinellasclerk.gov/"),
+           ("Duval County (Jacksonville) courts", "https://core.duvalclerk.com/CoreCms.aspx"),
+           ("Lee County (Fort Myers, Cape Coral) courts", "https://matrix.leeclerk.org/"),
+           ("Polk County (Lakeland) civil courts, Polk Records Online", "https://pro.polkcountyclerk.net/PRO/"),
+           ("Volusia County (Daytona Beach, Deltona) courts", "https://ccms.clerk.org/"),
+           ("Manatee County (Bradenton) courts", "https://records.manateeclerk.com/CourtRecords/"),
+           ("Lake County (Clermont, Leesburg) courts", "https://www.lakecountyclerkfl.gov/departments/courts-management/"
+            "court-data-records-division/search-online-court-records/"),
+           ("Leon County (Tallahassee) courts", "https://cvweb.leonclerk.com/"),
+           ("Escambia County (Pensacola) courts", "https://public.escambiaclerk.com/"),
+           ("Florida district courts of appeal (ACIS)", "https://acis.flcourts.gov/portal")],
     "NY": [("WebCivil Supreme: Supreme Court civil cases statewide", f"{NYS}/webcivil/FCASMain"),
            ("eCourts WebCivil Local: city, district and county civil cases", f"{NYS}/webcivilLocal/LCMain"),
            ("WebCrims: pending criminal cases", f"{NYS}/webcrim_attorney/Login"),
            ("NYSCEF e-filed cases, by party name", f"{NYS}/nyscef/CaseSearch?TAB=name"),
            ("NYC OATH summons finder", "https://a820-ecbticketfinder.nyc.gov/searchHome.action"),
            ("New York State tax warrant search", "https://www.tax.ny.gov/warrants/")],
-    "PA": [("UJS portal: docket sheets statewide", "https://ujsportal.pacourts.us/CaseSearch"),
-           ("Philadelphia civil docket access", "https://fjdefile.phila.gov/efsfjd/zk_fjd_public_qry_00.zp_disclaimer")],
+    "PA": [("UJS portal: criminal, magisterial district and appellate docket sheets statewide", "https://ujsportal.pacourts.us/CaseSearch"),
+           ("Philadelphia County: Common Pleas and Municipal Court civil dockets",
+            "https://fjdefile.phila.gov/efsfjd/zk_fjd_public_qry_00.zp_disclaimer"),
+           ("Allegheny County (Pittsburgh): civil and family dockets (free registration; a case-number lookup needs none)",
+            "https://dcr.alleghenycounty.us/Civil/View/Search.aspx"),
+           ("Montgomery County (Norristown) civil dockets (free registration)", "https://courtsapp.montcopa.org/psi/v/search/case"),
+           ("Bucks County (Doylestown) civil dockets", "https://propublic.buckscountyonline.org/PSI/v/search/case")],
     "IL": [("Cook County Clerk of the Circuit Court", "https://casesearch.cookcountyclerkofcourt.org/"),
            ("Judici: other Illinois counties", "https://www.judici.com/courts/cases/case_search.jsp")],
-    "OH": [("Franklin County Clerk of Courts", "https://fcdcfcjs.co.franklin.oh.us/CaseInformationOnline/"),
-           ("Cuyahoga County Clerk of Courts", "https://cpdocket.cp.cuyahogacounty.gov/"),
-           ("Hamilton County Clerk of Courts", "https://www.courtclerk.org/records-search/"),
+    "OH": [("Franklin County (Columbus) Clerk of Courts", "https://fcdcfcjs.co.franklin.oh.us/CaseInformationOnline/"),
+           ("Cuyahoga County (Cleveland) Clerk of Courts", "https://cpdocket.cp.cuyahogacounty.gov/"),
+           ("Hamilton County (Cincinnati) Clerk of Courts", "https://www.courtclerk.org/records-search/"),
            ("Supreme Court of Ohio case search", "https://www.supremecourt.ohio.gov/Clerk/ecms/")],
     "GA": [("PeachCourt: participating counties (free registration)", "https://peachcourt.com/"),
-           ("Fulton County Clerk of Superior and Magistrate Courts", "https://www.fultonclerk.org/"),
+           ("Fulton County (Atlanta) Clerk of Superior and Magistrate Courts", "https://www.fultonclerk.org/"),
            ("Supreme Court of Georgia docket", "https://www.gasupreme.us/docket-search/"),
            ("Georgia Court of Appeals", "https://www.gaappeals.us/")],
     "NC": [("eCourts portal, statewide", "https://portal-nc.tylertech.cloud/Portal/")],
     "MI": [("MiCOURT case search: trial courts statewide", "https://micourt.courts.michigan.gov/case-search/"),
-           ("Wayne County Third Circuit Court", "https://cmspublic.3rdcc.org/"),
+           ("Wayne County (Detroit) Third Circuit Court", "https://cmspublic.3rdcc.org/"),
            ("Michigan appellate courts", "https://www.courts.michigan.gov/case-search/")],
     "OK": [("OSCN dockets statewide, prefilled with {name}",
             "https://www.oscn.net/dockets/Results.aspx?db=all&lname={last}&fname={first}")],
     "MD": [("Maryland Judiciary Case Search", "https://casesearch.courts.state.md.us/casesearch/")],
     "WA": [("Washington Courts case search", "https://dw.courts.wa.gov/")],
     "AZ": [("Arizona public access to court information", "https://apps.azcourts.gov/publicaccess/caselookup.aspx"),
-           ("Maricopa County Superior Court docket", "https://www.superiorcourt.maricopa.gov/docket/")],
+           ("Maricopa County (Phoenix) Superior Court docket", "https://www.superiorcourt.maricopa.gov/docket/")],
     "CO": [("Colorado courts docket search", "https://www.coloradojudicial.gov/dockets")],
     "MA": [("Massachusetts trial courts eAccess", "https://www.masscourts.org/")],
     "VA": [("Virginia online case information", "https://eapps.courts.state.va.us/ocis/")],
@@ -245,7 +265,7 @@ PORTALS = {  # checked 2026-10-29: docs/research/tools.md has each one's terms a
     "MO": [("Missouri Case.net", "https://www.courts.mo.gov/casenet/")],
     "IN": [("Indiana mycase", "https://public.courts.in.gov/mycase")],
     "OR": [("Oregon eCourt case information (free registration)", "https://publicaccess.courts.oregon.gov/PublicAccessLogin/")],
-    "NV": [("Clark County District Court records", "https://www.clarkcountycourts.us/Anonymous/default.aspx")],
+    "NV": [("Clark County (Las Vegas) District Court records", "https://www.clarkcountycourts.us/Anonymous/default.aspx")],
     "SC": [("South Carolina county public index", "https://publicindex.sccourts.org/")],
     "KS": [("Kansas district courts public access", "https://casesearch.kscourts.gov/")],
     "NM": [("New Mexico courts case lookup", "https://caselookup.nmcourts.gov/")],
@@ -291,20 +311,29 @@ def states_in(seeds) -> list[str]:
     return out
 
 
+STATE_WORDS = {w for n in STATES.values() for w in words(n)}
+
+
 def search_links(seeds) -> list[dict]:
-    """[{label, url, state}] for the investigator to open in their own browser: CourtListener and PACER for
-    every name, then each portal of the states the case's location and address seeds name. Hunt itself never
-    requests any of these; the portals' terms bind the person using them."""
+    """[{label, url, state}] for the investigator to open in their own browser: each portal of the states the
+    case's location and address seeds name, the county those places name first, then CourtListener and PACER
+    for every name. Hunt itself never requests any of these; the portals' terms bind the person using them."""
     seeds = [seeds] if isinstance(seeds, Seed) else list(seeds)
     names = [s.value.strip() for s in seeds if s.kind == "name" and s.value.strip()]
     if not names:
         return []
+    place_words = {w for s in seeds if s.kind in ("location", "address") for w in words(s.value) if len(w) > 3} - STATE_WORDS
+
+    def local(portal) -> bool:  # "Hillsborough County (Tampa) courts" for a case in Tampa
+        return bool(place_words & set(words(portal[0])))
+
     links = []
     for name in names:
         parts = words(name)
         fill = {"name": quote_plus(f'"{name}"'), "first": quote_plus(parts[0].title()) if parts else "",
                 "last": quote_plus(parts[-1].title()) if parts else ""}
-        for state, portals in [(None, NATIONAL)] + [(st, PORTALS[st]) for st in states_in(seeds) if st in PORTALS]:
+        listed = [(st, sorted(PORTALS[st], key=lambda p: not local(p))) for st in states_in(seeds) if st in PORTALS]
+        for state, portals in listed + [(None, NATIONAL)]:
             for label, url in portals:
                 link = {"label": label.format(name=f'"{name}"'), "url": url.format(**fill), "state": state}
                 if link not in links:

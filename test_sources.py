@@ -529,12 +529,15 @@ seen = serve({"59kj-x8nc": (200, [{"litigationid": "L1", "respondent": "VANCE, R
               "6br9-quuz": (200, [{"docket_number": "26BT1", "respondents": "VANCE HOLDINGS LLC C/O VANCE, ROBERT | DANA HOLT",
                                    "issuing_department": "Buildings", "hearing_date": "2026-10-29T00:00:00.000",
                                    "case_disposition": "Liable", "imposed_fine": "1500", "address": "100 S EXAMPLE AVE"}]),
+              "vu9p-a5f7": (200, [{"number": "22-000008", "parcel": "06106-016-000", "case_type": "Abandoned Vehicles",
+                                   "address": "3433 NW 25TH PL", "status": "Closed", "primary_party": "VANCE ROBERT J & DANA HOLT",
+                                   "infraction": "2022-01-03T00:00:00.000"}]),
               "7ift-kbgd": (200, [{"case_no": "C1", "respondent_name": "Robert Vance dba Vance Trucking",
                                    "district_court_docket_no": "D-1-GN-26-000001", "county": "TRAVIS",
                                    "order_date": "2026-02-03T00:00:00.000", "penalty_assessed": "5000"}])})
 found, checked, note = run(courts, "name", "Robert J. Vance Jr.")
 by = {f.site: f for f in found}
-assert len(found) == 9 and checked == 8, (len(found), checked, note)
+assert len(found) == 10 and checked == 9, (len(found), checked, note)
 hpd = by["New York City Housing Court case (HPD)"].attrs
 assert (hpd["fullname"], hpd["roles"], hpd["location"], hpd["address"], hpd["filed"], hpd["judgment"]) == \
        ("VANCE, ROBERT", ["respondent"], "Brooklyn, NY", "100 Example St, Brooklyn, NY 11201", "2023-04-05", "YES")
@@ -558,22 +561,31 @@ assert (chi["fullname"], chi["business"], chi["respondents"], chi["disposition"]
 assert "employer" not in hpd and all(k not in f.attrs for f in found for k in ("dob", "age"))  # no open court table shows a birth date
 tceq = by["Texas TCEQ civil judgment"].attrs
 assert (tceq["fullname"], tceq["location"], tceq["docket_number"], tceq["ordered"]) == ("Robert Vance dba Vance Trucking", "Travis County, TX", "D-1-GN-26-000001", "2026-02-03")
-assert "searched 8 of 8 datasets" in note and "New York State tax warrant 1" in note, note
+assert "searched 9 of 9 datasets" in note and "New York State tax warrant 1" in note, note
+gnv = by["Gainesville code enforcement case"].attrs
+assert (gnv["fullname"], gnv["roles"], gnv["address"], gnv["filed"], gnv["case_type"]) == \
+       ("VANCE ROBERT J & DANA HOLT", ["respondent (owner)"], "3433 Nw 25Th Pl, Gainesville, FL", "2022-01-03", "Abandoned Vehicles")
 assert "debtor_name_4" in next(r.url.params["$where"] for r in seen if "v7ua-z23v" in str(r.url))
 assert all("caption" not in f.attrs for f in found)
 assert any("name 'VANCE, ROBERT' matches" in r for r in score(Seed("name", "Robert Vance"), law[0].url, law[0].attrs, [Seed("name", "Robert Vance")])[2])
 assert courts._party("Doe v. Vance, Robert", "VANCE") == ("Vance, Robert", None, 1)
 assert courts._party("JOHN RITTER Requester v. VILLAGE Respondent", "RITTER") == ("JOHN RITTER", "requester", 0)
 
-# Court portals the investigator opens by hand: national links for every name, state portals from location seeds
+# Court portals the investigator opens by hand: the case's states first, the county its place names at the top of
+# each, then the national links for every name
 links = courts.search_links([Seed("name", "Robert Vance"), Seed("location", "Houston, TX"), Seed("address", "1 Main St, Tucson Arizona 85701")])
-assert links[0] == {"label": 'CourtListener: federal dockets (RECAP) with party "Robert Vance"',
-                    "url": "https://www.courtlistener.com/?type=r&q=party%3A%22Robert+Vance%22", "state": None}
-assert [l["state"] for l in links] == [None] * 3 + ["TX"] * len(courts.PORTALS["TX"]) + ["AZ"] * len(courts.PORTALS["AZ"])
-assert any(l["label"] == "Harris County district courts" for l in links)
+assert [l["state"] for l in links] == ["TX"] * len(courts.PORTALS["TX"]) + ["AZ"] * len(courts.PORTALS["AZ"]) + [None] * 3
+assert links[0]["label"] == "Harris County (Houston) district courts" and links[-3] == {
+    "label": 'CourtListener: federal dockets (RECAP) with party "Robert Vance"',
+    "url": "https://www.courtlistener.com/?type=r&q=party%3A%22Robert+Vance%22", "state": None}
+assert courts.search_links([Seed("name", "Robert Vance"), Seed("location", "Tampa, FL")])[0]["label"].startswith("Hillsborough County (Tampa)")
+assert courts.search_links([Seed("name", "Robert Vance"), Seed("location", "Pittsburgh, Pennsylvania")])[0]["label"].startswith("Allegheny County (Pittsburgh)")
+fl = [l["label"] for l in courts.search_links([Seed("name", "Robert Vance"), Seed("location", "Florida")]) if l["state"] == "FL"]
+assert fl[0].startswith("Miami-Dade") and fl == [p[0] for p in courts.PORTALS["FL"]]  # no place named: the portals' own order
 assert courts.search_links([Seed("location", "Houston, TX")]) == []  # nothing to search without a name
 assert [l["state"] for l in courts.search_links([Seed("name", "Robert Vance")])] == [None] * 3
-ok = courts.search_links([Seed("name", "Robert Vance"), Seed("location", "Tulsa, OK")])[-1]
+assert len(courts.PORTALS["FL"]) == 16 and len(courts.PORTALS["PA"]) == 5
+ok = courts.search_links([Seed("name", "Robert Vance"), Seed("location", "Tulsa, OK")])[0]  # the case's state comes first
 assert ok["url"] == "https://www.oscn.net/dockets/Results.aspx?db=all&lname=Vance&fname=Robert", ok
 assert courts.states_in([Seed("location", "Washington, DC"), Seed("location", "Seattle, Washington"), Seed("location", "Portland OR 97201"),
                          Seed("location", "Office in Denver"), Seed("username", "or"), Seed("location", "Hartford, Connecticut"),
