@@ -257,7 +257,7 @@ An **associate** is anyone in the case other than the subject: a commenter, some
 | A3 | **Their posts only as evidence about the subject.** She may open an associate's public posts to find the subject (tagged, shown or mentioned). Only posts that show or mention the subject are kept, scanned or reported. The page archive itself is kept whole as the capture record (K5), and only the posts read out of it are filtered (D12). A comment is quoted in a report only when it bears on the dispute (K4) | Same | This section |
 | A4 | **Never contact or notify an associate** (C4, C10): no requests, follows or messages. Story and profile-view warnings apply on their accounts too | Interviewing an associate turns a screening into an investigative consumer report (§1681a(e), §1681d). Ethics Rule 4.3 covers unrepresented persons; pretexting rules (C5) | [automation-legal.md Q3](automation-legal.md#q3-investigator-rules) |
 | A5 | **Minors are never named.** A child appears as "a child", or by initials where counsel needs a reference. No entry beyond that, nothing collected about them, never face-compared (F1), and blurred in the app (K7) | Federal court filings may include only "the minor's initials" [S] ([Fed. R. Civ. P. 5.2(a)(3)](https://www.law.cornell.edu/rules/frcp/rule_5.2)), and reports become exhibits. 5.2 exempts administrative records such as most workers' comp hearings, so the wider rule is ours [I] | This section |
-| A6 | **The report states what was observed, cited. It never asserts a relationship.** It says "@mara_q commented 'proud of you, son' on the subject's 3 May post [E-12]", not "Mara Quill is his mother". Hunt never generates a relationship label, in the report, the map or anywhere else in the app (D7): it quotes the words that were observed. A shared surname is never a relationship: at most "shares the surname", and only where it supports identity (A7). The investigator's own conclusion appears only as her note (`N-`), in her words | FCRA accuracy (§1681e(b)); ICD 203 keeps information apart from judgment. A wrongly asserted relationship about a named third party invites a defamation or false-light claim [I] | [Report format §8](report-format.md) |
+| A6 | **The report states what was observed, cited. It never asserts a relationship.** It says "@mara_q commented 'proud of you, son' on the subject's 3 May post [E-12]", not "Mara Quill is his mother". Hunt never generates a relationship label, in the report, the map or anywhere else in the app (D7): it quotes the words that were observed. The one exception is D25: in the app only, people a public record lists at the subject's address are "possible relative" or "possible household member", citing the record. A shared surname is never a relationship: at most "shares the surname", and only where it supports identity (A7). The investigator's own conclusion appears only as her note (`N-`), in her words | FCRA accuracy (§1681e(b)); ICD 203 keeps information apart from judgment. A wrongly asserted relationship about a named third party invites a defamation or false-light claim [I] | [Report format §8](report-format.md) |
 | A7 | **Associates support identity, never findings about themselves.** A relative's cited interaction can help show an account is the subject's, as report-format.md §8 lists relatives among identity identifiers. Nothing about an associate's own life is a finding | Purpose limitation | [Report format](report-format.md) |
 | A8 | **Employment screening names no associates.** Identity support cites item ids without naming or describing the person. The screening filter must drop relationship sentences outright: the `PROTECTED` regex in `report.py` matches "married" but not "wife", "son" or "mom" | Relationships reveal protected traits: marital and familial status ([Cal. Gov. Code §12940(a)](https://california.public.law/codes/government_code_section_12940); [N.Y. Exec. Law §296(1)(a)](https://www.nysenate.gov/legislation/laws/EXC/296)), and association with a disabled person ([42 U.S.C. §12112(b)(4)](https://www.law.cornell.edu/uscode/text/42/12112)) [S]. GINA's public-sources exception excludes "social networking sites" and intentional searches, so family medical history from social media is a GINA risk [S] ([29 C.F.R. §1635.8(b)(4)](https://www.law.cornell.edu/cfr/text/29/1635.8)) | [FCRA](#fcra), `seen.py` (screenings stay apart) |
 | A9 | **An associate's own health or other sensitive details are never kept.** A comment about the *subject's* health is about the subject; for a Washington subject it follows F3 | MHMDA; CCPA sensitive personal information; GINA in screenings | [automation-legal.md Q6](automation-legal.md#q6-privacy-and-biometric-law) |
@@ -277,9 +277,69 @@ Training on yourself (revised 2026-11-01: Aaron chose a training answer key, not
 | S4 | **Everywhere else, a lead is searched only when she ticks it.** No lead comes from a sentence that names a relationship or a minor, whatever its kind (handle, link, site or email). A ticked lead that appears in an associate's citing quote is refused, like a seed naming an associate | C13, A1, A5: an associate's or a child's handle is collection on them | D18 |
 | S5 | **Training cases are the developer's own.** They're ordinary cases with a training purpose on record, filed as `diligence` for want of a closer kind (none of K1's kinds fits a self-test); run training on a Mac that holds no client cases, or remove the training cases afterwards | Their identifiers have no place beside client work | D16 |
 
+### Voter lists and people-search sites
+
+_Added 2026-11-02: the Florida voter-extract import (court-records session) and by-hand people-search links. Research notes: `voter_lists.md` and `people_search.md` in the session notes. This is research, not legal advice._
+
+**Voter lists, state by state [S].** May an insurance-claim or background investigator use the list? Rows marked (M) or (L) are medium or low confidence: check the statute before importing.
+
+| State | Investigative use? | The limit | Never shown (exempt voters) | Penalty for misuse |
+|---|---|---|---|---|
+| **FL** | **Yes:** no statutory use limit on the public extract | The Division's monthly extract, on request; public record under ch. 119. §97.0585 data (declinations, where registered, SSN, licence and ID numbers, signatures, 16–17-year-old preregistrants) never released | **Left out:** Address Confidentiality Program (ACP, §§741.401–.465) and stalking victims (§741.4651). **Flagged "Y" in field 7, protected fields blank:** §119.071(4)(d) classes (officers, judges, prosecutors…; their party, race and voting history still appear) | None for use. Getting an ACP participant's address "through fraud" is a third-degree felony (§741.403(5)) |
+| **PA** | **No** | "may not use… for purposes unrelated to elections, political activities or law enforcement" (25 Pa.C.S. §1404(b)(3), (c)(2); 4 Pa. Code §183.14). It binds anyone "who acquires names" from the list, so a broker's copy too. No internet posting (§183.14(k)); *VRF v. Schmidt* (M.D. Pa., Apr. 23, 2026) upheld that, appeal pending. (The "25 P.S. §2602" cite is the Election Code's definitions, not this rule) | ACP (23 Pa.C.S. ch. 67); officers', judges' and protected-order addresses replaced (§183.14(c)(4)–(5)) | First-degree misdemeanour, up to $6,000 and/or 3 years (§1707(b)) |
+| **TX** | **Yes for investigation; never marketing** [I] | Statewide-list affidavit: not used "in connection with advertising or promoting commercial products or services" (Elec. Code §18.066(d)) | Judges, marshals, peace officers' spouses, family-violence and stalking victims (§13.004(c)); ACP | Class A misdemeanour (§18.009(b)) |
+| **NC** | **Yes** | None (G.S. §163-82.10). SSN, date of birth, email and photo ID are confidential | ACP (ch. 15C) | None for use |
+| **OH** (L) | **Probably yes; verify first** | No limit found in R.C. §3503.13; NCSL's "non-commercial" note is unsourced | ACP (§111.44); designated public-service workers (§149.45) | None found |
+| **CA** | **No** | "Shall not be used for any personal, private, or commercial purpose" (Elec. Code §2194(a)(2)) | Safe at Home (§2166.5) and others | Misdemeanour (§18109) |
+| **AZ** | **No** | Political, campaign or election use only; "may not be used for a commercial purpose" (§16-168(E)) | ACP; protected officials (§16-153) | Class 6 felony (§16-168(F)) |
+| **IL** (M) | **No** | Copies for political committees and governments only (10 ILCS 5/4-8, 1A-25) | ACP (750 ILCS 61) | Class 4 felony |
+| **NY** (M/L) | **No** for the statewide list | "shall not be used for non-election purposes" (Elec. Law §3-103(5)) | ACP (Exec. Law §108) | Misdemeanour (§17-168) [I] |
+| **GA** (M) | **Treat as no** | "may not be used by any person for commercial purposes" (§21-2-225(c)); a paid investigation arguably is commercial | Protective-order holders (§21-2-225.1) | Misdemeanour (§21-2-601) |
+
+**Federal overlay [S].**
+- The circuits split on whether the NVRA's disclosure rule (52 U.S.C. §20507(i)) overrides state limits: *Bellows* (1st Cir. 2024) and *Torrez* (10th Cir. 2025) against the states, *Nago* (9th Cir. 2026) for. A cert petition is pending. None of these helps a commercial investigator.
+- A voter record isn't a DPPA "motor vehicle record" [I; no case found].
+- No FCRA guidance on voter data was found. The general accuracy and public-record duties apply (§1681e(b), §1681k).
+
+**Screening.** Party, primary history, turnout and registration status can each reveal political affiliation or activity, which CA, CO, CT, NY, DC, LA and WA protect in employment. Florida makes firing someone for voting or not voting a felony (§104.081), and Florida's closed primaries (§101.021) mean primary history reveals party even with the party column dropped.
+
+**People-search sites [S].** Terms were read on Wayback copies; check the live terms before relying on them:
+- **TruePeopleSearch:** newest readable terms dated Feb 6, 2021. Newer copies are blocked by Cloudflare.
+- **FastPeopleSearch:** effective Feb 1, 2026.
+- **Whitepages:** dated Apr 7, 2026, one set of terms for the free site, Premium and the Pro API.
+
+| | TruePeopleSearch | FastPeopleSearch | Whitepages |
+|---|---|---|---|
+| Use allowed | "your personal, noncommercial use" | No personal-only clause; no commercialising or distributing (§7(xi)) | Free: personal use. Paid: "internal business use" (§2.1) |
+| Automated access | Barred: spiders, robots, data mining | Barred | Barred: bots, altered identifiers, framing (§2.2) |
+| Saving pages | No copying in any medium; nothing passed to a third party | No storing or downloading "either manually or by automated means" (§5); no manual extraction (§7(v)) | No reproducing (§5); no building databases or publishing to third parties (§3.2) |
+| FCRA | Not a CRA; no employment, credit, tenant or insurance-eligibility use | All FCRA purposes barred, insurance eligibility included (§7) | Suitability decisions for insurance, credit, employment, housing barred (§3.1) |
+| Claims investigation | Not addressed | Not addressed | Not addressed |
+
+All three bar searches on public figures and officials, and all use Cloudflare bot checks.
+
+Other points:
+- **Enforcement.** None of the three has faced an FTC action. The FTC's Spokeo (2012), Instant Checkmate (2014) and TruthFinder (2023) cases show a "not a CRA" disclaimer doesn't settle anything, and that the data behind such sites disclaims accuracy.
+- **Lawsuits.** Atlas has sued Whitepages and Enformion (which appears to run TruePeopleSearch and FastPeopleSearch [I]) under Daniel's Law. Whitepages also faces right-of-publicity claims.
+- **Suppression.** People are hidden only on request, so a missing record may be a protected person.
+
+| # | Rule | Why | Decision |
+|---|---|---|---|
+| V1 | **Voter data only from states whose law allows investigative use:** FL, NC and TX; OH after its statute is checked. Never PA, CA, AZ, IL, NY's statewide list or GA, nor any state not yet checked. Every voter-derived fact carries its state and the extract's date | The limits bind anyone holding the data, broker copies included, with criminal penalties (PA §1707, AZ §16-168(F), IL 4-8) | D21 |
+| V2 | **The import keeps only identity.** Name, date of birth, residence address and registration date. Party, race and every voting-history row (primaries included) are dropped. Every field-7 "Y" record is dropped with its history. Phone and email are kept only to corroborate identifiers the case already holds, never as new seeds | Minimisation. Party, turnout and closed-primary history are political activity (above) | D22 |
+| V3 | **Protected voters are never shown or sought.** ACP participants and exempt voters aren't in what Hunt holds. Nothing tries to locate them. "No match in the voter file" is never evidence that someone doesn't live somewhere | §741.403(5) felony; ACP and exempt classes; absence proves nothing | D22 |
+| V4 | **No voter data in a background case,** not even as identity support | Political activity is protected in several states (§104.081 in FL) | D23 |
+| V5 | **The statewide file stays out of every case.** It's queried only by a case's own name, date-of-birth and address seeds, each lookup is audited, and only matching records enter the case. No browsing, listing, export or posting | Minimisation; PA- and AZ-style internet bans; a statewide file is millions of people | D22 |
+| V6 | **In a report,** at most name, address, registration date and (not in screening) date of birth, cited as "Florida voter extract dated …", as corroboration | Accuracy (§1681e(b) where FCRA applies); minimisation | D22 |
+| P1 | **Hunt never requests a people-search site.** It offers by-hand links only, opened by her click in her browser. No prefetch, link preview, unfurl, iframe or embedded view, and no change to her browser's identity | All three bar automated access; C1 and C7 | D24 |
+| P2 | **Links only on insurance, diligence and journalism cases, never on background,** and a diligence case that decides eligibility is a background case. Whitepages and FastPeopleSearch only. TruePeopleSearch is left out: its terms allow "personal, noncommercial use" only, and casework is commercial. Prefer a paid Whitepages account, whose licence is "internal business use" | Every FCRA bar in their terms; Ethos is likely a CRA in screening work (FTC *Social Intelligence*, *TruthFinder*) | D24 |
+| P3 | **Hunt never solves a challenge or works around a block.** An ordinary check she completes herself, as any visitor would, is her own browsing. A block ("you have been blocked", a 403) means stop: no VPN, proxy, other browser or other account | C7; Cloudflare runs on all three | D24 |
+| P4 | **Hunt Capture never records these sites.** She writes down by hand the lead she wants to check | FastPeopleSearch §5 bars storing even "manually"; TruePeopleSearch bars copying in any medium; Whitepages §5 bars reproducing | D24 |
+| P5 | **A people-search result is only ever a lead.** It is confirmed in a primary record, and the report cites that record. Nothing from these sites reaches a report, bundle or client, and their relatives and associates never enter the family tree or become seeds (C13, A1) | All three bar passing results to third parties; FTC *TruthFinder* on accuracy | D24 |
+
 ### Decisions (provisional, 2026-10-30)
 
-These were taken by the main session on Aaron's behalf (D1–D15 on 2026-10-30, D16–D20 on 2026-11-01), and Aaron may overrule them. The options and the conflicts behind them are in [compliance-audit.md §4](compliance-audit.md#4-rule-text-that-needs-a-decision), and for D16–D20 in [§7](compliance-audit.md#7-self-search-review-main-at-b31a800-2026-11-01). The rule text above already reflects them.
+These were taken by the main session on Aaron's behalf (D1–D15 on 2026-10-30, D16–D20 on 2026-11-01, D21–D24 on 2026-11-02), and Aaron may overrule them. D25 is Aaron's own decision and isn't provisional. The options and the conflicts behind them are in [compliance-audit.md §4](compliance-audit.md#4-rule-text-that-needs-a-decision), and for D16–D20 in [§7](compliance-audit.md#7-self-search-review-main-at-b31a800-2026-11-01). The rule text above already reflects them.
 
 | # | Question | Decision | Rules |
 |---|---|---|---|
@@ -304,6 +364,11 @@ These were taken by the main session on Aaron's behalf (D1–D15 on 2026-10-30, 
 | D18 | Do lead suggestions keep C13? (2026-11-01) | **Now they do** (ec723e3): the relationship filter covers every lead kind and sentences naming a minor, and `graph.conflicts` refuses a ticked lead or seed found in an associate's citing quote | S4, C13, A1, A5 |
 | D19 | Which kind is a self-search? (2026-11-01) | **Withdrawn with D16:** there is no self-search kind. Training cases are ordinary cases with a training purpose | K1 |
 | D20 | How long does the description live? (2026-11-01) | **Until the person forgets it.** It isn't tied to any case's retention, because it's in no case | S2, K6 |
+| D21 | Which states' voter lists may Hunt use? (2026-11-02) | **FL, NC and TX; OH once its statute is checked.** Never PA (use limited to elections, politics and law enforcement), CA, AZ, IL, NY's statewide list or GA, nor any state not yet checked | V1 |
+| D22 | What does the voter import keep? (2026-11-02) | **Identity only:** name, date of birth, residence address and registration date. No party, race or voting history (Florida's closed primaries reveal party), and no exempt (field 7 "Y") record at all. Queried only by a case's seeds and audited; never browsed or exported | V2, V3, V5, V6 |
+| D23 | Voter data in employment screening? (2026-11-02) | **None,** not even as identity support | V4, K1, A8 |
+| D24 | People-search sites (2026-11-02) | **By-hand links only,** on insurance, diligence and journalism cases, never background. Whitepages (a paid account preferred) and FastPeopleSearch; not TruePeopleSearch (personal, noncommercial use only). No capture; leads only, confirmed in primary records. She may complete an ordinary check herself; a block means stop | P1–P5 |
+| D25 | Can the family tree name people a public record lists at the subject's address? (**Aaron's own decision, 2026-11-01; not provisional**) | **Yes, in the app:**<br>• "possible relative" when they share the surname, "possible household member" otherwise, each citing the record and its date<br>• the report keeps "a public record lists them at the subject's address"<br>• it amends AN6, and D7 (a) for the app<br>• still never searched or seeded (C13, A1)<br>• minors never named (A5)<br>• screening drops relationships (A8)<br>• no ACP participant or exempt voter is ever shown (V3)<br>• government public records only, never people-search pages (P5) | A2, A6, C13 |
 
 ### Not yet enforced
 
@@ -380,6 +445,11 @@ Still open:
 - **S1–S5 (D16–D20), rechecked at `00a0fa2`:** SS1, SS2, SS3, SS5 and SS7 are done (ec723e3); SS4, SS6, SS8 and SS9 were withdrawn with "This is me". Open: S5 is policy only. Training cases sit beside client cases in "Have we seen this person before?" unless the developer removes them.
 
   Findings SS1–SS9 are in [compliance-audit.md §7](compliance-audit.md#7-self-search-review-main-at-b31a800-2026-11-01).
+- **V1–V6, P1–P5, D25 (2026-11-02): not built yet.**
+  - The Florida voter import is being built by the court-records session.
+  - No people-search links exist.
+  - `record_links` (`app.py`) serves its court-portal links on every case kind. That's fine for courts, but people-search links added there must be withheld on background cases (P2).
+  - Hunt Capture's never-list (LinkedIn, Strava, Snapchat) doesn't yet include truepeoplesearch.com, fastpeoplesearch.com or whitepages.com (P4).
 
 
 ## FBI / IC portfolio relevance
