@@ -10,10 +10,10 @@ Downloads are large (Florida's DBPR files about 270 MB), so nothing runs until s
 import asyncio
 import sys
 
-from . import businesses, licences
+from . import businesses, licences, parcels
 from ._bulk import meta, update
 
-TABLES = {t.name: t for t in licences.TABLES + businesses.TABLES}
+TABLES = {t.name: t for t in licences.TABLES + businesses.TABLES + parcels.TABLES}
 
 
 def main(args: list[str]) -> None:

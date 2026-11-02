@@ -107,7 +107,7 @@ _Checked live on 2026-10-29 with the public organisation account `nasa` only, lo
 | OpenCorporates | API key required; free keys only for public-benefit "Permitted Users" | Commercial use needs a paid key: rejected |
 | FAA airmen registry | Monthly ZIP of CSVs (registry.faa.gov) | Server answers scripted requests with 503; not automated (see below) |
 | NSOPW / sex-offender registries | **No API; terms forbid automated search** | Link out only |
-| Property/assessor | County by county, no free national API | Out of MVP |
+| Property/assessor | County by county, no free national API | **Wired in** for FL (statewide), CT, NY, NYC, Cook, Harris, Philadelphia and seven more: see [Property](#property) |
 
 ## API sources in Hunt
 
@@ -164,7 +164,7 @@ The search, filtering, proxy, health probe and note come with it. Tables already
 - NY elevator, crane, pyrotechnician, asbestos and mold individual licences (`cxfs-ya8e`, `bu6a-ty84`, `83wd-skw3`, `95bk-87hc`, `h6jr-vxqt`)
 - TX Racing Commission and easement-agent licensees (`data.texas.gov` `yqzs-yaft`, `3p42-m5cn`)
 
-An ArcGIS FeatureServer layer takes the same `Dataset` with `arcgis=True` and its service path as `id` (DC's business licences); the where-clause is the same SQL.
+An ArcGIS FeatureServer layer takes the same `Dataset` with `engine="arcgis"` and its service path as `id` (DC's business licences), and a Carto table `engine="carto"` (Philadelphia property); the where-clause is the same SQL. `order` (Socrata `$order`) puts the newest year first in a table that holds several.
 
 A state that publishes files instead (no API) is a `_bulk.Table`: its file URLs (or a function reading the agency's index page) and a parser from one file to records and their people; add it to `licences.TABLES` or `businesses.TABLES`. `florida.py` and `statefiles.py` are the examples; `python -m hunt.sources.records update <table>` loads it.
 
@@ -272,6 +272,27 @@ _Checked 2026-11-01, every state and DC. Method: the Socrata discovery API for b
 | Alabama contractors board roster | Free and allowed, but it lists companies, not people |
 | Iowa "Active Iowa Business Entities" | Free, but registered agents only, and its file has no stable URL yet; worth adding once it does |
 | Maryland's FY2018 veterinary tables, Missouri's alcohol licences, data.pa.gov's licensee counts | Stale, businesses only, or counts without names |
+
+## Property
+
+_Checked 2026-11-02. Method: the Socrata catalogue for parcel, assessment, tax-roll and CAMA tables with an owner-name column (metadata, then one row per table with values masked); the counties' and states' own open-data and download pages; one GET of each by-hand search page. No person's name was searched._
+
+`parcels` (name seeds) answers "what does this person own, and where": the owner as the roll writes it (`fullname`), `roles` (owner, co-owner, taxpayer), the parcel's `address` and `location`, the owner's `mailing_address` (where the tax bill goes, often the home of an owner who lets the parcel), `homestead` where the roll records the exemption (the owner lives there), `value`, `sale_date`/`sale_price` or `owned_since`, `parcel`, `county`, `year`. An owner whose mailing address is the parcel, or with a homestead exemption, is the strongest residence record Hunt has.
+
+| Jurisdiction | Channel | Status |
+|---|---|---|
+| Florida, all 67 counties | Department of Revenue's statewide NAL roll ([data portal](https://floridarevenue.com/property/Pages/DataPortal_RequestAssessmentRollGISData.aspx); each county's newest final roll, else its preliminary one; 794 MB for the 60 final counties of 2026). The public files leave out owners exempt under s. 119.071 | **Built**, a local table: `python -m hunt.sources.records update fl-property` (`HUNT_FL_COUNTIES="Hillsborough, Miami-Dade"` loads fewer). The live record is the county appraiser's: [Hillsborough](https://gis.hcpafl.org/propertysearch/), [Miami-Dade](https://www.miamidade.gov/Apps/PA/propertysearch/), [Orange](https://ocpaweb.ocpafl.org/parcelsearch), [Pinellas](https://www.pcpao.gov/) (refuses scripts), [Duval](https://paopropertysearch.coj.net/Basic/Search.aspx), [Broward](https://web.bcpa.net/BcpaClient/), [Palm Beach](https://pbcpao.gov/index.htm) |
+| Philadelphia | OPA properties (Carto SQL API): owners 1 and 2, mailing address, homestead, value, last sale | **Built** (live) |
+| Allegheny County PA | WPRDC's property assessments (585K parcels) carry an owner *type*, not a name | **By hand**: [Real Estate Portal](https://realestate.alleghenycounty.us/) |
+| Connecticut, every town | 2026 Parcel and CAMA data (Socrata) | **Built** (live) |
+| New York State outside NYC | Local assessment rolls, 2021 to 2025, up to four owners (Socrata; newest roll first) | **Built** (live) |
+| New York City | DOF property valuation and assessment (Socrata; "LAST, FIRST", searched by prefix) | **Built** (live) |
+| Cook County IL | Assessor parcel addresses: owner and taxpayer names, 2021 to 2026 (Socrata; a slow full scan, 60 s allowed) | **Built** (live) |
+| Harris County TX | HCAD public data download (owners joined to accounts; "can be imported into user databases") | **Built**, a local table: `… update tx-harris` (210 MB). The live record: [HCAD search](https://search.hcad.org/) (refuses scripts) |
+| Denver, Providence, Baton Rouge, Norfolk VA, Prince George's County MD, Cambridge MA, Williamson County TX | Each assessor's own Socrata table | **Built** (live) |
+| Los Angeles, Maricopa, Dallas, King WA, Clark NV, Tarrant, Bexar | Not yet checked for an owner-name file | **By hand**: [LA assessor portal](https://portal.assessor.lacounty.gov/), [Maricopa](https://mcassessor.maricopa.gov/), [DCAD](https://www.dallascad.org/), [King](https://blue.kingcounty.com/Assessor/eRealProperty/), [Clark](https://www.clarkcountynv.gov/government/assessor/), [TAD](https://www.tad.org/), [BCAD](https://www.bcad.org/). The Texas appraisal districts publish data downloads like HCAD's: the next candidates |
+
+**Not surfaced by default:** as for officers, show the town and the parcel; the street is one click away (the report decides).
 
 ## Court records
 

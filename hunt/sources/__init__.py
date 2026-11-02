@@ -30,6 +30,10 @@ SOURCES = [maigret, wmn, user_scanner, phone,
            activity,  # name → published competition results (a local copy of OpenPowerlifting; activity.search_links for the rest)
            voter]  # name → registered voters, from a state's own extract indexed on this Mac (Florida)
 
+# Per-state records work (docs/research/tools.md, "State records" and after): one block, so merges stay simple
+from . import parcels  # noqa: E402
+SOURCES += [parcels]  # name → property owned (assessors' rolls; Florida's statewide roll indexed on this Mac)
+
 
 def _key_status(src, is_set: bool) -> str:
     if not getattr(src, "KEY", None):
