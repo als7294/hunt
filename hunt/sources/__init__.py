@@ -43,6 +43,13 @@ from . import findagrave, knot  # noqa: E402
 
 SOURCES += [findagrave, knot]  # name → Find a Grave memorials, The Knot wedding registries
 
+# Public profiles read logged out, stopping at the first refusal (_page.py; legal.md C6, decision D2): username → the
+# profile's own fields and, where public, its latest posts. One block, so other sources' registrations don't collide.
+from . import (aboutme, deviantart, flickr, goodreads, kick, letterboxd, linktree, medium, pinterest, reddit,  # noqa: E402
+               snapchat, soundcloud, substack, telegram, tumblr, twitch, untappd)
+SOURCES += [reddit, snapchat, telegram, pinterest, tumblr, medium, substack, linktree, aboutme, twitch, kick, soundcloud,
+            flickr, deviantart, letterboxd, untappd, goodreads]
+
 
 def _key_status(src, is_set: bool) -> str:
     if not getattr(src, "KEY", None):
