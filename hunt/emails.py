@@ -14,12 +14,14 @@ business site. An address counts only if it's a role address (info@, hello@), ca
 or sits on a line that names the subject.
 
 Every address found becomes a lead (pivot.suggestions), searched only when the investigator ticks it, and the person
-card lists it with where it was shown.
+card lists it with where it was shown. A ticked lead is then checked by the email sources Hunt already has (openpgp,
+gravatar, user-scanner). RDAP is rdap.org's plain JSON. SpiderFoot (MIT) was read for edge cases: retina image names
+("logo@2x.png") and URL-encoded mailto: links.
 """
 
 import json
 import re
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
@@ -33,6 +35,7 @@ PLATFORMS = set(pivot.SOCIAL) | set(pivot.SUBDOMAIN) | {  # shared hosts: an add
     "youtu.be", "google.com", "sites.google.com", "linktr.ee", "wix.com", "squarespace.com", "carrd.co", "amazon.com",
     "apple.com", "spotify.com", "discord.gg", "discord.com", "paypal.me", "paypal.com", "ko-fi.com", "buymeacoffee.com",
     "etsy.com", "ebay.com", "t.co", "bit.ly", "wikipedia.org", "archive.org", "cash.app", "venmo.com", "calendly.com"}
+FILE = re.compile(r"\.(?:png|jpe?g|gif|svg|webp|avif|ico|css|js|woff2?)$", re.I)  # "logo@2x.png" (as SpiderFoot drops)
 CONTACT = re.compile(r"contact|about|impressum|kontakt", re.I)
 ROLE = re.compile(r"^(?:info|contact|hello|hi|hey|mail|email|office|admin|studio|team|me|inbox|bookings?|enquir(?:y|ies)|"
                   r"inquir(?:y|ies)|business|press|media|support|sales|shop|orders?|work|jobs?)$", re.I)
@@ -110,11 +113,12 @@ def published(html: str, subject: list[dict]) -> list[str]:
     soup = BeautifulSoup(html, "html.parser")
     for t in soup(["script", "style", "noscript"]):
         t.decompose()
-    shown = [a["href"][7:].split("?")[0] for a in soup.select('a[href^="mailto:"]')]
+    shown = [unquote(a["href"][7:].split("?")[0]) for a in soup.select('a[href^="mailto:"]')]  # "mailto:%20x@y"
     lines = [" ".join(l.split()) for l in soup.get_text("\n").splitlines() if l.strip()]
     shown += [e for l in lines for e in pivot.EMAIL.findall(l)]
     out = []
-    for e in dict.fromkeys(x.strip().lower() for x in shown if pivot.EMAIL.fullmatch(x.strip())):
+    shown = [x.strip().lower() for x in shown if pivot.EMAIL.fullmatch(x.strip()) and not FILE.search(x.strip())]
+    for e in dict.fromkeys(shown):
         line = " ".join(l for l in lines if e in l.lower()) or next((a.get_text(" ") for a in soup.select(f'a[href^="mailto:{e}" i]')), "")
         if not pivot._about_someone(line, e) and _theirs(e, line, subject):  # its own line: a page's lines aren't sentences
             out.append(e)

@@ -22,7 +22,8 @@ CONTACT = """<html><body><script>var x = "tracker@ads.test";</script>
 <p>Jane Roe, office manager: jane@vellforge.test</p>
 <p>Jane Roe takes bookings at info@vellforge.test</p>
 <p>My sister's email is mira@mail.test.</p>
-<p>Orders: velvetforge.orders@mail.test</p></body></html>"""
+<p>Orders: velvetforge.orders@mail.test</p><img src="/img/logo@2x.png"> logo@2x.png
+<a href="mailto:%20dorian.vell@forgemail.test?subject=Hi">mail</a></body></html>"""
 RDAP = {"entities": [
     {"roles": ["registrant"], "vcardArray": ["vcard", [["fn", {}, "text", "Dorian Vell"], ["email", {}, "text", "dv@forgemail.test"]]]},
     {"roles": ["technical"], "vcardArray": ["vcard", [["fn", {}, "text", "Host Co"], ["email", {}, "text", "noc@host.test"]]]},
@@ -66,7 +67,8 @@ found = asyncio.run(emails.collect(case, report))
 by = {e["value"]: e for e in found}
 
 # Shown and theirs: a role address, a line naming the subject, an address carrying their handle, the RDAP registrant
-assert set(by) == {"hello@vellforge.test", "d.vell@mail.test", "velvetforge.orders@mail.test", "dv@forgemail.test"}, by
+assert set(by) == {"hello@vellforge.test", "d.vell@mail.test", "velvetforge.orders@mail.test", "dv@forgemail.test",
+                   "dorian.vell@forgemail.test"}, by  # an encoded mailto: read; an image name never an address
 assert by["hello@vellforge.test"]["why"] == "listed on www.vellforge.test's home page"
 assert by["d.vell@mail.test"]["why"] == "listed on www.vellforge.test's contact page"
 assert by["dv@forgemail.test"]["why"] == "the registrant contact in vellforge.test's public RDAP record"
