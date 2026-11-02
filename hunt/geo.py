@@ -1,10 +1,13 @@
 """Free-text place strings → coordinates, so 'Phoenix' and 'Scottsdale, AZ' can be compared.
 
-What leaves the machine: only the place strings themselves (the subject's and the
-profiles' location fields), sent to OpenStreetMap's public Nominatim
-(nominatim.openstreetmap.org, run by the OSM Foundation), through HUNT_PROXY if
-set. Each string is sent at most once: every answer, "no such place" included, is
-cached in ~/Hunt/cache/geocode.json. We follow the usage policy
+What leaves the machine: place names, sent to OpenStreetMap's public Nominatim
+(nominatim.openstreetmap.org, run by the OSM Foundation), through HUNT_PROXY if set:
+profiles' location fields as written, and for a street address (a public record's
+"123 Main St, Tampa, FL 33601") only its town and state, "tampa, fl". The street,
+house number, suite and ZIP code never leave the machine, and a street line with no
+town isn't sent at all. Each query is sent at most once: every answer, "no such
+place" included, is cached in ~/Hunt/cache/geocode.json, so records in the same town
+share one lookup. We follow the usage policy
 (operations.osmfoundation.org/policies/nominatim): at most 1 request/second, an
 identifying User-Agent, no bulk lists. Results are © OpenStreetMap contributors
 (ODbL): credit them wherever a Place's label is shown.
@@ -157,10 +160,33 @@ def compare(a: Place, b: Place) -> tuple[str, float]:
 
 def _queries(text: str) -> list[str]:
     """What to ask Nominatim, in order: the whole text, then the part after its last comma.
-    Lowercased, emoji dropped, aliases expanded, jokes skipped."""
+    Lowercased, emoji dropped, aliases expanded, jokes skipped. A street address is reduced
+    to its town first (see _town)."""
+    if (town := _town(text)) is not None:
+        text = town
     parts = [text, text.rpartition(",")[2]] if "," in text else [text]
     keys = (" ".join("".join(c for c in p if unicodedata.category(c) != "So").lower().split()) for p in parts)
     return [ALIASES.get(k, k) for k in keys if k and k not in NOT_PLACES]
+
+
+# A house number, PO box or numbered road opening the first comma part: '123 Main St', '116-38 228 Street',
+# 'PO Box 9', 'US 117 Alternate South', 'State Route 7', 'Hwy 98'.
+STREET_LINE = re.compile(r"^\s*(?:\d[\w/-]*\s+\S|p\.?\s*o\.?\s*box\b|(?:us|u\.s\.|state|county|rural|farm to market|"
+                         r"fm|sr|cr|rr|hwy|highway|route|rte)\b[\s.-]*(?:hwy|highway|route|rte|road|rd)?[\s.-]*\d)", re.I)
+# A suite or unit part always has its number after it, so the state code FL isn't taken for 'Fl 2' (floor).
+UNIT = re.compile(r"^(?:(?:ste|suite|apt|apartment|unit|bldg|building|floor|fl|rm|room)\.?\s+\w+|#\s*\w+)$", re.I)
+ZIP = re.compile(r"\s*\b\d{5}(?:-\d{4})?\b")
+
+
+def _town(text: str) -> str | None:
+    """The town of a street address ('123 Main St, Apt 4, Tampa, FL 33601' -> 'Tampa, FL'), '' for a
+    street line with no town ('100 Eastowne Dr': nothing to send), None if it isn't a street address.
+    A town is close enough: 'same area' is 50 km, and records in one town share one lookup."""
+    first, _, rest = text.partition(",")
+    if not STREET_LINE.match(first):
+        return None
+    parts = (ZIP.sub("", p).strip() for p in rest.split(","))
+    return ", ".join(p for p in parts if p and not UNIT.match(p))
 
 
 async def named(query: str, near: tuple[float, float, float] | None = None, country: str | None = None) -> list[dict]:

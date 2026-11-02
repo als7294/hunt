@@ -72,6 +72,21 @@ assert geo._queries("🇺🇸") == geo._queries("Earth") == geo._queries("  ") =
 assert geo._queries("Pale Blue Dot, Earth") == ["pale blue dot, earth"]
 assert geo._queries("Paradise, CA") == ["paradise, ca", "california, united states"]  # only a bare joke is skipped
 
+# A street address is asked as its town and state only: no street, house number, suite or ZIP leaves the machine,
+# and records in one town share a lookup (all addresses here are made up)
+town = ["tampa, fl", "florida, united states"]
+assert geo._queries("123 Main St, Tampa, FL 33601") == town
+assert geo._queries("9 Oak Ave, Apt 4, Tampa, FL 33601-1234") == town  # the same lookup as above
+assert geo._queries("PO Box 77, Tampa, FL") == geo._queries("1 Bay Rd, Fl 2, Tampa, FL") == town  # Fl 2 is a floor, FL a state
+assert geo._queries("4 Pine Rd, Boise, ID 83702") == ["boise, id", "idaho, united states"]
+assert geo._queries("116-38 228 Street, Queens, NY 11411") == ["queens, ny", "new york state"]
+assert geo._queries("US Highway 19, Palm Harbor, FL 34683")[0] == "palm harbor, fl"
+for street_only in ("100 Eastowne Dr", "20126 Ballinger Way Ne #279", "Us 117 Alternate South Building 4471", "12 Main St, Ste 5"):
+    assert geo._queries(street_only) == [], street_only  # no town to ask for, and the street isn't sent
+for place in ("Tampa, FL", "County Durham, England", "State College, PA", "USA", "Middle of nowhere, AZ"):
+    assert geo._queries(place) and not geo._town(place), place  # not addresses: whole, then the last part, as before
+assert geo._queries("State College, PA") == ["state college, pa", "pennsylvania, united states"]
+
 
 def hit(label, cc, region, rank, importance, lat=0.0, lon=0.0, box=0.1):
     """A trimmed Nominatim jsonv2 hit; importances below are from live responses on 2026-10-29."""
@@ -98,7 +113,8 @@ NOMINATIM = {
               hit("Paris, Ile-de-France, Metropolitan France, France", "fr", "FR-IDF", 15, 0.897, 48.86, 2.35),
               hit("Paris, Lamar County, Texas, United States", "us", "US-TX", 16, 0.53)],
     "worldwide": [hit("Worldwide, 117, Bondi Road, Bondi, Sydney, Australia", "au", "AU-NSW", 30, 0.0)],
-    "1600 pennsylvania avenue nw, washington, dc": [
+    "washington, dc": [hit("Washington, District of Columbia, United States", "us", "US-DC", 16, 0.815, 38.895, -77.036)],
+    "1600 pennsylvania avenue nw, washington, dc": [  # never asked any more: only the town leaves the machine
         hit("White House, 1600, Pennsylvania Avenue Northwest, Washington, United States", "us", "US-DC", 30, 0.696)],
     "middle of nowhere, az": [hit("Middle of Nowhere, Whistler, British Columbia, Canada", "ca", "CA-BC", 27, 0.04)],
     "arizona, united states": [hit("Arizona, United States", "us", "US-AZ", 8, 0.776, 34.4, -111.76, 3)],
@@ -135,7 +151,8 @@ assert r["Vegas"].region == "US-NV", r["Vegas"]  # the most important hit, not N
 assert r["Paris"].region == "FR-IDF" and compare(r["Paris"], r["Paris"])[0] == "same area"  # rank 12 but city-sized
 assert r["Worldwide"] is None  # a shop called Worldwide is not a location
 assert r["Middle of nowhere, AZ"].region == "US-AZ", r  # a road in Canada rejected, then the part after the comma
-assert r["1600 Pennsylvania Avenue NW, Washington, DC"].rank == 30  # a numbered address may resolve to a building
+white_house = r["1600 Pennsylvania Avenue NW, Washington, DC"]  # a street address is placed by its town
+assert (white_house.region, white_house.rank) == ("US-DC", 16) and "1600 pennsylvania avenue nw, washington, dc" not in calls
 
 n = len(calls)
 asyncio.run(geo.locate(["Tucson, AZ", "Pale Blue Dot", "Washington"]))
