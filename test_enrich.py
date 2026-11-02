@@ -14,7 +14,7 @@ import httpx
 
 from hunt import enrich, search
 from hunt.case import Case
-from hunt.enrich import fields, meta, parsed
+from hunt.enrich import fields, is_profile, meta, parsed
 from hunt.seed import Finding, Seed
 
 H = "kvane88"  # a handle that is not just the name squashed together
@@ -51,6 +51,14 @@ assert fields({"og:image": "https://pics.a.test/43ed76a4?width=460"}, f"https://
     {"image": "https://pics.a.test/43ed76a4?width=460"}
 assert fields({"og:description": f"Follow {H} on A for charts"}, f"https://a.test/u/{H}", H) == {}
 assert fields({"og:description": "A is the world's leading platform"}, f"https://www.a.test/{H}", H) == {}
+
+# A site's own door is not a profile: an email-registration hit is the site's homepage, whose og:title is a headline
+for url in ("https://foxnews.com", "https://tv.apple.com/", "https://site.test/login", "https://site.test/account/",
+            "https://site.test/signin/", "https://site.test/home/index.html", "https://news.example/", "https://site.test/accounts/login/"):
+    assert not is_profile(url, "kestrel@example.com") and not is_profile(url, H), url
+for url in (f"https://site.test/{H}", f"https://site.test/login/{H}", f"https://news.test/user?id={H}", f"https://{H}.blog.example/",
+            "https://site.test/u/12345", f"https://site.test/account/{H}/", "https://kestrel-vane.weebly.com/"):
+    assert is_profile(url, H if "kestrel-vane" not in url else "kestrel.vane"), url
 
 # socid_extractor reads the sites it knows (here: a Chess.com-shaped page) and wins over the preview tags
 CHESS = ('<html><head><meta property="og:site_name" content="Chess.com">'
@@ -97,8 +105,11 @@ urls = [f"https://open.test/{H}", f"https://closed.test/u/{H}", f"https://wall.t
         f"https://dark.test/{H}", f"https://refuse.test/{H}", f"https://refuse.test/{H}2", f"https://echo.test/{H}",
         f"https://gate.test/{H}", f"https://gate.test/{H}2", f"https://parsed.test/member/{H}", f"https://www.instagram.com/{H}",
         f"https://www.whitepages.com/name/{H}"]
+doors = ["https://foxnews.test", "https://tv.apple.test/", "https://site.test/login"]
 for u in urls:
     case.add_finding(Finding("maigret", seed, u.split("/")[2], u, {"tags": ["x"]}))
+for u in doors:  # email-registration hits: the site's own door, never read
+    case.add_finding(Finding("user-scanner", Seed("email", "kestrel@example.com"), u.split("/")[2], u, {"category": "news"}))
 case.add_finding(Finding("maigret", Seed("name", "Kestrel Vane"), "names.test", f"https://names.test/{H}", {}))  # a name-only hit: not read
 case.add_finding(Finding("bluesky", seed, "Bluesky", f"https://bsky.app/profile/{H}", {"fullname": "Kestrel Vane"}))  # described already
 real_client = enrich.httpx.AsyncClient
@@ -123,7 +134,8 @@ assert got[f"https://echo.test/{H}"] == {"tags": ["x"], "bio": "Birds & maps", "
 assert got[f"https://closed.test/u/{H}"]["fullname"] == got[f"https://dark.test/{H}"]["fullname"] == "Kestrel Vane"
 assert got[f"https://parsed.test/member/{H}"] == {"tags": ["x"], "fullname": "Kestrel Vane", "image": "https://images.chess.test/uploads/v1/user/41.200x200o.jpeg",
                                                  "enriched_from": f"https://parsed.test/member/{H}"}
-assert all("enriched_from" not in got[u] for u in urls if not any(h in u for h in ("open", "echo", "closed", "dark", "parsed")))
+assert all("enriched_from" not in got[u] for u in urls + doors
+           if not any(h in u for h in ("open", "echo", "closed", "dark", "parsed")))
 audit = [json.loads(r["detail"]) for r in case.rows("select detail from audit where action = 'enrich stopped'")]
 assert sorted(a["host"] for a in audit) == ["gate.test", "refuse.test", "wall.test"]
 assert json.loads(case.rows("select detail from audit where action = 'enrich'")[0]["detail"])["robots"] == out["robots"]
