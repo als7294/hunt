@@ -11,7 +11,10 @@ from urllib.parse import urlparse
 from . import match
 from .seed import _handle
 
-LIKELY = 0.55  # cli.LIKELY: only profiles at "likely" or better are mined
+LIKELY = 0.55  # cli.LIKELY: only profiles at "likely" or better are mined…
+RARE = 0.05  # …and those found under a username this rare (match.username_u), whose leads rank after
+HANDLE_NAME = re.compile(r"[A-Za-z0-9_.-]{4,30}")  # a display name that is a handle: one token, no space…
+HANDLE_SIGN = re.compile(r"[\d_.-]|[a-z][A-Z]")  # …with a digit, a separator or a capital inside ("SmittyTech")
 SOCIAL = {  # host -> platform, for profile links whose path carries the handle
     "twitter.com": "Twitter", "x.com": "Twitter", "github.com": "GitHub", "gitlab.com": "GitLab",
     "instagram.com": "Instagram", "facebook.com": "Facebook", "fb.com": "Facebook", "linkedin.com": "LinkedIn",
@@ -59,13 +62,24 @@ def suggestions(report: dict, min_p: float = LIKELY) -> list[dict]:
     """New seeds mined from the person's profiles in a search.build() report, strongest first:
     [{value, kind, why, source_url}]. The person is search.in_person's: `min_p` or better, minus
     accounts marked 'not him', plus those marked 'him'. Leaves out what the case already has.
+
+    Then, ranked after those: accounts found under a rare username (RARE), which can't pass "roughly even chance"
+    on the handle alone (match.score's cap) but are worth following; their leads say they're unconfirmed.
     """
     seeds = report.get("subject_seeds", [])
     have = {s["value"].lower() for s in seeds} | {match.norm_url(s["value"]) for s in seeds if s["kind"] == "url"} \
         | {h.lower() for s in seeds if s["kind"] == "url" and (h := _handle(s["value"]))}
+    taken = {}  # handle -> (sites taken, sites answered), as search.build counts it
+    for r in report.get("methodology", []):
+        if r.get("seed_kind") == "username" and r.get("status") != "failed":
+            t = taken.get(r["seed"].lower(), (0, 0))
+            taken[r["seed"].lower()] = (t[0] + (r.get("found") or 0), t[1] + (r.get("checked") or 0))
+    rare = lambda c: c["seed"]["kind"] == "username" and \
+        match.username_u(c["seed"]["value"], taken.get(c["seed"]["value"].lower()))[0] < RARE
     best = {}
     for c in report.get("candidates", []):
-        if c.get("decision") == "not him" or (c.get("probability", 0) < min_p and c.get("decision") != "him"):
+        sure = c.get("decision") == "him" or c.get("probability", 0) >= min_p
+        if c.get("decision") == "not him" or not (sure or rare(c)):
             continue
         found = facts(c["attrs"], c["url"])
         if c["seed"]["kind"] != "username" and (own := _handle(c["url"])):  # found by email or phone: its handle is new
@@ -75,9 +89,11 @@ def suggestions(report: dict, min_p: float = LIKELY) -> list[dict]:
             if f["rank"] == 3 or f["kind"] == "email" and _about_someone(bio, f["value"]):
                 continue  # an @mention or a relative's email is someone else: never a lead to search (legal.md C13)
             key = match.norm_url(f["value"]) if f["kind"] == "url" else f["value"].lower()
-            if key not in have and (key not in best or f["rank"] < best[key][0]):
-                best[key] = (f["rank"], {"value": f["value"], "kind": f["kind"], "source_url": c["url"],
-                                         "why": f"{c['site']} ({c.get('verdict', 'likely')}) {f['how']}"})
+            rank = f["rank"] + (0 if sure else 10)  # an unconfirmed account's leads come after every likely one's
+            if key not in have and (key not in best or rank < best[key][0]):
+                why = f"{c['site']} ({c.get('verdict', 'likely')}) {f['how']}" + \
+                    ("" if sure else "; from an account that shares a rare username, not yet confirmed")
+                best[key] = (rank, {"value": f["value"], "kind": f["kind"], "source_url": c["url"], "why": why})
     return [s for _, s in sorted(best.values(), key=lambda r: r[0])]
 
 
@@ -90,6 +106,11 @@ def facts(attrs: dict, own_url: str = "") -> list[dict]:
     own = _host(own_url)
     out = []
     add = lambda kind, value, how, rank, **kw: out.append({"kind": kind, "value": value, "how": how, "rank": rank, **kw})
+    own_handle = (_handle(own_url) or "").lower() if own_url else ""
+    for k in ("fullname", "name", "display_name"):  # "SmittyTech" on github.com/als7294: a handle used elsewhere
+        v = str(attrs.get(k) or "").strip()
+        if HANDLE_NAME.fullmatch(v) and HANDLE_SIGN.search(v) and v.lower() != own_handle and not EMAIL.search(v):
+            add("username", v, f"uses the display name '{v}'", 2)
     for key, v in attrs.items():
         k, text = key.lower(), " ".join(map(str, v)) if isinstance(v, list) else str(v)
         if IMAGE_KEY.search(k) or k == "tags":
