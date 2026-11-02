@@ -17,7 +17,7 @@ from dataclasses import asdict
 import httpx
 from PIL import Image
 
-from . import emails, entity, browser, geo, match, photo
+from . import emails, entity, browser, enrich, geo, match, photo
 from .capture import screenshots
 from .case import Case
 from .seed import Seed, now
@@ -45,6 +45,7 @@ async def run(case: Case, seeds: list[Seed], emit, capture: bool = True, pause: 
     case.audit("search", {"seeds": [asdict(s) for s in seeds]})
     await step("asking")
     await fan_out(case, seeds, emit)
+    await enrich.run(case, build(case)["candidates"], emit)  # the handle hits' own pages: a name, a picture, a bio
     await step("finding")
 
     def tell(candidates):
