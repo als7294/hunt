@@ -118,7 +118,7 @@ class HuntCluster extends HTMLElement {
     const namesake = (n, i) => {
       if (names.has(n.label)) return names.get(n.label);
       const th = Math.PI * .75 + i * 1.3, s = new T.Sprite(new T.SpriteMaterial({ map: xTex, transparent: true, depthWrite: false, opacity: 0 })); s.scale.set(1.2, 1.2, 1); S.add(s);
-      const o = { th, s, pos: new T.Vector3(), lab: mkLabel(`<div style="transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:3px"><span style="font-size:15px;font-weight:600;color:${C.t2}">${esc(n.label)}</span><span style="font-size:13px;color:${C.mu}">Not them · ${esc(n.why || 'different person')}</span></div>`) };
+      const o = { th, s, pos: new T.Vector3(), lab: mkLabel(`<div style="transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:3px"><span style="font-size:15px;font-weight:600;color:${C.t2}">${esc(n.label)}</span><span style="font-size:13px;color:${C.mu};max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(n.why || '')}">Not them · ${esc(n.why || 'different person')}</span></div>`) };
       names.set(n.label, o); return o;
     };
     const hpts = []; for (let a = 0; a <= 128; a++) { const th = a / 128 * Math.PI * 2; hpts.push(new T.Vector3(Math.cos(th) * 7.4, 0, Math.sin(th) * 7.4)); }
@@ -185,7 +185,8 @@ class HuntCluster extends HTMLElement {
       haloLab.style.transform = `translate(${w / 2}px,80px)`; haloLab.style.opacity = dk; haloLab.style.zIndex = 200;
       const bkey = st.badges.join('|'); if (bkey !== lastBadges) { lastBadges = bkey; badgeEls.splice(0).forEach(b => b.remove()); st.badges.slice(0, 3).forEach(b => badgeEls.push(mkLabel(`<div style="transform:translate(-50%,-50%);padding:6px 12px;border-radius:999px;background:${C.grB};color:${C.gr};font-size:13.5px;font-weight:500">✓ ${esc(b)}</div>`))); }
       const live = [...nodes.values()];
-      badgeEls.forEach((b, j) => { const n = live[(j * 2) % Math.max(1, live.length)]; if (n) place(b, person.position.clone().lerp(n.pos, .46), cl(dk * 1.8 - j * .35) * (!hov ? 1 : .3)); });
+      badgeEls.forEach((b, j) => { const L = Math.max(1, live.length), at = (j * 2) % L, n = live[at], below = [...Array(j).keys()].filter(i => (i * 2) % L === at).length; // badges sharing an account stack
+        if (n) place(b, person.position.clone().lerp(n.pos, .46).add(new T.Vector3(0, .85 * below, 0)), cl(dk * 1.8 - j * .35) * (!hov ? 1 : .3)); });
 
       // HUD and step strip
       const hs = `${checked}|${total}|${st.accounts.length}`;

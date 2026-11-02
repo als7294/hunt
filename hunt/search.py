@@ -166,7 +166,11 @@ def build(case: Case, places: dict | None = None) -> dict:
                           "sha256": f["sha256"], "file": f["evidence"]} for f in fs if f["sha256"]]
                         + [s for f in fs for s in shots[f["id"]]],
         })
-        rate(candidates[-1])
+
+    if described:  # how common each of the description's words is among these accounts (match.commonness)
+        described = {**described, "common": match.commonness(described, [c["attrs"] for c in candidates])}
+    for c in candidates:
+        rate(c)
 
     # Second pass: a profile photo shared with a likely match, or with a photo supplied in the
     # case, is an independent identifier. One pass only, so evidence can't feed on itself.

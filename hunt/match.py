@@ -281,14 +281,31 @@ def _described(attrs: dict, c: dict, here: "geo.Place | None", profile_place: st
     if "place" not in have and profile_place and (tier := _lived(here, profile_place, c.get("places") or [])):
         out.append(("place", PLACE_TIERS[tier][0], f"location '{profile_place}' {LIVED[tier]}"
                                                    + (f" (read as {_short(here)})" if here else "")))
-    text = " ".join(_clean(str(v)) for k, v in attrs.items() if v and not SKIP_KEYS.search(k))
+    text, common = profile_text(attrs), c.get("common") or {}
     for key, (m, u, what) in TERMS.items():
         if key == "employers" and "employer" in have:
             continue  # the employer field already matched
-        said = list(dict.fromkeys(w for t in c.get(key) or [] if (w := _mentions(t, text, key in LOOSE))))
-        out += [("described", bits(m, u), f"mentions '{w}', {what} in your description")
-                for w in said[:2 if key == "interests" else 3]]
+        said = list(dict.fromkeys((w, t) for t in c.get(key) or [] if (w := _mentions(t, text, key in LOOSE))))
+        out += [("described", bits(m, max(u, common.get(t, 0))), f"mentions '{w}', {what} in your description"
+                 + (f" (as do {common[t]:.0%} of the accounts found)" if common.get(t, 0) > u else ""))
+                for w, t in said[:2 if key == "interests" else 3]]
     return out
+
+
+def profile_text(attrs: dict) -> str:
+    """A profile's own words, _clean, for finding the description's words in."""
+    return " ".join(_clean(str(v)) for k, v in attrs.items() if v and not SKIP_KEYS.search(k))
+
+
+def commonness(c: dict, profiles: list[dict]) -> dict[str, float]:
+    """For each word in your description, the share of these profiles that say it. A search's accounts are mostly
+    namesakes, so a word many of them say (a home state, a hobby) is common, and counts for less (_described).
+    Measured only over 50 or more accounts, as username_u does: fewer can't tell common from yours."""
+    if len(profiles) < 50:
+        return {}
+    texts = [profile_text(a) for a in profiles]
+    return {t: (sum(bool(_mentions(t, x, key in LOOSE)) for x in texts) + 1) / (len(texts) + 2)
+            for key in TERMS for t in c.get(key) or []}
 
 
 def _lived(here: "geo.Place | None", text: str, places: list[dict]) -> str | None:
