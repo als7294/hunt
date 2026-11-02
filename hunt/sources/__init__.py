@@ -32,8 +32,11 @@ SOURCES = [maigret, wmn, user_scanner, phone,
 
 # Family-tree sources (legal.md D25, C6): name → memorials and wedding registries, read logged out, with the family
 # each lists. Their relatives reach the tree only once the record matches the subject by name plus place or date;
-# never run on a background case (A8). Legacy.com, TributeArchive and Dignity Memorial refuse Hunt (403); Echovita
-# searches by POST only; FamilySearch needs sign-in; Zola's results come from a client-side API: none is read.
+# never run on a background case (A8). Checked 2026-11-02 and not read: Legacy.com, Tribute Archive, Dignity Memorial,
+# Ever Loved and FrontRunner's ObitTree refuse Hunt (403 or a bot wall); Echovita searches by POST only; Funeral
+# Innovations' Obitio covers about 20 homes; Batesville and FrontRunner sites have no cross-home name search;
+# FamilySearch (and its BSD-2 SDK) needs sign-in; Zola's results come from a client-side API. scrape-a-grave (MIT) is a
+# citation script that skips the family sections, so Find a Grave keeps its own short reader.
 from . import findagrave, knot  # noqa: E402
 
 SOURCES += [findagrave, knot]  # name → Find a Grave memorials, The Knot wedding registries
