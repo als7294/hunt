@@ -420,7 +420,8 @@ def compose(case: Case, snap: dict, posts: list[dict], hits: list[dict], checks:
             doc.say("method", f"{r['source']} checked {_many(r['checked'], 'site')} for the {r['seed_kind']} "
                               f"'{r['seed']}' on {_when(r['ts'], tz)}: {r['found']} found{again}.", r["cites"])
     if "geocode" in log:
-        doc.say("method", "Locations were placed with OpenStreetMap's Nominatim, sending only place names.", log["geocode"])
+        doc.say("method", "Locations were placed on this computer from GeoNames' town table (CC BY 4.0) where it knew them, and otherwise "
+                    "with OpenStreetMap's Nominatim (© OpenStreetMap contributors, ODbL), sending only place names.", log["geocode"])
     if "capture" in log:
         at = _when(audit[log["capture"][-1]]["ts"], tz)
         doc.say("method", f"Profile pages of the likely accounts were captured as screenshots, logged out (latest {at}).",

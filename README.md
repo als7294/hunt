@@ -180,7 +180,7 @@ for t in test_*.py; do uv run python "$t"; done
 
 Hunt is made by **Laura G** and **SmittyTech**.
 
-It builds on [Maigret](https://github.com/soxoj/maigret), [WhatsMyName](https://github.com/WebBreacher/WhatsMyName) (CC BY-SA 4.0), [user-scanner](https://github.com/kaifcodec/user-scanner), [yt-dlp](https://github.com/yt-dlp/yt-dlp), [OpenPowerlifting](https://www.openpowerlifting.org/), [GeoCLIP](https://github.com/VicenteVivan/geo-clip) and others listed in [tools.md](docs/research/tools.md).
+It builds on [Maigret](https://github.com/soxoj/maigret), [WhatsMyName](https://github.com/WebBreacher/WhatsMyName) (CC BY-SA 4.0), [user-scanner](https://github.com/kaifcodec/user-scanner), [yt-dlp](https://github.com/yt-dlp/yt-dlp), [OpenPowerlifting](https://www.openpowerlifting.org/), [GeoCLIP](https://github.com/VicenteVivan/geo-clip), [GeoNames](https://www.geonames.org/) (CC BY 4.0), [OpenStreetMap](https://www.openstreetmap.org/copyright) (© OpenStreetMap contributors, ODbL) and others listed in [tools.md](docs/research/tools.md).
 
 ## Licence
 

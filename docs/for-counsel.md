@@ -74,7 +74,7 @@ Hunt never does any of these:
 - use a data vendor on an account of its own: Apify runs only on a key she or Ethos adds;
 - send case files or reports anywhere.
 
-Only two things leave her computer. Search terms reach the sites being searched, and the confirmed account addresses reach Apify if she uses it. Place names go to OpenStreetMap to compare locations.
+Only two things leave her computer. Search terms reach the sites being searched, and the confirmed account addresses reach Apify if she uses it. Place names that the town table on her computer doesn't know (most US towns it does) go to OpenStreetMap to compare locations.
 
 ## 9. Questions for you
 

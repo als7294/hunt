@@ -115,7 +115,7 @@ async def geocode(case: Case, emit=None, audit: bool = True, live: bool = True) 
         return {}
     texts |= {t for r in case.rows("select attrs from findings") if (t := match.place_text(json.loads(r["attrs"])))}
     if emit:
-        emit({"type": "log", "message": f"placing {len(texts)} locations (OpenStreetMap Nominatim, 1/s, cached)"})
+        emit({"type": "log", "message": f"placing {len(texts)} locations (US towns on this Mac from GeoNames; the rest OpenStreetMap, 1/s, cached)"})
     if not live:
         cache = geo._load()
         texts = {t for t in texts if _cached(t, cache)}

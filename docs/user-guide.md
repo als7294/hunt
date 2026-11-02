@@ -263,7 +263,7 @@ The reasoning, with sources, is in [legal.md](research/legal.md). It's engineeri
   - the training answer key from About you, if a developer wrote one (`me.locked`, encrypted; section 11)
 - **What leaves your Mac:**
   - the requests to the sites and public records being checked, and to TikTok's and YouTube's public pages (through your proxy, if you set one)
-  - place names, never people's names, sent to OpenStreetMap to compare locations
+  - place names that aren't in the US town table on her Mac (GeoNames), never people's names, sent to OpenStreetMap to compare locations
   - the account addresses you send to Apify, if you use it
   - the downloads you approve in setup
 - **Retention:** cases are due for deletion **90 days** after you open them, unless you put them on **legal hold**. Hunt reminds you, and offers three choices:

@@ -458,13 +458,13 @@ async function moreLeads(slug) {
     <div style="display:flex;flex-wrap:wrap;gap:7px">${s.map(x => html`<button type="button" class="tick on" data-act="lead-pick" data-key="${x.kind}:${x.value}" title="${x.why}">✓ ${x.value}</button>`)}</div>
     <div style="display:flex;align-items:center;gap:12px"><button class="btn primary sm" data-act="leads-search" data-slug="${slug}">Search the ${s.length} ticked</button><span class="dim" style="font-size:12.5px">Hover one to see where it came from.</span></div></div>`.s : '';
 }
-// Placing locations runs at OpenStreetMap's one request a second, so a big case takes minutes: say how far it's got
+// Places not in the town table on this Mac (geo.py) go to OpenStreetMap at one request a second, so a big case can take minutes: say how far it's got
 function placing(ev) {
   const box = $('#placing'); if (!box) return;
   box.classList.toggle('hidden', !ev || ev.done >= ev.total);
   if (!ev) return;
   const left = ev.left_s >= 90 ? `, about ${Math.round(ev.left_s / 60)} min left` : ev.left_s >= 45 ? ', about a minute left' : ev.left_s > 0 ? ', under a minute left' : '';
-  box.querySelector('span').textContent = `Placing locations: ${ev.done} of ${ev.total}${left} (OpenStreetMap allows one a second)`;
+  box.querySelector('span').textContent = `Placing locations: ${ev.done} of ${ev.total}${left} (those not known on this Mac go to OpenStreetMap, one a second)`;
   box.querySelector('i').style.transform = `scaleX(${ev.total ? ev.done / ev.total : 0})`;
 }
 function watchSearch(slug, job, cl) {
