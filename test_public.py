@@ -180,11 +180,12 @@ assert downloaded == [{"url": video["url"], "tool": "yt-dlp " + public.version("
 done, notes, added = collect(case, [f"{TT}/@nasa/video/{THIRD}", f"{TT}/@nasa/video/{FOURTH}", f"{TT}/@nasa/video/{OFF}",
                                     f"{TT}/@nasa/photo/{PHOTO}", f"{TT}/@private", f"{TT}/@limited", f"{TT}/@gone/video/1",
                                     "https://www.youtube.com/@carol", "https://www.youtube.com/@quota", "https://www.instagram.com/nasa/",
-                                    "https://www.facebook.com/NASA", "https://www.threads.net/@jane", "https://www.strava.com/athletes/1"])
+                                    "https://www.facebook.com/NASA", "https://www.threads.net/@jane", "https://www.strava.com/athletes/1",
+                                    "https://t.me/s/telegram"])
 assert done == [("TikTok", "found", 1, 1), ("TikTok", "found", 1, 1), ("TikTok", "found", 1, 1), ("TikTok", "found", 1, 1),
                 ("TikTok", "failed", 0, 0), ("TikTok", "failed", 0, 0), ("TikTok", "failed", 0, 0), ("YouTube", "found", 2, 2),
                 ("YouTube", "failed", 0, 0), ("Instagram", "failed", 0, 0), ("Facebook", "failed", 0, 0), ("Threads", "failed", 0, 0),
-                ("Strava", "failed", 0, 0)], done
+                ("Strava", "failed", 0, 0), ("Telegram", "failed", 0, 0)], done
 assert added == 6
 got = {p["url"]: p for p in posts.list_posts(case)}
 assert len(got) == 8 and got[f"{TT}/@nasa/video/{THIRD}"]["media"][0]["kind"] == "video"
@@ -220,13 +221,16 @@ assert not asked("www.youtube.com")
 # Denied hosts: an honest note, never a request (Threads is not a Mastodon handle; Strava and Snapchat are on the list too)
 assert "Hunt Browser" in notes["https://www.instagram.com/nasa/"] and "Apify" in notes["https://www.facebook.com/NASA"]
 assert "Threads denies generic agents" in notes["https://www.threads.net/@jane"] and "Apify" not in notes["https://www.threads.net/@jane"]
-assert not asked("www.threads.net") and not asked("www.strava.com")
+assert not asked("www.threads.net") and not asked("www.strava.com") and not asked("t.me")
+assert "Content Licensing terms" in notes["https://t.me/s/telegram"] and "t.me/s/<channel>" in notes["https://t.me/s/telegram"]
 assert [public.denied(u) for u in ("https://www.threads.net/@jane", "https://x.com/a", "https://twitter.com/a", "https://snapchat.com/add/a",
-                                   "https://www.tiktok.com/@a", "https://bsky.app/profile/a")] == [True, True, True, True, False, False]
+                                   "https://t.me/s/telegram", "https://www.tiktok.com/@a", "https://bsky.app/profile/a")] == \
+    [True, True, True, True, True, False, False]
 assert [posts._site({"url": u}) for u in ("https://www.tiktok.com/@x", "https://vm.tiktok.com/abc/", "https://mastodon.social/@x",
                                           "https://fb.com/x", "https://www.instagram.com/p/abc/", "https://www.youtube.com/@x",
-                                          "https://www.threads.net/@x", "https://www.linkedin.com/in/x")] == \
-    ["tiktok", "tiktok", "mastodon", "facebook", "instagram", "youtube", "threads", "linkedin"]
+                                          "https://www.threads.net/@x", "https://www.linkedin.com/in/x", "https://t.me/s/x",
+                                          "https://www.youtube.com/@SmittyTech/videos")] == \
+    ["tiktok", "tiktok", "mastodon", "facebook", "instagram", "youtube", "threads", "linkedin", "telegram", "youtube"]
 assert public.site("https://example.com", "Twitter") == "x" and public.site("https://example.com", "Xing") is None
 
 # Run C. A CAPTCHA page sets a hard stop: TikTok's remaining reads stop, browser.stops() has it, and it's audited

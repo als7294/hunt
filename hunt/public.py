@@ -17,8 +17,10 @@ youtube  The Data API v3 on the investigator's own key, HUNT_YOUTUBE_KEY: the ch
          or deleted within 30 days (Developer Policies III.E.4). Without a key there is no read: YouTube's
          robots.txt disallows its feed.
 ROBOTS_DENY   Facebook, Instagram, Threads, X, LinkedIn, Reddit, Strava and Snapchat deny generic agents or are
-         login-walled (legal.md C1, C6; decision D2): never read automatically. Their fetcher only says so, so a
-         threads.net/@user address is never mistaken for a Mastodon handle. They come through the Hunt Browser, or,
+         login-walled (legal.md C1, C6; decision D2), and Telegram's Content Licensing terms bar access to its content
+         for anything but ordinary use and any use with AI models (automation-legal.md, "Telegram"): never read
+         automatically. Their fetcher only says so, so a threads.net/@user address is never mistaken for a Mastodon
+         handle. They come through the Hunt Browser, or,
          for Instagram and Facebook, the investigator's own Apify key (vendor.py). The earlier gallery-dl and
          embed-page readers are parked on branch parked/hunt-facebook-instagram-readers.
 
@@ -46,10 +48,12 @@ from urllib.parse import urlparse
 from . import posts
 
 NAMES = {"tiktok": "TikTok", "instagram": "Instagram", "facebook": "Facebook", "threads": "Threads", "x": "X",
-         "linkedin": "LinkedIn", "reddit": "Reddit", "strava": "Strava", "snapchat": "Snapchat"}
+         "linkedin": "LinkedIn", "reddit": "Reddit", "strava": "Strava", "snapchat": "Snapchat", "telegram": "Telegram"}
 HOSTS = {"tiktok.com": "tiktok", "facebook.com": "facebook", "fb.com": "facebook", "instagram.com": "instagram",
          "threads.net": "threads", "threads.com": "threads", "x.com": "x", "twitter.com": "x", "linkedin.com": "linkedin",
-         "reddit.com": "reddit", "strava.com": "strava", "snapchat.com": "snapchat"}
+         "reddit.com": "reddit", "strava.com": "strava", "snapchat.com": "snapchat", "t.me": "telegram", "telegram.me": "telegram"}
+WHY_NOT = {"telegram": "Telegram's Content Licensing terms allow only ordinary use of its content and bar any use with AI models "
+                       "(automation-legal.md): Hunt doesn't read t.me/s/<channel> previews. Save the page in a browser instead"}
 ROBOTS_DENY = tuple(h for h, k in HOSTS.items() if k != "tiktok")  # never read automatically (C1, C6; D2)
 ALIASES = {"x": ("twitter",)}  # other names a site list may use
 MAX_VIDEO_BYTES = 500 << 20  # one video
@@ -235,6 +239,8 @@ async def _youtube(client, url, since):
 
 async def _walled(client, url, since):
     k = site(url)
+    if k in WHY_NOT:
+        raise ValueError(WHY_NOT[k])
     raise ValueError(f"{NAMES.get(k, 'this site')} denies generic agents in its robots.txt or needs a login: Hunt doesn't read it "
                      "automatically. Open it in the Hunt Browser" + (", or add your own Apify key (Connect free keys) to fetch "
                                                                      "public posts through Apify" if k in ("instagram", "facebook") else ""))
