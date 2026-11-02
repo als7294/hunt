@@ -260,10 +260,41 @@ ADDRESSED = re.compile(rf"(?i:\b(?:love you|luv you|love ya|proud of you|miss yo
                        rf"\bproud of (?:my|mi)\s+(?:(?:little|lil|big|baby)\s+)?({_KIN})\b)")
 
 
-def _at_address(name: str, kin: bool, src: str) -> tuple[str | None, str]:
-    """How someone a held record puts at the subject's address is shown: (name, label). Named in the app, by Aaron's
-    decision of 2026-11-01 (legal.md); the report says only "a public record lists them at the subject's address",
-    and the address itself is never shown anywhere (A2)."""
+# D25's limits: same-address names come only from government records (P5: never a people-search page), voter rolls
+# only from the states V1 allows; a New Jersey address (Daniel's Law covers an official's household) or a record
+# flagged ACP, exempt or confidential (V3) leaves the person unnamed, in the app too.
+VOTER_STATES = {"FL", "NC", "TX"}  # V1; OH once its statute is checked
+NOT_GOVERNMENT = {"activity"}  # OpenPowerlifting: published results, not a government record
+_PROTECTED = re.compile(r"\b(?:acp|address confidentiality|exempt|confidential|protected)\b", re.I)
+_STATE_NAMES = {"new jersey": "NJ", "florida": "FL", "north carolina": "NC", "texas": "TX", "ohio": "OH"}
+
+
+def _state(attrs: dict) -> str | None:
+    """A record's US state, from `state`, or the last "ST" or "ST 12345" in its address or location."""
+    if (st := str(attrs.get("state") or "").strip()) and len(st) == 2:
+        return st.upper()
+    for text in (attrs.get("address"), attrs.get("location"), st):
+        t = str(text or "")
+        if m := re.search(r"\b([A-Z]{2})(?:\s+\d{5}(?:-\d{4})?)?\s*$", t.strip()):
+            return m[1]
+        if s := next((v for k, v in _STATE_NAMES.items() if k in t.lower()), None):
+            return s
+    return None
+
+
+def _protected(attrs: dict) -> bool:
+    """A record marking its person as an Address Confidentiality Program participant, exempt or confidential."""
+    return any(attrs.get(k) for k in ("acp", "exempt", "confidential", "protected")) or \
+        bool(_PROTECTED.search(str(attrs.get("status") or "")))
+
+
+def _at_address(name: str, kin: bool, src: str, withheld: bool = False) -> tuple[str | None, str]:
+    """How someone a held record puts at the subject's address is shown: (name or None, label). Named in the app by
+    Aaron's decision of 2026-11-01 (legal.md, D25), unless `withheld` (a New Jersey address, or an ACP or exempt
+    flag). The report says only "a public record lists them at the subject's address"; the address is never shown
+    anywhere (A2), and no export carries these labels."""
+    if withheld:
+        return None, f"a record lists {'someone with the subject’s surname' if kin else 'someone'} at the subject’s address ({src})"
     return name, f"possible relative (same address in {src})" if kin else f"possible household member (same address in {src})"
 
 
@@ -343,7 +374,7 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
     raw, hide = [], set()  # every mention; every name tied to a possible minor, as written
     post_day, post_events = {}, {}  # E-id → the post's date; → the family-event words in it
 
-    def add(name, words, how, role, minor, confidence, kind, ref, url, quote):
+    def add(name, words, how, role, minor, confidence, kind, ref, url, quote, key=None):
         if (m := AGE_MINOR.search(quote)) and int(next(g for g in m.groups() if g)) < 18 and how not in ("co-party", "co-officer"):
             minor = True
         if name and _norm(name) in me:
@@ -351,7 +382,7 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
         if minor and name:
             hide.add(name)
         raw.append({"name": name, "words": words, "how": how, "role": role, "minor": minor, "confidence": confidence,
-                    "kind": kind, "ref": ref, "url": url, "quote": quote.strip()[:240]})
+                    "kind": kind, "ref": ref, "url": url, "quote": quote.strip()[:240], "key": key})  # key: an unnamed one
 
     def relations(text, kind, ref, url, named_conf, unnamed_conf):
         for m in REL_HANDLE.finditer(text):  # "my dad @victor.vell"
@@ -433,10 +464,13 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
     firms = {_firm(c["attrs"]) for c in held if id(c) in own} - {None}
 
     def at_address(c, n, src):
+        found = set(c.get("found_by") or ())
+        if not found - NOT_GOVERNMENT or "voter" in found and _state(c["attrs"]) not in VOTER_STATES:
+            return  # D25: government records only, and voter rolls only from the states V1 allows
         kin = bool(w := _person(n)[0]) and w[-1] in surnames
-        name, label = _at_address(_shown(n), kin, src)
+        name, label = _at_address(_shown(n), kin, src, withheld=_state(c["attrs"]) == "NJ" or _protected(c["attrs"]))
         add(name, label, "same address", "relative" if kin else "household", False, 0.5 if kin else 0.3, "record",
-            c["url"], c["url"], src)
+            c["url"], c["url"], src, key=None if name else f"address:{_norm(n)}")
 
     for c in held:
         a, theirs = c["attrs"], id(c) not in own
@@ -466,7 +500,7 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
     for r in raw:
         n = _norm(r["name"]) if r["name"] else ""
         minor = r["minor"] or bool(n and (n in hidden or n.split()[0] in hidden))
-        key = (f"minor:{n.split()[0]}" if n else f"minor:role:{r['role']}") if minor else n or f"role:{r['role']}"
+        key = (f"minor:{n.split()[0]}" if n else f"minor:role:{r['role']}") if minor else n or r["key"] or f"role:{r['role']}"
         p = people.setdefault(key, {"name": None if minor else r["name"], "minor": minor, "labels": [], "types": [],
                                     "confidence": 0.0, "cites": [], "kinds": []})
         label = "a child" if minor else r["words"] or r["how"]

@@ -146,6 +146,38 @@ for leak in ("Alder", "Depot", "Gulf Breeze", "Pia Vell", "Kim Vell", "Pim Hart"
     assert leak not in dump, leak
 assert all(p["cites"] and all("confidence" in c and (c["quote"] or c["url"]) for c in p["cites"]) for p in r["people"])
 
+# D25's limits: government records only (P5), voter rolls only from V1's states, and a New Jersey address (Daniel's
+# Law) or an ACP, exempt or confidential flag leaves the person unnamed, in the app too
+limits = [cands[0], rec("licences", "New Jersey licence", 20, 0.95, fullname="DORIAN VELL", address="5 Elm St",
+                        location="Newark, NJ", issued="2020-01-02"),
+          rec("courts", "Essex County court", 25, 0.2, fullname="Rosa Vell", address="5 Elm St, Newark, NJ 07102",
+              filed="2024-06-01"),
+          rec("licences", "New Jersey licence", 26, 0.2, fullname="Ivo Kane", address="5 Elm St", location="Newark, NJ",
+              issued="2022-03-03"),
+          rec("voter", "New Jersey voter roll", 27, 0.95, fullname="DORIAN VELL", address="5 Elm St, Newark, NJ 07102",
+              location="Newark, NJ", household=["Nell Vell"]),                                   # not a V1 state: never
+          rec("voter", "Pennsylvania voter roll", 21, 0.95, fullname="DORIAN VELL", address="3 Oak St, Erie, PA 16501",
+              location="Erie, PA", household=["Wes Vell"]),                                      # PA: never (V1)
+          rec("licences", "Arizona ROC licence", 22, 0.95, fullname="DORIAN VELL", address="9 Fir Ct", location="Mesa, AZ"),
+          rec("courts", "Maricopa County court", 23, 0.2, fullname="Lia Vell", address="9 Fir Ct, Mesa, AZ",
+              status="ACP participant"),                                                       # flagged: unnamed
+          rec("activity", "OpenPowerlifting", 24, 0.2, fullname="Max Vell", address="9 Fir Ct", location="Mesa, AZ")]
+lim = graph.associates([], limits, subject, case_key="vell")
+dump_ = json.dumps(lim)
+for leak in ("Rosa", "Ivo", "Kane", "Nell", "Wes", "Lia", "Max", "Elm St", "Fir Ct"):
+    assert leak not in dump_, leak
+labels_ = sorted(p["labels"][0] for p in lim["people"])
+assert labels_ == ["a record lists someone at the subject’s address (New Jersey licence, 2022-03-03)",
+                   "a record lists someone with the subject’s surname at the subject’s address (Essex County court, 2024-06-01)",
+                   "a record lists someone with the subject’s surname at the subject’s address (Maricopa County court)"], labels_
+assert all(p["name"] is None and p["types"] == ["same address"] for p in lim["people"])
+assert graph._state({"address": "1 Main St, Trenton, New Jersey"}) == "NJ" and graph._protected({"exempt": True})
+
+# A "possible relative" is never identity evidence: nothing that scores accounts reads associates() or its labels
+for mod in ("match", "entity", "search", "pivot"):
+    src = open(f"hunt/{mod}.py", encoding="utf-8").read()
+    assert "associates(" not in src and "possible relative" not in src and "household member" not in src, mod
+
 # Facebook keeps who a post's header tags, for the counts above
 assert fb_parser._with("is with Mara Quill and 2 others at Iron Harbor Gym.") == "Mara Quill and 2 others"
 assert fb_parser._with(" — with Rafa Ortiz and Kim Vell.") == "Rafa Ortiz and Kim Vell" and fb_parser._with("is at Iron Harbor Gym.") is None
@@ -187,6 +219,18 @@ assert not any("Alder" in s or "Gulf" in s for s in said(""))  # never an addres
 assert "possible relative" not in json.dumps(said("")) and "household" not in json.dumps(said(""))  # app only (D7 as amended)
 assert said("?screening=1") == ["This screening version leaves out the people around the subject."]
 assert "Ana Brook" not in c.get(f"/api/cases/{claim}/report?screening=1").text
+# D25: the labels stay in the app; no export carries them (report, evidence bundle with its CSVs, case file)
+assert any("possible relative" in json.dumps(p["labels"]) for p in people)
+for path in ("report.json", "report.html", "case.json", "evidence.zip"):
+    got = c.get(f"/api/cases/{claim}/{path}")
+    assert got.status_code == 200, (path, got.text[:200])
+    body = got.content
+    if path.endswith(".zip"):
+        import io
+        import zipfile
+        with zipfile.ZipFile(io.BytesIO(body)) as z:
+            body = b"".join(z.read(n) for n in z.namelist())
+    assert b"possible relative" not in body and b"possible household member" not in body, path
 check = case("Vell check", "background")
 assert c.get(f"/api/cases/{check}/people").json() == {"notice": server.NOT_IN_SCREENING, "people": []}
 print("ok")
