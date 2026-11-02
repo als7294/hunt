@@ -7,14 +7,10 @@ What Hunt does, release by release, in an investigator's words. How to use each 
 Changes since 0.1.0: what's new, then what the compliance audit and the decisions in [Hunt's rules](docs/research/legal.md#decisions-provisional-2026-10-30) changed. Those decisions are provisional, and Aaron may overrule them.
 
 ### Added
-- **Search for yourself.** Describe yourself once on **About you** (`hunt me`). Hunt reads it on your Mac and locks it there, encrypted, with its key in your Keychain. Tick **This is me** when you open a case, and every account is checked against your description, so yours stand out from everyone who shares your name.
-  - **Nothing in it is searched or sent anywhere.** A search starts only from what you type into the case.
-  - **Shown once,** right after you lock it. After that Hunt shows only its date, its fingerprint and how many names, places and so on it holds. **Add** to it any time without writing it again.
-  - **Common words count for less:** a word that many of the accounts found also say (a home state, a hobby) weighs less than a rare one.
-  - **`hunt doctor` checks it still opens:** its key is in the Keychain and it matches its fingerprint. Nothing it says is shown.
 - **More to search.** After a search, Hunt lists the usernames, emails and sites found on the accounts that look like the person, all ticked. **Search the ticked** searches them; nothing is searched before you press it.
-  - A display name that looks like a handle ("JRBakes91") counts as a username.
+  - A display name that looks like a handle ("JRBakes91") is a username lead, and counts as evidence when it's another username the subject uses.
   - Accounts found under a rare username are followed too. Their leads come after the likely accounts' leads, marked "not yet confirmed".
+- **Possibly theirs,** on **Is it them?**: accounts that fall short of "likely" but aren't ruled out, grouped by the handle they share, each with a one-line reason, for you to mark theirs or not.
 - **Claim vs evidence.** Once a claim states restrictions, the Posts step opens on each one set against what came after the injury:
   - the leads, most confident first, to keep or set aside
   - a timeline of posts, records and events around the injury date
@@ -39,7 +35,10 @@ Changes since 0.1.0: what's new, then what the compliance audit and the decision
   - The report's web page stays readable under a dark theme, and says "1 item was kept" in the singular.
   - Narrow windows fit: the top bar wraps, and wide tables scroll inside the report.
   - Leaving the start screen early no longer shows an error.
-- **For developers:** `scripts/train_find.py` measures how far a search for yourself gets from a few details, following the leads round by round. It's scored against your locked description and prints nothing from it.
+- **For developers, training Hunt on yourself:** `scripts/train_find.py` searches a developer from a few details, following the leads round by round, and grades what it finds against an answer key they wrote once on **About you** (`hunt me`).
+  - **The answer key only grades.** It never changes how a case is scored or worded, and nothing in it is searched or sent.
+  - **Locked on the Mac:** encrypted, with its key in the Keychain. It's shown once, and afterwards only as a fingerprint and counts.
+  - **`hunt doctor` checks it still opens:** its key is in the Keychain and it matches its fingerprint. Nothing it says is shown.
 
 ### Changed
 - **Facebook is read one profile at a time,** only when you click **Read public preview**, never as part of a batch search.

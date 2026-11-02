@@ -214,31 +214,6 @@ Hunt grades how likely each account is to be the subject's. It uses the wording 
   - Both Macs log the move with the same fingerprints.
   - Send the passphrase separately from the file.
 
-### Search for yourself
-
-To see what's public about you, describe yourself once on **About you**. Run `hunt me` to open it, or use the link under the new-case form. Write in your own words, up to 8,000 characters: places you've lived, schools, jobs, the names and usernames you go by, the year you were born, and what you post about.
-
-- **What's stored:**
-  - your description
-  - what Hunt read from it: names, usernames, emails, phones, sites, places, employers, schools, lines of work, interests, other names, and your birth date, birth year or age
-  - **How it's read:** on your Mac, by Hunt's own rules and by the local model (Ollama, if it's running). A name, place or job that isn't in your description is dropped.
-- **Where:** one file, `~/Hunt/me.locked`. It's kept apart from your cases, so a packed case or an evidence bundle never carries it.
-- **How it's locked:**
-  - **Encrypted** (AES-256), with a random key kept in your login Keychain as "Hunt profile".
-  - **Only your account can read the file,** and Time Machine leaves it out of backups.
-  - **A fingerprint (SHA-256) catches any change made outside Hunt.** `hunt doctor` checks that the file still opens.
-  - **It won't open on another Mac,** since the key stays in this Mac's Keychain. Write it again there.
-- **Shown once:** right after you lock it, Hunt shows what it read so you can check it. After that it shows only the date, the fingerprint and how many of each kind it holds. **Add** puts more in without your writing it all again. **Write it again** replaces it.
-- **Using it:**
-  - Tick **This is me** when you open a case, or press **Search for yourself** on About you.
-  - Hunt checks every account it finds against your description, so yours stand out from everyone who shares your name, and the screens ask "Is this you?".
-  - The case's log records the description's fingerprint, never what it says.
-- **Never searched or sent:**
-  - A search starts only from what you type into the case.
-  - Nothing in your description is searched, sent to a site, or sent to OpenStreetMap: your places are compared on your Mac.
-  - One thing does show: a reason can quote a word that's both in an account and in your description, for example "mentions 'Lumen Bakery', a job in your description". It shows on screen and in the report.
-- **To remove it,** move `~/Hunt/me.locked` to the Trash. The key can be deleted in Keychain Access.
-
 ## 7. Handing over the evidence
 
 **The evidence bundle,** on the Report screen, is a `.zip` for your client, counsel or the court. It contains:
@@ -285,7 +260,7 @@ The reasoning, with sources, is in [legal.md](research/legal.md). It's engineeri
 - **Where everything lives:** your Mac, in `~/Hunt`:
   - each case in its own folder, with its log and its evidence named by fingerprint
   - the Hunt Browser's profile, holding your logins
-  - your description on About you, if you wrote one (`me.locked`, encrypted; section 6)
+  - the training answer key from About you, if a developer wrote one (`me.locked`, encrypted; section 11)
 - **What leaves your Mac:**
   - the requests to the sites and public records being checked, and to TikTok's and YouTube's public pages (through your proxy, if you set one)
   - place names, never people's names, sent to OpenStreetMap to compare locations
@@ -314,3 +289,32 @@ The reasoning, with sources, is in [legal.md](research/legal.md). It's engineeri
 It leaves the vision model and the browser in place, since other apps may share them, and tells you how to remove them.
 
 If you use a **proxy**, after setting or changing it run `hunt setup --launcher` and turn background watching off and on again. Both remember the proxy as it was when they were made.
+
+## 11. For developers: training Hunt on yourself
+
+To measure how well Hunt finds a real person, a developer can train it on themselves, against an answer key only they hold. **The answer key only grades the results.** Hunt searches as it would for any subject, with its normal scoring, and the key never changes how any case is scored or worded.
+
+1. **Write the answer key** once on **About you** (`hunt me`). Describe yourself in your own words, up to 8,000 characters: the names and usernames you go by, emails, phones, sites, places you've lived, schools and jobs.
+2. **Run the training**, giving it a few details as you'd type them into a case:
+
+```bash
+uv run python scripts/train_find.py "Your Name" "location: Your State" --rounds 2
+```
+
+- **How it runs:** Hunt searches those details, then follows the leads its likely accounts give, as **Search the ticked** does. It repeats that round after round (`--rounds`, 2 by default).
+- **Each round prints:**
+  - what was searched
+  - every account rated "likely" or better, ticking those that carry one of the answer key's own usernames, emails, phones or sites
+- **At the end** it lists the accounts that carry them but were rated below "likely": the ones Hunt missed.
+- **The case:** it opens a case named "train …" in `~/Hunt`. Delete it when you're done.
+
+**What's stored, and how it's locked:**
+- **Where:** one file, `~/Hunt/me.locked`, kept apart from every case. A case, a packed case, a report or an evidence bundle never carries it.
+- **What:** the description, and what Hunt read from it on this Mac. It's read by Hunt's own rules and the local model, keeping only what the description says.
+- **Encrypted** (AES-256), with a random key in the login Keychain as "Hunt profile".
+  - Only your macOS account can read the file, and Time Machine leaves it out of backups.
+  - It won't open on another Mac.
+- **A fingerprint (SHA-256) catches any change made outside Hunt.** `hunt doctor` checks that the file still opens.
+- **Shown once:** right after you lock it, About you shows what it read. After that it shows only the date, the fingerprint and how many of each kind it holds. **Add** puts more in; **Write it again** replaces it.
+- **Never searched or sent:** nothing in it is searched, geocoded or sent anywhere, and `train_find.py` prints nothing from it. A search starts only from the details you give.
+- **To remove it,** move `~/Hunt/me.locked` to the Trash and delete the "Hunt profile" key in Keychain Access.

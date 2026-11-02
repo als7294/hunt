@@ -75,7 +75,6 @@ flowchart LR
 - **"Have we seen this person before?"** across your cases.
 - **Move a case between Macs** in one encrypted, hash-checked archive.
 - **People around the subject:** names and quotes from the subject's own posts, bios and records. Never searched, never contacted, children never named.
-- **Search for yourself:** describe yourself once, locked on your Mac, and Hunt picks your accounts out from everyone who shares your name. Nothing in it is searched or sent.
 
 More in [docs/qol.md](docs/qol.md).
 
@@ -174,6 +173,8 @@ Every hit is scored against everything the case knows, Fellegi–Sunter style. E
 ```bash
 for t in test_*.py; do uv run python "$t"; done
 ```
+
+**Training on yourself:** `scripts/train_find.py` searches a developer from a few details and grades what it finds against an answer key locked on their Mac (`hunt me`). See the [user guide](docs/user-guide.md#11-for-developers-training-hunt-on-yourself).
 
 ## Credits
 

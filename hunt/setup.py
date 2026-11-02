@@ -103,7 +103,7 @@ def doctor() -> list[dict]:
     row("launcher", "Hunt in Applications", LAUNCHER.exists(), str(LAUNCHER), "hunt setup")
     profile._cache = None  # a fresh look at the file and the Keychain, not what this process unlocked earlier
     if (me := profile.status())["exists"]:  # About you: it must open here; nothing it says is ever shown
-        row("me", "About you (your locked description)", me.get("fingerprint"),
+        row("me", "About you (the training answer key)", me.get("fingerprint"),
             f"opens; fingerprint {me['fingerprint']}" if me.get("fingerprint") else me["error"],
             "Write it again on About you (hunt me): it replaces the one that won't open")
     return rows
