@@ -97,6 +97,12 @@ def suggestions(report: dict, min_p: float = LIKELY) -> list[dict]:
                 why = f"{c['site']} ({c.get('verdict', 'likely')}) {f['how']}" + \
                     ("" if sure else "; from an account that shares a rare username, not yet confirmed")
                 best[key] = (rank, {"value": f["value"], "kind": f["kind"], "source_url": c["url"], "why": why})
+    # Published on a site the subject runs, or in its RDAP record (emails.collect): an address shown, never guessed
+    accounts = {match.norm_url(c["url"]): c for c in report.get("candidates", [])}
+    for e in report.get("published_emails", []):
+        c = accounts.get(match.norm_url(e["from_url"]))
+        if e["value"] not in have and e["value"] not in best and not (c and c.get("decision") == "not him"):
+            best[e["value"]] = (1, {"value": e["value"], "kind": "email", "source_url": e["source_url"], "why": e["why"]})
     return [s for _, s in sorted(best.values(), key=lambda r: r[0])]
 
 

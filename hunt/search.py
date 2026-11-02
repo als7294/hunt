@@ -17,7 +17,7 @@ from dataclasses import asdict
 import httpx
 from PIL import Image
 
-from . import entity, browser, geo, match, photo
+from . import emails, entity, browser, enrich, geo, match, photo
 from .capture import screenshots
 from .case import Case
 from .seed import Seed, now
@@ -46,6 +46,7 @@ async def run(case: Case, seeds: list[Seed], emit, capture: bool = True, pause: 
     case.audit("search", {"seeds": [asdict(s) for s in seeds]})
     await step("asking")
     await fan_out(case, seeds, emit)
+    await enrich.run(case, build(case)["candidates"], emit)  # the handle hits' own pages: a name, a picture, a bio
     await step("finding")
 
     def tell(candidates):
@@ -61,6 +62,7 @@ async def run(case: Case, seeds: list[Seed], emit, capture: bool = True, pause: 
     await step("checking")
     await avatars(case, report, emit)
     await compare_faces(case, build(case, places), emit)
+    await emails.collect(case, build(case, places), emit)  # what the sites they run publish: leads, never searched unticked
     if capture:
         async with HEAVY:
             await screenshot(case, build(case, places), emit)
@@ -89,6 +91,8 @@ async def fan_out(case: Case, seeds: list[Seed], emit):
         held = f"Facebook is stopped: {stopped['Facebook']['reason']}" if source.NAME == "facebook" and "Facebook" in stopped else None
         if source.NAME == "voter" and background:
             held = "a background case never uses voter data (legal.md V4)"
+        if getattr(source, "FAMILY", False) and background:
+            held = "a background case never collects relatives (legal.md A8)"
         for seed in mine:
             if held:
                 done(source, seed, "skipped", [], 0, held)
@@ -283,6 +287,7 @@ def build(case: Case, places: dict | None = None) -> dict:
         "candidates": candidates,
         "attributes": attributes,
         "pivots": pivots,
+        "published_emails": emails.stored(case),
         "decision": decided.get("", {}).get("decision"),
         "photos": [{"file": r["name"], "at": r["ts"], "evidence": r["evidence"], **json.loads(r["analysis"])}
                    for r in case.rows("select * from photos order by id")],

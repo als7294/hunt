@@ -301,6 +301,17 @@ def _at_address(name: str, kin: bool, src: str, withheld: bool = False) -> tuple
     return name, f"possible relative (same address in {src})" if kin else f"possible household member (same address in {src})"
 
 
+def _matched(c: dict) -> bool:
+    """Has a record matched the subject by name plus place or date (D25's rule before its family is used)? She
+    confirmed it, or the matcher found the name and a place or date agreeing (a place it capped still agreed)."""
+    if c.get("decision") in ("him", "not him"):
+        return c["decision"] == "him"
+    pairs = list(zip(c.get("tags") or [], c.get("reasons") or []))
+    agrees = lambda t: any(tag == t and (str(r).startswith("+") and not str(r).startswith("+0.0") or "capped, a place" in str(r))
+                           for tag, r in pairs)
+    return agrees("name") and (agrees("place") or agrees("dob"))
+
+
 def _months(days: list[str]) -> str:
     """'Mar 2025–Oct 2026' from sorted ISO dates; one month alone; '' without dates."""
     ms = list(dict.fromkeys(date.fromisoformat(d).strftime("%b %Y") for d in (days[0], days[-1]))) if days else []
@@ -492,6 +503,13 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
             for n in a.get("household") or []:
                 if not _is_subject(n, me):
                     at_address(c, n, f"{c['site']}, {a['data_date']}" if a.get("data_date") else src)
+    for c in candidates:  # the family a matched record lists or names (Find a Grave, The Knot), as it words them
+        if isinstance(rels := c["attrs"].get("relatives"), list) and _matched(c):
+            for x in (x for x in rels if isinstance(x, dict) and x.get("relation")):
+                minor = bool(x.get("minor")) or x["relation"] in ("child", "grandchild") and not x.get("name")
+                add(None if minor else x.get("name"), f"{x.get('how') or x['relation']} ({c['site']})", "family record",
+                    x["relation"], minor, 0.9 if "listed under" in str(x.get("how")) else 0.8, "family record", c["url"],
+                    c["url"], x.get("quote") or "")
     nj = any(_state({"address": s.value}) == "NJ" for s in subject if s.kind in ("address", "location")) or \
         any(_state(c["attrs"]) == "NJ" for c in held if id(c) in own)  # Daniel's Law: no co-tag relatives (D25)
     for row in photo_labels:  # the investigator's own marking: same label in several kept photos = one person
@@ -552,7 +570,7 @@ def _associates(posts: list[dict], candidates: list[dict], subject: list, photo_
                                    + (f": {', '.join(said)})" if said else ")"))
             p["kinds"].append("relative")
     for p in people.values():  # a shared surname, where nothing else says how they're related: a possible relative in
-        if p["name"] and p["name"].split()[-1].lower() in surnames and not {"named", "same address"} & set(p["types"]):
+        if p["name"] and p["name"].split()[-1].lower() in surnames and not {"named", "same address", "family record"} & set(p["types"]):
             p["labels"].append("shares the surname")  # the app, never in the report (Aaron's decision of 2026-11-01,
             p["types"].append("shares the surname")  # legal.md)
             p["kinds"].append("relative")
