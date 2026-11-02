@@ -100,7 +100,7 @@ RAW_TUCSON = {"lat": "32.2228765", "lon": "-110.9748470", "place_rank": 16, "imp
               "boundingbox": ["31.9904069", "32.3209098", "-111.0582298", "-110.7082060"],
               "address": {"city": "Tucson", "ISO3166-2-lvl4": "US-AZ", "country_code": "us"}}
 NOMINATIM = {
-    "tucson, az": [RAW_TUCSON],
+    "tucson": [RAW_TUCSON],
     "europe": [hit("Europe", None, None, 2, 0.8)],
     "washington": [hit("Washington, District of Columbia, United States", "us", "US-DC", 16, 0.815, 38.895, -77.036),
                    hit("Washington, United States", "us", "US-WA", 8, 0.764, 47.287, -120.213, 3),
@@ -113,7 +113,6 @@ NOMINATIM = {
               hit("Paris, Ile-de-France, Metropolitan France, France", "fr", "FR-IDF", 15, 0.897, 48.86, 2.35),
               hit("Paris, Lamar County, Texas, United States", "us", "US-TX", 16, 0.53)],
     "worldwide": [hit("Worldwide, 117, Bondi Road, Bondi, Sydney, Australia", "au", "AU-NSW", 30, 0.0)],
-    "washington, dc": [hit("Washington, District of Columbia, United States", "us", "US-DC", 16, 0.815, 38.895, -77.036)],
     "1600 pennsylvania avenue nw, washington, dc": [  # never asked any more: only the town leaves the machine
         hit("White House, 1600, Pennsylvania Avenue Northwest, Washington, United States", "us", "US-DC", 30, 0.696)],
     "middle of nowhere, az": [hit("Middle of Nowhere, Whistler, British Columbia, Canada", "ca", "CA-BC", 27, 0.04)],
@@ -130,13 +129,13 @@ async def fake_fetch(client, query):
 geo._fetch = fake_fetch
 
 # Cache: every query is sent once, "no such place" included, and survives a restart
-r = asyncio.run(geo.locate(["Tucson, AZ", "Pale Blue Dot", "  tucson,  AZ ", "Europe", "", "Earth"]))
-assert r["Tucson, AZ"] == Place("Tucson, AZ", 32.2228765, -110.974847, "us", "US-AZ", 16,
-                                "Tucson, Pima County, Arizona, United States", r["Tucson, AZ"].size_km), r
-assert 45 < r["Tucson, AZ"].size_km < 55, r  # bounding-box diagonal
-assert r["  tucson,  AZ "].lat == r["Tucson, AZ"].lat  # case and spacing don't cost a second query
+r = asyncio.run(geo.locate(["Tucson", "Pale Blue Dot", "  TUCSON ", "Europe", "", "Earth"]))
+assert r["Tucson"] == Place("Tucson", 32.2228765, -110.974847, "us", "US-AZ", 16,
+                            "Tucson, Pima County, Arizona, United States", r["Tucson"].size_km), r
+assert 45 < r["Tucson"].size_km < 55, r  # bounding-box diagonal
+assert r["  TUCSON "].lat == r["Tucson"].lat  # case and spacing don't cost a second query
 assert r["Pale Blue Dot"] is r["Europe"] is r[""] is r["Earth"] is None  # nothing / continent / blank / joke
-assert calls == ["tucson, az", "pale blue dot", "europe"], calls  # blank and joke never leave the machine
+assert calls == ["tucson", "pale blue dot", "europe"], calls  # blank and joke never leave the machine
 
 # Choosing among hits
 SEATTLE = Place("Seattle", 47.606, -122.332, "us", "US-WA", 16, "Seattle, King County, Washington, United States")
@@ -151,15 +150,39 @@ assert r["Vegas"].region == "US-NV", r["Vegas"]  # the most important hit, not N
 assert r["Paris"].region == "FR-IDF" and compare(r["Paris"], r["Paris"])[0] == "same area"  # rank 12 but city-sized
 assert r["Worldwide"] is None  # a shop called Worldwide is not a location
 assert r["Middle of nowhere, AZ"].region == "US-AZ", r  # a road in Canada rejected, then the part after the comma
-white_house = r["1600 Pennsylvania Avenue NW, Washington, DC"]  # a street address is placed by its town
-assert (white_house.region, white_house.rank) == ("US-DC", 16) and "1600 pennsylvania avenue nw, washington, dc" not in calls
+white_house = r["1600 Pennsylvania Avenue NW, Washington, DC"]  # a street address is placed by its town, here offline
+assert (white_house.region, white_house.rank) == ("US-DC", 16) and not {"1600 pennsylvania avenue nw, washington, dc",
+                                                                         "washington, dc"} & set(calls), calls
+
+# A US 'town, ST' is answered on this Mac from GeoNames (the table reverse_geocoder ships), into the same cache
+n = len(calls)
+towns = ["Tampa, FL", "St. Petersburg, Florida, USA", "9 Oak Ave, Apt 4, Tampa, FL 33601", "Ft Lauderdale, FL",
+         "New York, NY", "The Bronx, NY", "Lafayette, LA", "Springfield, IL"]
+asked = ["Springfield", "Georgetown, GA", "London, CA", "Morrison, CO"]
+r = asyncio.run(geo.locate(towns + asked))
+tampa = r["Tampa, FL"]
+assert (tampa.country_code, tampa.region, tampa.rank, round(tampa.size_km)) == ("us", "US-FL", 16, geo.TOWN_KM), tampa
+assert tampa.label == "Tampa, Hillsborough County, Florida, United States" and 27.9 < tampa.lat < 28.0, tampa
+assert compare(tampa, r["St. Petersburg, Florida, USA"])[0] == "same area" and r["9 Oak Ave, Apt 4, Tampa, FL 33601"].lat == tampa.lat
+assert r["Ft Lauderdale, FL"].label.startswith("Fort Lauderdale,") and r["New York, NY"].label.startswith("New York City,")
+assert [r[t].region for t in towns[4:]] == ["US-NY", "US-NY", "US-LA", "US-IL"]  # after a town, LA is Louisiana
+assert geo._load()["tampa, fl"][0]["source"] == "GeoNames"  # cached like an answer, so search.py's progress counts it
+# Not sent: every town above. Sent: no state, two Georgetowns in Georgia, CA also Canada (London, Ontario),
+# a village under 1,000 people that the table hasn't got. (The fake knows none of them, so each falls back to its state.)
+assert calls[n:] == ["springfield", "georgetown, ga", "georgia, united states", "london, ca", "california, united states",
+                     "morrison, co", "colorado, united states"], calls[n:]
+assert geo._local("tampa, fl") and geo._local("tampa") is geo._local("perth, wa") is geo._local("berlin, de") is None
+towns_table, geo._towns = geo._towns, {}  # no reverse_geocoder: everything goes to Nominatim, as before
+assert geo._local("tampa, fl") is None
+geo._towns = towns_table
 
 n = len(calls)
-asyncio.run(geo.locate(["Tucson, AZ", "Pale Blue Dot", "Washington"]))
+asyncio.run(geo.locate(["Tucson", "Pale Blue Dot", "Washington", "Tampa, FL"]))
 assert len(calls) == n, calls  # from memory
 geo._cache = None
-r = asyncio.run(geo.locate(["Tucson, AZ", "Pale Blue Dot", "Washington"]))
-assert len(calls) == n and r["Tucson, AZ"].region == "US-AZ" and r["Pale Blue Dot"] is None, (calls, r)  # from disk
+r = asyncio.run(geo.locate(["Tucson", "Pale Blue Dot", "Washington", "Tampa, FL"]))
+assert len(calls) == n and r["Tucson"].region == "US-AZ" and r["Pale Blue Dot"] is None, (calls, r)  # from disk
+assert r["Tampa, FL"] == tampa
 assert r["Washington"] == wa
 
 async def offline(client, query):
@@ -167,8 +190,9 @@ async def offline(client, query):
     raise httpx.ConnectError("offline")
 
 geo._fetch = offline
-assert asyncio.run(geo.locate(["Leeds", "Denver", "Tucson, AZ"])) == {"Leeds": None, "Denver": None,
-                                                                      "Tucson, AZ": r["Tucson, AZ"]}
+assert asyncio.run(geo.locate(["Leeds", "Denver", "Tucson", "Boise, ID"])) == {
+    "Leeds": None, "Denver": None, "Tucson": r["Tucson"],
+    "Boise, ID": geo._place("Boise, ID", "boise, id", geo._local("boise, id"))}  # with no network a US town is still placed
 assert calls[n:] == ["leeds"], calls  # stops at the first failure instead of waiting out every timeout
 assert "leeds" not in geo._load()  # errors aren't cached, so the next run retries
 print("ok")

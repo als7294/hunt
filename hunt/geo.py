@@ -1,16 +1,23 @@
 """Free-text place strings → coordinates, so 'Phoenix' and 'Scottsdale, AZ' can be compared.
 
-What leaves the machine: place names, sent to OpenStreetMap's public Nominatim
-(nominatim.openstreetmap.org, run by the OSM Foundation), through HUNT_PROXY if set:
-profiles' location fields as written, and for a street address (a public record's
-"123 Main St, Tampa, FL 33601") only its town and state, "tampa, fl". The street,
-house number, suite and ZIP code never leave the machine, and a street line with no
-town isn't sent at all. Each query is sent at most once: every answer, "no such
-place" included, is cached in ~/Hunt/cache/geocode.json, so records in the same town
-share one lookup. We follow the usage policy
-(operations.osmfoundation.org/policies/nominatim): at most 1 request/second, an
-identifying User-Agent, no bulk lists. Results are © OpenStreetMap contributors
-(ODbL): credit them wherever a Place's label is shown.
+What leaves the machine: nothing for a US town given with its state ("Tampa, FL",
+"St. Petersburg, Florida, USA", or the town of a public record's "123 Main St, Tampa,
+FL 33601"). Those are looked up on this Mac in GeoNames' cities1000 table, which the
+reverse_geocoder package ships (geonames.org, CC BY 4.0: credit GeoNames wherever such a
+Place's label is shown; its raw hit says "source": "GeoNames"). That was 258 of the 324
+place strings in a Florida training case. Everything else is a place name sent to
+OpenStreetMap's public Nominatim (nominatim.openstreetmap.org, run by the OSM
+Foundation), through HUNT_PROXY if set: a profile's location field as written, and for a
+street address the table can't place, only its town and state, "tampa, fl". A street,
+house number, suite or ZIP code never leaves the machine, and a street line with no town
+isn't sent at all. The table doesn't answer, and Nominatim is asked as before, for a town
+without a state ("Springfield"), a town under 1,000 people, two towns of one name in one
+state, or a state code that is also a country's ("London, CA"). Each query is sent at
+most once: every answer, "no such place" included, is cached in
+~/Hunt/cache/geocode.json, so records in the same town share one lookup. We follow the
+usage policy (operations.osmfoundation.org/policies/nominatim): at most 1
+request/second, an identifying User-Agent, no bulk lists. Nominatim's results are ©
+OpenStreetMap contributors (ODbL): credit them wherever a Place's label is shown.
 
 Profile location fields are often not places at all ('Earth', 'Worldwide', 'she/her')
 or are abbreviations Nominatim reads abroad ('AZ' → Azerbaijan), and either would
@@ -18,14 +25,16 @@ score a false conflict. Hence the alias table, the joke stoplist, the street/sho
 filter and the ambiguity check below. Ideas from carmen (github.com/mdredze/carmen-python,
 which geolocates Twitter profile locations) and mordecai3 (github.com/ahalterman/mordecai3).
 
-ponytail: online public Nominatim. Offline upgrade: point URL at a self-hosted
-Nominatim, or look names up in a local GeoNames cities500 table, and nothing leaves
-the machine.
+ponytail: offline only for US towns. Upgrade: other countries' towns from the same table
+(their admin1 names would need ISO 3166-2 codes), or point URL at a self-hosted
+Nominatim, and nothing leaves the machine.
 """
 
 import asyncio
 import contextlib
+import csv
 import dataclasses
+import importlib.util
 import json
 import math
 import os
@@ -113,6 +122,11 @@ async def locate(texts: list[str]) -> dict[str, Place | None]:
     the investigator sees which place was meant.
     """
     cache, out, offline = _load(), {}, False
+    # US towns are answered from GeoNames on this Mac, into the same cache, so search.py's progress and
+    # cache-only reads see them. Only a first query can be a 'town, ST': the fallback has no comma.
+    if local := {qs[0]: hits for t in texts if (qs := _queries(t)) and qs[0] not in cache and (hits := _local(qs[0]))}:
+        cache |= local
+        _save()
     need = any(q not in cache for t in texts for q in _queries(t))
     async with (httpx.AsyncClient(timeout=10, headers={"User-Agent": UA}, proxy=os.environ.get("HUNT_PROXY"))
                 if need else contextlib.nullcontext()) as client:
@@ -187,6 +201,69 @@ def _town(text: str) -> str | None:
         return None
     parts = (ZIP.sub("", p).strip() for p in rest.split(","))
     return ", ".join(p for p in parts if p and not UNIT.match(p))
+
+
+TOWN_STATES = STATES | {"la": "louisiana"}  # after a town, LA is Louisiana
+CODES = {name: code.upper() for code, name in TOWN_STATES.items()}  # 'florida' → 'FL'
+USA = {"usa", "us", "u.s.", "u.s.a.", "united states", "united states of america"}
+TOWN_RANK = 16  # Nominatim's city rank: city-sized for compare()
+TOWN_KM = 15  # median bounding-box diagonal of Nominatim's 128 cached US towns, measured 2026-11-01
+# GeoNames cities1000: (name key, state name) → [(lat, lon, label)] for US towns, and (name key, country code) → []
+# for towns in a country whose code is also a state's: London, CA (Canada) or Berlin, DE (Germany).
+_towns: dict | None = None
+
+
+def _local(query: str) -> list[dict] | None:
+    """A US 'town, ST' answered from GeoNames' cities1000 table, which reverse_geocoder ships, as one
+    Nominatim-shaped hit. None, so that Nominatim is asked as before, when it isn't that shape, the town
+    isn't in the table, two towns of that name in that state are more than AREA_KM apart, or ST is
+    also the code of a country with a town of that name ('London, CA')."""
+    parts = [p for p in (p.strip() for p in query.split(",")) if p]
+    while len(parts) > 2 and parts[-1] in USA:
+        parts.pop()
+    if len(parts) != 2 or (state := TOWN_STATES.get(parts[1], parts[1])) not in CODES:
+        return None
+    towns, key = _table(), _key(parts[0])
+    rows = towns.get((key, state))
+    if not rows or (len(parts[1]) == 2 and (key, parts[1]) in towns) \
+            or any(_km(*rows[0][:2], *r[:2]) > AREA_KM for r in rows):
+        return None
+    (lat, lon, label), d = rows[0], TOWN_KM / 2 ** 1.5 / 111  # half the side of a square TOWN_KM corner to corner
+    dlon = d / math.cos(math.radians(lat))
+    return [{"lat": str(lat), "lon": str(lon), "place_rank": TOWN_RANK, "importance": 1.0, "display_name": label,
+             "boundingbox": [str(lat - d), str(lat + d), str(lon - dlon), str(lon + dlon)], "source": "GeoNames",
+             "address": {"country_code": "us", "ISO3166-2-lvl4": f"US-{CODES[state]}"}}]
+
+
+SHORT = {"saint": "st", "fort": "ft", "mount": "mt", "north": "n", "south": "s", "east": "e", "west": "w"}
+
+
+def _key(name: str) -> str:
+    """A town name to match on: accents, dots, hyphens and a leading 'The' dropped ('The Bronx'),
+    Saint/Fort/Mount/North… as St/Ft/Mt/N…, and New York City as New York."""
+    name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower().replace(".", " ").replace("-", " ")
+    words = name.removeprefix("the ").split()
+    return {"new york city": "new york"}.get(key := " ".join(SHORT.get(w, w) for w in words), key)
+
+
+def _table() -> dict:
+    global _towns
+    if _towns is None:
+        _towns = {}
+        try:  # found without importing reverse_geocoder, which loads scipy
+            spec = importlib.util.find_spec("reverse_geocoder")
+            with open(os.path.join(spec.submodule_search_locations[0], "rg_cities1000.csv"), newline="") as f:
+                for r in csv.DictReader(f):
+                    if r["cc"] == "US":
+                        name, state = ("Washington", "District of Columbia") if r["admin1"] == "Washington, D.C." \
+                            else (r["name"], r["admin1"])
+                        label = ", ".join(filter(None, [name, r["admin2"], state, "United States"]))
+                        _towns.setdefault((_key(name), state.lower()), []).append((float(r["lat"]), float(r["lon"]), label))
+                    elif (cc := r["cc"].lower()) in TOWN_STATES:
+                        _towns[_key(r["name"]), cc] = []
+        except (AttributeError, TypeError, OSError):
+            pass  # no table: every string goes to Nominatim
+    return _towns
 
 
 async def named(query: str, near: tuple[float, float, float] | None = None, country: str | None = None) -> list[dict]:
