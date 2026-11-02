@@ -3,6 +3,7 @@
 The feed is what Tumblr publishes for automated readers. The blog page itself and robots.txt answer 403 to a generic
 agent, so they aren't requested. A name with no blog gets Tumblr's "Checking your browser" wall, not a 404: that is a
 refusal like any other (legal.md C6), so Tumblr stops for the search there.
+socid_extractor reads Tumblr's theme page, which answers 403, and has no scheme for the feed.
 """
 
 import re
