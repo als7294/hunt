@@ -9,12 +9,12 @@ from hunt.sources import deviantart
 def page(about, stats=None):
     state = {"profileOwner": {"user": {"id": 1}, "stats": stats or {"joinDate": "2019-02-25T11:27:00-0800", "deviations": 12, "watchers": 30}},
              "@@gruser": {"grusers": {"1": {"modules": {"9": {"moduleData": {"about": about}}}}}}}
-    inner = json.dumps(json.dumps(state))[1:-1].replace("'", "\\'")  # as DeviantArt writes it: a JSON string inside JSON.parse
-    return f"<html><script>window.__INITIAL_STATE__ = JSON.parse(\"{inner}\");</script></html>"
+    inner = json.dumps(json.dumps(state, separators=(",", ":")))[1:-1].replace("'", "\\'")  # a JSON string inside JSON.parse
+    return f"<html><script>window.deviantART = {{}};window.__INITIAL_STATE__ = JSON.parse(\"{inner}\");</script></html>"
 
 
-ABOUT = {"username": "KVaneArt", "country": "United States", "countryId": 1, "tagline": "Sketches from the gym", "age": 34,
-         "dobYear": 1992, "dobMonth": 3, "dobDay": 2, "website": "", "gender": "female",
+ABOUT = {"username": "KVaneArt", "country": "United States", "countryId": 1, "age": 34, "dobYear": 1992, "dobMonth": 3, "dobDay": 2,
+         "deviantFor": 100000000, "website": "", "tagline": "Sketches from the gym", "twitterUsername": None, "gender": "female",
          "socialLinks": [{"value": "https://github.com/kestrel-vane"}], "mutualWatchedUsers": [{"username": "someone_else"}]}
 seen = serve(deviantart, {"deviantart.com/kvaneart": (200, page(ABOUT))})
 (f,), _, _ = run(deviantart, "KVaneArt")

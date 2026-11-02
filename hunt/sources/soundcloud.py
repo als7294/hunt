@@ -1,14 +1,12 @@
-"""SoundCloud: a username → the profile page (soundcloud.com/<name>), read from the data it carries
-(window.__sc_hydration → "user"): display and full name, city and country, description, picture, joined, counts.
-SoundCloud's API needs a client id from its web app, which Hunt doesn't borrow. robots.txt allows profile pages; a name
-nobody has answers 404.
+"""SoundCloud: a username → the profile page (soundcloud.com/<name>). socid_extractor reads its profile fields (full and
+display name, city and country, picture, description, joined, counts, verified); Hunt adds the track count from the
+page's own data (window.__sc_hydration → "user"). SoundCloud's API needs a client id from its web app, which Hunt doesn't
+borrow. robots.txt allows profile pages; a name nobody has answers 404.
 """
-
-import re
 
 from ..seed import Finding
 from ._api import client, tidy
-from ._page import get, handle, script_json
+from ._page import get, handle, known, script_json
 
 NAME = "soundcloud"
 KINDS = {"username"}
@@ -27,11 +25,12 @@ async def search(seed):
     if not u:
         return [], 1, f"no SoundCloud profile {h} ({ROBOTS})"
     permalink = u.get("permalink") or h.lower()
-    shown = u.get("full_name") or (u.get("username") if (u.get("username") or "").lower() != permalink else None)
-    avatar = u.get("avatar_url") or ""
-    attrs = {"fullname": shown, "location": ", ".join(x for x in (u.get("city"), u.get("country_code")) if x) or None,
-             "bio": u.get("description"), "image": None if re.search(r"default_avatar", avatar) else avatar or None,
-             "created_at": u.get("created_at"), "followers": u.get("followers_count"), "tracks": u.get("track_count"),
-             "verified": u.get("verified") or None, "last_update": u.get("last_modified")}
+    attrs = known(r.text)
+    shown = attrs.pop("username", None)  # SoundCloud's display name
+    attrs["fullname"] = attrs.get("fullname") or (shown if (shown or "").lower() != permalink else None)
+    attrs["location"] = ", ".join(x for x in (attrs.get("location"), attrs.pop("country", None)) if x) or None
+    attrs["tracks"] = u.get("track_count")
+    if "default_avatar" in str(attrs.get("image")):
+        attrs.pop("image")
     return [Finding(NAME, seed, "SoundCloud", f"https://soundcloud.com/{permalink}", tidy(attrs), body=r.text)], 1, \
         f"read soundcloud.com/{permalink} ({ROBOTS})"

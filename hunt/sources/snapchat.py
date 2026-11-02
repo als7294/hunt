@@ -4,6 +4,8 @@ The page carries its data as Next.js JSON (__NEXT_DATA__ → pageProps.userProfi
 businesses: name, bio, website, picture, subscribers, a business's address) or an ordinary user's card (display name and
 Bitmoji). The "related accounts" Snapchat suggests are other people's and are never kept (C13). robots.txt allows these
 pages; Snapchat's terms bar automated access, which decision D2 now reads past.
+socid_extractor's Snapchat scheme reads only the share preview (og tags folded into one bio), so the page data is
+parsed here.
 """
 
 from ..seed import Finding

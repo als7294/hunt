@@ -6,6 +6,7 @@ from hunt.sources import medium
 FEED = """<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel>
 <title><![CDATA[Stories by Kestrel Vane on Medium]]></title><description><![CDATA[Stories by Kestrel Vane on Medium]]></description>
 <link>https://medium.com/@KVane?source=rss-1------2</link><image><url>https://cdn.example/kv.png</url></image>
+<lastBuildDate>Mon, 02 Nov 2026 03:15:49 GMT</lastBuildDate>
 <item><title><![CDATA[Coming back from a back injury]]></title><link>https://medium.com/@KVane/back-1</link>
 <pubDate>Mon, 26 Oct 2026 10:00:00 GMT</pubDate><description><![CDATA[<p>Three months of rehab.</p>]]></description></item>
 </channel></rss>"""

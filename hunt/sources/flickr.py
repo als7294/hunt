@@ -2,6 +2,7 @@
 carries (modelExport): screen name, real name, location, buddy icon, joined, photo count, and the titles and links of the
 latest photos. Flickr's API needs a key; the page doesn't. robots.txt disallows /photos/ for generic agents; decision D2
 reads it logged out anyway (legal.md C6). A name nobody has answers 404.
+socid_extractor's Flickr scheme no longer matches the page (checked 2026-11-02), so modelExport is parsed here.
 """
 
 import json

@@ -4,6 +4,7 @@ old.reddit.com's own JSON for the user page: about.json (display name, bio, avat
 overview.json (the latest posts and comments, with the subreddit each went to, which often names a town or a hobby).
 robots.txt disallows these paths for generic agents; D2 reads them anyway, logged out, under Hunt's own name. Since
 2023 Reddit often answers a logged-out read with a login page or a 403: that ends Reddit for the search (Refused).
+socid_extractor's Reddit scheme reads www.reddit.com's page, which answers a generic agent 403.
 """
 
 from datetime import UTC, datetime

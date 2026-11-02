@@ -1,16 +1,17 @@
 """Telegram: a username → the public t.me page: a channel's preview with its latest posts, or a user's or group's card.
 
 t.me/s/<name> is Telegram's own web preview of a public channel (title, description, photo, counts, the latest posts with
-their dates). For a user, a bot or a group, Telegram redirects to t.me/<name>, whose card gives the display name, bio
-and photo; a name nobody has gets a card with no title. Telegram's terms limit use of its content, and decision D2 now
-lets Hunt read such pages logged out anyway (legal.md C6). robots.txt isn't published (t.me answers 404).
+their dates), which socid_extractor doesn't read. For a user, a bot or a group, Telegram redirects to t.me/<name>, whose
+card (display name, bio, photo) socid_extractor does read; a name nobody has gets a card with no title. Telegram's terms
+limit use of its content, and decision D2 now lets Hunt read such pages logged out anyway (legal.md C6). robots.txt
+isn't published (t.me answers 404).
 """
 
 import re
 
 from ..seed import Finding
 from ._api import client, tidy
-from ._page import RECENT, get, handle, text
+from ._page import RECENT, get, handle, known, text
 
 NAME = "telegram"
 KINDS = {"username"}
@@ -42,11 +43,10 @@ async def search(seed):
                  "recent": [{"url": f"https://t.me/{p}", "text": text(body)[:300], "date": when}
                             for p, body, when in POST.findall(page)[-RECENT:][::-1]]}
         note = f"read the public channel preview t.me/s/{h}"
-    else:  # a user's, bot's or group's card
-        title = _first(page, "tgme_page_title")
-        if not title:
+    else:  # a user's, bot's or group's card: socid_extractor's Telegram scheme
+        attrs = known(page)
+        if not attrs.get("fullname"):
             return [], 1, f"no Telegram account @{h} ({ROBOTS})"
-        attrs = {"fullname": title, "bio": _first(page, "tgme_page_description"), "image": photo[1] if photo else None,
-                 "kind": _first(page, "tgme_page_extra") or "user"}
+        attrs["kind"] = _first(page, "tgme_page_extra") or "user"
         note = f"read the public card t.me/{h} (not a channel, so no posts)"
     return [Finding(NAME, seed, "Telegram", f"https://t.me/{h}", tidy(attrs), body=page)], 1, f"{note} ({ROBOTS})"

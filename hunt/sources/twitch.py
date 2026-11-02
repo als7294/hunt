@@ -2,6 +2,7 @@
 login, description, picture, followers and the other profiles the channel links (sameAs). Twitch's GraphQL API needs
 its web client's id, which Hunt doesn't borrow, so only the page is read. robots.txt allows channel pages. A channel
 nobody has gets the page without the block.
+socid_extractor's Twitch scheme reads a __NEXT_DATA__ block the page no longer carries (checked 2026-11-02).
 """
 
 import re

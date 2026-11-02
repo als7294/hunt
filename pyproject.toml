@@ -14,6 +14,7 @@ dependencies = [
     "pyobjc-framework-vision>=12.2.2 ; sys_platform == 'darwin'",
     "python-multipart>=0.0.32",
     "rapidfuzz>=3.14.6",
+    "socid-extractor==0.1.1",  # hunt/sources/_page.known(): Maigret's profile-page parser (MIT); extract() only, never parse()
     "reverse-geocoder>=1.5.1",
     "starlette>=1.10.0",
     "user-scanner==1.5.2.3",  # hunt/sources/user_scanner.py read every module at this release: AUDITED there

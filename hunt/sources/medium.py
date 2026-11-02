@@ -1,13 +1,11 @@
-"""Medium: a username → the author's RSS feed (medium.com/feed/@<name>): name, picture and the latest stories.
-
-The profile page answers a generic agent with Cloudflare's 403, so only the feed is read; robots.txt allows it.
+"""Medium: a username → the author's RSS feed (medium.com/feed/@<name>). socid_extractor reads the name, picture and
+last activity; Hunt adds the latest stories. The profile page answers a generic agent with Cloudflare's 403, so only
+the feed is read; robots.txt allows it.
 """
-
-import re
 
 from ..seed import Finding
 from ._api import client, tidy
-from ._page import get, handle, rss
+from ._page import get, handle, known, rss
 
 NAME = "medium"
 KINDS = {"username"}
@@ -24,8 +22,6 @@ async def search(seed):
     head, items = rss(r.text) if r else ({}, [])
     if not head:
         return [], 1, f"no Medium author @{h} ({ROBOTS})"
-    name = re.fullmatch(r"Stories by (.+) on Medium", head.get("title") or "")
-    canonical = re.search(r"medium\.com/@([\w.-]+)", head.get("link") or "")
-    attrs = {"fullname": name[1] if name else None, "image": head.get("image"), "recent": [tidy(i) for i in items]}
-    url = f"https://medium.com/@{canonical[1] if canonical else h}"
+    attrs = known(r.text) | {"recent": [tidy(i) for i in items]}
+    url = f"https://medium.com/@{attrs.pop('username', h)}"
     return [Finding(NAME, seed, "Medium", url, tidy(attrs), body=r.text)], 1, f"read medium.com/feed/@{h} ({ROBOTS})"

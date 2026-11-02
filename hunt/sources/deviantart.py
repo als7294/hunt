@@ -1,7 +1,8 @@
-"""DeviantArt: a username → the profile page (deviantart.com/<name>), read from the state the page carries
-(window.__INITIAL_STATE__): the "about" module (country, tagline, website, social links, and the age or date of birth
-if the member shows one) and the owner's stats (joined, deviations, watchers). Mutual watchers are other people and are
-never kept (C13). A profile that says its owner is under 18 is withheld (A5). robots.txt allows profile pages.
+"""DeviantArt: a username → the profile page (deviantart.com/<name>). socid_extractor reads the country, tagline and
+social links; Hunt adds what it lacks or gets wrong from the page's own state (window.__INITIAL_STATE__): the website,
+the age or date of birth if the member shows one, the join date (socid's is computed from "deviant for" and drifts),
+and the stats. Its "bio" is DeviantArt's own blurb and its gender is never kept. Mutual watchers are other people and
+are never kept (C13). A profile that says its owner is under 18 is withheld (A5). robots.txt allows profile pages.
 """
 
 import json
@@ -9,7 +10,7 @@ import re
 
 from ..seed import Finding
 from ._api import client, handles, tidy
-from ._page import get, handle, minor
+from ._page import get, handle, known, minor
 
 NAME = "deviantart"
 KINDS = {"username"}
@@ -49,14 +50,15 @@ async def search(seed):
     about = _about(state.get("@@gruser") or {}) or {}
     if not owner:
         return [], 1, f"no DeviantArt profile {h} ({ROBOTS})"
-    name = about.get("username") or h
+    socid = known(r.text)
+    name = socid.get("username") or about.get("username") or h
     y, mo, d = about.get("dobYear"), about.get("dobMonth"), about.get("dobDay")
-    socials = [s.get("value") or s.get("url") for s in about.get("socialLinks") or [] if isinstance(s, dict)]
-    socials = [s for s in socials if isinstance(s, str) and s.startswith("http")]
+    socials = [u for u in socid.get("links") or [] if isinstance(u, str) and u.startswith("http")]
     stats = owner.get("stats") or {}
-    attrs = {"bio": about.get("tagline") or owner.get("tagline"), "location": about.get("country"), "age": about.get("age"),
+    attrs = {"bio": socid.get("tagline") or owner.get("tagline"), "location": socid.get("location"), "age": about.get("age"),
              "dob": f"{y}-{mo:02d}-{d:02d}" if y and mo and d else None, "birth_year": y if y and not (mo and d) else None,
-             "website": about.get("website") or None, "links": socials, "other_usernames": sorted(set(handles(socials)) - {name}),
+             "website": about.get("website") or None, "links": socials,
+             "other_usernames": sorted((set(handles(socials)) | ({socid["twitter"]} if socid.get("twitter") else set())) - {name}),
              "created_at": stats.get("joinDate"), "deviations": stats.get("deviations"), "watchers": stats.get("watchers")}
     if minor(attrs):
         return [], 1, f"DeviantArt profile {name} withheld: it says its owner is under 18 (legal.md A5)"

@@ -9,12 +9,13 @@ HYDRATION = [{"hydratable": "anonymousId", "data": "x"}, {"hydratable": "user", 
     "permalink": "kvane", "username": "K Vane Beats", "full_name": "Kestrel Vane", "city": "Tucson", "country_code": "US",
     "description": "Gym mixes", "avatar_url": "https://i1.example/avatars-kv-large.jpg", "created_at": "2019-04-01T00:00:00Z",
     "followers_count": 12, "track_count": 3, "verified": False, "last_modified": "2026-10-01T00:00:00Z"}}]
-PAGE = f"<html><script>window.__sc_hydration = {json.dumps(HYDRATION)};</script></html>"
+PAGE = ('<html><script src="https://eventlogger.soundcloud.com/v1.js"></script>'
+        f'<script>window.__sc_hydration = {json.dumps(HYDRATION, separators=(",", ":"))};</script></html>')
 seen = serve(soundcloud, {"soundcloud.com/kvane": (200, PAGE)})
 (f,), _, _ = run(soundcloud, "kvane")
 assert f.url == "https://soundcloud.com/kvane" and f.attrs == {
-    "fullname": "Kestrel Vane", "location": "Tucson, US", "bio": "Gym mixes", "image": "https://i1.example/avatars-kv-large.jpg",
-    "created_at": "2019-04-01T00:00:00Z", "followers": 12, "tracks": 3, "last_update": "2026-10-01T00:00:00Z"}, f.attrs
+    "fullname": "Kestrel Vane", "followers": 12, "image": "https://i1.example/avatars-kv-large.jpg", "location": "Tucson, US",
+    "bio": "Gym mixes", "created_at": "2019-04-01T00:00:00Z", "tracks": 3}, f.attrs
 honest(seen)
 serve(soundcloud, {})
 assert run(soundcloud, "nobody")[:2] == ([], 1)

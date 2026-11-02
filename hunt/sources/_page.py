@@ -6,8 +6,12 @@ treats as it treats a rate limit): a 401, 403, 429 or 451, a redirect to a login
 Nothing is retried, rotated or worked around. The login-walled platforms (_api.ROBOTS_DENY) are never requested.
 
 A profile that says its owner is under 18 is withheld (legal.md A5): minor() lets a source drop it before it is kept.
+
+known() is socid_extractor's reading of a page (the parser Maigret uses), for the sites where its scheme still matches
+today's markup; each source parses only what it lacks. Only its extract() is used: never its parse(), which fetches.
 """
 
+import ast
 import asyncio
 import html
 import json
@@ -18,6 +22,7 @@ from datetime import date
 from urllib.parse import urlsplit
 
 import httpx
+from socid_extractor import extract  # MIT; Maigret's own profile-page parser (pure parsing, no request)
 
 from ._api import Limited, denied
 
@@ -31,6 +36,12 @@ WALL = re.compile(r"<title>\s*(?:Just a moment|Attention Required|Access denied|
                   r"px-captcha|_Incapsula_Resource|<div[^>]+class=\"[^\"]*(?:g-recaptcha|h-captcha)\b", re.I)
 LOGIN = re.compile(r"/(?:login|log-in|signin|sign-in|sign_in|accounts/login|auth/login)\b", re.I)
 _last: dict[str, float] = {}
+# socid_extractor's field → the attribute Hunt keeps. Anything else it finds (gender, analytics ids, flags) is dropped.
+KNOWN = {"fullname": "fullname", "name": "fullname", "bio": "bio", "image": "image", "website": "website", "links": "links",
+         "social_links": "links", "location": "location", "country": "location", "country_code": "country",
+         "tagline": "tagline", "twitter_username": "twitter", "created_at": "created_at",
+         "latest_activity_at": "last_active", "follower_count": "followers", "following_count": "following",
+         "posts_count": "posts", "is_private": "private", "is_verified": "verified", "username": "username"}
 
 
 class Refused(Limited):
@@ -116,3 +127,33 @@ def rss(body: str) -> tuple[dict, list[dict]]:
     items = [{"title": text(i.findtext("title")), "url": i.findtext("link"), "date": i.findtext("pubDate"),
               "text": text(i.findtext("description"))[:300]} for i in ch.findall("item")[:RECENT]]
     return head, items
+
+
+def known(page: str) -> dict:
+    """What socid_extractor reads from a profile page, as Hunt attributes: its strings typed ("True" → True, "12" → 12,
+    "['a']" → ['a']), False and empty values dropped, and only the KNOWN fields kept (never gender)."""
+    try:
+        found = extract(page)
+    except Exception:  # a scheme that no longer fits the site's markup
+        return {}
+    out = {}
+    for k, v in found.items():
+        if k not in KNOWN or v in (None, "", "None", "False", "[]"):
+            continue
+        if isinstance(v, str) and v[:1] == "[":
+            try:
+                v = ast.literal_eval(v)
+            except (ValueError, SyntaxError):
+                continue
+        if isinstance(v, str) and v[:1] == "{":  # social links as {kind: url}
+            try:
+                v = list(ast.literal_eval(v).values())
+            except (ValueError, SyntaxError, AttributeError):
+                continue
+        v = True if v == "True" else int(v) if isinstance(v, str) and v.isdigit() else v
+        key = KNOWN[k]
+        if key == "links":
+            v = [x for x in v if isinstance(x, str) and x.startswith("http") and x not in out.get("links", [])]
+            v = out.get("links", []) + v
+        out.setdefault(key, v) if key != "links" else out.update(links=v)  # the first of two names for a field wins
+    return out
