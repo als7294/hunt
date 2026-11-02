@@ -114,9 +114,10 @@ for leak in ("Leo", "Emma", "leo.v", "vell2015", "Ty Vell", "ty.v"):  # minors a
 # Tags: how often and over how long; next to a relation word, a generation; at family events, a possible relative, saying why
 sol = named["Sol Ardent"]
 assert sol["labels"][0] == "tagged with the subject in 3 posts, Dec 2024–Nov 2025" and sol["confidence"] == 0.9, sol
-assert sol["labels"][1] == "possible relative (tagged with the subject in 2 family-event posts)" and sol["tree"] == "relative"
-# the event words only pick the posts: no holiday (which can reveal religion) is stored or shown in any label (A9)
-assert not any(re.search(r"(?i)christmas|thanksgiving|easter|reunion|wedding", " ".join(p["labels"])) for p in r["people"])
+assert sol["labels"][1] == "possible relative (tagged with the subject in 2 family-event posts: Christmas, Thanksgiving)", sol
+assert sol["tree"] == "relative"
+# the events are quoted as the captions write them (Aaron's call); nobody's religion is inferred or stated (A9)
+assert not any(re.search(r"(?i)christian|catholic|muslim|jewish|hindu|religio|faith", json.dumps(p)) for p in r["people"])
 pax = named["Pax Orr"]  # one public family-event post counts; a Friends-only one and a not-the-subject one don't
 assert pax["labels"] == ["tagged with the subject in 2 posts, Apr 2025–Jul 2025"] and pax["tree"] is None, pax
 assert len(pax["cites"]) == 2
