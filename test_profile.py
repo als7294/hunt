@@ -127,6 +127,8 @@ assert any("username 'jr_reyes91' is one the subject uses" in x for x in handle[
 phone = score("https://example.org/bakers", {"name": "Jordan Reyes", "contact": "call 512-555-0147"})
 assert any("phone number" in x for x in phone[2]) and phone[0] >= 0.95, phone
 assert not any("phone" in x for x in score("https://example.org/x", {"followers": 512, "id": 5550147, "year": 2016})[2])
+assert match.place_text({"address": "12 Elm St", "city": "Tampa", "state": "FL"}) == "12 Elm St, Tampa, FL"
+assert match.place_text({"address": "12 Elm St, Tampa, FL 33601", "city": "Tampa", "state": "FL"}) == "12 Elm St, Tampa, FL 33601"
 born = score("https://records.example/1", {"fullname": "Jordan Reyes", "dob": "1991-03-03"})
 assert any("date of birth 1991-03-03 matches" in x for x in born[2]), born
 again = score("https://github.com/jr_reyes91", {"fullname": "JR"}, seed=Seed("username", "jr_reyes91"))
