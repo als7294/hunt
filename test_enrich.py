@@ -14,7 +14,7 @@ import httpx
 
 from hunt import enrich, search
 from hunt.case import Case
-from hunt.enrich import fields, meta
+from hunt.enrich import fields, meta, parsed
 from hunt.seed import Finding, Seed
 
 H = "kvane88"  # a handle that is not just the name squashed together
@@ -52,6 +52,14 @@ assert fields({"og:image": "https://pics.a.test/43ed76a4?width=460"}, f"https://
 assert fields({"og:description": f"Follow {H} on A for charts"}, f"https://a.test/u/{H}", H) == {}
 assert fields({"og:description": "A is the world's leading platform"}, f"https://www.a.test/{H}", H) == {}
 
+# socid_extractor reads the sites it knows (here: a Chess.com-shaped page) and wins over the preview tags
+CHESS = ('<html><head><meta property="og:site_name" content="Chess.com">'
+         '<title>Kestrel Vane (kvane88) - Chess Profile - Chess.com</title>'
+         '<meta property="og:title" content="Kestrel Vane (kvane88) - Chess Profile">'
+         '<meta property="og:image" content="https://images.chess.test/uploads/v1/user/41.200x200o.jpeg"></head></html>')
+assert parsed(CHESS) == {"fullname": "Kestrel Vane", "image": "https://images.chess.test/uploads/v1/user/41.200x200o.jpeg"}, parsed(CHESS)
+assert parsed("<html>nothing</html>") == {} and parsed("") == {}
+
 # A search: which hosts get read, and what each answer does
 seed = Seed("username", H)
 case = Case("Kestrel Vane", purpose="test")
@@ -63,9 +71,10 @@ pages = {
     "refuse.test": "",  # 403
     "echo.test": '<title>kvane88 - Echo</title><meta property="og:description" content="Birds &amp; maps">',
     "gate.test": "<title>Log in to Gate</title>",  # the profile URL redirects to a login page
+    "parsed.test": CHESS,  # a site socid_extractor knows
 }
 robots = {"open.test": "User-agent: *\nDisallow: /private/\n", "closed.test": "User-agent: *\nDisallow: /u/\n",
-          "wall.test": "", "refuse.test": "", "echo.test": "User-agent: Hunt\nAllow: /\n\nUser-agent: *\nDisallow: /\n", "gate.test": ""}
+          "wall.test": "", "refuse.test": "", "echo.test": "User-agent: Hunt\nAllow: /\n\nUser-agent: *\nDisallow: /\n", "gate.test": "", "parsed.test": ""}
 served = []
 
 
@@ -86,7 +95,8 @@ def answer(request):
 
 urls = [f"https://open.test/{H}", f"https://closed.test/u/{H}", f"https://wall.test/{H}", f"https://wall.test/{H}/second",
         f"https://dark.test/{H}", f"https://refuse.test/{H}", f"https://refuse.test/{H}2", f"https://echo.test/{H}",
-        f"https://gate.test/{H}", f"https://gate.test/{H}2", f"https://www.instagram.com/{H}", f"https://www.whitepages.com/name/{H}"]
+        f"https://gate.test/{H}", f"https://gate.test/{H}2", f"https://parsed.test/member/{H}", f"https://www.instagram.com/{H}",
+        f"https://www.whitepages.com/name/{H}"]
 for u in urls:
     case.add_finding(Finding("maigret", seed, u.split("/")[2], u, {"tags": ["x"]}))
 case.add_finding(Finding("maigret", Seed("name", "Kestrel Vane"), "names.test", f"https://names.test/{H}", {}))  # a name-only hit: not read
@@ -97,24 +107,27 @@ enrich.httpx.AsyncClient = lambda **kw: real_client(transport=httpx.MockTranspor
 log = []
 out = asyncio.run(enrich.run(case, search.build(case)["candidates"], log.append))
 # closed and dark are read all the same and noted; the second pages of the stopped hosts are never fetched
-assert out["read"] == 7 and out["enriched"] == 4 and out["skipped"] == 2, out
+assert out["read"] == 8 and out["enriched"] == 5 and out["skipped"] == 2, out
 assert out["robots"] == {"closed.test": "robots.txt disallows; read logged out under D2",
                          "dark.test": "robots.txt unreadable; read logged out under D2"}, out["robots"]
 assert out["stopped"] == {"wall.test": "CAPTCHA or bot wall (Just a moment...)", "refuse.test": "HTTP 403",
                           "gate.test": "login wall (Log in to Gate)"}, out["stopped"]
-hosts = ("open.test", "closed.test", "wall.test", "dark.test", "refuse.test", "echo.test", "gate.test")
-first = [f"open.test/{H}", f"closed.test/u/{H}", f"wall.test/{H}", f"dark.test/{H}", f"refuse.test/{H}", f"echo.test/{H}", f"gate.test/{H}"]
+hosts = ("open.test", "closed.test", "wall.test", "dark.test", "refuse.test", "echo.test", "gate.test", "parsed.test")
+first = [f"open.test/{H}", f"closed.test/u/{H}", f"wall.test/{H}", f"dark.test/{H}", f"refuse.test/{H}", f"echo.test/{H}",
+         f"gate.test/{H}", f"parsed.test/member/{H}"]
 assert sorted(served) == sorted([f"{h}/robots.txt" for h in hosts] + first + ["gate.test/login"]), served
 got = {c["url"]: c["attrs"] for c in search.build(case)["candidates"]}
 assert got[f"https://open.test/{H}"] == {"tags": ["x"], "fullname": "Kestrel Vane", "image": "https://cdn.open.test/kv.jpg",
                                          "enriched_from": f"https://open.test/{H}"}, got[f"https://open.test/{H}"]
 assert got[f"https://echo.test/{H}"] == {"tags": ["x"], "bio": "Birds & maps", "enriched_from": f"https://echo.test/{H}"}
 assert got[f"https://closed.test/u/{H}"]["fullname"] == got[f"https://dark.test/{H}"]["fullname"] == "Kestrel Vane"
-assert all("enriched_from" not in got[u] for u in urls if not any(h in u for h in ("open", "echo", "closed", "dark")))
+assert got[f"https://parsed.test/member/{H}"] == {"tags": ["x"], "fullname": "Kestrel Vane", "image": "https://images.chess.test/uploads/v1/user/41.200x200o.jpeg",
+                                                 "enriched_from": f"https://parsed.test/member/{H}"}
+assert all("enriched_from" not in got[u] for u in urls if not any(h in u for h in ("open", "echo", "closed", "dark", "parsed")))
 audit = [json.loads(r["detail"]) for r in case.rows("select detail from audit where action = 'enrich stopped'")]
 assert sorted(a["host"] for a in audit) == ["gate.test", "refuse.test", "wall.test"]
 assert json.loads(case.rows("select detail from audit where action = 'enrich'")[0]["detail"])["robots"] == out["robots"]
-assert any("4 of 7 profile pages read" in e["message"] for e in log), log
+assert any("5 of 8 profile pages read" in e["message"] for e in log), log
 
 # The same day: robots files and pages already read aren't asked for again; a new account on a read host is, and so are
 # the pages a stop left unread (a stop holds for one search, not for the day)
