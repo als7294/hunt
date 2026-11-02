@@ -274,4 +274,12 @@ assert app.post(f"/api/cases/{ac.name}/seeds", json={"seeds": ["x"], "from": {"x
 assert '"from": {"CoolCoder": "https://github.com/jsmith"}' in Case.open(ac.name).rows(
     "select detail from audit where action = 'seeds added'")[0]["detail"]
 
+# --- A search keeps the source of a seed taken from a lead (search.run re-adds its seeds) ------------------
+lc = Case.create("Lead source test", "Self-check, fictional", kind="insurance", tool="person")
+lc.add_seeds([Seed("username", "coolcoder")], {"coolcoder": "https://github.com/jsmith"})
+real_fan_out, search.fan_out = search.fan_out, lambda *a, **k: asyncio.sleep(0)
+asyncio.run(search.run(lc, [Seed("username", "coolcoder")], lambda e: None, capture=False))
+search.fan_out = real_fan_out
+assert lc.derived() == {"coolcoder": "https://github.com/jsmith"}, "searching a lead must not make it the investigator's own"
+
 print("test_profile: all checks passed")

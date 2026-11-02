@@ -39,7 +39,7 @@ async def run(case: Case, seeds: list[Seed], emit, capture: bool = True, pause: 
             await pause.wait()
         emit({"type": "stage", "stage": stage})
 
-    case.add_seeds(seeds)
+    case.add_seeds(seeds, case.derived())  # a seed taken from a lead keeps its source (never wipe it here)
     case.audit("search", {"seeds": [asdict(s) for s in seeds]})
     await step("asking")
     await fan_out(case, seeds, emit)

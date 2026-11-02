@@ -62,6 +62,7 @@ def main():
         blocked = {(s.kind, s.value) for s, _ in graph.conflicts(people, [s for _, s in picked])}  # never searched (C13)
         picked = [(x, s) for x, s in picked if (s.kind, s.value) not in blocked]
         seeds = [s for _, s in picked]
+        case.add_seeds(seeds, {s.value: x["source_url"] for x, s in picked})  # never evidence for its own account
         case.audit("lead round", {"round": rnd + 1, "searched": [{"kind": s.kind, "value": s.value, "source_url": x["source_url"]}
                                                                  for x, s in picked]})  # exactly what goes to search.run
         if not seeds:
