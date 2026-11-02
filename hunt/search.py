@@ -88,6 +88,8 @@ async def fan_out(case: Case, seeds: list[Seed], emit):
         held = f"Facebook is stopped: {stopped['Facebook']['reason']}" if source.NAME == "facebook" and "Facebook" in stopped else None
         if source.NAME == "voter" and background:
             held = "a background case never uses voter data (legal.md V4)"
+        if getattr(source, "FAMILY", False) and background:
+            held = "a background case never collects relatives (legal.md A8)"
         for seed in mine:
             if held:
                 done(source, seed, "skipped", [], 0, held)
