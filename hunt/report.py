@@ -31,6 +31,7 @@ from . import bundle, case as casemod, graph, leads as leadsmod, notes as notesm
 from .case import EVIDENCE_NAME, Case
 from .match import ICD203, norm_url
 from .seed import now
+from .sources.courts import STATES as STATE_NAMES
 
 MARKED = {"him": "The investigator confirmed the {site} account as the subject's{when}.",  # stored values stay him/not him
           "not him": "The investigator ruled out the {site} account{when}.",
@@ -69,9 +70,9 @@ RECORDS = {"fec": "FEC itemized political contributions", "edgar": "SEC EDGAR fi
            "npi": "the NPI healthcare provider registry", "courtlistener": "federal court dockets in CourtListener's RECAP archive",
            "licences": "state occupational and professional licences", "businesses": "state business registries",
            "fmcsa": "the FMCSA motor-carrier census", "courts": "state, county and city court records published as open data",
-           "activity": "published powerlifting results (OpenPowerlifting)"}
+           "activity": "published powerlifting results (OpenPowerlifting)", "voter": "the Florida voter extract"}
 # Screening (employment) mode leaves these sources out entirely: what they reveal is protected in several states
-SCREENED = {"fec": "political affiliation", "npi": "health"}
+SCREENED = {"fec": "political affiliation", "npi": "health", "voter": "political activity"}  # voter: legal.md V4, D23
 # …and court dockets whose subject is health or politics
 SENSITIVE_CASE = re.compile(r"medical|malpractice|health|disab|social security|medicare|medicaid|erisa|mental|"
                             r"pregnan|drug|politic|election|voting|campaign", re.I)
@@ -866,6 +867,10 @@ def _summary(c: dict, injury: str | None = None, screening: bool = False) -> str
         bits = [a.get("case"), a.get("case_type"), f"as {' and '.join(a['roles'])}" if a.get("roles") else None, a.get("court"),
                 f"docket {a['docket_number']}" if a.get("docket_number") else None, f"filed {a['filed']}" if a.get("filed") else None,
                 a.get("status"), a.get("disposition"), f"employer {a['employer']}" if a.get("employer") else None, a.get("location")]
+    elif src == "voter":  # V6: name, address, registration date and date of birth, as corroboration, with the extract's date
+        bits = [a.get("fullname"), f"born {a['dob']}" if a.get("dob") else None, a.get("address"),
+                f"registered {a['registered']}" if a.get("registered") else None, a.get("status"),
+                f"{STATE_NAMES.get(a.get('state'), a.get('state') or 'Florida')} voter extract dated {a['data_date']}" if a.get("data_date") else None]
     elif src == "activity":
         n, after = a.get("meet_count") or 0, [m for m in a.get("meets", []) if injury and m.get("date", "") >= injury]
         bits = [f"1 powerlifting meet on {a['first_date']}" if n == 1 else f"{n} powerlifting meets from {a['first_date']} to {a['last_date']}",

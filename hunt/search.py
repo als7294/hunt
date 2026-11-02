@@ -80,8 +80,13 @@ async def fan_out(case: Case, seeds: list[Seed], emit):
         emit({"type": "source", "source": source.NAME, "seed": seed.value, "status": status,
               "found": len(found), "checked": checked, "note": note})
 
+    background = case.details().get("kind") == "background"
+    narrowing = {src.NAME: [s for s in case.seeds() if s.kind in src.NARROWS] for src in SOURCES if hasattr(src, "NARROWS")}
+
     async def run(source, mine):
         held = f"Facebook is stopped: {stopped['Facebook']['reason']}" if source.NAME == "facebook" and "Facebook" in stopped else None
+        if source.NAME == "voter" and background:
+            held = "a background case never uses voter data (legal.md V4)"
         for seed in mine:
             if held:
                 done(source, seed, "skipped", [], 0, held)
@@ -89,7 +94,8 @@ async def fan_out(case: Case, seeds: list[Seed], emit):
             emit({"type": "source", "source": source.NAME, "seed": seed.value, "status": "running",
                   "found": 0, "checked": 0, "note": ""})
             try:
-                found, checked, note = await source.search(seed)
+                found, checked, note = await (source.search(seed, narrowing[source.NAME]) if source.NAME in narrowing
+                                              else source.search(seed))
                 status = "found" if found else "nothing found"
             except Limited as e:
                 found, checked, note, status = [], 0, f"rate limit reached: {e}", "failed"
