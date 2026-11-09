@@ -52,9 +52,22 @@ assert fields({"og:image": "https://pics.a.test/43ed76a4?width=460"}, f"https://
 assert fields({"og:description": f"Follow {H} on A for charts"}, f"https://a.test/u/{H}", H) == {}
 assert fields({"og:description": "A is the world's leading platform"}, f"https://www.a.test/{H}", H) == {}
 
+# Tags before the <title> are read too (the title's closing tag once swallowed them), an inline SVG's <title> in the body
+# is an icon's name, "handle (Real Name)" gives the name, and a title naming the site is the site's own
+HUB = ('<html><head><meta charset="utf-8"><meta name="description" content="x"><meta property="og:title" content="kvane88 (Kestrel Vane)">'
+       '<meta property="og:image" content="https://cdn.hub.test/u/kv.png"><title>kvane88 (Kestrel Vane)</title></head>'
+       '<body><svg><title>chevron-down</title></svg></body></html>')
+assert meta(HUB) == {"og:title": "kvane88 (Kestrel Vane)", "og:image": "https://cdn.hub.test/u/kv.png", "title": "kvane88 (Kestrel Vane)"}
+assert fields(meta(HUB), f"https://hub.test/{H}", H) == {"fullname": "Kestrel Vane", "image": "https://cdn.hub.test/u/kv.png"}
+assert meta("<html><head></head><body><svg><title>linux</title></svg></body></html>") == {}
+for title, host in (("Watch Snapchat Stories", "www.snapchat.com"), ("Sign In", "a.test"), ("Not Found", "a.test"), ("Log In", "a.test")):
+    assert "fullname" not in fields({"title": title}, f"https://{host}/add/{H}", H), title
+assert fields({"og:title": "Dorian Vell (@kvane88) on Flipboard"}, f"https://flipboard.com/@{H}", H) == {"fullname": "Dorian Vell"}
+
 # A site's own door is not a profile: an email-registration hit is the site's homepage, whose og:title is a headline
 for url in ("https://foxnews.com", "https://tv.apple.com/", "https://site.test/login", "https://site.test/account/",
-            "https://site.test/signin/", "https://site.test/home/index.html", "https://news.example/", "https://site.test/accounts/login/"):
+            "https://site.test/signin/", "https://site.test/home/index.html", "https://news.example/", "https://site.test/accounts/login/",
+            f"https://api.site.test/users/profiles/{H}", "https://site.test/api/v9/unique-username/attempt"):  # an engine's check URL
     assert not is_profile(url, "kestrel@example.com") and not is_profile(url, H), url
 for url in (f"https://site.test/{H}", f"https://site.test/login/{H}", f"https://news.test/user?id={H}", f"https://{H}.blog.example/",
             "https://site.test/u/12345", f"https://site.test/account/{H}/", "https://kestrel-vane.weebly.com/"):
@@ -149,5 +162,19 @@ out = asyncio.run(enrich.run(case, search.build(case)["candidates"], log.append)
 assert sorted(served) == sorted([f"open.test/{H}-two", f"wall.test/{H}/second", f"refuse.test/{H}2", f"gate.test/{H}2",
                                  "gate.test/login"]) and out["read"] == 4 and out["skipped"] == 6, (served, out)  # the described ones are out of scope now
 assert enrich.CACHE.stat().st_mode & 0o777 == 0o600
+
+# A page an engine already fetched (its body is in the case's evidence) is read from that copy, never requested again:
+# an HTML profile page, or an API's JSON that socid_extractor knows. A body that says nothing and isn't a page isn't it.
+served.clear()
+case.add_finding(Finding("whatsmyname", seed, "hub.test", f"https://hub.test/{H}", {"category": "tech"}, body=HUB))
+case.add_finding(Finding("whatsmyname", seed, "json.test", f"https://json.test/{H}", {}, body='{"taken": true}'))
+case.add_finding(Finding("whatsmyname", seed, "bare.test", f"https://bare.test/{H}", {}, body="<html><head><title>kvane88</title></head></html>"))
+pages["json.test"], robots["json.test"] = "<title>Kestrel Vane</title>", ""
+out = asyncio.run(enrich.run(case, search.build(case)["candidates"], log.append))
+got = {c["url"]: c["attrs"] for c in search.build(case)["candidates"]}
+assert got[f"https://hub.test/{H}"] == {"category": "tech", "fullname": "Kestrel Vane", "image": "https://cdn.hub.test/u/kv.png",
+                                        "enriched_from": f"https://hub.test/{H}"}, got[f"https://hub.test/{H}"]
+assert out["held"] == 1 and out["read"] == 1 and sorted(served) == ["json.test/kvane88", "json.test/robots.txt"], (out, served)
+assert got[f"https://json.test/{H}"]["fullname"] == "Kestrel Vane" and "enriched_from" not in got[f"https://bare.test/{H}"]
 enrich.httpx.AsyncClient = real_client
 print("ok")
