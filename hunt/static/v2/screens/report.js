@@ -69,8 +69,8 @@ async function part(el, file, label) { // another stream's tab: export async fun
   let m;
   try { m = await import(`../parts/${file}.js`); }
   catch { el.innerHTML = html`<div style="border-radius:20px;${CARD};padding:28px;font-size:15px;color:#86868b;text-align:center">${label} isn’t ready in this build yet.</div>`.s; return; }
-  if (m.flagsTab) el.innerHTML = m.flagsTab(slug, await m.loadFlags(slug)).s; // Flags gives its markup rather than mounting
-  else await m.mount(el, slug, { background: data.background });
+  if (m.mount) await m.mount(el, slug, { background: data.background });
+  else el.innerHTML = m.flagsTab(slug, await m.loadFlags(slug)).s; // main's Flags until its mount() is merged
 }
 async function show() {
   const { tab, data, slug } = state, el = $('#report-tab');
