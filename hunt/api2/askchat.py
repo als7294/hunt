@@ -12,8 +12,8 @@
                                     breach data; the Have I Been Pwned row is left unbuilt, as the contract says.
 - GET  /api2/cases/{slug}/records   the public records judged to be them (voter records with the household read live
                                     from the local table, never stored), the by-hand links (court portals, race
-                                    results, people-search sites on the cases their terms allow) and the local files:
-                                    what is loaded and how each is loaded.
+                                    results; the people-search links stay GET /person's alone, legal.md P1) and the
+                                    local files: what is loaded and how each is loaded.
 - GET  /api2/local/{item}/size      bytes a download would be ("voter:NC", "table:<name>", "powerlifting"); null when
                                     the files are dropped in by hand.
 - POST /api2/local/{item}/load      {size} → {job}: index or download, as a job (docs/api.md), once she has seen the
@@ -28,7 +28,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from .. import leads, people_search, report, search, setup, vlm
+from .. import leads, report, search, setup, vlm
 from ..app import Job, _active, _body, _case, _evidence, _handle, _plain, _profile
 from ..sources import _bulk, activity, courts, records as tables, voter
 
@@ -196,8 +196,7 @@ async def get_records(req: Request):
     found = [x for x in snap["candidates"] if search.in_person(x) and report._record(x)]
     shown = [_record(c, x) for x in found if not (screening and (report._screened(x) or report._record(x) == "voter"))]
     seeds = c.seeds()
-    links = {"courts": courts.search_links(seeds), "activity": activity.search_links(seeds),
-             "people_search": people_search.search_links(seeds) if c.details()["kind"] in people_search.KINDS else []}
+    links = {"courts": courts.search_links(seeds), "activity": activity.search_links(seeds)}  # people-search links: GET /person only
     coverage = c.rows("select source, status, found, note from runs where source in "
                       f"({', '.join('?' * len(report.RECORDS))}) order by rowid", *report.RECORDS)
     local = local_status()
