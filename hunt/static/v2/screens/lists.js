@@ -42,7 +42,7 @@ export async function render({ which }) {
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><div style="font-size:clamp(30px,4vw,40px);font-weight:700;letter-spacing:-.03em">${title}</div><button id="lists-more" data-act="more-open" style="${PILL}">More</button></div>
     ${due ? html`<div style="border-radius:16px;background:rgba(255,45,85,.08);padding:14px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="flex:1;min-width:220px;font-size:14px;color:#a80b36">${due} case${due === 1 ? ' is' : 's are'} past the retention period. Each one needs a decision.</span><button data-act="lists-retention" style="${PILL}">Decide</button></div>` : ''}
     ${body}</div>`));
-  if ($('nav [data-act="more-open"]')) $('#lists-more').remove(); // the shell's avatar has it
+  if ($('#nav-avatar')) $('#lists-more').remove(); // the shell's avatar has it
 }
 
 // Save, for the Results and Report screens: `await savedUrls(slug)`, then saveButton(slug, url, urls.has(url))
