@@ -7,11 +7,12 @@ import json
 from collections import Counter
 from datetime import date
 
+import httpx
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from .. import extension, report
+from .. import extension, report, vendor
 from ..app import _case, _posts, get_person, get_timeline, get_worklist
 from ..sources._api import denied
 from .lists import _saved
@@ -21,6 +22,19 @@ def _key(url: str | None) -> str | None:
     """One name for an account however its URL is written, on the login-walled platforms."""
     acct = extension.account_of(url) if url else None
     return extension.where(acct) if acct else None
+
+
+def _apify(c) -> dict:
+    """Per account (_key), what the investigator's Apify runs did, from the audit log: {runs, cost_usd, last, ok}."""
+    out = {}
+    for r in c.rows("select detail from audit where action = 'vendor run' order by rowid"):
+        d = json.loads(r["detail"])
+        a = out.setdefault(_key(d.get("account")), {"runs": 0, "cost_usd": 0.0, "last": None, "ok": False})
+        a["runs"] += 1
+        a["cost_usd"] = round(a["cost_usd"] + (d.get("cost_usd") or 0), 4)
+        a["last"] = d.get("finished") or a["last"]
+        a["ok"] = a["ok"] or d.get("status") == "SUCCEEDED"
+    return out
 
 
 def _facts(profile: dict, name: str) -> list[dict]:
@@ -65,15 +79,18 @@ async def report_view(req: Request):
     work = {_key(w["account"]): w for w in json.loads((await get_worklist(req)).body)["worklist"]}
     if background:  # what a screening report drops (A8): relationships and protected traits
         events = [e for e in events if not (report.PROTECTED.search(e["what"]) or report.RELATION.search(e["what"]))]
-    posts = Counter(k for p in await _posts(c) if (k := _key(p.get("account_url"))))
+    every = await _posts(c)
+    posts = Counter(k for p in every if p.get("origin") != "vendor" and (k := _key(p.get("account_url"))))
+    bought = Counter(k for p in every if p.get("origin") == "vendor" and (k := _key(p.get("account_url"))))
+    apify = _apify(c)
     profile, accounts, records = person["profile"], person["accounts"], person["records"]
     names = [s.value for s in c.seeds() if s.kind == "name"]
     # the case's own name first: the profile leaves out a name that only repeats a handle (dorian.vell, "Dorian Vell")
     name = names[0] if names else profile["names"][0]["value"] if profile["names"] else c.details().get("label") or c.name
-    top = max(accounts or records, key=lambda a: a["probability"], default=None)  # the person's best-supported account
-    best = top and top["probability"]
+    best = max((a["probability"] for a in accounts or records), default=None)  # the person's best-supported account
     saved = {v["url"] for v in _saved(c)}
-    save_url = next((a["url"] for a in accounts + records if a["url"] in saved), top and top["url"])  # Save is the Vault's route
+    top = max(accounts, key=lambda a: a["probability"], default=None)  # what Save keeps; a record is never saved
+    save_url = next((a["url"] for a in accounts if a["url"] in saved), top and top["url"])
     meta = []
     if profile["born"]:
         meta.append(f"about {date.today().year - profile['born'][0]['value']}")
@@ -85,6 +102,7 @@ async def report_view(req: Request):
         w = work.get(key) if walled else None
         rows.append({**{k: a[k] for k in ("url", "site", "handle", "verdict", "probability", "reasons", "decision", "avatar")},
                      "walled": walled, "captured_posts": posts[key] if walled else None,
+                     "apify": {**apify[key], "posts": bought[key]} if walled and key in apify else None,
                      "last_capture": w["last_capture"] if w else None, "on_worklist": bool(w)})
     return JSONResponse({"name": name, "meta": meta, "match": round(best * 100) if best is not None else None,
                          "summary": _summary(name, accounts, records, person["summary"], profile["places"]),
@@ -92,4 +110,15 @@ async def report_view(req: Request):
                          "background": background, "save_url": save_url, "saved": save_url in saved})
 
 
-ROUTES = [Route("/api/cases/{slug}/v2/report", report_view)]
+async def apify_credit(req: Request):
+    """{credit_left_usd} on the investigator's Apify account, or null when it can't be read. A separate call, so the
+    report never waits on Apify."""
+    _case(req)
+    s = vendor.settings()
+    try:
+        return JSONResponse({"credit_left_usd": (await vendor._usage(s))["credit_left_usd"] if s["apify_key"] else None})
+    except (httpx.HTTPError, ValueError, KeyError):
+        return JSONResponse({"credit_left_usd": None})
+
+
+ROUTES = [Route("/api/cases/{slug}/v2/report", report_view), Route("/api/cases/{slug}/v2/apify", apify_credit)]

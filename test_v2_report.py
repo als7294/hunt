@@ -67,6 +67,22 @@ assert not gh["walled"] and gh["captured_posts"] is None and gh["reasons"], gh
 assert [e["kind"] for e in d["timeline"][:3]] == ["record", "post", "post"] and d["timeline"][0]["date"] == "2021-04-02", d["timeline"]
 assert d["saved"] is False and not d["background"] and "Also known as" not in facts  # the headline name isn't repeated
 
+# Apify: real counts and cost when it read the account; the Hunt Browser only when it didn't, or read nothing (a private one)
+FB = "https://www.facebook.com/dorian.vell"
+ap = case("Vell apify", "insurance")
+k = Case.open(ap)
+k.add_finding(Finding("maigret", Seed("name", "Dorian Vell"), "Facebook", FB, {"fullname": "Dorian Vell"}))
+k.decide(FB, "him")
+for url, n, cost in ((IG, 2, 0.04), (FB, 0, 0.001)):
+    k.audit("vendor run", {"vendor": "Apify", "status": "SUCCEEDED", "cost_usd": cost, "account": url, "posts": n, "finished": "2026-03-05T10:00:00Z"})
+POSTS[:] = [{**p, "origin": "vendor"} for p in POSTS]
+acc2 = {a["site"]: a for a in c.get(f"/api/cases/{ap}/v2/report").json()["accounts"]}
+assert acc2["Instagram"]["apify"] == {"runs": 1, "cost_usd": 0.04, "last": "2026-03-05T10:00:00Z", "ok": True, "posts": 2}, acc2["Instagram"]
+assert acc2["Instagram"]["captured_posts"] == 0 and acc2["Facebook"]["apify"]["posts"] == 0 and acc2["GitHub"]["apify"] is None
+POSTS[:] = [{**p, "origin": "captured"} for p in POSTS]
+assert acc["Instagram"]["apify"] is None  # no run: nothing is labelled Apify
+assert c.get(f"/api/cases/{ap}/v2/apify").json() == {"credit_left_usd": None}  # no key set: said plainly, no request
+
 # Save goes through the Vault's own route, on the person's best-supported account
 url = d["save_url"]
 assert url == max(d["accounts"], key=lambda a: a["probability"])["url"], d["accounts"]
@@ -92,7 +108,8 @@ assert c.get(f"/api/cases/{bg}/people").json()["people"] == []
 V2 = Path("hunt/static/v2")
 js = (V2 / "screens/report.js").read_text() + (V2 / "parts/family.js").read_text()
 assert not re.search(r"\bon(click|error|load)=", js) and not re.search(r"(?:src|url\()[=\"']*https?:", js)
-assert "d.background ? [] : [['family', 'Family']]" in js and "m.mount(el, slug, { background: data.background })" in js
+assert "d.background ? [] : [['family', 'Family']]" in js and "if (m.mount) await m.mount(el, slug, { background: data.background })" in js and "m.flagsTab(slug, await m.loadFlags(slug))" in js
+assert "via Apify" in js and "viaApify(a) ? '' : a.walled" in js and "saveButton(slug, data.save_url, data.saved)" in js
 assert "'flags', 'Flags'" in js and "'exposure', 'Exposure'" in js and "Open in Hunt Browser" in js and "/worklist" in js
 for act in set(re.findall(r'data-act="([\w-]+)"', js)):
     assert f"'{act}':" in js, act  # every button has its action
