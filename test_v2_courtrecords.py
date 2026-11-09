@@ -3,6 +3,7 @@ Run: uv run python test_v2_courtrecords.py   (fictional people; the local model 
 
 import asyncio
 import json
+import re
 import os
 import tempfile
 import time
@@ -103,8 +104,8 @@ assert not d["screening"] and {r["source"] for r in d["records"]} == {"courts_pa
 v = next(r for r in d["records"] if r["source"] == "voter")
 assert v["group"] == "who and where" and v["household"] == [] and v["decision"] == "him" and "Gainesville" in v["attrs"]["address"]
 assert next(r for r in d["records"] if r["source"] == "courts_pa")["group"] == "courts"
-assert d["links"]["courts"][0]["state"] == "FL" and d["links"]["activity"] and d["links"]["people_search"]
-assert all(set(l) >= {"site", "label", "url"} for l in d["links"]["people_search"])
+assert d["links"]["courts"][0]["state"] == "FL" and d["links"]["activity"] and "people_search" not in d["links"]  # /person's alone (P1)
+assert c.get(f"/api/cases/{slug}/person").json()["people_search"], "the panel reads the people-search links from /person"
 assert {r["source"] for r in d["coverage"]} >= {"courts_pa", "courts_ok", "voter"}
 assert set(d["local"]) == {"voter", "tables", "powerlifting"} and set(d["local"]["voter"]) == {"FL", "NC", "OH"}
 assert d["local"]["voter"]["NC"]["download"] and not d["local"]["voter"]["FL"]["download"] and d["local"]["voter"]["FL"]["loaded"] is None
@@ -119,7 +120,8 @@ screen.add_finding(Finding("courts_pa", name, "UJS portal (Pennsylvania courts)"
 for url in (voter.BUILT["FL"] + "#FL-100000001", "https://ujsportal.pacourts.us/Report/x?docketNumber=CP-1"):
     screen.decide(url, "him")
 d = c.get(f"/api2/cases/{screen.name}/records").json()
-assert d["screening"] and d["records"] == [] and d["links"]["people_search"] == [] and "voter" not in d["local"]
+assert d["screening"] and d["records"] == [] and "voter" not in d["local"]
+assert c.get(f"/api/cases/{screen.name}/person").json()["people_search"] == []
 facts = c.get(f"/api2/cases/{screen.name}/facts").json()["facts"]
 assert not any("voter" in f["text"].lower() and f["kind"] == "record" for f in facts) and not any(f["kind"] == "record" for f in facts)
 
@@ -160,6 +162,8 @@ voter.size, voter.update = real_size, real_update
 # --- the parts are served under /v2/parts/ and use no inline handlers
 for f in ("askchat.js", "exposure.js", "records.js"):
     page = c.get(f"/v2/parts/{f}")
-    assert page.status_code == 200 and "onclick=" not in page.text.lower() and "data-act" in page.text or f == "exposure.js", f
+    assert page.status_code == 200 and "onclick=" not in page.text.lower() and ("data-act" in page.text or f == "exposure.js"), f
     assert "from '../core.js'" in page.text
+    assert not re.search(r"<(?:iframe|embed|object|portal)\b|rel=[\"']?(?:prefetch|preconnect|dns-prefetch|prerender)", page.text, re.I), f
+assert "whitepages" not in c.get("/v2/parts/records.js").text.lower()  # the hosts are never named in a screen: /person hands over the links
 print("ok")

@@ -3,7 +3,9 @@
 // on the cases their terms allow); and the local files Hunt searches (voter files, state licence and business files,
 // OpenPowerlifting): what is loaded, and a load button that shows the size first and asks before a large download.
 //   import * as records from '../parts/records.js';  records.panel(el, { slug });  or mount(el, slug, ctx)
-// Everything comes from GET /api2/cases/{slug}/records and the /api2/local routes (hunt/api2/askchat.py).
+// Records, court and race links and the local files come from GET /api2/cases/{slug}/records and the /api2/local routes
+// (hunt/api2/askchat.py); the people-search links come from GET /person alone (legal.md P1) and open only on her click, in
+// the Hunt Browser, as buttons: no link, preview, frame or prefetch, and Hunt Capture never records those sites (P4).
 import { html, api, actions, follow, toast, fail } from '../core.js';
 
 const CARD = 'border-radius:24px;border:1px solid transparent;background:linear-gradient(180deg,#ffffff,#f6f7f9) padding-box,linear-gradient(180deg,#ffffff 0%,#d2d5db 34%,#ffffff 52%,#bcc0c7 100%) border-box;box-shadow:0 1px 2px rgba(0,0,0,.04),0 18px 44px rgba(20,22,28,.07),inset 0 1px 0 #fff;padding:20px 22px;display:flex;flex-direction:column;gap:14px;animation:hIn .3s ease-out both';
@@ -17,7 +19,8 @@ const panels = new Map();
 
 export async function panel(el, { slug }) {
   el.innerHTML = html`<div style="${CARD}"><span style="${H}">Public records</span><span style="${SUB}">Reading…</span></div>`.s;
-  const d = await api(`/api2/cases/${encodeURIComponent(slug)}/records`);
+  const [d, person] = await Promise.all([api(`/api2/cases/${encodeURIComponent(slug)}/records`), api(`/api/cases/${encodeURIComponent(slug)}/person`)]);
+  d.people_search = person.people_search || [];
   panels.set(slug, { el, slug, data: d, sizes: {} });
   draw(panels.get(slug));
 }
@@ -41,7 +44,7 @@ function draw(s) {
       ${links('Court portals', d.links.courts, l => l.state ? `${l.state} · ${l.label}` : l.label)}
       ${links('Competition and race results', d.links.activity, l => l.label)}
       ${d.screening ? html`<div style="font-size:13px;color:var(--ink-2)">People-search sites are not offered on a background case: their terms forbid employment screening.</div>`
-        : links('People-search sites (leads only: confirm in a primary record)', d.links.people_search, l => `${l.site} · ${l.label}`)}
+        : peopleSearch(s.slug, d.people_search)}
     </div>
     <div style="${CARD}">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap"><span style="${H}">Local files Hunt searches</span><span style="${SUB}">loaded once on this Mac, never during a search</span></div>
@@ -63,6 +66,16 @@ function record(r) {
     ${r.source === 'voter' ? html`<div style="font-size:12.5px;color:var(--ink-2)">${a.address ? html`Registered at ${a.address}. ` : ''}${r.household?.length ? html`Also registered there: ${r.household.join(', ')} (names only, from the local file).` : ''}</div>` : ''}
     ${r.reasons?.length ? html`<div style="${SUB}">${r.reasons.slice(0, 3).join(' · ')}</div>` : ''}
     ${r.fetched ? html`<div style="font-size:11.5px;color:var(--ink-3)">fetched ${r.fetched.slice(0, 10)}</div>` : ''}</div>`;
+}
+
+function peopleSearch(slug, items) {
+  if (!items?.length) return '';
+  const by = Object.entries(items.reduce((g, l) => ((g[l.label] ||= []).push(l), g), {}));
+  return html`<div style="display:flex;flex-direction:column;gap:8px">
+    <div style="font-size:14px;font-weight:600">People-search sites <span style="font-weight:400;color:var(--ink-2)">· by hand in the Hunt Browser; a lead only, confirmed in a primary record, never for employment or tenant screening</span></div>
+    ${by.map(([label, ls]) => html`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:180px;font-size:14px">${label}</span>
+      ${ls.map(l => html`<button type="button" data-act="records-open" data-url="${l.url}" data-case="${slug}" title="Opens in the Hunt Browser" style="${PILL}">${l.site}</button>`)}</div>`)}
+    <div style="${SUB}">Hunt Capture doesn't record these sites (their terms bar it): write down the lead by hand.</div></div>`;
 }
 
 function links(title, items, label) {
@@ -107,6 +120,10 @@ async function load(slug, item, size) {
 }
 
 Object.assign(actions, {
+  'records-open': async el => {
+    try { await api('/api/browser/open', { method: 'POST', body: { url: el.dataset.url, case: el.dataset.case } }); toast('Opened in the Hunt Browser'); }
+    catch (e) { fail(e); }
+  },
   'records-size': el => showSize(el.dataset.slug, el.dataset.item),
   'records-load': el => load(el.dataset.slug, el.dataset.item, el.dataset.size),
 });
