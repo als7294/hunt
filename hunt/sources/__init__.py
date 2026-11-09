@@ -63,6 +63,13 @@ SOURCES += [parcels,  # name → property owned (assessors' rolls; Florida's sta
             boards,  # name → state licensing boards' lookups read as public pages, logged out
             opencorporates]  # name → company officers in every state (optional: the investigator's own key)
 
+# The free, logged-out records genealogy sites are built on (_page.py; legal.md C6, D25). FamilySearch and Ancestry need
+# sign-in, and are out. Strict matches only: a full name plus a place or date the case knows. One block.
+from . import census1950, directories, vitals  # noqa: E402
+SOURCES += [census1950,  # name → the subject's line in NARA's 1950 Census index, linked to the page
+            directories,  # name → their listing in their town's city directories, year by year (Internet Archive)
+            vitals]  # name → state death indexes that are free and logged out (Utah)
+
 
 def _key_status(src, is_set: bool) -> str:
     if not getattr(src, "KEY", None):
