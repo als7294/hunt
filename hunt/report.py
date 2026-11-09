@@ -74,6 +74,8 @@ RECORDS = {"fec": "FEC itemized political contributions", "edgar": "SEC EDGAR fi
                                                                             ("ok", "Oklahoma"), ("tx", "Texas"), ("mi", "Michigan"), ("ga", "Georgia"),
                                                                             ("oh", "Ohio"), ("az", "Arizona"), ("wi", "Wisconsin"))},
            "activity": "published powerlifting results (OpenPowerlifting)", "voter": "the states' voter files (Florida, North Carolina, Ohio)",
+           "census1950": "the 1950 US Census name index (NARA)", "directories": "historic city directories (Internet Archive)",
+           "vitals": "state death indexes (Utah)",
            "news": "newspaper stories (Chronicling America, Internet Archive, GDELT) naming them with a place, relative or employer"}
 # Screening (employment) mode leaves these sources out entirely: what they reveal is protected in several states
 SCREENED = {"fec": "political affiliation", "npi": "health", "voter": "political activity"}  # voter: legal.md V4, D23
