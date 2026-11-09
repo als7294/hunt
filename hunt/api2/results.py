@@ -21,6 +21,7 @@ from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from . import lists
 from .. import entity, graph, leads, match, people_index, profile, report, search
 from ..app import _active, _body, _case, _evidence, _flagged, _handle, _hits, _module, _plain, _posts, _profile
 from ..seed import detect
@@ -218,7 +219,7 @@ def _card(pid, cands, entry, own, ties, c, posts, published, screening, flags, s
             "meta": " · ".join(s for s in (age, place) if s), "match": None if score is None else round(score * 100), "verdict": verdict,
             "counts": {"accounts": len(people), "records": records}, "summary": summary, "facts": rows, "chain": chain,
             "chain_note": f"{_many(len(chain), 'source')}, strongest first" if chain else "", "accounts": _accounts(cands, posts),
-            "flags": flags if own else None, "saved": pid in saved}
+            "flags": flags if own else None, "url": best["url"] if best else None, "saved": bool(best) and best["url"] in saved}
 
 
 def _many(n: int, word: str) -> str:
@@ -244,13 +245,9 @@ def _withhold(value, red, key=""):
     return value
 
 
-def _saved(c) -> list[dict]:
-    return json.loads(c.meta("saved_people") or "[]")
-
-
 async def get_results(req):
     """{headline, meta, running, kind, people: [{id, own, confirmed, name, initials, meta, match, verdict, counts, summary,
-    facts, chain, chain_note, accounts, flags, saved}], note}, best first. `match` is null when nothing was scored."""
+    facts, chain, chain_note, accounts, flags, url, saved}], note}, best first. `match` is null when nothing was scored."""
     c = _case(req)
     screening = c.details()["kind"] == "background"
     snap = await search.snapshot(c)
@@ -258,7 +255,7 @@ async def get_results(req):
     index, note = await asyncio.to_thread(people_index.for_case, c)
     posts, ties = await _posts(c), _ties(c, candidates)
     flags = await _flags(c, screening) if any(search.in_person(x) for x in candidates) else None
-    saved = {s["id"] for s in _saved(c)}
+    saved = {v["url"] for v in lists._saved(c)}
     published = snap.get("published_emails", [])
     cards = [_card(pid, cs, entry, own, ties, c, posts, published, screening, flags, saved)
              for pid, cs, entry, own in _people(c, candidates, index, ties)]
@@ -300,19 +297,4 @@ async def refine(req):
     return JSONResponse({"seeds": read_detail(b["text"])})
 
 
-async def save_person(req):
-    """{id, name, saved}: keep a person of this case for the Vault, or take them out (the case's `saved_people`), audited."""
-    c, b = _case(req), await _body(req)
-    if not (isinstance(b.get("id"), str) and re.fullmatch(r"[\w-]{1,40}", b["id"]) and isinstance(b.get("name"), str) and 0 < len(b["name"]) <= 200):
-        raise HTTPException(400, "id and name are required")
-    keep = [s for s in _saved(c) if s["id"] != b["id"]]
-    on = b.get("saved", True) is not False
-    if on:
-        keep.append({"id": b["id"], "name": b["name"], "at": date.today().isoformat()})
-    c.db.execute("insert or replace into meta values ('saved_people', ?)", (json.dumps(keep),))
-    c.audit("person saved to the vault" if on else "person taken out of the vault", {"id": b["id"]})
-    return JSONResponse({"saved": on})
-
-
-ROUTES = [Route("/api/cases/{slug}/results", get_results), Route("/api/cases/{slug}/results/refine", refine, methods=["POST"]),
-          Route("/api/cases/{slug}/results/saved", save_person, methods=["POST"])]
+ROUTES = [Route("/api/cases/{slug}/results", get_results), Route("/api/cases/{slug}/results/refine", refine, methods=["POST"])]

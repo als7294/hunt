@@ -131,11 +131,12 @@ r = client.post(f"/api/cases/{k.name}/results/refine", json={"text": "lives in T
 assert r.json() == {"seeds": ["location:Tampa"]} and client.post(f"/api/cases/{k.name}/results/refine", json={"text": " "}).status_code == 400
 assert client.post(f"/api/cases/{k.name}/seeds", json=r.json()).status_code == 200 and Seed("location", "Tampa") in k.seeds()
 
-# --- Save keeps the person with the case, for the Vault, audited
-assert client.post(f"/api/cases/{k.name}/results/saved", json={"id": "person"}).status_code == 400
-assert client.post(f"/api/cases/{k.name}/results/saved", json={"id": "person", "name": "Dana Vell"}).json() == {"saved": True}
-assert json.loads(k.meta("saved_people"))[0]["name"] == "Dana Vell" and get(client, k)["people"][0]["saved"]
-assert client.post(f"/api/cases/{k.name}/results/saved", json={"id": "person", "name": "Dana Vell", "saved": False}).json() == {"saved": False}
-assert not get(client, k)["people"][0]["saved"] and k.rows("select * from audit where action = 'person taken out of the vault'")
+# --- Save keeps the person's best account in the case's Vault: one store with the Report and the Vault screen
+p = get(client, k)["people"][0]
+assert p["url"] and not p["saved"]
+assert client.post(f"/api/cases/{k.name}/vault", json={"url": p["url"], "saved": True}).json() == {"urls": [p["url"]]}
+assert get(client, k)["people"][0]["saved"] and client.get("/api/vault").json()["people"][0]["url"] == p["url"]
+assert client.post(f"/api/cases/{k.name}/vault", json={"url": p["url"], "saved": False}).json() == {"urls": []}
+assert not get(client, k)["people"][0]["saved"]
 assert client.get("/v2/screens/results.js").status_code == 200
 print("ok")

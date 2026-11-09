@@ -82,7 +82,7 @@ const parts = () => { part('exposure', 'results-exposure'); part('askchat', 'res
 const repaint = () => {
   $('#results-cards').innerHTML = html`${S.data.people.map(card)}`.s;
   $('#results-detail').innerHTML = S.data.people.length ? detail(who()).s : '';
-  const save = $('#results-save'); if (save) save.textContent = who()?.saved ? 'Saved' : 'Save';
+  const save = $('#results-save'); if (save) { save.textContent = who()?.saved ? 'Saved' : 'Save'; save.style.display = who()?.url ? '' : 'none'; } // someone only in the local index has no account to keep
   parts();
 };
 
@@ -121,7 +121,7 @@ Object.assign(actions, {
   'results-copy': el => navigator.clipboard.writeText(who().facts[+el.dataset.i].v).then(() => toast('Copied'), fail),
   'results-open': el => go(`report/${el.dataset.tab}`),
   'results-save': () => { const p = who(), saved = !p.saved;
-    api(url('/saved'), { method: 'POST', body: { id: p.id, name: p.name, saved } }).then(() => { p.saved = saved; $('#results-save').textContent = saved ? 'Saved' : 'Save'; toast(saved ? 'Saved to Vault' : 'Removed from Vault'); }, fail); },
+    api(`/api/cases/${enc(S.slug)}/vault`, { method: 'POST', body: { url: p.url, saved } }).then(() => { p.saved = saved; $('#results-save').textContent = saved ? 'Saved' : 'Save'; toast(saved ? 'Saved to Vault' : 'Removed from Vault'); }, fail); },
 });
 document.addEventListener('submit', e => {
   if (!e.target.matches('[data-results-refine]')) return;
