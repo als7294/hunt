@@ -48,14 +48,16 @@ WALL = re.compile(r"captcha|are you (?:a )?(?:human|robot)|verify (?:that )?you|
 BOILER = {"profile", "userprofile", "myprofile", "home", "homepage", "user", "users", "member", "members", "account", "login", "signin",
           "error", "page", "overview", "search", "people", "gifs", "stats", "statistics", "stream", "streamer", "live", "ideas",
           "scripts", "builds", "chat", "games", "share", "imagine", "program", "download", "welcome", "dashboard", "settings",
-          "feed", "explore", "discover", "community", "channel", "videos", "posts", "activity", "avatar", "gists", "repositories"}
+          "feed", "explore", "discover", "community", "channel", "videos", "posts", "activity", "avatar", "gists", "repositories",
+          "sign", "log", "in", "up", "out", "not", "found", "join", "register", "access", "denied", "forbidden", "untitled",
+          "loading", "redirecting", "404", "oops", "sorry", "app", "online", "forum", "forums", "blog", "shop", "store", "news"}
 NO_START = {"the", "a", "an", "my", "your", "our", "all", "be", "get", "best", "top", "new", "free", "official"}  # a slogan
 PARTICLE = {"de", "da", "del", "della", "di", "du", "la", "le", "van", "von", "der", "den", "bin", "al", "el", "y", "e", "mc", "st"}
 # ponytail: a site's generic preview picture (logo, share card, stock avatar) recognised by its path alone, so that two
 # strangers on one site never "share a profile photo". Upgrade: hashes seen under many handles are generic too.
 GENERIC_IMAGE = re.compile(r"(?<![a-z])og(?![a-z])|opengraph|logo|default|placeholder|/share/|/static/|/img/|/images/|/assets/|"
                            r"brand|banner|icon|preview|social|card", re.I)
-TAG = re.compile(r"<(meta|title)\b([^>]*)>(?:(.*?)</title>)?", re.I | re.S)
+TAG = re.compile(r"<meta\b([^>]*)>|<title\b[^>]*>(.*?)</title>", re.I | re.S)
 ATTR = re.compile(r"""(property|name|content)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))""", re.I)
 KEEP = ("og:title", "og:description", "og:image", "twitter:title", "twitter:description", "twitter:image", "title")
 
@@ -63,9 +65,13 @@ KEEP = ("og:title", "og:description", "og:image", "twitter:title", "twitter:desc
 def meta(page: str) -> dict:
     """The page's preview metadata: the KEEP keys that are present, unescaped and whitespace-folded."""
     out = {}
-    for tag, attrs, title in TAG.findall(page[:400_000]):
-        if tag.lower() == "title":
-            out.setdefault("title", _fold(title))
+    page = page[:400_000]
+    head = len(page) if (end := re.search(r"</head\s*>", page, re.I)) is None else end.start()
+    for m in TAG.finditer(page):
+        attrs, title = m.groups()
+        if attrs is None:  # the page's own <title>, in its head: an inline SVG's <title> ("chevron-down") names an icon
+            if m.start() < head:
+                out.setdefault("title", _fold(title))
             continue
         a = {k.lower(): v or w or x for k, v, w, x in ATTR.findall(attrs)}
         key = (a.get("property") or a.get("name") or "").lower()
@@ -110,22 +116,53 @@ def parsed(page: str) -> dict:
 def is_profile(url: str, handle: str) -> bool:
     """Does the URL point at one account: a path or query beyond the site's doors, or the handle in the host?"""
     p = urlsplit(url)
+    if (p.hostname or "").startswith("api.") or "/api/" in p.path:  # an engine's existence check, not a page with a preview
+        return False
     return bool(p.query) or any(x.lower() not in DOORS for x in p.path.split("/") if x) \
         or (bool(_plain(handle)) and _plain(handle) in _plain(p.hostname or ""))
 
 
+def stored(case: Case, c: dict) -> dict | None:
+    """What the pages already in the case's evidence for this account say (WhatsMyName and Social Analyzer keep the page
+    they checked; an API source its JSON), read as a fetched page would be, with no request. None when none of them is
+    the profile's own page and none says anything: the page is then still worth one read."""
+    found, page = {}, False
+    for e in c.get("evidence", []):
+        if e.get("kind") != "page source":
+            continue
+        try:
+            body = (case.dir / e["file"]).read_text(errors="replace")
+        except OSError:
+            continue
+        m = meta(body)
+        if WALL.search(m.get("title", "")):
+            continue
+        page = page or bool(m)
+        found = fields(m, c["url"], c["seed"]["value"]) | parsed(body) | found
+    return found if found or page else None
+
+
 async def run(case: Case, candidates: list[dict], emit) -> dict:
     """Read the pages of up to MOST accounts from the subject's own seeds that have neither a name nor a picture yet, and
-    merge what they offer into their findings. An account a source already described is left to that source.
-    Returns the counts audited: {read, enriched, skipped, robots: {host: what its robots.txt says}, stopped: {host: why}}."""
+    merge what they offer into their findings. An account a source already described is left to that source, and one
+    whose page an engine already fetched is read from that copy (stored), not requested again.
+    Returns the counts audited: {read, enriched, held, skipped, robots: {host: what its robots.txt says}, stopped: {host: why}}."""
     cache = _cache()
     today = _today()
-    todo, skipped = {}, 0
+    todo, skipped, held = {}, 0, 0
     for c in candidates:
         if c["seed"]["kind"] not in OWN or c.get("decision") == "not him" or not c["url"].startswith("http") \
                 or c["attrs"].get("fullname") or c["attrs"].get("image") or not is_profile(c["url"], c["seed"]["value"]):
             continue
-        if denied(c["url"]) or people_search.host_of(c["url"]) or cache["read"].get(c["url"]) == today:
+        if denied(c["url"]) or people_search.host_of(c["url"]):
+            skipped += 1
+            continue
+        if (found := stored(case, c)) is not None:  # the page an engine already fetched for this account: no second request
+            if found:
+                _merge(case, c, found, c["url"])
+                held += 1
+            continue
+        if cache["read"].get(c["url"]) == today:
             skipped += 1
             continue
         host = (urlsplit(c["url"]).hostname or "").lower()
@@ -133,8 +170,12 @@ async def run(case: Case, candidates: list[dict], emit) -> dict:
             todo.setdefault(host, {})[c["url"]] = c
         if sum(map(len, todo.values())) >= MOST:
             break
+    if held:
+        emit({"type": "log", "message": f"{held} profile pages the search engines had already fetched gave a name, bio or picture"})
     if not todo:
-        return {"read": 0, "enriched": 0, "skipped": skipped, "stopped": {}}
+        if held:
+            case.audit("enrich", {"read": 0, "enriched": 0, "held": held, "skipped": skipped, "stopped": {}})
+        return {"read": 0, "enriched": 0, "held": held, "skipped": skipped, "stopped": {}}
     emit({"type": "log", "message": f"reading {sum(map(len, todo.values()))} profile pages on {len(todo)} sites"})
     stopped, robots, counts = {}, {}, {"read": 0, "enriched": 0}
     sem = asyncio.Semaphore(HOSTS_AT_ONCE)
@@ -167,7 +208,7 @@ async def run(case: Case, candidates: list[dict], emit) -> dict:
                         counts["enriched"] += 1
         await asyncio.gather(*(host_run(h, u) for h, u in todo.items()))
     _save(cache)
-    out = {**counts, "skipped": skipped, "robots": robots, "stopped": stopped}
+    out = {**counts, "held": held, "skipped": skipped, "robots": robots, "stopped": stopped}
     case.audit("enrich", out)
     emit({"type": "log", "message": f"{counts['enriched']} of {counts['read']} profile pages read gave a name, bio or picture"})
     return out
@@ -218,12 +259,14 @@ def _merge(case: Case, c: dict, found: dict, page: str):
 def _name(title: str, handles: set, host: str) -> str | None:
     """The first piece of a title that reads as a person's name: one to four capitalised words (particles allowed), none
     of them site furniture, not containing the handle, and not the site's own name."""
+    site = _site(host)
+    title = re.sub(r"\s*\(([^()@][^()]*)\)", r" | \1", title)  # "kvane88 (Kestrel Vane)": the name is the bracketed piece
     for part in re.split(r"\s+[|·•–—-]\s+|\s*\|\s*", title):
         part = re.sub(r"\s*\(@[^)]*\)|^@|\s+(?:on|at|from)\s+[\w.]+$|[\u2019']s\s+\w+$", "", part, flags=re.I).strip(" :")
         words = part.split()
         p = _plain(part)
         if not p or not 1 <= len(words) <= 4 or any(h in p for h in handles) or p in _plain(host) or WALL.search(part) \
-                or words[0].lower() in NO_START:
+                or words[0].lower() in NO_START or (len(site) >= 4 and site in p):  # "Watch Snapchat Stories" is the site's
             continue
         if all((w[0].isupper() or w.lower() in PARTICLE) and _plain(w) not in BOILER and re.fullmatch(r"[^\W\d_][\w'.\u2019-]*", w)
                for w in words):

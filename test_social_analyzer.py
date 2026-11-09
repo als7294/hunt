@@ -63,6 +63,7 @@ entries = [
     {"url": "https://blocked.example/{username}", "detections": [{"type": "normal", "return": "true", "string": "x"}]},
     {"url": "https://err.example/{username}", "detections": [{"type": "normal", "return": "true", "string": "x"}]},
     {"url": "https://find.example/search?q={username}", "detections": [{"type": "normal", "return": "true", "string": "results"}]},
+    {"url": "https://anything.example/{username}", "detections": [{"type": "normal", "return": "true", "string": "member since"}]},
 ]
 sa.CACHE.write_text(json.dumps({"websites_entries": entries, "shared_detections": shared}))
 wmn.CACHE.parent.mkdir(parents=True, exist_ok=True)
@@ -84,22 +85,28 @@ def serve(request):
         return httpx.Response(403, text="forbidden")
     if host == "err.example":
         raise httpx.ConnectError("refused")
-    return httpx.Response(200, text=pages[host])
+    if host == "anything.example":  # says yes to any handle, the made-up control included
+        return httpx.Response(200, text="member since")
+    return httpx.Response(200, text=pages[host]) if H in str(request.url) else httpx.Response(404, text="")
 
 
 seen.clear()
 sa._client = lambda: httpx.AsyncClient(transport=httpx.MockTransport(serve), headers={"User-Agent": sa.UA})
 found, checked, note = asyncio.run(sa.search(Seed("username", H)))
 sa._client = real_client
-assert sorted(str(r.url.host) for r in seen) == sorted(["wiki.example", "strong.example", "weak.example", "gone.example", "blocked.example",
-                                                           "err.example", "find.example"]), seen
+assert sorted(str(r.url.host) for r in seen if "zq7x" not in str(r.url)) == sorted([
+    "wiki.example", "strong.example", "weak.example", "gone.example", "blocked.example", "err.example", "find.example",
+    "anything.example"]), seen
+# the sites that claimed the handle are asked once more, for a made-up one; the site that "finds" that too is dropped
+assert sorted(str(r.url.host) for r in seen if "zq7x" in str(r.url)) == ["anything.example", "find.example", "strong.example", "wiki.example"]
 assert [(f.site, f.url, f.attrs) for f in found] == [
     ("wiki.example", f"https://wiki.example/wiki/User:{H}", {"confidence": 1.0, "category": "Wiki"}),
-    ("strong.example", f"https://strong.example/{H}", {"confidence": 1.0, "category": "Internet", "country": "Iceland"})], found
+    ("strong.example", f"https://strong.example/{H}", {"confidence": 1.0, "category": "Internet", "site_country": "Iceland"})], found  # the site's country, not the person's
 assert found[1].body == f'<div class="profile-header">"{H}"</div>' and found[0].source == "social-analyzer"
 assert checked == 5, checked  # 3 found, 1 not found, 1 low confidence
-assert note == ("checked 7 sites (4 of Social Analyzer's 11 left out: 2 checked by Maigret or WhatsMyName, 1 on deny-list hosts, "
-                "1 without a usable detection): 3 found, 1 not found, 1 low confidence, 1 unknown, 1 error; 1 search pages dropped"), note
+assert note == ("checked 8 sites (4 of Social Analyzer's 12 left out: 2 checked by Maigret or WhatsMyName, 1 on deny-list hosts, "
+                "1 without a usable detection): 3 found, 1 not found, 1 low confidence, 1 unknown, 1 error; "
+                "1 that find a made-up handle too dropped; 1 search pages dropped"), note
 # A page that only carries an absence string, or none of the strings, is not a hit
 async def probe(text, entry=entries[5]):
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, text=text))) as c:

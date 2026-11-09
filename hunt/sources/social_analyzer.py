@@ -23,7 +23,7 @@ from ..case import HOME
 from ..seed import Finding
 from . import _api, maigret, wmn
 from ._api import denied
-from .maigret import tidy_hits
+from .maigret import ghost, says_anything, tidy_hits
 
 NAME = "social-analyzer"
 KINDS = {"username"}
@@ -44,7 +44,9 @@ def key(url: str) -> str:
 
 
 def _client():
-    return httpx.AsyncClient(timeout=20, follow_redirects=True, proxy=os.environ.get("HUNT_PROXY"),
+    # 10 s, as Maigret allows: about 90 of the list's 2022 sites are gone and only time out, and at 20 s that made this
+    # the slowest source of every search by a quarter of a minute
+    return httpx.AsyncClient(timeout=10, follow_redirects=True, proxy=os.environ.get("HUNT_PROXY"),
                              headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"})
 
 
@@ -121,14 +123,25 @@ async def search(seed):
             if status != "found":
                 return status, None
             host = (urlsplit(site["url"]).hostname or "").removeprefix("www.")
-            attrs = _api.tidy({"confidence": round(confidence, 2), "category": site.get("type"), "country": site.get("country")})
+            # site_country: where the site is from, never "country", which match.place_text reads as where the person is
+            attrs = _api.tidy({"confidence": round(confidence, 2), "category": site.get("type"), "site_country": site.get("country")})
             return status, Finding(NAME, seed, host, str(r.url), attrs, body=r.text)
 
         results = await asyncio.gather(*map(check, chosen))
+        nobody = ghost()  # a site that "finds" a made-up handle too says yes to anything (maigret.ghost)
+
+        async def anything(site, result):
+            if result[0] != "found":
+                return False
+            async with sem:
+                return (await _probe(client, site, nobody, data["shared_detections"]))[0] == "found"
+
+        loose = await asyncio.gather(*map(anything, chosen, results))
+    results = [r for r, yes in zip(results, loose) if not yes]
     counts = {s: sum(1 for st, _ in results if st == s) for s in ("found", "not found", "low confidence", "unknown", "error")}
     findings, dropped = tidy_hits([f for _, f in results if f], seed.value)
     total = len(data["websites_entries"])
     return (findings, counts["found"] + counts["not found"] + counts["low confidence"],
             f"checked {len(chosen)} sites ({total - len(chosen)} of Social Analyzer's {total} left out: {left['elsewhere']} checked by "
             f"Maigret or WhatsMyName, {left['denied']} on deny-list hosts, {left['undetectable']} without a usable detection): "
-            + ", ".join(f"{n} {s}" for s, n in counts.items()) + dropped)
+            + ", ".join(f"{n} {s}" for s, n in counts.items()) + says_anything(sum(loose)) + dropped)

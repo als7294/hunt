@@ -141,12 +141,16 @@ wmn.CACHE.write_text(json.dumps({"sites": [
 wmn_seen = []
 def wmn_answer(request):
     wmn_seen.append(request)
+    if "kvane" not in str(request.url) + request.content.decode():  # the made-up handle each claiming site is asked for too
+        return httpx.Response(404, text="gone") if "forum.example" in str(request.url) else httpx.Response(200, text="free")
     return httpx.Response(200, text="profile" if "forum.example" in str(request.url) else "taken")
 real_wmn_client = wmn._client
 wmn._client = lambda: httpx.AsyncClient(transport=httpx.MockTransport(wmn_answer), headers={"User-Agent": wmn.UA})
 found, checked, note = run(wmn, "username", "kvane")
 assert [f.site for f in found] == ["Example Forum", "Tindie"] and "checked 2 sites (2 skipped" in note, (found, note)
-assert {str(r.url): r.method for r in wmn_seen} == {"https://forum.example/u/kvane": "GET", "https://www.tindie.com/accounts/check_username/": "POST"}
+assert {str(r.url): r.method for r in wmn_seen if "zq7x" not in str(r.url)} == {
+    "https://forum.example/u/kvane": "GET", "https://www.tindie.com/accounts/check_username/": "POST"}
+assert len(wmn_seen) == 4 and sum("zq7x" in str(r.url) + r.content.decode() for r in wmn_seen) == 2  # one control each, sent the same way
 assert all(r.headers["user-agent"] == _api.UA for r in wmn_seen) and wmn_seen[0].headers["accept"] == "text/html"
 wmn._client = real_wmn_client
 assert [s["name"] for s in json.loads(wmn.CACHE.read_text())["sites"] if wmn.usable(s)] == ["Example Forum", "Tindie"]
@@ -676,7 +680,7 @@ async def proxy_lines(make):
         await writer.drain()
         writer.close()
 
-    server = await asyncio.start_server(refuse, "127.0.0.1", 0)
+    server = await asyncio.start_server(refuse, "127.0.0.1", 0, backlog=1024)  # health() opens 120+ at once; the default queue is 100
     os.environ["HUNT_PROXY"] = f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}"
     try:
         await make()
