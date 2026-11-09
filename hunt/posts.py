@@ -83,9 +83,8 @@ async def collect(case, accounts: list[dict], since: str | None, emit) -> int:
                       "note": "this site's posts can't be read logged out"})
                 continue
             if why := public.blocked(url):  # a hard stop on the platform, or a wall met earlier in this run
-                status = "skipped" if site in public.WHY_NOT else "failed"  # skipped: Hunt never reads this site, nothing went wrong
-                case.add_run(site, Seed("url", url), status, 0, 0, why)
-                emit({"type": "source", "source": NAMES[site], "seed": url, "status": status, "found": 0, "checked": 0, "note": why})
+                case.add_run(site, Seed("url", url), "failed", 0, 0, why)
+                emit({"type": "source", "source": NAMES[site], "seed": url, "status": "failed", "found": 0, "checked": 0, "note": why})
                 continue
             emit({"type": "source", "source": NAMES[site], "seed": url, "status": "running", "found": 0, "checked": 0,
                   "note": ""})
@@ -101,6 +100,8 @@ async def collect(case, accounts: list[dict], since: str | None, emit) -> int:
                 public.hit_wall(case, url, e)
             except (httpx.HTTPError, ValueError, KeyError, ET.ParseError) as e:
                 status, note = "failed", f"{type(e).__name__}: {str(e)[:200]}"
+                if site in public.WHY_NOT:  # Hunt never reads this site: nothing went wrong
+                    status, note = "skipped", str(e)[:200]
             case.add_run(site, Seed("url", url), status, found, len(items), note)
             emit({"type": "source", "source": NAMES[site], "seed": url, "status": status, "found": found,
                   "checked": len(items), "note": note})
