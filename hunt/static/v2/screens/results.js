@@ -14,7 +14,7 @@ const url = tail => `/api/cases/${enc(S.slug)}/results${tail}`;
 const go = tail => { location.hash = `#/case/${enc(S.slug)}/${tail}`; };
 const who = () => S.data.people[S.sel];
 
-const card = (p, i) => html`<button data-act="results-pick" data-i="${i}" aria-pressed="${i === S.sel}" style="cursor:pointer;text-align:left;color:var(--ink);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px;${GLASS};${i === S.sel ? 'outline:2px solid var(--hunt);outline-offset:-1px' : ''}">
+const card = (p, i) => html`<button data-act="results-pick" data-i="${i}" aria-pressed="${String(i === S.sel)}" style="cursor:pointer;text-align:left;color:var(--ink);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px;${GLASS};${i === S.sel ? 'outline:2px solid var(--hunt);outline-offset:-1px' : ''}">
   <div style="display:flex;align-items:center;gap:12px;width:100%">
     <span style="width:42px;height:42px;flex:none;border-radius:50%;background:linear-gradient(180deg,#e5e5ea,#d1d1d6);display:grid;place-items:center;font-size:14px;font-weight:600;color:var(--ink-2)">${p.initials}</span>
     <div style="flex:1;min-width:0"><div style="font-size:16px;font-weight:600;${CLIP}">${p.name}</div><div style="font-size:13px;color:#86868b;${CLIP}">${p.meta || `${p.counts.accounts} accounts · ${p.counts.records} records`}</div></div>
@@ -29,7 +29,7 @@ const fact = (r, i) => html`<div style="display:grid;grid-template-columns:110px
   ${r.copy ? html`<button data-act="results-copy" data-i="${i}" style="cursor:pointer;border:0;background:none;font-size:12.5px;color:var(--hunt-deep);padding:4px">Copy</button>` : html`<span></span>`}</div>`;
 
 const step = (s, i) => html`<div style="display:flex;align-items:center;flex:1 1 150px;min-width:0">
-  <button data-act="results-step" data-i="${i}" aria-pressed="${i === S.step}" style="flex:1;min-width:0;cursor:pointer;text-align:left;border:0;border-radius:16px;padding:12px;background:${i === S.step ? 'rgba(255,45,85,.1)' : '#f5f5f7'};display:flex;flex-direction:column;gap:6px;color:var(--ink)">
+  <button data-act="results-step" data-i="${i}" aria-pressed="${String(i === S.step)}" style="flex:1;min-width:0;cursor:pointer;text-align:left;border:0;border-radius:16px;padding:12px;background:${i === S.step ? 'rgba(255,45,85,.1)' : '#f5f5f7'};display:flex;flex-direction:column;gap:6px;color:var(--ink)">
     <span style="font-size:14px;font-weight:600;${CLIP};max-width:100%">${s.label}</span><span style="font-size:12.5px;color:var(--ink-2);${CLIP};max-width:100%">${s.sub}</span></button>
   ${s.link ? html`<div style="flex:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:0 6px"><span style="font-size:10.5px;font-weight:600;color:var(--hunt-deep);white-space:nowrap">${s.link}</span><span style="width:24px;height:2px;border-radius:2px;background:var(--hunt)"></span></div>` : ''}</div>`;
 

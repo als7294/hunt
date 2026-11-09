@@ -36,12 +36,12 @@ function row(a) {
   const seg = (on, col) => `color:${on ? col : '#86868b'};background:${on ? '#fff' : 'transparent'};box-shadow:${on ? SHADOW : 'none'}`;
   return html`<div style="padding:10px 24px;${LINE}"><div style="display:flex;align-items:center;gap:12px">
     <span style="position:relative;width:34px;height:34px;flex:none;border-radius:10px;background:linear-gradient(180deg,#ffffff,#eceef1);box-shadow:inset 0 0 0 .5px rgba(0,0,0,.1);display:grid;place-items:center;font-size:15px;font-weight:600;color:#6e6e73;opacity:${op}">${brand(a.site, { size: 18 })}${ring ? html`<span style="position:absolute;inset:-4px;border-radius:13px;border:2px solid transparent;border-top-color:#ff2d55;animation:hSpin .9s linear infinite"></span>` : ''}</span>
-    <button data-act="rv-more" data-url="${a.url}" aria-expanded="${open}" style="${PLAIN};flex:1;min-width:0;opacity:${op}">
+    <button data-act="rv-more" data-url="${a.url}" aria-expanded="${String(open)}" style="${PLAIN};flex:1;min-width:0;opacity:${op}">
       <div style="display:flex;align-items:center;gap:6px"><span style="font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:${no ? 'line-through' : 'none'}">${a.site} · ${a.handle}</span>${isNew(a) && !no ? html`<span style="flex:none;font-size:10.5px;font-weight:700;color:#fff;background:#ff2d55;border-radius:99px;padding:2px 7px">NEW</span>` : ''}</div>
       <div style="font-size:12.5px;color:${isNew(a) && !no ? '#c80d3f' : '#86868b'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${why}</div></button>
     <div style="flex:none;display:flex;border-radius:99px;padding:2px;background:rgba(118,118,128,.12)">
-      <button data-act="rv-decide" data-url="${a.url}" data-decision="him" aria-pressed="${yes}" style="cursor:pointer;border:0;border-radius:99px;height:30px;padding:0 12px;font-size:12.5px;font-weight:600;transition:all .2s;${seg(yes, '#1d1d1f')}">Theirs</button>
-      <button data-act="rv-decide" data-url="${a.url}" data-decision="not him" aria-pressed="${no}" style="cursor:pointer;border:0;border-radius:99px;height:30px;padding:0 12px;font-size:12.5px;font-weight:600;transition:all .2s;white-space:nowrap;${seg(no, '#c80d3f')}">Not them</button></div></div>
+      <button data-act="rv-decide" data-url="${a.url}" data-decision="him" aria-pressed="${String(yes)}" style="cursor:pointer;border:0;border-radius:99px;height:30px;padding:0 12px;font-size:12.5px;font-weight:600;transition:all .2s;${seg(yes, '#1d1d1f')}">Theirs</button>
+      <button data-act="rv-decide" data-url="${a.url}" data-decision="not him" aria-pressed="${String(no)}" style="cursor:pointer;border:0;border-radius:99px;height:30px;padding:0 12px;font-size:12.5px;font-weight:600;transition:all .2s;white-space:nowrap;${seg(no, '#c80d3f')}">Not them</button></div></div>
     ${open ? html`<div style="margin:8px 0 2px 46px;font-size:13px;color:#3a3a3c;line-height:1.45">
       <div style="color:#86868b;margin-bottom:4px">${pct(a.probability)} match · ${a.verdict}</div>
       ${a.reasons.map(r => html`<div style="color:${r.against ? '#c80d3f' : '#3a3a3c'}">${r.against ? 'Against: ' : ''}${r.text}</div>`)}
@@ -51,7 +51,7 @@ function row(a) {
 }
 
 function chip(key, label, on, custom) {
-  return html`<button data-act="rv-check" data-key="${key}" aria-pressed="${on}" title="${custom ? 'Custom check' : ''}" style="cursor:pointer;display:flex;align-items:center;gap:7px;height:36px;border-radius:99px;padding:0 14px 0 10px;font-size:13.5px;font-weight:500;color:${on ? '#1d1d1f' : '#6e6e73'};border:1px solid transparent;background:${on ? '#fff' : 'rgba(118,118,128,.1)'};box-shadow:${on ? SHADOW : 'none'};transition:background .2s,color .2s"><span style="width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:700;background:${on ? '#e8194f' : 'rgba(118,118,128,.25)'};color:#fff">${on ? '✓' : ''}</span>${cap(label)}</button>`;
+  return html`<button data-act="rv-check" data-key="${key}" aria-pressed="${String(on)}" title="${custom ? 'Custom check' : ''}" style="cursor:pointer;display:flex;align-items:center;gap:7px;height:36px;border-radius:99px;padding:0 14px 0 10px;font-size:13.5px;font-weight:500;color:${on ? '#1d1d1f' : '#6e6e73'};border:1px solid transparent;background:${on ? '#fff' : 'rgba(118,118,128,.1)'};box-shadow:${on ? SHADOW : 'none'};transition:background .2s,color .2s"><span style="width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:700;background:${on ? '#e8194f' : 'rgba(118,118,128,.25)'};color:#fff">${on ? '✓' : ''}</span>${cap(label)}</button>`;
 }
 
 function leads() {
@@ -60,7 +60,7 @@ function leads() {
   const n = s.picked.size;
   return html`<div style="padding:14px 24px;${LINE};display:flex;flex-direction:column;gap:8px">
     <div style="font-size:14px;font-weight:600">More to search <span style="font-weight:400;color:#86868b">· nothing is searched until you tick it</span></div>
-    ${all.map(l => { const on = s.picked.has(l.value); return html`<button data-act="rv-lead" data-value="${l.value}" aria-pressed="${on}" style="${PLAIN};display:flex;gap:10px;align-items:flex-start"><span style="margin-top:2px;width:18px;height:18px;flex:none;border-radius:5px;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;background:${on ? '#e8194f' : 'rgba(118,118,128,.2)'}">${on ? '✓' : ''}</span><span style="min-width:0"><span style="font-size:14px;font-weight:500;overflow-wrap:anywhere">${l.value}</span><span style="display:block;font-size:12.5px;color:#86868b">${l.why}</span></span></button>`; })}
+    ${all.map(l => { const on = s.picked.has(l.value); return html`<button data-act="rv-lead" data-value="${l.value}" aria-pressed="${String(on)}" style="${PLAIN};display:flex;gap:10px;align-items:flex-start"><span style="margin-top:2px;width:18px;height:18px;flex:none;border-radius:5px;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;background:${on ? '#e8194f' : 'rgba(118,118,128,.2)'}">${on ? '✓' : ''}</span><span style="min-width:0"><span style="font-size:14px;font-weight:500;overflow-wrap:anywhere">${l.value}</span><span style="display:block;font-size:12.5px;color:#86868b">${l.why}</span></span></button>`; })}
     <div><button data-act="rv-search" style="${CHROME};height:36px;opacity:${n && !s.job ? 1 : .5}">${s.job ? s.progress : n ? `Search ${n} ticked` : 'Tick a lead to search it'}</button></div></div>`;
 }
 
@@ -82,7 +82,7 @@ function view() {
     <div style="display:flex;flex-direction:column;gap:10px;padding:16px 24px 18px;${LINE};background:rgba(245,245,247,.6)">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px"><span style="font-size:16px;font-weight:600;letter-spacing:-.01em">Then scan their socials for</span><span style="font-size:12.5px;color:#86868b">${label}</span></div>
       <div style="display:flex;flex-wrap:wrap;gap:8px">${checks.map(c => chip(c.key, c.label, s.look.has(c.key)))}${s.custom.map(k => chip(k, k, s.look.has(k), true))}
-        <button data-act="rv-custom" aria-expanded="${s.adding}" style="cursor:pointer;display:flex;align-items:center;gap:6px;height:36px;border-radius:99px;padding:0 14px 0 12px;font-size:13.5px;font-weight:500;color:#3a3a3c;border:1px dashed #b8bcc3;background:transparent"><span style="font-size:16px;line-height:1;color:#86868b">+</span>Custom</button></div>
+        <button data-act="rv-custom" aria-expanded="${String(s.adding)}" style="cursor:pointer;display:flex;align-items:center;gap:6px;height:36px;border-radius:99px;padding:0 14px 0 12px;font-size:13.5px;font-weight:500;color:#3a3a3c;border:1px dashed #b8bcc3;background:transparent"><span style="font-size:16px;line-height:1;color:#86868b">+</span>Custom</button></div>
       ${s.adding ? html`<div style="display:flex;gap:8px;align-items:center;border-radius:18px;padding:6px 6px 6px 16px;background:#fff;box-shadow:0 0 0 4px rgba(255,45,85,.1),0 0 0 1px rgba(255,45,85,.35),0 10px 24px rgba(20,22,28,.08)">
         <input id="rv-custom-text" aria-label="What to look for" maxlength="200" placeholder="Describe what to look for — e.g. posts about a second job" style="flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:15px;font-family:inherit;color:#1d1d1f;padding:8px 0">
         <button data-act="rv-add" style="${RED};height:36px;font-size:14px;padding:0 16px;box-shadow:inset 0 1px 0 rgba(255,255,255,.5)">Add</button></div>` : ''}</div>
