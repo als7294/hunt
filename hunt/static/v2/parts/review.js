@@ -3,6 +3,7 @@
 // rest and calls onDone(), and the live screen starts the scan. Accounts already rated likely count as Theirs unless she says otherwise, and Confirm
 // records that. Everything shown comes from GET /review.
 import { html, api, follow, actions, toast, fail } from '../core.js';
+import { brand } from '../icons/index.js';
 
 const CARD = 'border-radius:28px;border:1px solid transparent;background:linear-gradient(180deg,#ffffff,#f6f7f9) padding-box,linear-gradient(180deg,#ffffff 0%,#d2d5db 34%,#ffffff 52%,#bcc0c7 100%) border-box;box-shadow:0 0 0 4px rgba(255,45,85,.1),0 1px 2px rgba(0,0,0,.04),0 24px 60px rgba(20,22,28,.12),inset 0 1px 0 #fff;display:flex;flex-direction:column;width:100%;max-width:720px;box-sizing:border-box';
 const LINE = 'box-shadow:inset 0 .5px 0 rgba(0,0,0,.08)';
@@ -34,7 +35,7 @@ function row(a) {
   const no = rejected(a), yes = theirs(a), [why, ring] = status(a), op = no ? .55 : 1, open = s.open.has(a.url);
   const seg = (on, col) => `color:${on ? col : '#86868b'};background:${on ? '#fff' : 'transparent'};box-shadow:${on ? SHADOW : 'none'}`;
   return html`<div style="padding:10px 24px;${LINE}"><div style="display:flex;align-items:center;gap:12px">
-    <span style="position:relative;width:34px;height:34px;flex:none;border-radius:10px;background:linear-gradient(180deg,#ffffff,#eceef1);box-shadow:inset 0 0 0 .5px rgba(0,0,0,.1);display:grid;place-items:center;font-size:15px;font-weight:600;color:#6e6e73;opacity:${op}">${a.site.charAt(0).toUpperCase()}${ring ? html`<span style="position:absolute;inset:-4px;border-radius:13px;border:2px solid transparent;border-top-color:#ff2d55;animation:hSpin .9s linear infinite"></span>` : ''}</span>
+    <span style="position:relative;width:34px;height:34px;flex:none;border-radius:10px;background:linear-gradient(180deg,#ffffff,#eceef1);box-shadow:inset 0 0 0 .5px rgba(0,0,0,.1);display:grid;place-items:center;font-size:15px;font-weight:600;color:#6e6e73;opacity:${op}">${brand(a.site, { size: 18 })}${ring ? html`<span style="position:absolute;inset:-4px;border-radius:13px;border:2px solid transparent;border-top-color:#ff2d55;animation:hSpin .9s linear infinite"></span>` : ''}</span>
     <button data-act="rv-more" data-url="${a.url}" aria-expanded="${open}" style="${PLAIN};flex:1;min-width:0;opacity:${op}">
       <div style="display:flex;align-items:center;gap:6px"><span style="font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:${no ? 'line-through' : 'none'}">${a.site} · ${a.handle}</span>${isNew(a) && !no ? html`<span style="flex:none;font-size:10.5px;font-weight:700;color:#fff;background:#ff2d55;border-radius:99px;padding:2px 7px">NEW</span>` : ''}</div>
       <div style="font-size:12.5px;color:${isNew(a) && !no ? '#c80d3f' : '#86868b'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${why}</div></button>
