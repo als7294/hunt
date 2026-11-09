@@ -67,13 +67,13 @@ assert not gh["walled"] and gh["captured_posts"] is None and gh["reasons"], gh
 assert [e["kind"] for e in d["timeline"][:3]] == ["record", "post", "post"] and d["timeline"][0]["date"] == "2021-04-02", d["timeline"]
 assert d["saved"] is False and not d["background"] and "Also known as" not in facts  # the headline name isn't repeated
 
-# Save: a bookmark on the case, audited, undoable
-assert c.post(f"/api/cases/{slug}/v2/vault", content=json.dumps({"saved": True}), headers=JSON).json() == {"saved": True}
-k = Case.open(slug)
-assert k.meta("vault") == "1" and c.get(f"/api/cases/{slug}/v2/report").json()["saved"]
-assert c.post(f"/api/cases/{slug}/v2/vault", content=json.dumps({"saved": False}), headers=JSON).json() == {"saved": False}
-assert k.meta("vault") is None and [r["action"] for r in k.rows("select action from audit")][-2:] == ["saved to vault", "removed from vault"]
-assert c.post(f"/api/cases/{slug}/v2/vault", content="{}").status_code == 403  # no Origin: the same guard as every route
+# Save goes through the Vault's own route, on the person's best-supported account
+url = d["save_url"]
+assert url == max(d["accounts"], key=lambda a: a["probability"])["url"], d["accounts"]
+assert c.post(f"/api/cases/{slug}/vault", content=json.dumps({"url": url, "saved": True}), headers=JSON).json() == {"urls": [url]}
+assert c.get(f"/api/cases/{slug}/v2/report").json()["saved"] and c.get("/api/vault").json()["people"][0]["url"] == url
+assert c.post(f"/api/cases/{slug}/vault", content=json.dumps({"url": url, "saved": False}), headers=JSON).json() == {"urls": []}
+assert not c.get(f"/api/cases/{slug}/v2/report").json()["saved"]
 
 # Export case file: the existing report and evidence bundle
 r = c.get(f"/api/cases/{slug}/report.html")

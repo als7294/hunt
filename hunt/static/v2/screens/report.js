@@ -77,14 +77,14 @@ const EXPORTS = [['report.pdf', 'Report (PDF)'], ['report.html', 'Report (web pa
 export async function render({ slug, tab }) {
   const data = await api(`/api/cases/${enc(slug)}/v2/report`);
   state = { slug, data, shown: PAGE, tab: tabsFor(data).some(([id]) => id === tab) ? tab : 'overview' };
-  mount(page('report', html`<main style="width:min(880px,100%);display:flex;flex-direction:column;gap:18px">
+  mount(page('report', html`<main style="box-sizing:border-box;width:min(912px,100%);margin:0 auto;padding:8px 16px 40px;display:flex;flex-direction:column;gap:18px">
     <a href="#/case/${enc(slug)}/results" style="align-self:flex-start;font-size:17px;color:#d70f45;display:flex;align-items:center;gap:4px;text-decoration:none"><span style="font-size:24px;line-height:1;margin-top:-2px">‹</span>Matches</a>
     <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
       <span style="width:72px;height:72px;flex:none;border-radius:50%;background:linear-gradient(180deg,#e5e5ea,#d1d1d6);display:grid;place-items:center;font-size:24px;font-weight:600;color:#6e6e73">${initials(data.name)}</span>
       <div style="flex:1;min-width:200px"><div style="font-size:clamp(30px,4vw,44px);font-weight:700;letter-spacing:-.03em;line-height:1.05;overflow-wrap:anywhere">${data.name}</div>
         <div style="font-size:15px;color:#86868b;margin-top:4px">${[...data.meta, data.match != null ? `${data.match}% match` : ''].filter(Boolean).join(' · ')}</div></div>
       <div style="display:flex;gap:8px;position:relative">
-        <button style="${SILVER}" data-act="report-save" id="report-save">${data.saved ? 'Saved' : 'Save'}</button>
+        ${data.save_url ? html`<button style="${SILVER}" data-act="report-save" id="report-save">${data.saved ? 'Saved' : 'Save'}</button>` : ''}
         <button style="${RED}" data-act="report-export-menu">Export case file</button>
         <div id="report-export" style="display:none;position:absolute;right:0;top:calc(100% + 8px);z-index:20;width:300px;max-width:calc(100vw - 32px);border-radius:16px;background:#fff;box-shadow:0 12px 36px rgba(20,22,28,.18),0 0 0 .5px rgba(0,0,0,.1);padding:6px;flex-direction:column">
           ${EXPORTS.map(([f, label]) => html`<button data-act="report-export" data-file="${f}" style="cursor:pointer;border:0;background:none;text-align:left;font-size:14px;color:#1d1d1f;padding:10px 12px;border-radius:10px">${label}</button>`)}
@@ -113,8 +113,9 @@ Object.assign(actions, {
   },
   'report-more': () => { state.shown += PAGE; show(); },
   'report-save': async el => {
-    try { const r = await api(`/api/cases/${enc(state.slug)}/v2/vault`, { method: 'POST', body: { saved: !state.data.saved } });
-      state.data.saved = r.saved; el.textContent = r.saved ? 'Saved' : 'Save'; toast(r.saved ? 'Saved to Vault' : 'Removed from Vault'); }
+    const d = state.data;
+    try { const r = await api(`/api/cases/${enc(state.slug)}/vault`, { method: 'POST', body: { url: d.save_url, saved: !d.saved } });
+      d.saved = r.urls.includes(d.save_url); el.textContent = d.saved ? 'Saved' : 'Save'; toast(d.saved ? 'Saved to Vault' : 'Removed from Vault'); }
     catch (e) { fail(e); }
   },
   'report-export-menu': () => { const m = $('#report-export'); m.style.display = m.style.display === 'none' ? 'flex' : 'none'; },
