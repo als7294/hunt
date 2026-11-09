@@ -243,8 +243,9 @@ Object.assign(actions, {
 });
 window.addEventListener('hashchange', () => setTimeout(paintNow, 0)); // the pill shows or hides as she moves between screens
 
-export async function render({ slug }) {
+export async function render({ slug, stale = () => false }) {
   const t = await open(slug);
+  if (stale()) return;
   t.s.seen = t.s.phase === 'ready'; // "Results ready" has been read once she's come back
   mount(page('live', skeleton(t)));
   paintNow();
