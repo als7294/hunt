@@ -166,6 +166,14 @@ shown = {**capped, "url": "https://github.com/jr-codes", "probability": 0.9, "at
 assert [x["value"] for x in pivot.suggestions({"subject_seeds": [{"kind": "username", "value": "jr_reyes91"}],
                                                "candidates": [shown], "methodology": []})] == ["jr-codes"], "its own handle is new"
 
+# Never a lead: the searched handle as a site spells it ("$jr_reyes91"), or Hunt's own notes on a finding (the mirror an
+# engine saw the account on, the address its page redirected to): the same account again, not a new one
+pay = {**capped, "url": "https://pay.example/$jr_reyes91", "probability": 0.9,
+       "attrs": {"found_at": "https://tracker.example/jr_reyes91", "enriched_from": "https://account.pay.example/u/jr_reyes91",
+                 "website": "https://jr-bakes.example"}}
+assert [x["value"] for x in pivot.suggestions({"subject_seeds": [{"kind": "username", "value": "jr_reyes91"}],
+                                               "candidates": [pay], "methodology": []})] == ["https://jr-bakes.example"]
+
 # --- The app: the answer key page's API --------------------------------------------------------
 TOKEN, PORT = "test-token", 8124
 BASE = f"http://127.0.0.1:{PORT}"

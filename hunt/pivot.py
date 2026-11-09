@@ -36,6 +36,9 @@ TEXT_KEYS = {"bio", "description", "about", "status", "summary", "headline"}
 NOT_HANDLES = {"company", "school", "groups", "pages", "hashtag", "intent", "share", "sharer", "watch", "events",
                "search", "explore", "home", "i", "p", "r", "orgs", "sponsors", "topics", "login", "signup"}
 NOT_PLATFORM = {"your", "display", "known", "other"}  # *_username keys that name no other site
+# Hunt's own notes on a finding, not what the profile lists: where an engine saw the account (a mirror or tracker of it),
+# the page its preview came from (the address the site redirects to), its archive copies. The same account again, never a lead.
+OWN_NOTES = {"found_at", "enriched_from", "archive", "last_working_snapshot", "channel_url"}
 TITLES = {"mr", "mrs", "ms", "miss", "mx", "dr", "prof", "sir", "jr", "sr", "ii", "iii", "iv", "phd", "md", "esq"}
 GRAVATAR = re.compile(r"gravatar\.com/avatar/([0-9a-f]{32}|[0-9a-f]{64})", re.I)
 HEX_HASH = re.compile(r"[0-9a-f]{32}|[0-9a-f]{64}", re.I)
@@ -71,6 +74,7 @@ def suggestions(report: dict, min_p: float = LIKELY) -> list[dict]:
     seeds = report.get("subject_seeds", [])
     have = {s["value"].lower() for s in seeds} | {match.norm_url(s["value"]) for s in seeds if s["kind"] == "url"} \
         | {h.lower() for s in seeds if s["kind"] == "url" and (h := _handle(s["value"]))}
+    handles = {match._alnum(s["value"]) for s in seeds if s["kind"] == "username"}
     taken = {}  # handle -> (sites taken, sites answered), as search.build counts it
     for r in report.get("methodology", []):
         if r.get("seed_kind") == "username" and r.get("status") != "failed":
@@ -85,7 +89,9 @@ def suggestions(report: dict, min_p: float = LIKELY) -> list[dict]:
             continue
         found = facts(c["attrs"], c["url"])
         own = _handle(c["url"])  # found by email or phone, or showing the searched handle as its name: its handle is new
-        if own and (c["seed"]["kind"] != "username" or own.lower() != c["seed"]["value"].lower()):
+        # ...unless it's the searched handle as the site writes it ("$kvane88" on a payments site, "kvane-88")
+        if own and (c["seed"]["kind"] != "username" or match._alnum(own) != match._alnum(c["seed"]["value"])) \
+                and match._alnum(own) not in handles:
             found.append({"kind": "username", "value": own, "how": f"account is named '{own}'", "rank": 0})
         bio = " ".join(str(c["attrs"].get(k) or "") for k in TEXT_KEYS)
         for f in found:
@@ -122,7 +128,7 @@ def facts(attrs: dict, own_url: str = "") -> list[dict]:
             add("username", v, f"uses the display name '{v}'", 2)
     for key, v in attrs.items():
         k, text = key.lower(), " ".join(map(str, v)) if isinstance(v, list) else str(v)
-        if IMAGE_KEY.search(k) or k == "tags":
+        if IMAGE_KEY.search(k) or k == "tags" or k in OWN_NOTES:
             continue
         if k.endswith("_username") and (site := k.removesuffix("_username")) not in NOT_PLATFORM:
             name = next((n for n in SOCIAL.values() if match._alnum(n) == site), site.title())
