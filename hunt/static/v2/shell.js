@@ -26,7 +26,7 @@ setInterval(refresh, 5000);
 window.addEventListener('hashchange', () => setTimeout(refresh));
 
 // Everything the design doesn't show lives under the avatar (parts/more.js); until that lands, the old app has it all
-actions['shell-menu'] = el => import('./parts/more.js').then(m => m.open(el)).catch(() => { location.href = '/'; });
+actions['shell-menu'] = () => import('./parts/more.js').then(m => m.openMore()).catch(() => { location.href = '/'; });
 
 export const page = (now, content) => { setTimeout(() => { paint(); refresh(); }); return html`<div class="shell">
   <div class="shell-mark" aria-hidden="true">${logo('100%', '#ff2d55')}</div>
