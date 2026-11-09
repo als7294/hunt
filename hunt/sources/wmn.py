@@ -8,7 +8,8 @@ The list is pinned to a commit (PIN) and read once; a new pin is a new cache fil
 request per site (legal.md C6, C7; compliance audit DS4): Hunt's own User-Agent, never an
 entry's browser one; no entry on a deny-list host; a POST only for entries in POST_OK, each
 read and found to send nothing but the handle to a username or profile lookup. Hits are tidied as
-Maigret's are (maigret.tidy_hits): search pages dropped and counted, mirrors pointed at the profile.
+Maigret's are (maigret.tidy_hits): search pages dropped and counted, mirrors pointed at the profile. A site that
+claimed the handle is asked once more for a made-up one (maigret.ghost); one that "finds" that too is dropped.
 """
 
 import asyncio
@@ -21,7 +22,7 @@ from ..case import HOME
 from ..seed import Finding
 from . import _api
 from ._api import denied
-from .maigret import tidy_hits
+from .maigret import ghost, says_anything, tidy_hits
 
 NAME = "whatsmyname"
 KINDS = {"username"}
@@ -98,9 +99,20 @@ async def search(seed):
             return status, Finding(NAME, seed, site["name"], pretty, {"category": site["cat"]}, body=r.text)
 
         results = await asyncio.gather(*map(check, sites))
+        # A site that "finds" a made-up handle too says yes to anything: its hit is dropped and it isn't an answer
+        nobody = ghost()
+
+        async def anything(site, result):
+            if result[0] != "found":
+                return False
+            async with sem:
+                return (await _probe(client, site, nobody))[0] == "found"
+
+        loose = await asyncio.gather(*map(anything, sites, results))
+    results = [r for r, yes in zip(results, loose) if not yes]
     counts = {s: sum(1 for st, _ in results if st == s) for s in ("found", "not found", "unknown", "error")}
     checked = counts["found"] + counts["not found"]
     findings, dropped = tidy_hits([f for _, f in results if f], seed.value)
     return (findings, checked,
             f"checked {len(sites)} sites ({len(listed) - len(sites)} skipped: deny-list hosts or unread POSTs): "
-            + ", ".join(f"{n} {s}" for s, n in counts.items()) + dropped)
+            + ", ".join(f"{n} {s}" for s, n in counts.items()) + says_anything(sum(loose)) + dropped)
