@@ -437,6 +437,8 @@ async def _clip_scores(frames: dict, cats: dict, pause: asyncio.Event, progress)
     rescan or a new look-for item loads CLIP only for what it hasn't embedded, and not at all when
     everything is cached."""
     import numpy as np
+    if not any(frames.values()):  # nothing to look at: no model needed
+        return {mid: [] for mid in frames}
     case, shas = getattr(progress, "case", None), getattr(progress, "shas", None)
     prompts = [p for c in cats.values() for p in c["prompts"]] + NEGATIVES
     flat = [(mid, f, f"{CLIP_MODEL}:{shas[mid]}@{t}" if shas else f) for mid, shots in frames.items() for t, f in shots]
@@ -500,7 +502,11 @@ class _Clip:
         self.torch = torch
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
         dtype = torch.float16 if self.device == "mps" else torch.float32
-        self.model = CLIPModel.from_pretrained(CLIP_MODEL, local_files_only=True, dtype=dtype).to(self.device).eval()
+        try:
+            self.model = CLIPModel.from_pretrained(CLIP_MODEL, local_files_only=True, dtype=dtype).to(self.device).eval()
+        except OSError as e:
+            raise RuntimeError("Hunt can't read photos yet: the photo-matching model isn't downloaded. "
+                               "Run hunt setup, which shows its size and asks first. Text checks were saved.") from e
         self.proc = CLIPProcessor.from_pretrained(CLIP_MODEL, local_files_only=True)
         self.dtype = dtype
 

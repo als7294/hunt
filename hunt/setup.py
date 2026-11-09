@@ -32,7 +32,7 @@ from pathlib import Path
 
 import httpx
 
-from . import browser, inbox, profile, vlm, watch
+from . import browser, inbox, profile, scan, vlm, watch
 from .case import HOME, all_cases
 
 REPO = "git+https://github.com/als7294/hunt"
@@ -41,6 +41,8 @@ LAUNCHER = Path.home() / "Applications" / "Hunt.app"
 OLLAMA = "http://127.0.0.1:11434"
 REGISTRY = "https://registry.ollama.ai/v2/{repo}/manifests/{tag}"
 MANIFEST = "application/vnd.docker.distribution.manifest.v2+json"
+CLIP_FILES = ("model.safetensors", "config.json", "preprocessor_config.json", "tokenizer.json", "tokenizer_config.json",
+              "special_tokens_map.json", "vocab.json", "merges.txt")  # the safe weights only, no pickled copies
 MIN_FREE = 10 << 30  # below this, warn: videos and the vision model need several GB
 PLAYWRIGHT = [sys.executable, "-m", "playwright"]
 CARRIED = ("HUNT_HOME", "HUNT_PROXY", "HUNT_VLM")  # an app started from the Dock doesn't see the shell's settings
@@ -87,6 +89,8 @@ def doctor() -> list[dict]:
     row("model", "Vision model", models and vlm.MODEL in models,
         f"{vlm.MODEL}: {'ready' if models and vlm.MODEL in models else 'not downloaded'}",
         "hunt setup (shows the size and asks first)" if models is not None else "Start Ollama first")
+    row("clip", "Photo-matching model (finds photos worth checking)", _clip_ready(),
+        f"{scan.CLIP_MODEL}: {'ready' if _clip_ready() else 'not downloaded'}", "hunt setup (shows the size and asks first)")
     exe = browser.chromium()
     row("chromium", "Browser for screenshots and the Hunt Browser", exe, str(exe) if exe else "not downloaded",
         "hunt setup (shows the size and asks first)")
@@ -121,6 +125,11 @@ async def plan() -> list[dict]:
         items.append({"id": "model", "label": f"Vision model ({vlm.MODEL})", "installable": size is not None,
                       "size": size, "detail": "Runs on this Mac through Ollama. Photos and videos never leave it."
                       if size else "Couldn't read its size from Ollama's library: check the connection and try again."})
+    if not _clip_ready():
+        size = await asyncio.to_thread(_clip_size)
+        items.append({"id": "clip", "label": "Photo-matching model (CLIP)", "installable": size is not None, "size": size,
+                      "detail": "Picks out the photos and video frames worth checking, on this Mac."
+                      if size else "Couldn't read its size from Hugging Face: check the connection and try again."})
     if downloads := await _chromium_missing():
         sizes = await asyncio.gather(*(_content_length(url) for _, url in downloads))
         size = sum(sizes) if all(sizes) else None
@@ -139,7 +148,7 @@ async def install(item: str, size: int, emit):
         raise ValueError(f"{item}: nothing to install")
     if not planned["installable"] or planned["size"] != size:
         raise ValueError(f"{item}: confirm the download size shown first")
-    await {"model": _pull_model, "chromium": _install_chromium}[item](emit, size)
+    await {"model": _pull_model, "clip": _download_clip, "chromium": _install_chromium}[item](emit, size)
 
 
 def launcher(dest: Path = LAUNCHER) -> Path:
@@ -267,6 +276,31 @@ async def _chromium_missing() -> list[tuple[str, str]]:
     out = (await proc.communicate())[0].decode()
     pairs = re.findall(r"Install location:\s+(\S.*?)\s*\n\s*Download url:\s+(\S+)", out)
     return [(where, url) for where, url in pairs if not Path(where).exists()]
+
+
+def _clip_ready() -> bool:
+    from huggingface_hub import try_to_load_from_cache
+    return isinstance(try_to_load_from_cache(scan.CLIP_MODEL, "model.safetensors"), str)
+
+
+def _clip_size() -> int | None:
+    from huggingface_hub import HfApi
+    try:
+        return sum(f.size for f in HfApi().model_info(scan.CLIP_MODEL, files_metadata=True).siblings if f.rfilename in CLIP_FILES)
+    except Exception:  # offline, or Hugging Face's own errors: plan() says to try again
+        return None
+
+
+async def _download_clip(emit, total: int):
+    """The default revision, because scan loads it by name from the cache. Progress is what's on disk so far."""
+    from huggingface_hub import constants, snapshot_download
+    blobs = Path(constants.HF_HUB_CACHE) / f"models--{scan.CLIP_MODEL.replace('/', '--')}" / "blobs"
+    task = asyncio.create_task(asyncio.to_thread(snapshot_download, scan.CLIP_MODEL, allow_patterns=list(CLIP_FILES)))
+    while not task.done():
+        await asyncio.wait([task], timeout=0.5)
+        got = sum(f.stat().st_size for f in blobs.glob("*")) if blobs.exists() else 0
+        emit({"type": "progress", "item": "clip", "done": min(got, total), "total": total, "message": "downloading"})
+    await task
 
 
 async def _content_length(url: str) -> int | None:

@@ -232,6 +232,7 @@ assert loads == [1] and first == again and first[7][0]["lifting"] > 0.99, (loads
 asyncio.run(real_clip_scores(seen_frames, scan.categories(["lifting", "kayak"]), ready, Quiet()))
 assert loads == [1, 1]  # a new prompt ("a photo of kayak") needs CLIP again, once
 scan._Clip = real_clip
+assert asyncio.run(real_clip_scores({7: []}, scan.categories(["lifting"]), ready, Quiet())) == {7: []}  # no photos, no model needed
 
 # Asked several categories at once: an "unclear" beside a "yes" is dropped, an "unclear" alone is kept
 [mixed] = posts.add_files(case, [picture("mixed.jpg", 106)], None, "2026-04-07T10:00:00")
