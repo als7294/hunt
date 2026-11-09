@@ -1,7 +1,8 @@
 """Username → profiles on the top sites in Maigret's database (MIT, github.com/soxoj/maigret).
 
 Parsing is on, so each profile also yields what the page says about its owner
-(name, location, links, other usernames) for identity matching and pivots.
+(name, location, links, other usernames) for identity matching and pivots, and the page Maigret
+fetched for a claimed profile is kept as the finding's evidence (_claimed_pages).
 
 One honest request per site (legal.md C6, C7; compliance audit DS3): every check carries
 Hunt's own User-Agent, never a browser's, and `sites()` leaves out what Hunt may not or
@@ -21,6 +22,7 @@ made-up handle nobody has (`ghost`), and a site that "finds" that one too has it
 having answered (so it doesn't make the handle look common either). WhatsMyName and Social Analyzer do the same.
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -29,7 +31,7 @@ from collections import Counter
 from importlib.metadata import version
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from maigret import MaigretDatabase, utils
+from maigret import MaigretDatabase, checking, utils
 from maigret import search as maigret_search
 from maigret.db_updater import BUNDLED_DB_PATH
 
@@ -128,10 +130,33 @@ def sites(extra_deny=()) -> dict:
     return out
 
 
+ONE = asyncio.Lock()  # one Maigret search at a time in the process: _claimed_pages swaps a function of Maigret's for its run
+
+
+async def _claimed_pages(username: str, allowed: dict) -> tuple[dict, dict]:
+    """(Maigret's results, {site: the page it fetched for each profile it claims}). Maigret reads a claimed page for the
+    owner's details and then drops it; its one parsing call is wrapped for the run so the page is kept as evidence and
+    enrich can read its preview tags with no second request. A Maigret without that call just keeps no pages."""
+    pages, parse = {}, getattr(checking, "extract_ids_data", None)
+
+    def keep(html_text, logger, site):
+        pages[site.name] = html_text
+        return parse(html_text, logger, site)
+    async with ONE:
+        if parse:
+            checking.extract_ids_data = keep
+        try:
+            results = await maigret_search(username, allowed, log, timeout=10, is_parsing_enabled=True, no_progressbar=True,
+                                           proxy=os.environ.get("HUNT_PROXY"))
+        finally:
+            if parse:
+                checking.extract_ids_data = parse
+    return results, pages
+
+
 async def search(seed):
     allowed = sites()
-    results = await maigret_search(seed.value, allowed, log, timeout=10, is_parsing_enabled=True, no_progressbar=True,
-                                    proxy=os.environ.get("HUNT_PROXY"))
+    results, pages = await _claimed_pages(seed.value, allowed)
     claimed = {name: allowed[name] for name, r in results.items() if r["status"].is_found() and name in allowed}
     again = await maigret_search(ghost(), claimed, log, timeout=10, is_parsing_enabled=False, no_progressbar=True,
                                  proxy=os.environ.get("HUNT_PROXY")) if claimed else {}
@@ -152,8 +177,7 @@ async def search(seed):
             attrs["other_usernames"] = usernames
         if r.get("ids_links"):
             attrs["links_found"] = list(r["ids_links"])
-        # Maigret doesn't keep page bodies; likely matches get page source from the capture step.
-        findings.append(Finding(NAME, seed, site, check.site_url_user, attrs))
+        findings.append(Finding(NAME, seed, site, check.site_url_user, attrs, body=pages.get(site) or None))
     findings, dropped = tidy_hits(findings, seed.value)
     stale = "" if version("maigret") == AUDITED else f"; maigret {version('maigret')} is unaudited (filters read against {AUDITED})"
     return findings, statuses["claimed"] + statuses["available"], (f"checked {len(results)} sites: "

@@ -87,6 +87,8 @@ async def fake_maigret(username, sites, logger, **kw):
     assert kw["proxy"] is None
     if username != H:  # the made-up handle, asked only of the sites that claimed the real one: one site "finds" it too
         return {name: {"status": Check(f"https://x.example/{username}", found=name == "Anything")} for name in sites}
+    # as Maigret does for a claimed profile with parsing on: its one parsing call sees the page
+    maigret.checking.extract_ids_data("<title>Kestrel Vane · Forum</title>", logger, type("Site", (), {"name": "Forum Finder"}))
     return {"Forum Finder": {"status": Check(f"https://forum.example/members/{H}"), "is_similar": True},
             "Anything": {"status": Check(f"https://anything.example/{H}"), "is_similar": False},
             "Tracker": {"status": Check(f"https://twitchtracker.com/{H}"), "is_similar": False, "ids_usernames": {"kvane_tw": "username"}},
@@ -105,6 +107,9 @@ assert asked[0][0] == H and asked[1][0].startswith("zq7x") and asked[1][0] != ma
 assert [(f.site, f.url) for f in found] == [("Forum Finder", f"https://forum.example/members/{H}"),
                                             ("Tracker", f"https://www.twitch.tv/{H}")], found
 assert found[0].attrs["check_reliable"] is False and "check_reliable" not in found[1].attrs
+# the page Maigret fetched for a claimed profile is kept as the finding's evidence; its parsing call is put back after
+assert found[0].body == "<title>Kestrel Vane · Forum</title>" and found[1].body is None
+assert maigret.checking.extract_ids_data.__module__ == "maigret.checking"
 assert found[1].attrs["found_at"] == f"https://twitchtracker.com/{H}" and found[1].attrs["other_usernames"] == ["kvane_tw"]
 assert checked == 5 and note.startswith("checked 6 sites: 4 claimed, 1 available; 1 that find a made-up handle too dropped; "
                                         "2 search pages dropped"), note
