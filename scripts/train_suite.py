@@ -8,6 +8,9 @@ pair it counts: locked, your accounts rated likely or better; possible, yours sh
 missed, yours rated unlikely; wrong, rated likely or better but not yours; unknown, rated likely or better and the key
 can't tell; and the seconds it took. Score = locked + 0.25 × possible − 3 × wrong.
 
+It also prints train_find's per-source table, summed over the pairs: runs, failures and why, hits, how many of the
+accounts each source found are yours, locked or wrong, how many only it found, and its seconds.
+
 Only those counts go to ~/Hunt/training/suite-<when>.json, never an account, a data point or anything from the key.
 The table shows each score's change since the last run with the same data points and rounds, and the total's since
 the first (the baseline).
@@ -39,16 +42,23 @@ def score(n: dict) -> float:
 
 
 def run(points: dict, key: dict, rounds: int) -> dict:
-    """{pair: {locked, possible, missed, wrong, unknown, seconds, score}}, a fresh case for each of PAIRS."""
-    out = {}
+    """({pair: {locked, possible, missed, wrong, unknown, seconds, score}}, {source: train_find.by_source's counts,
+    summed over the pairs}), a fresh case for each of PAIRS."""
+    out, sources = {}, {}
     for pair in PAIRS:
         bits, start = [points[p] for p in pair], time.time()
         case = train_find.new_case(bits)
-        g = [g for *_, g in train_find.train(case, [s for b in bits for s in detect(b)], key, rounds)][-1]
+        emit, seconds = train_find.clock()
+        *_, report, g = list(train_find.train(case, [s for b in bits for s in detect(b)], key, rounds, emit))[-1]
         n = {k: len(g[k]) for k in COUNTS}
         out["+".join(pair)] = {**n, "seconds": round(time.time() - start), "score": score(n)}
-        print(f"{'+'.join(pair)}: {out['+'.join(pair)]['seconds']}s, case {case.name}", flush=True)
-    return out
+        for name, row in train_find.by_source(report, g, seconds).items():
+            total = sources.setdefault(name, {**row, "notes": []} | {k: 0 for k in row if k != "notes"})
+            for k, v in row.items():
+                total[k] = total[k] + v if k != "notes" else list(dict.fromkeys(total[k] + v))
+        stages = ", ".join(f"{k} {v:.0f}s" for k, v in seconds.items() if k.startswith("["))
+        print(f"{'+'.join(pair)}: {out['+'.join(pair)]['seconds']}s ({stages}), case {case.name}", flush=True)
+    return out, sources
 
 
 def change(now: float, before: float | None) -> str:
@@ -94,13 +104,15 @@ def main(argv=None) -> dict:
         fingerprint = profile.status()["fingerprint"]
     setup = {"rounds": a.rounds, "points": hashlib.sha256(json.dumps(points, sort_keys=True).encode()).hexdigest()[:12]}
     before = [r for p in sorted(TRAINING.glob(f"{prefix}-*.json")) if (r := json.loads(p.read_text()))["setup"] == setup]
-    pairs = run(points, key, a.rounds)
+    pairs, sources = run(points, key, a.rounds)
     commit = subprocess.run(["git", "-C", str(Path(__file__).parent), "describe", "--always", "--dirty"],  # "-dirty":
                             capture_output=True, text=True).stdout.strip() or None  # scored with uncommitted changes
     record = {"when": datetime.now().isoformat(timespec="seconds"), "commit": commit, "setup": setup, "key": fingerprint,
-              "pairs": pairs, "score": sum(n["score"] for n in pairs.values())}
+              "pairs": pairs, "score": sum(n["score"] for n in pairs.values()),
+              "sources": {name: {k: v for k, v in n.items() if k != "notes"} for name, n in sources.items()}}  # counts only
     TRAINING.mkdir(parents=True, exist_ok=True)
     (TRAINING / f"{prefix}-{datetime.now():%Y-%m-%d-%H%M%S-%f}.json").write_text(json.dumps(record, indent=1))
+    print("\n" + train_find.source_table(sources))
     print("\n" + table(record, before[-1] if before else None, before[0] if before else None))
     return record
 
