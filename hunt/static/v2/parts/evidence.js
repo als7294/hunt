@@ -52,6 +52,25 @@ export function evidenceCard(slug, ev) {
     </div></div>`;
 }
 
+// The live feed's entry point: one card from a `hit` event as the scan emits it (docs/api.md). The event carries no
+// account, archive time, hash or origin, so the card shows what it has and no grade; the Flags tab, drawn from
+// /api/cases/{slug}/flags, has the rest. The event's caption is the raw post text, which hasn't been through the
+// minors filter the routes apply, so only the scan's own description is shown here; the caption waits for the tab.
+const LABELS = { activity: 'Physical activity', lifting: 'Lifting or carrying', sport: 'Sport and gym', walks: 'Long walks or hikes',
+  travel: 'Travel', other_job: 'Working another job', driving: 'Driving', injury: 'Mentions of the injury' };
+const HIGH = ['likely', 'very likely', 'almost certain'];
+export function card(hit, { slug }) {
+  const notes = [hit.who && hit.who !== 'him' ? `who: ${hit.who}` : null, hit.from_grid ? 'seen only as a thumbnail: open the post to confirm' : null,
+    hit.audience ? `shown to ${hit.audience}` : null].filter(Boolean);
+  return evidenceCard(slug, { id: `hit-${hit.id}`, kind: 'hit', ref: hit.id, flag: hit.category,
+    flag_label: LABELS[hit.category] || (hit.category ? hit.category[0].toUpperCase() + hit.category.slice(1) : 'Custom check'),
+    severity: HIGH.includes(hit.verdict) ? 'high' : hit.verdict === 'roughly even chance' ? 'med' : 'low', verdict: hit.verdict,
+    text: hit.what || '', caption: '', date: hit.posted_at, days_after: hit.days_after, timing: hit.timing, source: hit.source, handle: '',
+    url: hit.url, media: hit.file ? { url: `/evidence/${encodeURIComponent(slug)}/${String(hit.file).split('/').pop()}`,
+      kind: hit.t0 != null ? 'frame' : 'image', t0: hit.t0, t1: hit.t1, blur: !!hit.blur } : null,
+    archived: null, sha256: null, grade: null, notes, status: hit.status || 'new' });
+}
+
 export const waitingCard = () => html`<div style="border-radius:20px;border:1.5px dashed #d1d1d6;padding:40px 24px;text-align:center;font-size:15px;color:#86868b;line-height:1.5">Reading posts, photos and check‑ins.<br>Anything matching your checks shows up here.</div>`;
 
 Object.assign(actions, {
