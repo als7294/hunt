@@ -1,6 +1,6 @@
 // "Is this the right person?" (the design's lines 90–111; docs/frontend-v2.md). The live screen mounts it when the search
-// is done: mountReview(el, slug, { onScan(jobId), onWrong() }). Theirs and Not them post to /decisions as she clicks; the
-// scan starts only from Confirm. Accounts already rated likely count as Theirs unless she says otherwise, and Confirm
+// is done: mount(el, { slug, onDone, onWrong }). Theirs and Not them post to /decisions as she clicks; Confirm saves the
+// rest and calls onDone(), and the live screen starts the scan. Accounts already rated likely count as Theirs unless she says otherwise, and Confirm
 // records that. Everything shown comes from GET /review.
 import { html, api, follow, actions, toast, fail } from '../core.js';
 
@@ -104,8 +104,8 @@ async function load() {
   if (!s.look) s.look = new Set([...s.data.checks.filter(c => c.on).map(c => c.key), ...s.data.custom]);
 }
 
-export async function mountReview(el, slug, { onScan = () => {}, onWrong = () => { location.hash = '#/'; } } = {}) {
-  s = { el, slug, onScan, onWrong, data: null, custom: [], look: null, open: new Set(), picked: new Set(), fresh: new Set(),
+export async function mount(el, { slug, onDone = () => {}, onWrong = () => { location.hash = '#/'; } }) {
+  s = { el, slug, onDone, onWrong, data: null, custom: [], look: null, open: new Set(), picked: new Set(), fresh: new Set(),
         revealed: false, dug: false, job: null, progress: '', all: false, adding: false, wrong: false, busy: false };
   await load();
   draw();
@@ -176,8 +176,8 @@ Object.assign(actions, {
     try {
       for (const a of kept) if (a.decision !== 'him') await decide(a.url, 'him'); // what she left as Theirs
       await api(path('/details'), { method: 'POST', body: { look_for: look } });
-      const { job } = await api(path('/scan'), { method: 'POST', body: {} });
-      const { onScan } = s; s = null; onScan(job);
+      s.busy = false; draw();
+      s.onDone(); // stays usable: live shows a refused /scan as a toast, and she can change her answers
     } catch (e) { s.busy = false; draw(); fail(e); }
   },
 });
