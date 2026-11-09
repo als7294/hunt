@@ -12,6 +12,9 @@ function route() {
   if (p[0] === 'history' || p[0] === 'vault') return { screen: lists, params: { which: p[0] } };
   return { screen: ask, params: {} };
 }
-async function render() { const { screen, params } = route(); try { await screen.render(params); } catch (e) { fail(e); } }
+async function render() { // stale: the investigator moved on while this screen was loading, so it mustn't draw over the new one
+  const { screen, params } = route(), at = location.hash;
+  try { await screen.render({ ...params, stale: () => location.hash !== at }); } catch (e) { fail(e); }
+}
 window.addEventListener('hashchange', render);
 render();

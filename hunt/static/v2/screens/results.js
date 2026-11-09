@@ -2,6 +2,7 @@
 // a score Hunt computed; a person with none shows none.
 import { $, actions, api, fail, follow, html, mount, toast } from '../core.js';
 import { page } from '../shell.js';
+import { brand } from '../icons/index.js';
 
 const GLASS = 'border:1px solid transparent;background:linear-gradient(180deg,#fff,#f6f7f9) padding-box,linear-gradient(180deg,#fff 0%,#d2d5db 34%,#fff 52%,#bcc0c7 100%) border-box;box-shadow:0 1px 2px rgba(0,0,0,.04),0 18px 44px rgba(20,22,28,.07),inset 0 1px 0 #fff';
 const CHROME = 'cursor:pointer;font-size:14px;font-weight:500;color:var(--ink);border-radius:99px;padding:10px 16px;border:1px solid transparent;background:linear-gradient(180deg,#fff 0%,#f1f2f4 46%,#e2e4e8 54%,#f7f8fa 100%) padding-box,linear-gradient(180deg,#fff,#b8bcc3 50%,#fff 62%,#a7abb3) border-box;box-shadow:inset 0 1px 0 #fff,0 3px 10px rgba(20,22,28,.1);white-space:nowrap';
@@ -54,7 +55,7 @@ const flags = p => {
 const accounts = p => !p.accounts.length ? '' : html`<div style="display:flex;flex-direction:column;gap:8px">
   <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 16px"><span style="font-size:13px;color:var(--ink-2)">Accounts · ${p.accounts.length}</span><button data-act="results-open" data-tab="accounts" style="cursor:pointer;border:0;background:none;padding:0;font-size:13px;color:var(--hunt-deep)">See all</button></div>
   <div style="border-radius:18px;${GLASS};overflow:hidden">${p.accounts.slice(0, SHOWN).map(a => html`<a href="#/case/${enc(S.slug)}/report/accounts" style="text-decoration:none;color:var(--ink);padding:11px 16px;display:flex;align-items:center;gap:12px;min-width:0;box-shadow:inset 0 -.5px 0 rgba(0,0,0,.08)">
-    <span style="width:30px;height:30px;flex:none;border-radius:8px;background:#f5f5f7;display:grid;place-items:center;font-size:13px;font-weight:600;color:var(--ink-2)">${a.site.slice(0, 1).toUpperCase()}</span>
+    <span style="width:30px;height:30px;flex:none;border-radius:8px;background:#f5f5f7;display:grid;place-items:center;color:var(--ink-2)">${brand(a.site)}</span>
     <div style="flex:1;min-width:0"><div style="font-size:15px;${CLIP}">${a.handle}</div><div style="font-size:12.5px;color:#86868b;${CLIP}">${a.site}${a.seen ? ` · ${a.seen}` : ''}</div></div>
     <span style="font-size:12px;font-weight:600;border-radius:99px;padding:3px 9px;background:#f2f2f7;color:var(--ink-2);white-space:nowrap">${a.verdict}</span><span style="color:#c7c7cc;font-size:18px">›</span></a>`)}</div></div>`;
 
@@ -86,10 +87,12 @@ const repaint = () => {
   parts();
 };
 
-export async function render({ slug }) {
+export async function render({ slug, stale = () => false }) {
   S.slug = slug; S.sel = 0; S.step = 0;
   mount(page('results', html`<p style="color:var(--ink-2)">Loading…</p>`));
-  const d = S.data = await api(url(''));
+  const d = await api(url(''));
+  if (stale()) return;
+  S.data = d;
   mount(page('results', html`<div style="display:flex;flex-direction:column;gap:22px;padding:18px clamp(0px,3vw,24px) 110px;max-width:1180px;width:100%;box-sizing:border-box">
     <div style="display:flex;align-items:flex-end;gap:12px 24px;flex-wrap:wrap"><div style="flex:1;min-width:260px"><div style="font-size:15px;color:var(--ink-2)">${d.meta}${d.running ? ' · still searching' : ''}</div><div style="font-size:clamp(30px,4vw,44px);font-weight:700;letter-spacing:-.03em;line-height:1.1;margin-top:2px;overflow-wrap:anywhere">${d.headline}</div></div>
       <a href="#/" style="${CHROME};text-decoration:none">Edit search</a></div>

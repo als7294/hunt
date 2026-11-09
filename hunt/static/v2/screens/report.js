@@ -2,6 +2,7 @@
 // Flags and Exposure are other streams' parts, mounted here. Everything shown comes from GET /v2/report; nothing is estimated.
 import { html, mount, api, actions, fail, toast, $ } from '../core.js';
 import { page } from '../shell.js';
+import { brand } from '../icons/index.js';
 import { mount as family, CARD } from '../parts/family.js';
 import { saveButton } from './lists.js';
 
@@ -38,7 +39,7 @@ function seen(a) {
 }
 const account = (a, slug) => html`<div style="padding:12px 16px;box-shadow:inset 0 -.5px 0 rgba(0,0,0,.08);display:flex;flex-direction:column;gap:8px">
   <div style="display:flex;align-items:center;gap:12px">
-    ${a.avatar ? html`<img src="${a.avatar}" alt="" style="width:32px;height:32px;flex:none;border-radius:8px;object-fit:cover">` : html`<span style="width:32px;height:32px;flex:none;border-radius:8px;background:#f5f5f7;display:grid;place-items:center;font-size:14px;font-weight:600;color:#6e6e73">${a.site[0]}</span>`}
+    ${a.avatar ? html`<img src="${a.avatar}" alt="" style="width:32px;height:32px;flex:none;border-radius:8px;object-fit:cover">` : html`<span style="width:32px;height:32px;flex:none;border-radius:8px;background:#f5f5f7;display:grid;place-items:center;color:#6e6e73">${brand(a.site)}</span>`}
     <div style="flex:1;min-width:0"><div style="font-size:15px;overflow-wrap:anywhere">${a.handle}</div><div style="font-size:12.5px;color:#86868b">${seen(a)}</div></div>${chip(a)}</div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-left:44px">
     ${viaApify(a) ? '' : a.walled ? html`<button style="${SMALL}" data-act="report-browser" data-url="${a.url}" data-case="${slug}">Open in Hunt Browser</button>
@@ -90,8 +91,9 @@ async function show() {
 }
 
 const EXPORTS = [['report.pdf', 'Report (PDF)'], ['report.html', 'Report (web page)'], ['evidence.zip', 'Evidence bundle (captures, hashes, audit log)']];
-export async function render({ slug, tab }) {
+export async function render({ slug, tab, stale = () => false }) {
   const data = await api(`/api/cases/${enc(slug)}/v2/report`);
+  if (stale()) return;
   state = { slug, data, shown: PAGE, tab: tabsFor(data).some(([id]) => id === tab) ? tab : 'overview' };
   mount(page('report', html`<main style="box-sizing:border-box;width:min(912px,100%);margin:0 auto;padding:8px 16px 40px;display:flex;flex-direction:column;gap:18px">
     <a href="#/case/${enc(slug)}/results" style="align-self:flex-start;font-size:17px;color:#d70f45;display:flex;align-items:center;gap:4px;text-decoration:none"><span style="font-size:24px;line-height:1;margin-top:-2px">‹</span>Matches</a>

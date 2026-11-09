@@ -29,8 +29,16 @@ const list = (rows, empty) => rows.length
   ? html`<div style="border-radius:18px;${GLASS};overflow:hidden">${rows}</div>`
   : html`<div style="border-radius:20px;background:#fff;padding:36px;font-size:15px;color:#86868b;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,.04)">${empty}</div>`;
 
-export async function render({ which }) {
+export async function render({ which, stale = () => false }) {
   const vault = which === 'vault', title = vault ? 'Vault' : 'History';
+  const draw = (body, due = 0) => {
+    mount(page(which, html`<div style="flex:1;display:flex;flex-direction:column;gap:14px;padding:26px clamp(16px,4vw,40px) 48px;max-width:820px;width:100%;margin:0 auto;box-sizing:border-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><div style="font-size:clamp(30px,4vw,40px);font-weight:700;letter-spacing:-.03em">${title}</div><button id="lists-more" data-act="more-open" style="${PILL}">More</button></div>
+    ${due ? html`<div style="border-radius:16px;background:rgba(255,45,85,.08);padding:14px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="flex:1;min-width:220px;font-size:14px;color:#a80b36">${due} case${due === 1 ? ' is' : 's are'} past the retention period. Each one needs a decision.</span><button data-act="lists-retention" style="${PILL}">Decide</button></div>` : ''}
+    ${body}</div>`));
+    if ($('#nav-avatar')) $('#lists-more').remove(); // the shell's avatar has it
+  };
+  draw(html`<p style="color:var(--ink-2)">Loading…</p>`); // a long case list takes a few seconds
   let body, due = 0;
   if (vault) body = list((await api('/api/vault')).people.map(vaultRow), 'Nobody saved yet. Tap Save on a match to keep them here.');
   else {
@@ -38,11 +46,7 @@ export async function render({ which }) {
     due = cases.filter(c => c.retention_due).length;
     body = list(cases.map(historyRow), 'No searches yet.');
   }
-  mount(page(which, html`<div style="flex:1;display:flex;flex-direction:column;gap:14px;padding:26px clamp(0px,3vw,24px) 48px;max-width:820px;width:100%;box-sizing:border-box">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><div style="font-size:clamp(30px,4vw,40px);font-weight:700;letter-spacing:-.03em">${title}</div><button id="lists-more" data-act="more-open" style="${PILL}">More</button></div>
-    ${due ? html`<div style="border-radius:16px;background:rgba(255,45,85,.08);padding:14px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="flex:1;min-width:220px;font-size:14px;color:#a80b36">${due} case${due === 1 ? ' is' : 's are'} past the retention period. Each one needs a decision.</span><button data-act="lists-retention" style="${PILL}">Decide</button></div>` : ''}
-    ${body}</div>`));
-  if ($('#nav-avatar')) $('#lists-more').remove(); // the shell's avatar has it
+  if (!stale()) draw(body, due);
 }
 
 // Save, for the Results and Report screens: `await savedUrls(slug)`, then saveButton(slug, url, urls.has(url))
