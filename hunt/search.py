@@ -6,6 +6,7 @@ to the browser, the CLI prints it.
 """
 
 import asyncio
+import hashlib
 import io
 import json
 import os
@@ -31,7 +32,9 @@ HEAVY = asyncio.Lock()  # one heavy job at a time on the machine: Playwright, th
 # ponytail: site default avatars recognised by URL only. Upgrade: remember hashes seen on many
 # unrelated handles across cases and treat those as defaults too.
 DEFAULT_AVATAR = re.compile(r"default|placeholder|blank|anonymous|mystery|[?&]d=mm|identicon|no[-_]?avatar|"
-                            r"avatar[-_]?(?:default|missing)|/defaults?/|silhouette|personalProfileImage", re.I)
+                            r"avatar[-_]?(?:default|missing)|/defaults?/|silhouette|personalProfileImage|"
+                            # a forum's letter picture (Discourse's /letter/s/…) or drawn initials: one per first letter
+                            r"/letter/|letter[-_]avatar|ui-avatars\.com|/initials/", re.I)
 OWN = ("username", "email", "url")  # seeds that name an account outright, as a name never does
 
 
@@ -64,7 +67,7 @@ async def run(case: Case, seeds: list[Seed], emit, capture: bool = True, pause: 
     await avatars(case, report, emit)
     await compare_faces(case, build(case, places), emit)
     await emails.collect(case, build(case, places), emit)  # what the sites they run publish: leads, never searched unticked
-    await news.collect(case, build(case, places), emit)  # hometown papers naming them with a place, relative or employer
+    await papers(case, places, emit)  # hometown papers naming them with a place, relative or employer
     if capture:
         async with HEAVY:
             await screenshot(case, build(case, places), emit)
@@ -72,6 +75,18 @@ async def run(case: Case, seeds: list[Seed], emit, capture: bool = True, pause: 
     case.audit("search finished", {"accounts": len(report["candidates"])})
     emit({"type": "stage", "stage": "done"})
     return report
+
+
+async def papers(case: Case, places, emit):
+    """news.collect, unless nothing it goes by has changed since it last ran on this case: the names, and the places,
+    relatives and employers a story must name beside them (news.known). A round of leads that changes none of those
+    would ask the same papers the same questions, a minute's worth, for the same answers."""
+    asked = lambda: hashlib.sha256(json.dumps([sorted(s.value for s in case.seeds() if s.kind == "name"),
+                                               news.known(case, build(case, places))], sort_keys=True, default=str).encode()).hexdigest()
+    if case.meta("news_asked") == asked():
+        return
+    await news.collect(case, build(case, places), emit)
+    case.db.execute("insert or replace into meta values ('news_asked', ?)", (asked(),))  # after: its own stories can add a place
 
 
 async def fan_out(case: Case, seeds: list[Seed], emit):
@@ -229,7 +244,7 @@ def build(case: Case, places: dict | None = None) -> dict:
     def rate(c, extra=None):
         attrs = c["attrs"] | posted.get(match.norm_url(c["url"]), {})  # a copy: the place its posts state, for score only
         p, verdict, reasons, tags = match.score(Seed(**c["seed"]), c["url"], attrs, subject, taken, places, extra, him,
-                                                facts, derived=derived)
+                                                facts, derived=derived, crowd=crowd[k] if (k := _listed(c)) else 0)
         c.update(verdict=verdict, probability=round(p, 3), reasons=reasons, tags=tags)
 
     candidates = []
@@ -245,6 +260,11 @@ def build(case: Case, places: dict | None = None) -> dict:
                         + [s for f in fs for s in shots[f["id"]]],
         })
 
+    # how many a source lists under one searched name: a name-search hit starts at 1 in that many (match.score's crowd).
+    # Not the newspaper stories: each was kept for naming the subject beside a place, relative or employer of theirs.
+    _listed = lambda c: (c["seed"]["value"].lower(), c["found_by"][0]) \
+        if c["seed"]["kind"] == "name" and c["found_by"][0] != news.NAME else None
+    crowd = Counter(map(_listed, candidates))
     for c in candidates:
         rate(c)
 
