@@ -45,6 +45,7 @@ from starlette.staticfiles import StaticFiles
 from . import graph, keys, leads, match, people_search, pivot, profile, report, search, sources, vendor, vlm
 from . import bundle, demo, inbox, minimise, notes, pack, recheck, seen, setup, watch  # docs/qol.md
 from . import facebook  # docs/facebook.md
+from . import api2  # the new frontend's routes (docs/frontend-v2.md)
 from . import browser, extension  # docs/capture.md
 from .case import ABROAD, DATES, DECISIONS, DETAILS, EVIDENCE_NAME, HOME, KINDS, RETENTION_DAYS, Case, all_cases, residence  # watch.py reads RETENTION_DAYS here
 from .match import ICD203, norm_url
@@ -2202,7 +2203,7 @@ def make_app(token: str, port: int) -> Guard:
         Route("/api/cases/{slug}/report", get_report),
         Route("/api/cases/{slug}/report.{fmt:str}", export_report),
         Route("/evidence/{slug}/{name}", evidence),
-    ] + QOL_ROUTES + FACEBOOK_ROUTES + CAPTURE_ROUTES + ([Mount("/", app=Frontend(directory=STATIC, html=True))] if STATIC.is_dir() else [])
+    ] + QOL_ROUTES + FACEBOOK_ROUTES + CAPTURE_ROUTES + api2.routes() + ([Mount("/", app=Frontend(directory=STATIC, html=True))] if STATIC.is_dir() else [])
     app = Starlette(routes=routes, exception_handlers={HTTPException: _http_error, Exception: _server_error})
     app.state.token, app.state.jobs = token, {}
     return Guard(app, token, port)
