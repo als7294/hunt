@@ -43,6 +43,11 @@ d = live()
 assert d["phase"] == "review" and d["runs"][0]["source"] == "fec" and d["runs"][0]["posts"] is False and d["runs"][0]["found"] == 2
 case.add_run("bluesky", Seed("url", "https://bsky.test/rae"), "found", 12, 12, "")
 assert live()["runs"][1]["posts"] is True and live()["runs"][1]["source"] == "Bluesky"
+case.add_run("apify-instagram", Seed("url", "https://www.instagram.com/rae"), "found", 7, 7, "")
+assert [(r["source"], r["posts"]) for r in live()["runs"]][2] == ("Instagram (via Apify)", True)
+case.audit("vendor run", {"vendor": "Apify", "cost_usd": 0.125, "account": "https://www.instagram.com/rae"})
+case.audit("vendor run", {"vendor": "Apify", "cost_usd": 0.1, "account": "https://www.instagram.com/rae"})
+assert c.get(f"/api/cases/{case.name}/live/apify").json() == {"cost_usd": 0.225, "runs": 2, "credit_left_usd": None}  # no key here
 case.audit("scan", {})
 assert live()["phase"] == "ready"
 case.audit("search", {})
@@ -107,6 +112,18 @@ assert.equal(S.leftLabel(s), 'About 5 min left'); assert.equal(S.pill(s).text, '
 assert.deepEqual(S.checks(s).map(c => [c.state, c.hits]), [['hit', 1], ['scan', 0]]);  // one hit counted once
 send({ type: 'done', ok: true });
 assert.deepEqual(S.checks(s).map(c => c.state), ['hit', 'clear']); assert.equal(S.pill(s).text, 'Rae Okafor · Results ready');
+
+// Instagram through her Apify key: real counts on one row, not beside a failed direct read. Without it, the Hunt Browser
+const IG = 'https://www.instagram.com/rae', THREADS = 'https://www.threads.net/@rae';
+s = S.fresh({ ...info, phase: 'scanning', job: { id: 'k', kind: 'scan' }, confirmed: 2, captured: { [THREADS]: 4 } });
+send({ type: 'stage', stage: 'collecting' }, { type: 'source', source: 'Instagram', seed: IG, status: 'failed', found: 0, checked: 0, note: 'never read' },
+     { type: 'source', source: 'Threads', seed: THREADS, status: 'failed', found: 0, checked: 0, note: 'never read' });
+assert.deepEqual(S.sources(s).map(r => [r.count, r.browser.length]), [['Waiting', 0], ['Waiting', 0]]);  // Apify may still read them
+send({ type: 'source', source: 'Instagram (via Apify)', seed: IG, status: 'found', found: 7, checked: 7, note: '$0.1 charged' }, { type: 'stage', stage: 'scanning' });
+assert.deepEqual(S.sources(s).map(r => [r.source, r.count, r.browser]), [['Instagram (via Apify)', '7 posts', []], ['Threads', '4 captured', [THREADS]]]);
+s = S.fresh({ ...info, phase: 'ready', job: null });
+S.addRun(s, { source: 'Instagram (via Apify)', seed: IG, status: 'nothing found', found: 0, checked: 0, note: 'private' }, true);
+assert.deepEqual(S.sources(s).map(r => [r.count, r.browser]), [['Not read', [IG]]]);  // a private account: Apify read nothing
 
 s = S.fresh(info); send({ type: 'stage', stage: 'asking' }, { type: 'error', message: 'cancelled' });
 assert.equal(s.phase, 'stopped'); assert.equal(s.error, null); assert.equal(S.pill(s), null);

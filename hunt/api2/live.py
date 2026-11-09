@@ -4,14 +4,17 @@ The progress itself comes from the job's own events (GET /api/jobs/{id}/events).
 job is running, what was planned, and what earlier runs left, so the screen can come back after a reload.
 """
 
+from collections import Counter
+import json
 from datetime import UTC, datetime
 
+import httpx
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from .. import search
-from ..app import _active, _audited, _case, _hits, _module, _search_step
+from .. import match, search, vendor
+from ..app import _active, _audited, _case, _hits, _module, _posts, _search_step
 from ..case import Case
 from ..sources import SOURCES
 
@@ -55,8 +58,9 @@ def _runs(c: Case) -> list[dict]:
     posts = _module("posts")
     out = []
     for r in c.rows("select source, seed_kind, seed, status, found, checked, note from runs where source != '-' order by rowid"):
-        post = bool(posts and r["seed_kind"] == "url" and r["source"] in posts.FETCHERS)
-        out.append({"source": posts.NAMES.get(r["source"], r["source"]) if post else r["source"], "seed": r["seed"], "status": r["status"],
+        apify = vendor.NAMES.get(r["source"].removeprefix("apify-")) if r["source"].startswith("apify-") else None
+        post = bool(apify or (posts and r["seed_kind"] == "url" and r["source"] in posts.FETCHERS))
+        out.append({"source": apify or (posts.NAMES.get(r["source"], r["source"]) if post else r["source"]), "seed": r["seed"], "status": r["status"],
                     "found": r["found"], "checked": r["checked"], "note": r["note"], "posts": post})
     return out
 
@@ -69,7 +73,8 @@ async def live(req: Request):
     checks = [{"key": k, "label": (scan.CATEGORIES.get(k) or {}).get("label", k) if scan else k} for k in d.get("look_for") or []]
     phase = _phase(c, job)
     # /scan reads the accounts marked theirs, however they were marked (one by one, or the whole person at once)
-    confirmed = sum(x["decision"] == "him" for x in (await search.snapshot(c))["candidates"]) if phase == "scanning" else 0
+    theirs = [x["url"] for x in (await search.snapshot(c))["candidates"] if x["decision"] == "him"] if phase in ("scanning", "ready") else []
+    saved = Counter(match.norm_url(p["account_url"]) for p in await _posts(c) if p.get("origin") == "captured" and p.get("account_url")) if theirs else {}
     runs = _runs(c)
     plan = [{"source": s.NAME, "runs": n} for s in SOURCES if (n := sum(x.kind in s.KINDS for x in seeds))]
     return JSONResponse({
@@ -77,7 +82,7 @@ async def live(req: Request):
         "purpose": KINDS.get(d.get("kind"), d.get("kind")), "kind": d.get("kind"), "blocked": c.blocked(), "phase": phase,
         "job": {"id": job.id, "kind": job.kind, "state": job.state, "started": _started(c, job)} if job else None,
         "plan": plan, "labels": {n: _label(n) for n in {*(p["source"] for p in plan), *(r["source"] for r in runs)}},
-        "runs": runs, "checks": checks, "confirmed": confirmed,
+        "runs": runs, "checks": checks, "confirmed": len(theirs), "captured": {u: saved[match.norm_url(u)] for u in theirs if saved[match.norm_url(u)]},
         "hits": await _hits(c) if phase in ("scanning", "ready") else [],
     })
 
@@ -88,4 +93,16 @@ async def active(req: Request):
     return JSONResponse({"jobs": [{"slug": j.slug, "subject": _subject(Case.open(j.slug)), "kind": j.kind} for j in jobs]})
 
 
-ROUTES = [Route("/api/cases/{slug}/live", live), Route("/api/live/active", active)]
+async def apify(req: Request):
+    """What this case's Apify reads cost (the audit's own figures), and the credit left on her account (null if it can't be read)."""
+    c = _case(req)
+    runs = [json.loads(r["detail"]) for r in c.rows("select detail from audit where action = 'vendor run'")]
+    s = vendor.settings()
+    try:
+        left = (await vendor._usage(s))["credit_left_usd"] if s["apify_key"] else None
+    except (httpx.HTTPError, ValueError, KeyError):
+        left = None
+    return JSONResponse({"cost_usd": round(sum(r.get("cost_usd") or 0 for r in runs), 3), "runs": len(runs), "credit_left_usd": left})
+
+
+ROUTES = [Route("/api/cases/{slug}/live", live), Route("/api/cases/{slug}/live/apify", apify), Route("/api/live/active", active)]
