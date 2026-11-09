@@ -12,8 +12,9 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from .. import extension, report
-from ..app import _body, _case, _posts, get_person, get_timeline, get_worklist
+from ..app import _case, _posts, get_person, get_timeline, get_worklist
 from ..sources._api import denied
+from .lists import _saved
 
 
 def _key(url: str | None) -> str | None:
@@ -69,7 +70,10 @@ async def report_view(req: Request):
     names = [s.value for s in c.seeds() if s.kind == "name"]
     # the case's own name first: the profile leaves out a name that only repeats a handle (dorian.vell, "Dorian Vell")
     name = names[0] if names else profile["names"][0]["value"] if profile["names"] else c.details().get("label") or c.name
-    best = max((a["probability"] for a in accounts or records), default=None)
+    top = max(accounts or records, key=lambda a: a["probability"], default=None)  # the person's best-supported account
+    best = top and top["probability"]
+    saved = {v["url"] for v in _saved(c)}
+    save_url = next((a["url"] for a in accounts + records if a["url"] in saved), top and top["url"])  # Save is the Vault's route
     meta = []
     if profile["born"]:
         meta.append(f"about {date.today().year - profile['born'][0]['value']}")
@@ -85,19 +89,7 @@ async def report_view(req: Request):
     return JSONResponse({"name": name, "meta": meta, "match": round(best * 100) if best is not None else None,
                          "summary": _summary(name, accounts, records, person["summary"], profile["places"]),
                          "facts": _facts(profile, name), "accounts": rows, "records": len(records), "timeline": events,
-                         "background": background, "saved": c.meta("vault") == "1"})
+                         "background": background, "save_url": save_url, "saved": save_url in saved})
 
 
-async def vault(req: Request):
-    """{saved: bool}: the report's Save button. A bookmark on the case, audited; the Vault screen lists these."""
-    c, b = _case(req), await _body(req)
-    on = b.get("saved") is True
-    if on:
-        c.db.execute("insert or replace into meta values ('vault', '1')")
-    else:
-        c.db.execute("delete from meta where key = 'vault'")
-    c.audit("saved to vault" if on else "removed from vault", {})
-    return JSONResponse({"saved": on})
-
-
-ROUTES = [Route("/api/cases/{slug}/v2/report", report_view), Route("/api/cases/{slug}/v2/vault", vault, methods=["POST"])]
+ROUTES = [Route("/api/cases/{slug}/v2/report", report_view)]
