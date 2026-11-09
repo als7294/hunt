@@ -52,11 +52,72 @@ def grade(candidates: list[dict], key: dict) -> dict:
             "wrong": [c for c in likely if kind(c) == "not"], "unknown": [c for c in likely if not by_url[c["url"]]]}
 
 
-def train(case: Case, seeds: list, key: dict, rounds: int):
+def clock() -> tuple:
+    """(emit, seconds): an emit for search.run that times each source, from its first "running" to its last answer,
+    and each stage, into `seconds` ({source or "[stage]": seconds})."""
+    seconds, started, stage = {}, {}, [None, time.time()]
+
+    def emit(e):
+        t = time.time()
+        if e["type"] == "source" and e["status"] == "running":
+            started.setdefault(e["source"], t)
+        elif e["type"] == "source" and e["source"] in started:
+            seconds[e["source"]] = seconds.get(e["source"], 0) + t - started.pop(e["source"])
+        elif e["type"] == "stage":
+            if stage[0]:
+                seconds[f"[{stage[0]}]"] = seconds.get(f"[{stage[0]}]", 0) + t - stage[1]
+            stage[:] = [e["stage"], t]
+    return emit, seconds
+
+
+def by_source(report: dict, graded: dict, seconds: dict | None = None) -> dict:
+    """Per source, from the case's runs and the graded accounts: {runs, failed, skipped, found (hits it reported),
+    accounts (distinct ones it found), yours, locked, wrong (rated likely or better, not yours), alone (yours that no
+    other source found), seconds, notes (why its runs failed or were skipped)}. Yield and precision in one place."""
+    out = {}
+    row = lambda name: out.setdefault(name, {"runs": 0, "failed": 0, "skipped": 0, "found": 0, "accounts": 0, "yours": 0,
+                                             "locked": 0, "wrong": 0, "alone": 0, "seconds": 0, "notes": []})
+    for r in report.get("methodology", []):
+        if r["source"] == "-":
+            continue
+        n = row(r["source"])
+        n["runs"] += 1
+        n["found"] += r["found"] or 0
+        if r["status"] in ("failed", "skipped"):
+            n[r["status"]] += 1
+            if (r["note"] or "")[:90] not in n["notes"]:
+                n["notes"].append((r["note"] or "")[:90])
+    yours = {c["url"] for k in ("locked", "possible", "missed") for c in graded[k]}
+    locked, wrong = ({c["url"] for c in graded[k]} for k in ("locked", "wrong"))
+    for c in report["candidates"]:
+        for name in c.get("found_by", []):
+            n = row(name)
+            n["accounts"] += 1
+            n["yours"] += c["url"] in yours
+            n["locked"] += c["url"] in locked
+            n["wrong"] += c["url"] in wrong
+            n["alone"] += c["url"] in yours and len(c["found_by"]) == 1
+    for name, s in (seconds or {}).items():
+        if name in out:
+            out[name]["seconds"] = round(s)
+    return out
+
+
+def source_table(sources: dict) -> str:
+    """by_source() as a table: the sources that failed first, then by how many of your accounts each found."""
+    rows = [f"{'source':16}{'runs':>5}{'failed':>7}{'skipped':>8}{'found':>6}{'accounts':>9}{'yours':>6}{'locked':>7}"
+            f"{'wrong':>6}{'alone':>6}{'time':>6}  why it failed or was skipped"]
+    for name, n in sorted(sources.items(), key=lambda kv: (-kv[1]["failed"], -kv[1]["yours"], -kv[1]["accounts"], kv[0])):
+        rows.append(f"{name[:15]:16}{n['runs']:>5}{n['failed']:>7}{n['skipped']:>8}{n['found']:>6}{n['accounts']:>9}"
+                    f"{n['yours']:>6}{n['locked']:>7}{n['wrong']:>6}{n['alone']:>6}{n['seconds']:>5}s  {' / '.join(n['notes'][:2])}")
+    return "\n".join(rows)
+
+
+def train(case: Case, seeds: list, key: dict, rounds: int, emit=None):
     """Search `seeds`, then the leads of the accounts the key says are certainly yours, as if you'd confirmed them
     (S3, D17), up to `rounds` times more. Yields (round, seeds searched, report, grade(report)) after each search."""
     for rnd in range(rounds + 1):
-        report = asyncio.run(search.run(case, seeds, lambda e: None, capture=False))
+        report = asyncio.run(search.run(case, seeds, emit or (lambda e: None), capture=False))
         graded = grade(report["candidates"], key)
         yield rnd, seeds, report, graded
         if rnd == rounds:
@@ -85,7 +146,8 @@ def main():
         raise SystemExit(f"at most {MAX_ROUNDS} rounds of leads")
     key = answer_key()
     case, start = new_case(a.bits), time.time()
-    for rnd, seeds, report, g in train(case, [s for b in a.bits for s in detect(b)], key, a.rounds):
+    emit, seconds = clock()
+    for rnd, seeds, report, g in train(case, [s for b in a.bits for s in detect(b)], key, a.rounds, emit):
         likely = [c for c in report["candidates"] if search.in_person(c)]
         print(f"\n== round {rnd} ({time.time() - start:.0f}s): searched {[s.value for s in seeds]}; "
               f"{len(report['candidates'])} accounts; rated likely or better: {len(likely)} "
@@ -98,6 +160,8 @@ def main():
           f"case {case.name}")
     for c in g["missed"][:40]:
         print(f"  missed {c['probability']:.2f} {c['site'][:16]:16} {c['url'][:60]:60} {' | '.join(c['reasons'][:2])}")
+    print("\n" + source_table(by_source(report, g, seconds)))
+    print("stages: " + ", ".join(f"{k} {v:.0f}s" for k, v in seconds.items() if k.startswith("[")))
 
 
 if __name__ == "__main__":

@@ -34,6 +34,24 @@ assert site("locked") == ["github.com", "gravatar.com", "mastodon.social"] and s
 assert site("possible") == ["www.reddit.com"] and site("missed") == ["www.instagram.com"], g
 assert site("unknown") == ["www.facebook.com"] and g["by_url"]["https://x.com/jrbakes91"][0] == "not", g
 
+# by_source(): each source's runs, failures and why, hits, and how its accounts graded; timed by clock()'s emit
+emit, seconds = train_find.clock()
+for e in ({"type": "stage", "stage": "asking"}, {"type": "source", "source": "engine", "status": "running"},
+          {"type": "source", "source": "engine", "status": "found"}, {"type": "stage", "stage": "done"}):
+    emit(e)
+assert set(seconds) == {"engine", "[asking]"}, seconds
+run = lambda source, status, n, note="": {"source": source, "seed_kind": "username", "seed": "x", "status": status, "found": n, "note": note}
+report = {"methodology": [run("engine", "found", 3), run("engine", "found", 1), run("walled", "failed", 0, "refused (403)"),
+                          run("walled", "skipped", 0, "skipped: walled refused an earlier read"), run("-", "skipped", 0)],
+          "candidates": [{**c, "found_by": ["engine"] + ["walled"] * (c["site"] == "github.com")} for c in found]}
+rows = train_find.by_source(report, g, seconds)
+assert rows["engine"] == {"runs": 2, "failed": 0, "skipped": 0, "found": 4, "accounts": 8, "yours": 5, "locked": 3, "wrong": 2,
+                          "alone": 4, "seconds": 0, "notes": []}, rows["engine"]
+assert rows["walled"]["failed"] == rows["walled"]["skipped"] == rows["walled"]["yours"] == 1 and rows["walled"]["alone"] == 0 \
+    and rows["walled"]["notes"] == ["refused (403)", "skipped: walled refused an earlier read"] and "-" not in rows, rows
+said = train_find.source_table(rows).splitlines()
+assert said[1].startswith("walled") and "refused (403)" in said[1] and said[2].split()[:5] == ["engine", "2", "0", "0", "4"], said
+
 # the first run is the baseline; GitHub's link is followed as a lead (Mastodon, locked in round 1)
 first, said = suite()
 assert first["pairs"]["name+handle"] == {"locked": 2, "possible": 1, "missed": 1, "wrong": 1, "unknown": 1,
@@ -46,6 +64,7 @@ saved = sorted(train_suite.TRAINING.glob("dry-*.json"))
 assert len(saved) == 1 and json.loads(saved[0].read_text()) == first
 text = saved[0].read_text().lower()
 assert not any(w in text for w in ("http", "@", "jordan", "jrbakes", "texas", "reyes")), text  # counts only
+assert first["sources"] == {} and "source " in said and "why it failed" in said  # the canned search has no source runs
 
 # other rounds are another setup: not compared with the first
 no_leads, said = suite("--rounds", "0")
