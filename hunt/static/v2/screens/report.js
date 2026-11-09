@@ -3,8 +3,8 @@
 import { html, mount, api, actions, fail, toast, $ } from '../core.js';
 import { page } from '../shell.js';
 import { mount as family, CARD } from '../parts/family.js';
+import { saveButton } from './lists.js';
 
-const SILVER = 'cursor:pointer;font-size:14px;font-weight:500;color:#1d1d1f;border-radius:99px;padding:10px 18px;border:1px solid transparent;background:linear-gradient(180deg,#ffffff 0%,#f1f2f4 46%,#e2e4e8 54%,#f7f8fa 100%) padding-box,linear-gradient(180deg,#ffffff,#b8bcc3 50%,#ffffff 62%,#a7abb3) border-box;box-shadow:inset 0 1px 0 #fff,0 3px 10px rgba(20,22,28,.1)';
 const RED = 'cursor:pointer;border:0;font-size:14px;font-weight:600;border-radius:99px;padding:10px 20px;color:#fff;background:linear-gradient(180deg,rgba(255,255,255,.32),rgba(255,255,255,0) 55%),#e8194f;box-shadow:inset 0 1px 0 rgba(255,255,255,.55),0 6px 16px rgba(232,25,79,.3)';
 const SMALL = 'cursor:pointer;border:0;border-radius:99px;padding:6px 12px;font-size:13px;background:#f2f2f7;color:#1d1d1f';
 const PAGE = 300; // timeline rows at a time: a case can hold thousands of posts
@@ -27,18 +27,29 @@ function chip(a) {
     : a.probability >= 0.5 ? ['#fff4e0', '#9a6200', `${Math.round(a.probability * 100)}%`] : ['#f2f2f7', '#6e6e73', `${Math.round(a.probability * 100)}%`];
   return html`<span title="${a.verdict}" style="flex:none;font-size:12px;font-weight:600;border-radius:99px;padding:3px 9px;background:${bg};color:${fg}">${label}</span>`;
 }
-const seen = a => !a.walled ? a.site : `${a.site} · ${a.captured_posts ? `${a.captured_posts} post${a.captured_posts === 1 ? '' : 's'} captured` : 'nothing captured yet'}${a.last_capture ? `, last ${when(a.last_capture)}` : ''}`;
+const posts = n => `${n} post${n === 1 ? '' : 's'}`;
+const viaApify = a => a.apify?.posts > 0; // read through her own Apify key; a run that returned nothing (a private account) needs the Hunt Browser
+function seen(a) {
+  if (!a.walled) return a.site;
+  const got = [viaApify(a) ? `${posts(a.apify.posts)} via Apify${a.apify.last ? `, read ${when(a.apify.last)}` : ''}${a.apify.cost_usd ? `, $${a.apify.cost_usd.toFixed(2)}` : ''}` : '',
+    a.captured_posts ? `${posts(a.captured_posts)} captured${a.last_capture ? `, last ${when(a.last_capture)}` : ''}` : ''].filter(Boolean);
+  if (a.apify?.ok && !viaApify(a)) got.push('Apify could read nothing: it may be private');
+  return [a.site, ...(got.length ? got : ['nothing captured yet'])].join(' · ');
+}
 const account = (a, slug) => html`<div style="padding:12px 16px;box-shadow:inset 0 -.5px 0 rgba(0,0,0,.08);display:flex;flex-direction:column;gap:8px">
   <div style="display:flex;align-items:center;gap:12px">
     ${a.avatar ? html`<img src="${a.avatar}" alt="" style="width:32px;height:32px;flex:none;border-radius:8px;object-fit:cover">` : html`<span style="width:32px;height:32px;flex:none;border-radius:8px;background:#f5f5f7;display:grid;place-items:center;font-size:14px;font-weight:600;color:#6e6e73">${a.site[0]}</span>`}
     <div style="flex:1;min-width:0"><div style="font-size:15px;overflow-wrap:anywhere">${a.handle}</div><div style="font-size:12.5px;color:#86868b">${seen(a)}</div></div>${chip(a)}</div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-left:44px">
-    ${a.walled ? html`<button style="${SMALL}" data-act="report-browser" data-url="${a.url}" data-case="${slug}">Open in Hunt Browser</button>
+    ${viaApify(a) ? '' : a.walled ? html`<button style="${SMALL}" data-act="report-browser" data-url="${a.url}" data-case="${slug}">Open in Hunt Browser</button>
       <a href="/#/case/${enc(slug)}/worklist" style="font-size:13px" title="${a.on_worklist ? 'Work through the login-walled accounts one by one' : 'Confirm this account and it joins the worklist'}">Worklist</a>`
     : html`<a href="${a.url}" target="_blank" rel="noopener noreferrer" style="font-size:13px">Open ↗</a>`}
     ${a.reasons.length ? html`<details style="font-size:13px;color:#6e6e73"><summary style="cursor:pointer">How we linked them</summary>
       <ul style="margin:6px 0 0;padding-left:18px">${a.reasons.map(r => html`<li>${r}</li>`)}</ul></details>` : ''}</div></div>`;
-const accounts = (d, slug) => d.accounts.length ? html`<div style="border-radius:18px;${CARD};overflow:hidden;animation:hIn .3s ease-out both">${d.accounts.map(a => account(a, slug))}</div>`
+const spent = d => d.accounts.reduce((sum, a) => sum + (a.apify?.cost_usd || 0), 0);
+const accounts = (d, slug) => d.accounts.length ? html`<div style="display:flex;flex-direction:column;gap:8px;animation:hIn .3s ease-out both">
+  ${d.accounts.some(a => a.apify) ? html`<div style="font-size:13px;color:#6e6e73">Apify runs on your account cost $${spent(d).toFixed(2)} on this case<span id="report-credit"></span></div>` : ''}
+  <div style="border-radius:18px;${CARD};overflow:hidden">${d.accounts.map(a => account(a, slug))}</div></div>`
   : html`<div style="border-radius:20px;${CARD};padding:28px;font-size:15px;color:#86868b;text-align:center">No accounts have been judged to be this person yet.</div>`;
 
 const KIND = { post: 'Post', stated: 'Stated in a post', record: 'Public record', injury: 'From the claim' };
@@ -58,7 +69,8 @@ async function part(el, file, label) { // another stream's tab: export async fun
   let m;
   try { m = await import(`../parts/${file}.js`); }
   catch { el.innerHTML = html`<div style="border-radius:20px;${CARD};padding:28px;font-size:15px;color:#86868b;text-align:center">${label} isn’t ready in this build yet.</div>`.s; return; }
-  await m.mount(el, slug, { background: data.background });
+  if (m.flagsTab) el.innerHTML = m.flagsTab(slug, await m.loadFlags(slug)).s; // Flags gives its markup rather than mounting
+  else await m.mount(el, slug, { background: data.background });
 }
 async function show() {
   const { tab, data, slug } = state, el = $('#report-tab');
@@ -70,6 +82,10 @@ async function show() {
     if (tab === 'exposure') return await part(box, 'exposure', 'Exposure');
     if (tab === 'family') return await family(box, slug);
     box.innerHTML = (tab === 'accounts' ? accounts(data, slug) : tab === 'timeline' ? timeline(data) : overview(data)).s;
+    if (tab === 'accounts' && data.accounts.some(a => a.apify)) { // never holds up the tab; left out if Apify doesn't answer
+      const { credit_left_usd: left } = await api(`/api/cases/${enc(slug)}/v2/apify`);
+      if (left != null && $('#report-credit')) $('#report-credit').textContent = `, $${left.toFixed(2)} credit left this month`;
+    }
   } catch (e) { fail(e); }
 }
 
@@ -84,7 +100,7 @@ export async function render({ slug, tab }) {
       <div style="flex:1;min-width:200px"><div style="font-size:clamp(30px,4vw,44px);font-weight:700;letter-spacing:-.03em;line-height:1.05;overflow-wrap:anywhere">${data.name}</div>
         <div style="font-size:15px;color:#86868b;margin-top:4px">${[...data.meta, data.match != null ? `${data.match}% match` : ''].filter(Boolean).join(' · ')}</div></div>
       <div style="display:flex;gap:8px;position:relative">
-        ${data.save_url ? html`<button style="${SILVER}" data-act="report-save" id="report-save">${data.saved ? 'Saved' : 'Save'}</button>` : ''}
+        ${data.save_url ? saveButton(slug, data.save_url, data.saved) : ''}
         <button style="${RED}" data-act="report-export-menu">Export case file</button>
         <div id="report-export" style="display:none;position:absolute;right:0;top:calc(100% + 8px);z-index:20;width:300px;max-width:calc(100vw - 32px);border-radius:16px;background:#fff;box-shadow:0 12px 36px rgba(20,22,28,.18),0 0 0 .5px rgba(0,0,0,.1);padding:6px;flex-direction:column">
           ${EXPORTS.map(([f, label]) => html`<button data-act="report-export" data-file="${f}" style="cursor:pointer;border:0;background:none;text-align:left;font-size:14px;color:#1d1d1f;padding:10px 12px;border-radius:10px">${label}</button>`)}
@@ -112,12 +128,6 @@ Object.assign(actions, {
     show();
   },
   'report-more': () => { state.shown += PAGE; show(); },
-  'report-save': async el => {
-    const d = state.data;
-    try { const r = await api(`/api/cases/${enc(state.slug)}/vault`, { method: 'POST', body: { url: d.save_url, saved: !d.saved } });
-      d.saved = r.urls.includes(d.save_url); el.textContent = d.saved ? 'Saved' : 'Save'; toast(d.saved ? 'Saved to Vault' : 'Removed from Vault'); }
-    catch (e) { fail(e); }
-  },
   'report-export-menu': () => { const m = $('#report-export'); m.style.display = m.style.display === 'none' ? 'flex' : 'none'; },
   'report-export': async el => {
     $('#report-export').style.display = 'none'; toast('Building the file…');
