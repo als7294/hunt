@@ -58,6 +58,16 @@ export function flagsTab(slug, data) {
     ${aside.length ? html`<div style="font-size:12.5px;color:#86868b;padding:8px 16px 0">Set aside · ${aside.length}</div>${aside.map(ev => evidenceCard(slug, ev))}` : ''}</div>`;
 }
 
+// The report frame's entry point: the Flags tab in `el` (a div this part owns), redrawn after every Keep / Not relevant.
+// ctx.background is the case kind the frame already knows; the route says it too, and neither shows a risk figure then.
+export async function mount(el, slug, ctx = {}) {
+  const draw = async () => { el.innerHTML = flagsTab(slug, await loadFlags(slug)).s; };
+  const onChange = e => { if (e.detail?.slug === slug && el.isConnected) draw().catch(fail); else if (!el.isConnected) document.removeEventListener('hunt:flags-changed', onChange); };
+  document.addEventListener('hunt:flags-changed', onChange);
+  el.innerHTML = '<div style="padding:28px;text-align:center;color:#86868b;font-size:14px">Loading flags…</div>';
+  await draw();
+}
+
 async function setLookFor(slug, change) {
   try {
     const data = await loadFlags(slug);
