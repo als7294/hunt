@@ -185,7 +185,7 @@ done, notes, added = collect(case, [f"{TT}/@nasa/video/{THIRD}", f"{TT}/@nasa/vi
 assert done == [("TikTok", "found", 1, 1), ("TikTok", "found", 1, 1), ("TikTok", "found", 1, 1), ("TikTok", "found", 1, 1),
                 ("TikTok", "failed", 0, 0), ("TikTok", "failed", 0, 0), ("TikTok", "failed", 0, 0), ("YouTube", "found", 2, 2),
                 ("YouTube", "failed", 0, 0), ("Instagram", "failed", 0, 0), ("Facebook", "failed", 0, 0), ("Threads", "failed", 0, 0),
-                ("Strava", "failed", 0, 0), ("Telegram", "failed", 0, 0)], done
+                ("Strava", "failed", 0, 0), ("Telegram", "skipped", 0, 0)], done
 assert added == 6
 got = {p["url"]: p for p in posts.list_posts(case)}
 assert len(got) == 8 and got[f"{TT}/@nasa/video/{THIRD}"]["media"][0]["kind"] == "video"

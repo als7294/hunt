@@ -79,12 +79,13 @@ async def collect(case, accounts: list[dict], since: str | None, emit) -> int:
             url, site = account["url"], _site(account)
             if not site:
                 emit({"type": "source", "source": account.get("site") or urlparse(url).netloc, "seed": url,
-                      "status": "failed", "found": 0, "checked": 0,
+                      "status": "skipped", "found": 0, "checked": 0,
                       "note": "this site's posts can't be read logged out"})
                 continue
             if why := public.blocked(url):  # a hard stop on the platform, or a wall met earlier in this run
-                case.add_run(site, Seed("url", url), "failed", 0, 0, why)
-                emit({"type": "source", "source": NAMES[site], "seed": url, "status": "failed", "found": 0, "checked": 0, "note": why})
+                status = "skipped" if site in public.WHY_NOT else "failed"  # skipped: Hunt never reads this site, nothing went wrong
+                case.add_run(site, Seed("url", url), status, 0, 0, why)
+                emit({"type": "source", "source": NAMES[site], "seed": url, "status": status, "found": 0, "checked": 0, "note": why})
                 continue
             emit({"type": "source", "source": NAMES[site], "seed": url, "status": "running", "found": 0, "checked": 0,
                   "note": ""})
