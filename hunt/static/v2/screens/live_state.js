@@ -2,6 +2,10 @@
 // tested on its own (test_v2_live.py). Unknown stays unknown: fraction() and leftLabel() return null rather than a guess.
 const IN_FIND = ['asking', 'finding', 'checking'];
 const FINISHED = ['found', 'nothing found', 'failed', 'skipped'];
+const APIFY = ' (via Apify)'; // vendor.NAMES: posts read through the investigator's own Apify key
+const WALLED = /(^|\.)(facebook|fb|instagram|threads|linkedin|x|twitter)\.(com|net)$/; // legal.md C1: Hunt's own requests never go here
+const walled = url => { try { return WALLED.test(new URL(url).hostname); } catch { return false; } };
+export const viaApify = r => r.source.endsWith(APIFY);
 const LIKELY = 0.55; // search.LIKELY: the score at which an account joins the person
 
 export function fresh(info) {
@@ -69,17 +73,24 @@ export function stepLine(s) {
   return 'Starting';
 }
 
+const ORDER = { running: 0, done: 1, browser: 2, failed: 3, skipped: 4, waiting: 5 };
 export function sources(s) { // [{source, label, count, state, width}], from the plan, then whatever else reported in
   const posts = s.kind === 'scan' || s.phase === 'ready' && runs(s, true).length > 0;
   const groups = new Map(posts ? [] : s.info.plan.map(p => [p.source, { planned: p.runs, rs: [] }]));
-  for (const r of runs(s, posts)) { if (!groups.has(r.source)) groups.set(r.source, { planned: 0, rs: [] }); groups.get(r.source).rs.push(r); }
+  let list = runs(s, posts);
+  if (posts) { const read = new Set(list.filter(viaApify).map(r => r.seed)); list = list.filter(r => viaApify(r) || !read.has(r.seed)); } // the same account, read through Apify
+  const collecting = s.phase === 'scanning' && s.stage !== 'scanning';
+  for (const r of list) { if (!groups.has(r.source)) groups.set(r.source, { planned: 0, rs: [] }); groups.get(r.source).rs.push(r); }
   return [...groups].map(([source, g]) => {
     const done = g.rs.filter(r => FINISHED.includes(r.status)), found = g.rs.reduce((n, r) => n + (posts ? r.checked : r.found), 0), of = Math.max(g.planned, g.rs.length, 1);
     const failed = done.some(r => r.status === 'failed'), active = g.rs.some(r => r.status === 'running');
+    const unread = posts && done.filter(r => walled(r.seed) && !r.checked); // no token, a private account, or a site never read automatically
+    if (unread.length && collecting && !g.rs.some(viaApify)) return { source, label: s.info.labels?.[source] || source, count: 'Waiting', state: 'waiting', width: 0, note: '', browser: [] }; // Apify comes after
+    if (unread.length && !found) { const saved = unread.reduce((n, r) => n + (s.info.captured?.[r.seed] || 0), 0); return { source, label: s.info.labels?.[source] || source, count: saved ? `${saved} captured` : 'Not read', state: 'browser', width: 0, note: unread[0].note, browser: unread.map(r => r.seed) }; }
     const state = active ? 'running' : failed ? 'failed' : done.length && done.length >= of ? 'done' : done.length ? 'running' : g.rs.every(r => r.status === 'skipped') && g.rs.length ? 'skipped' : 'waiting';
     const count = state === 'waiting' ? (s.phase === 'stopped' ? 'Not reached' : 'Waiting') : state === 'failed' && !found ? 'Failed' : state === 'running' && !found ? 'Asking' : found ? `${found} ${posts ? 'posts' : 'found'}` : done.every(r => r.status === 'skipped') ? 'Skipped' : 'Nothing found';
-    return { source, label: s.info.labels?.[source] || source, count, state, width: Math.round(done.length / of * 100), note: done.find(r => r.note)?.note || '' };
-  }).sort((a, b) => ({ running: 0, done: 1, failed: 2, skipped: 3, waiting: 4 }[a.state] - { running: 0, done: 1, failed: 2, skipped: 3, waiting: 4 }[b.state]));
+    return { source, label: s.info.labels?.[source] || source, count, state, width: Math.round(done.length / of * 100), note: done.find(r => r.note)?.note || '', browser: [] };
+  }).sort((a, b) => ORDER[a.state] - ORDER[b.state]);
 }
 export const postsRead = s => runs(s, true).reduce((n, r) => n + r.checked, 0);
 export const answered = s => runs(s, false).reduce((n, r) => n + r.checked, 0);

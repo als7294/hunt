@@ -3,6 +3,8 @@
 import { html, api, follow, mount, actions, toast, fail } from '../core.js';
 import { page } from '../shell.js';
 import * as S from './live_state.js';
+import { mount as mountReview } from '../parts/review.js';
+import { card } from '../parts/evidence.js';
 
 const CARD = 'border:1px solid transparent;background:linear-gradient(180deg,#fff,#f6f7f9) padding-box,linear-gradient(180deg,#fff 0%,#d2d5db 34%,#fff 52%,#bcc0c7 100%) border-box;box-shadow:0 1px 2px rgba(0,0,0,.04),0 18px 44px rgba(20,22,28,.07),inset 0 1px 0 #fff';
 const BTN = 'cursor:pointer;font-size:14px;font-weight:500;border-radius:99px;padding:9px 16px;border:1px solid transparent';
@@ -27,6 +29,7 @@ function listen(t, job) {
   t.es = follow(job, e => {
     S.reduce(t.s, e);
     if (e.type === 'stage' && e.stage === 'checking') reasons(t);
+    if (e.type === 'source' && S.viaApify(e) && e.status !== 'running') apify(t);
     if (e.type === 'done' || e.type === 'error') { t.es.close(); t.es = null; }
     paint(t);
   });
@@ -35,6 +38,10 @@ function listen(t, job) {
     t.es = null;
     try { trackers.delete(t.s.info.slug); await render({ slug: t.s.info.slug }); } catch (e) { fail(e); }
   };
+}
+
+async function apify(t) { // what her Apify reads cost, and the credit left
+  try { t.s.apify = await api(`${path(t.s.info.slug)}/live/apify`); paint(t); } catch (e) { console.error(e); }
 }
 
 async function reasons(t) { // why each account scored as it did, once the scores have settled
@@ -54,6 +61,7 @@ async function open(slug) {
   t = { s: S.fresh(info), es: null };
   trackers.set(slug, t);
   hydrate(t.s, info);
+  if (info.runs.some(S.viaApify)) apify(t);
   if (info.job && ['search', 'scan'].includes(info.job.kind)) listen(t, info.job.id);
   return t;
 }
@@ -83,6 +91,7 @@ const skeleton = t => { const { info } = t.s; return html`<style>${CSS}</style>
     <div style="flex:1 1 300px;max-width:100%;min-width:0;display:flex;flex-direction:column;gap:8px">
       <div style="display:flex;justify-content:space-between;padding:0 16px;font-size:13px;color:var(--ink-2)"><span>Sources</span><span id="live-sources-head" style="font-variant-numeric:tabular-nums"></span></div>
       <div id="live-sources" style="border-radius:20px;${CARD};overflow:auto;max-height:640px"></div>
+      <div id="live-apify" style="padding:0 16px;font-size:12.5px;color:#86868b;font-variant-numeric:tabular-nums"></div>
     </div>
     <div style="flex:2 1 420px;min-width:0;display:flex;flex-direction:column;gap:8px">
       <section id="live-who" hidden style="border-radius:28px;${CARD};overflow:hidden">
@@ -142,7 +151,12 @@ function paintNote(s) {
 function paintSources(s) {
   const rows = S.sources(s), scanning = s.kind === 'scan' || s.phase === 'ready';
   set('live-sources-head', html`${scanning ? `${S.postsRead(s)} posts read` : s.total ? `${S.finishedRuns(s, false)} of ${s.total} checks` : ''}`);
-  set('live-sources', html`${rows.length ? rows.map(r => html`<div title="${r.note}" style="display:flex;align-items:center;gap:12px;padding:11px 16px;box-shadow:inset 0 -.5px 0 rgba(0,0,0,.07);opacity:${r.state === 'waiting' ? .5 : 1}">${tile(r.label)}<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px"><div style="display:flex;justify-content:space-between;gap:8px"><span style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.label}</span><span style="font-size:12px;color:${r.state === 'failed' ? '#d70f45' : '#86868b'};white-space:nowrap;font-variant-numeric:tabular-nums">${r.count}</span></div><div style="height:3px;border-radius:99px;background:rgba(0,0,0,.06);overflow:hidden"><div style="height:100%;transform:scaleX(${r.width / 100});transform-origin:left;background:${r.state === 'failed' ? '#c7c7cc' : '#ff2d55'};transition:transform .2s linear"></div></div></div></div>`) : html`<div style="padding:16px;color:#86868b;font-size:14px">Nothing has reported yet.</div>`}`);
+  set('live-sources', html`${rows.length ? rows.map(r => html`<div title="${r.note}" style="display:flex;align-items:center;gap:12px;padding:11px 16px;box-shadow:inset 0 -.5px 0 rgba(0,0,0,.07);opacity:${r.state === 'waiting' ? .5 : 1}">${tile(r.label)}<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px"><div style="display:flex;justify-content:space-between;gap:8px"><span style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.label}</span><span style="font-size:12px;color:${r.state === 'failed' ? '#d70f45' : '#86868b'};white-space:nowrap;font-variant-numeric:tabular-nums">${r.count}</span></div>${r.browser.length ? html`<div style="display:flex;flex-wrap:wrap;gap:6px">${r.browser.map(u => html`<button data-act="live-browser" data-url="${u}" title="${u}" style="cursor:pointer;border:0;padding:0;background:none;font-size:13px;color:var(--hunt-deep)">Open in Hunt Browser</button>`)}</div>` : html`<div style="height:3px;border-radius:99px;background:rgba(0,0,0,.06);overflow:hidden"><div style="height:100%;transform:scaleX(${r.width / 100});transform-origin:left;background:${r.state === 'failed' ? '#c7c7cc' : '#ff2d55'};transition:transform .2s linear"></div></div>`}</div></div>`) : html`<div style="padding:16px;color:#86868b;font-size:14px">Nothing has reported yet.</div>`}`);
+}
+
+function paintApify(s) {
+  const a = s.apify;
+  set('live-apify', a?.runs ? html`Apify: $${a.cost_usd.toFixed(2)} charged to your account on this case${a.credit_left_usd == null ? '' : ` · about $${a.credit_left_usd.toFixed(2)} of this month’s credit left`}` : html``);
 }
 
 function paintChecks(s) {
@@ -168,21 +182,14 @@ function paintWho(s) {
   set('live-ticker', html`${w.ticker.map((k, i) => html`<div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:13.5px;opacity:${1 - i * .28}">${dot(k.ok ? '#ff2d55' : '#e5e5ea', k.ok ? '#fff' : '#6e6e73', k.ok ? '✓' : '×')}<span style="font-weight:500;white-space:nowrap">${k.site} · ${k.label}</span><span style="color:#86868b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${k.why}</span></div>`)}`);
 }
 
-async function paintReview(t) { // analysis's part, once. Falls back to Classic until parts/review.js exists
+function paintReview(t) { // analysis's part, once: mounting it again would lose her unconfirmed ticks
   const el = document.getElementById('live-review');
   if (!el || el.dataset.mounted) return;
   el.dataset.mounted = '1';
-  const { slug } = t.s.info;
-  const part = await import('../parts/review.js').catch(() => null);
-  if (part?.mount) part.mount(el, { slug, onDone: () => startScan(t) });
-  else el.innerHTML = html`<div style="border-radius:28px;${CARD};padding:24px;font-size:15px;line-height:1.5"><div style="font-size:19px;font-weight:600;margin-bottom:6px">Is this the right person?</div>Mark which accounts are theirs in <a href="/#/case/${encodeURIComponent(slug)}/identity">Classic</a>, then come back. <div style="margin-top:14px"><button data-act="live-scan" style="${PRIMARY}">I’ve confirmed them. Read their posts</button></div></div>`.s;
+  mountReview(el, { slug: t.s.info.slug, onDone: () => startScan(t) });
 }
 
-let evidence; // parts/evidence.js, or false until it exists
-const plainCard = (hit, { slug }) => html`<div style="border-radius:20px;${CARD};padding:14px 16px;display:flex;flex-direction:column;gap:5px;animation:hIn .4s both"><div style="display:flex;justify-content:space-between;gap:8px;font-size:12.5px;color:#86868b"><b style="color:#d70f45">${hit.category}</b><span>${hit.posted_at ? hit.posted_at.slice(0, 10) : 'undated'}</span></div><div style="font-size:15px;line-height:1.4">${hit.what || hit.caption}</div><div style="font-size:12.5px;color:#86868b">${hit.source}${/^https:\/\//.test(hit.url || '') ? html` · <a href="${hit.url}" target="_blank" rel="noopener noreferrer">the post</a>` : ''}</div></div>`;
-
-async function paintFeed(s) {
-  if (evidence === undefined) { evidence = await import('../parts/evidence.js').catch(() => false); paint(trackers.get(s.info.slug)); return; }
+function paintFeed(s) {
   const scanning = s.phase === 'scanning';
   set('live-feed-title', html`${scanning ? html`<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#ff2d55;margin-right:6px;animation:hPulse 1.2s ease-in-out infinite"></span>Reading their posts for what you asked to check` : 'What was flagged'}`);
   set('live-feed-count', html`${s.hits.length} found`);
@@ -190,7 +197,6 @@ async function paintFeed(s) {
   if (!cards) return;
   empty.hidden = !!s.hits.length;
   empty.textContent = scanning ? 'Reading posts and photos. Anything matching your checks shows up here.' : 'Nothing matched your checks.';
-  const card = evidence?.card || plainCard;
   for (const h of s.hits.slice(+cards.dataset.n || 0)) cards.insertAdjacentHTML('afterbegin', card(h, { slug: s.info.slug }).s); // old cards are left alone
   cards.dataset.n = s.hits.length;
 }
@@ -206,7 +212,7 @@ function paintNow() {
   for (const [slug, t] of trackers) {
     if (!onScreen(slug)) continue;
     const { s } = t, finding = s.phase === 'searching';
-    paintHead(s); paintNote(s); paintSources(s); paintChecks(s);
+    paintHead(s); paintNote(s); paintSources(s); paintApify(s); paintChecks(s);
     show('live-who', finding); if (finding) paintWho(s);
     show('live-review', s.phase === 'review'); if (s.phase === 'review') paintReview(t);
     const feed = s.phase === 'scanning' || s.phase === 'ready';
@@ -237,7 +243,7 @@ Object.assign(actions, {
   'live-background': () => { location.hash = '#/'; toast('Running in background'); },
   'live-stop': async () => { const t = current(); if (t?.s.jobId) await api(`/api/jobs/${t.s.jobId}/cancel`, { method: 'POST', body: {} }).catch(fail); },
   'live-search': () => { const t = current(); if (t) startJob(t, 'search').catch(fail); },
-  'live-scan': () => { const t = current(); if (t) startScan(t); },
+  'live-browser': el => { const t = current(); if (t) api('/api/browser/open', { method: 'POST', body: { url: el.dataset.url, case: t.s.info.slug } }).catch(fail); },
   'live-review': () => { const t = current(); if (t) { t.s.phase = 'review'; paint(t); } },
   'live-open': el => { location.hash = liveHash(el.dataset.slug); },
 });
