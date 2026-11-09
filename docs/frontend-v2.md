@@ -3,7 +3,7 @@
 Aaron's new design replaces the app's screens. It is one flow: describe the person, watch the investigation, confirm it's them, read the results and the report.
 
 - **The design:** `design/hunt-v2/Hunt.dc.html` (outside git; open it in a browser beside `support.js`, or read the markup). Its data is all mock: a fictional Jordan Ellis and timers. Line numbers below are for that file. The new logo is the mark in its line 12 and `uploads/`.
-- **Where it goes:** `hunt/static/v2/`, served at `/v2/` next to the current app at `/`. When every screen works, `/` switches over. Until then "Classic" in the nav goes to the old app, and nothing in `hunt/static/app.js`, `app.css` or `cluster.js` changes.
+- **Where it goes:** `hunt/static/v2/`, served at `/v2/` next to the current app at `/`. Signing in now lands here. The old app stays at `/`, reached by "Classic" in the nav, until everything under the avatar has moved; nothing in `hunt/static/app.js`, `app.css` or `cluster.js` changes.
 - **Don't ship the design's runtime.** `support.js` and `x-dc` are the mockup tool's. Port each screen to `core.js`'s `html` template, as vanilla ES modules with no build step.
 - **Icons:** the design loads them from cdn.simpleicons.org and unpkg. The CSP forbids that (`img-src 'self'`), so vendor the SVGs you use into `hunt/static/v2/icons/` (Lucide is ISC, Simple Icons CC0).
 

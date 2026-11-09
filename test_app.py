@@ -66,7 +66,7 @@ assert r.status_code == 403 and "Open Hunt again" in r.text and r.headers["conte
 assert "<script" not in r.text and "content-security-policy" in r.headers
 assert c.get("/login?t=wrong").status_code == 403
 r = c.get(f"/login?t={TOKEN}")
-assert r.status_code == 303 and r.headers["location"] == "/"
+assert r.status_code == 303 and r.headers["location"] == "/v2/"
 cookie = r.headers["set-cookie"].lower()
 assert "httponly" in cookie and "samesite=strict" in cookie, cookie
 r = c.get("/api/cases")

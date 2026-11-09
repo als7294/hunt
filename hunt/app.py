@@ -122,7 +122,7 @@ class Guard:
 
 
 async def login(req: Request):
-    r = RedirectResponse("/#/me" if req.query_params.get("to") == "me" else "/", 303)  # `hunt me` opens About you
+    r = RedirectResponse("/#/me" if req.query_params.get("to") == "me" else "/v2/", 303)  # `hunt me` opens About you
     r.set_cookie(COOKIE, req.app.state.token, httponly=True, samesite="strict", path="/")
     return r
 
