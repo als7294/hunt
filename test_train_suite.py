@@ -52,6 +52,17 @@ assert rows["walled"]["failed"] == rows["walled"]["skipped"] == rows["walled"]["
 said = train_find.source_table(rows).splitlines()
 assert said[1].startswith("walled") and "refused (403)" in said[1] and said[2].split()[:5] == ["engine", "2", "0", "0", "4"], said
 
+# a run where several sources failed on the network itself (offline, or asleep) is printed but never saved
+down = {n: {**rows["engine"], "notes": [note]} for n, note in (("a", "ConnectError: [Errno 8] nodename nor servname provided"),
+                                                                 ("b", "ReadTimeout: "), ("c", "ConnectTimeout: "),
+                                                                 ("d", "refused (403)"), ("e", "rate limit reached: slow down"))}
+assert train_suite.offline(down) == ["a", "b", "c"] and train_suite.offline(rows) == [], train_suite.offline(down)
+real_run = train_suite.run
+train_suite.run = lambda points, key, rounds: (real_run(points, key, rounds)[0], down)
+_, said = suite("--rounds", "1")
+train_suite.run = real_run
+assert "not saved: 3 sources failed on the network itself (a, b, c" in said and not list(train_suite.TRAINING.glob("dry-*.json")), said
+
 # the first run is the baseline; GitHub's link is followed as a lead (Mastodon, locked in round 1)
 first, said = suite()
 assert first["pairs"]["name+handle"] == {"locked": 2, "possible": 1, "missed": 1, "wrong": 1, "unknown": 1,
