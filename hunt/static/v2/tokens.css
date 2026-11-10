@@ -81,4 +81,4 @@ textarea::placeholder, input::placeholder { color: var(--ink-4); }
 @media (max-width: 640px) { .ask-card > div:first-child { flex-wrap: wrap; } .ask-card textarea { flex-basis: 70%; font-size: 20px; } .ask-go { width: 100%; justify-content: center; } }
 .nav-count { min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 99px; background: var(--hunt); color: #fff; font-size: 11px; font-weight: 600; display: grid; place-items: center; }
 .nav-count[hidden] { display: none; }
-@media (max-width: 520px) { [data-results-refine] { flex-wrap: wrap; justify-content: flex-end; border-radius: 26px !important; } #results-refine { flex: 1 0 100% !important; } }
+@media (max-width: 520px) { [data-results-refine] { flex-wrap: wrap; justify-content: flex-end; border-radius: 26px !important; } #results-refine { flex: 1 1 100% !important; box-sizing: border-box; } }
