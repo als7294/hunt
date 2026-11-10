@@ -69,6 +69,14 @@ gh = hashlib.md5(b"rv@example.com").hexdigest()
 p, v, _, _ = score(Seed("username", "kv"), "https://site.test/kv", {"gravatar_email_md5_hash": gh}, subject)
 assert v == "almost certain", p
 
+# ...and so does a profile picture served by Gravatar under that email's hash, MD5 or SHA-256; another email's doesn't
+for h in (gh, hashlib.sha256(b"rv@example.com").hexdigest()):
+    p, v, why, _ = score(Seed("username", "kv"), "https://site.test/kv", {"image": f"https://secure.gravatar.com/avatar/{h}?s=80"}, subject)
+    assert v == "almost certain" and any("Gravatar hash matches rv@example.com" in r for r in why), (p, why)
+p, v, _, _ = score(Seed("username", "kv"), "https://site.test/kv",
+                  {"image": f"https://secure.gravatar.com/avatar/{hashlib.md5(b'other@example.com').hexdigest()}"}, subject)
+assert v != "almost certain", p
+
 # Linking to another account with the subject's handle helps; a self-link doesn't
 base, _, _, _ = score(rare, "https://a.test/kestrel_vane88", {}, subject)
 linked, _, _, _ = score(rare, "https://a.test/kestrel_vane88", {"website": "https://b.test/kestrel_vane88"}, subject)
@@ -116,6 +124,22 @@ assert any("isn't counted" in r for r in why), why
 assert place_text({"location": "Unknown"}) == "" and place_text({"location": "N/A", "country": "US"}) == "US"
 assert place_text({"city": "Washington", "country": "United States"}) == "Washington, United States"
 
+# A hit from a site that answers a search with similar names (check_reliable False) barely counts, however rare the handle
+loose, v, why, _ = score(rare, "https://s.test/kestrel_vane88", {"check_reliable": False}, subject, {"kestrel_vane88": (3, 700)})
+assert loose < 0.2 < alone and "similar names" in why[0], (loose, why)
+
+# A name search that returns a crowd: each of the 50 starts at 1 in 50, so a place beside the searched name leaves it
+# unlikely, not "roughly even"; a date of birth still lifts the right one, and a handful of hits is rated as before
+named = Seed("name", "Robert Vance")
+case_of = [named, Seed("location", "Tucson, AZ"), Seed("dob", "1980-03-04")]
+record = {"fullname": "VANCE, ROBERT", "location": "Tucson"}
+few, v, _, _ = score(named, "https://court.test/1", record, case_of, places=PLACES, crowd=5)
+many, v50, why, tags = score(named, "https://court.test/1", record, case_of, places=PLACES, crowd=50)
+assert v == "roughly even chance" and many < 0.2 < few and "crowd" in tags and any("1 chance in 50" in r for r in why), (few, many, why)
+born, v, _, _ = score(named, "https://court.test/1", record | {"dob": "1980-03-04"}, case_of, places=PLACES, crowd=50)
+assert v in ("very likely", "almost certain"), born
+assert score(rare, "https://s.test/kestrel_vane88", {}, subject, crowd=50)[0] == score(rare, "https://s.test/kestrel_vane88", {}, subject)[0]
+
 # Name tiers: full match, extra middle name, first name only, short name inside a long one, conflict
 assert "matches" in compare_names("Marisol Vance", "Marisol Vance")[1]
 assert "similar" in compare_names("Marisol Elena Vance", "Marisol Vance")[1]
@@ -125,6 +149,9 @@ assert "conflicts" in compare_names("Dana Holt", "Marisol Vance")[1]
 assert compare_names("Bob", "Robert Vance")[0] > 0  # nickname of the first name
 assert compare_names("Nasa Nguyen", "NASA", handle="nasa") is None  # shared word is just the handle
 assert "part of" in compare_names("Marisol", "Marisol Vance", handle="kestrel_vane88")[1]
+# a one-word display name cut from the handle ("Vancey" on vanceytech, for a Vance) is the handle again, not a name
+assert compare_names("Marisol", "Marisol Vance", handle="marisolbakes") is None
+assert "part of" in compare_names("Marisol", "Marisol Vance", handle="mv_bakes")[1]
 
 # Case store: purpose gate, evidence hashing, rarity from saved runs, pivots from likely matches only
 try:
@@ -310,5 +337,39 @@ assert kinds.index("account") < kinds.index("places"), kinds  # the accounts fir
 assert progress[0]["total"] == 6 and progress[-1] == {"type": "places", "done": 6, "total": 6, "left_s": 0}, progress
 assert len(progress) >= 3 and [e["done"] for e in progress] == sorted(e["done"] for e in progress), progress
 assert progress[0]["left_s"] == 6 - progress[0]["done"]  # a floor: one second per string still to ask
+
+# build() counts the crowd per source and searched name; a newspaper story (kept for naming them beside a place) isn't in one
+crowd_case = Case("crowd of namesakes", "Test: a name search that returns a crowd")
+crowd_case.add_seeds([named, Seed("location", "Tucson, AZ")])
+for i in range(12):
+    crowd_case.add_finding(Finding("courts", named, "Court", f"https://court.test/case/{i}", {"fullname": "VANCE, ROBERT"}))
+for i in range(3):
+    crowd_case.add_finding(Finding("npi", named, "Registry", f"https://registry.test/{i}", {"fullname": "Robert Vance"}))
+crowd_case.add_finding(Finding("news", named, "Newspaper", "https://paper.test/story", {"fullname": "Robert Vance"}))
+rated = {c["url"]: c for c in search.build(crowd_case)["candidates"]}
+assert "crowd" in rated["https://court.test/case/0"]["tags"] and any("1 chance in 12" in r for r in rated["https://court.test/case/0"]["reasons"])
+assert "crowd" not in rated["https://registry.test/0"]["tags"] and "crowd" not in rated["https://paper.test/story"]["tags"]
+assert rated["https://court.test/case/0"]["probability"] < rated["https://registry.test/0"]["probability"] == rated["https://paper.test/story"]["probability"]
+
+# The newspapers are asked again only when what they're matched on has changed: a round of leads that adds no name,
+# place, relative or employer would put the same questions to the same papers (about a minute) for the same answers
+asked, saved_collect = [], search.news.collect
+
+
+async def count_collect(case, report, emit=None):
+    asked.append(sorted(s.value for s in case.seeds() if s.kind == "name"))
+search.news.collect = count_collect
+papers_case = Case("papers once", "Test: the newspaper pass runs when its inputs change")
+papers_case.add_seeds([Seed("name", "Dorian Vell"), Seed("username", "dvell_88")])
+for _ in range(2):
+    asyncio.run(search.papers(papers_case, None, lambda e: None))
+assert asked == [["Dorian Vell"]], asked
+papers_case.add_seeds([Seed("username", "dvell_two")])  # a lead that changes nothing the papers go by
+asyncio.run(search.papers(papers_case, None, lambda e: None))
+assert len(asked) == 1, asked
+papers_case.add_seeds([Seed("location", "Ocala, FL")])  # a place to look for beside the name: asked again
+asyncio.run(search.papers(papers_case, None, lambda e: None))
+assert len(asked) == 2, asked
+search.news.collect = saved_collect
 
 print("ok")

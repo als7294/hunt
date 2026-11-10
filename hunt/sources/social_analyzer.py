@@ -122,7 +122,7 @@ async def search(seed):
                 status, confidence, r = await _probe(client, site, seed.value, data["shared_detections"])
             if status != "found":
                 return status, None
-            host = (urlsplit(site["url"]).hostname or "").removeprefix("www.")
+            host = (urlsplit(site["url"]).hostname or "").removeprefix("www.").replace("{username}.", "")  # a subdomain site
             # site_country: where the site is from, never "country", which match.place_text reads as where the person is
             attrs = _api.tidy({"confidence": round(confidence, 2), "category": site.get("type"), "site_country": site.get("country")})
             return status, Finding(NAME, seed, host, str(r.url), attrs, body=r.text)

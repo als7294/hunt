@@ -34,6 +34,9 @@ assert avatar_url({"avatar": "//cdn.b.test/av.png"}) == "https://cdn.b.test/av.p
 assert avatar_url({"image": "https://www.paypalobjects.com/p2p/personalProfileImage.jpg"}) is None  # PayPal's stock picture
 assert avatar_url({"image": "https://c.test/static/default_avatar.png"}) is None and avatar_url({"image": "/relative.png"}) is None
 assert avatar_url({}) is None
+# a forum's letter picture is one per first letter, shared by every member without a photo: never "the same profile photo"
+assert avatar_url({"image": "https://avatars.discourse-cdn.test/v4/letter/k/eada6e/45.png"}) is None
+assert avatar_url({"image": "https://ui-avatars.com/api/?name=KV"}) is None
 
 
 def cand(site, kind, p, image=None, decision=None):

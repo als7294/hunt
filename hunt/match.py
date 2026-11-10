@@ -25,6 +25,7 @@ ICD203 = [(0.05, "almost no chance"), (0.20, "very unlikely"), (0.45, "unlikely"
 LINK_KEYS = ("website", "links", "links_found", "url", "homepage", "blog")
 PHONEISH = re.compile(r"\+?\d[\d\s().-]{8,16}\d")
 PHONE_KEYS = re.compile(r"phone|contact|\btel|mobile|cell|whatsapp", re.I)
+GRAVATAR = re.compile(r"gravatar\.com/avatar/([0-9a-f]{64}|[0-9a-f]{32})")
 URLISH = re.compile(r"(?:https?://)?(?:[\w-]+\.)+[a-z]{2,}(?:/[^\s'\",\]]*)?", re.I)
 NN = NickNamer()
 
@@ -139,8 +140,9 @@ def compare_names(profile: str, known: str, handle: str = "") -> tuple[float, st
     if sim >= 75 or len(shared) >= 2:
         return bits(0.6, 0.05), f"name '{profile}' is similar to '{known}'"
     if len(shared) == 1:
-        # "Nasa Nguyen" shares only "nasa" with "NASA"; if that word is the handle, it's an echo.
-        if handle and _alnum(shared[0]) == _alnum(handle):
+        # "Nasa Nguyen" shares only "nasa" with "NASA"; if that word is the handle, it's an echo. So is a one-word
+        # display name cut from the handle ("Smitty" on smittytech, for a Smith): the handle again, not a second identifier.
+        if handle and (_alnum(shared[0]) == _alnum(handle) or len(p) == 1 and len(p[0]) >= 3 and p[0] in _alnum(handle)):
             return None
         return bits(0.5, 0.1), f"name '{profile}' is part of '{known}'"
     # A form of the surname beside other words ("Smitty Tech" for Aaron Smith) is part of their name, not a rival one.
@@ -158,7 +160,7 @@ def score(seed, url: str, attrs: dict, subject: list,
           places: dict[str, "geo.Place | None"] | None = None,
           extra: list[tuple[float, str, str]] | None = None,
           confirmed: set[str] | None = None, facts: dict | None = None,
-          derived: dict[str, str] | None = None) -> tuple[float, str, list[str], list[str]]:
+          derived: dict[str, str] | None = None, crowd: int = 0) -> tuple[float, str, list[str], list[str]]:
     """(probability, ICD 203 verdict, reasons, tags) that this finding belongs to the subject.
 
     `taken` maps lowercase handle → (sites taken, sites checked), from the case's runs.
@@ -167,7 +169,9 @@ def score(seed, url: str, attrs: dict, subject: list,
     `confirmed` holds norm_url()s the investigator marked as the subject: known profiles from then on.
     The subject's dob, age and employer seeds (and `facts`, the case's details: subject_dob) are scored
     against what a record says: date of birth, age, employer.
-    Each reason has a tag (username, name, place, email, phone, link, photo, face, dob, employer, confirmed), in order.
+    `crowd` is how many accounts or records the source that found this one lists under the name searched (search.build
+    counts them): a name-search hit starts at 1 in `crowd`, not at PRIOR, once that is the smaller.
+    Each reason has a tag (username, name, crowd, place, email, phone, link, photo, face, dob, employer, confirmed), in order.
     Weights are scaled by what learning.py has learned from the investigator's decisions, if anything.
     """
     # A seed taken from this very account (a lead from its display name, links or bio) is never evidence for it:
@@ -187,7 +191,11 @@ def score(seed, url: str, attrs: dict, subject: list,
         u, basis = username_u(seed.value, (taken or {}).get(seed.value.lower()))
         common = u >= COMMON
         how = "common" if common else "fairly distinctive" if u >= 0.05 else "rare"
-        add("username", bits(0.9, u), f"username '{seed.value}' is {how} ({basis})")
+        if attrs.get("check_reliable") is False:  # the site answers a search with similar names (maigret's own flag)
+            add("username", bits(0.9, max(u, 0.5)), f"username '{seed.value}' was found by a site that answers with similar "
+                                                    f"names, so the account may be someone else's and it barely counts")
+        else:
+            add("username", bits(0.9, u), f"username '{seed.value}' is {how} ({basis})")
     if url and norm_url(url) in confirmed:
         add("confirmed", bits(0.99, 0.0001), "the investigator confirmed this account is the subject's")
     elif url and norm_url(url) in known_urls:
@@ -223,10 +231,20 @@ def score(seed, url: str, attrs: dict, subject: list,
         if seed.kind == "name" and w > 0:  # found by searching this name: every namesake agrees, so it barely counts
             w, why = bits(0.99, 0.9), why + " (the name searched for, so it barely counts; namesakes share it)"
         add("name", w, why)
+    # A name search that returns a crowd: at most about one of them is the subject, so each starts at 1 in the crowd, not
+    # at PRIOR (1 in 10). Fifty court records for "Aaron Smith" in one county are not each an even chance.
+    # ponytail: counts the source's records, not its people (one person can have several); it errs towards "a namesake",
+    # and a date of birth, an address or a tie to a locked record still lifts the right one. Upgrade: people_index's groups.
+    if seed.kind == "name" and crowd * PRIOR > 1:
+        add("crowd", math.log2((1 / (crowd - 1)) / (PRIOR / (1 - PRIOR))),
+            f"one of {crowd} the source lists under the name searched, so before anything else agrees it is 1 chance in {crowd}")
 
     flat = str(attrs).lower()
     for e in emails:
-        if attrs.get("gravatar_email_md5_hash") == hashlib.md5(e.encode()).hexdigest():
+        # Gravatar names a picture by the hash of its owner's email (MD5, or SHA-256 since 2024): a field, or the
+        # address of the profile picture itself on the many sites that take their pictures from Gravatar
+        hashes = {hashlib.md5(e.strip().lower().encode()).hexdigest(), hashlib.sha256(e.strip().lower().encode()).hexdigest()}
+        if attrs.get("gravatar_email_md5_hash") in hashes or hashes & set(GRAVATAR.findall(flat)):
             add("email", bits(0.99, 0.0001), f"Gravatar hash matches {e}")
         elif e in flat:
             add("email", bits(0.99, 0.0001), f"profile lists {e}")

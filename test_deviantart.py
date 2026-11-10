@@ -18,7 +18,7 @@ ABOUT = {"username": "KVaneArt", "country": "United States", "countryId": 1, "ag
          "socialLinks": [{"value": "https://github.com/kestrel-vane"}], "mutualWatchedUsers": [{"username": "someone_else"}]}
 seen = serve(deviantart, {"deviantart.com/kvaneart": (200, page(ABOUT))})
 (f,), _, _ = run(deviantart, "KVaneArt")
-assert f.url == "https://kvaneart.deviantart.com" and f.site == "DeviantART", f  # maigret's address for the profile
+assert f.url == "https://www.deviantart.com/kvaneart" and f.site == "DeviantART", f  # the site's own address; the engines' hits are pointed at it
 assert f.attrs == {"bio": "Sketches from the gym", "location": "United States", "age": 34, "dob": "1992-03-02",
                    "links": ["https://github.com/kestrel-vane"], "other_usernames": ["kestrel-vane"],
                    "created_at": "2019-02-25T11:27:00-0800", "deviations": 12, "watchers": 30}, f.attrs

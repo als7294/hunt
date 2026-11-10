@@ -123,8 +123,8 @@ def is_profile(url: str, handle: str) -> bool:
 
 
 def stored(case: Case, c: dict) -> dict | None:
-    """What the pages already in the case's evidence for this account say (WhatsMyName and Social Analyzer keep the page
-    they checked; an API source its JSON), read as a fetched page would be, with no request. None when none of them is
+    """What the pages already in the case's evidence for this account say (Maigret, WhatsMyName and Social Analyzer keep
+    the page they checked; an API source its JSON), read as a fetched page would be, with no request. None when none of them is
     the profile's own page and none says anything: the page is then still worth one read."""
     found, page = {}, False
     for e in c.get("evidence", []):
@@ -266,7 +266,7 @@ def _name(title: str, handles: set, host: str) -> str | None:
         words = part.split()
         p = _plain(part)
         if not p or not 1 <= len(words) <= 4 or any(h in p for h in handles) or p in _plain(host) or WALL.search(part) \
-                or words[0].lower() in NO_START or (len(site) >= 4 and site in p):  # "Watch Snapchat Stories" is the site's
+                or words[0].lower() in NO_START or (len(site) >= 4 and any(site in _plain(w) for w in words)):  # "Watch Snapchat Stories"
             continue
         if all((w[0].isupper() or w.lower() in PARTICLE) and _plain(w) not in BOILER and re.fullmatch(r"[^\W\d_][\w'.\u2019-]*", w)
                for w in words):
