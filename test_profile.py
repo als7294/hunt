@@ -181,7 +181,7 @@ JSON = {"origin": BASE, "content-type": "application/json"}
 app = TestClient(server.make_app(TOKEN, PORT), base_url=BASE, follow_redirects=False).__enter__()
 r = app.get(f"/login?t={TOKEN}&to=me")
 assert r.status_code == 303 and r.headers["location"] == "/#/me"
-assert app.get(f"/login?t={TOKEN}&to=https://evil.example").headers["location"] == "/"
+assert app.get(f"/login?t={TOKEN}&to=https://evil.example").headers["location"] == "/v2/"
 me = app.get("/api/me").json()
 assert me["fingerprint"] and "Reyes" not in str(me) and "text" not in me and "criteria" not in me
 assert app.post("/api/me", json={"text": TEXT}, headers=JSON).status_code == 400, "not attested"
