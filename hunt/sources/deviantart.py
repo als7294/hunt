@@ -62,5 +62,6 @@ async def search(seed):
              "created_at": stats.get("joinDate"), "deviations": stats.get("deviations"), "watchers": stats.get("watchers")}
     if minor(attrs):
         return [], 1, f"DeviantArt profile {name} withheld: it says its owner is under 18 (legal.md A5)"
-    return [Finding(NAME, seed, "DeviantART", f"https://{name.lower()}.deviantart.com", tidy(attrs), body=r.text)], 1, \
+    # the site's own address for the profile; the engines' kvane.deviantart.com hits are pointed at it (maigret.CANON)
+    return [Finding(NAME, seed, "DeviantART", f"https://www.deviantart.com/{name.lower()}", tidy(attrs), body=r.text)], 1, \
         f"read deviantart.com/{name.lower()} ({ROBOTS})"
