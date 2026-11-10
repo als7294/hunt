@@ -18,6 +18,7 @@ const STRENGTH = ['Add details', 'Weak', 'Fair', 'Good', 'Strong', 'Very strong'
 
 const fresh = () => ({ text: '', clues: [], removed: new Set(), purpose: 0, ref: '', why: '', basis: '', notice: '', open: false, busy: false });
 let s = fresh(), seq = 0, quick, deep, model = true;
+export const prefill = text => { s = fresh(); s.text = text; }; // Edit search, or a new case from someone listed in the family tab: nothing is searched until Investigate
 
 const key = c => `${c.k}|${c.v}`;
 const shown = () => s.clues.filter(c => !s.removed.has(key(c)));

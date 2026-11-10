@@ -14,7 +14,7 @@ const when = iso => iso ? new Date(iso.length === 10 ? `${iso}T12:00` : iso).toL
 const enc = encodeURIComponent;
 let state = null; // { slug, tab, data, shown }
 
-const tabsFor = d => [['overview', 'Overview'], ['flags', 'Flags'], ['accounts', 'Accounts'], ...(d.background ? [] : [['family', 'Family']]), ['timeline', 'Timeline'], ['exposure', 'Exposure']];
+const tabsFor = d => [['overview', 'Overview'], ['flags', 'Flags'], ['accounts', 'Accounts'], ...(d.background ? [] : [['family', 'Family']]), ['timeline', 'Timeline'], ['records', 'Records'], ['exposure', 'Exposure']];
 const pill = on => `border:0;cursor:pointer;border-radius:99px;padding:7px 18px;font-size:13px;font-weight:500;color:#1d1d1f;background:${on ? '#fff' : 'transparent'};box-shadow:${on ? '0 1px 3px rgba(0,0,0,.14)' : 'none'};transition:background .2s,box-shadow .2s`;
 const tabs = () => html`${tabsFor(state.data).map(([id, label]) => html`<button style="${pill(id === state.tab)}" data-act="report-tab" data-tab="${id}">${label}</button>`)}`;
 
@@ -65,22 +65,14 @@ function timeline(d) {
     ${d.timeline.length > state.shown ? html`<div style="padding:0 0 18px;text-align:center"><button style="${SMALL}" data-act="report-more">Show more (${d.timeline.length - state.shown} left)</button></div>` : ''}</div>`;
 }
 
-async function part(el, file, label) { // another stream's tab: export async function mount(el, slug, ctx)
-  const { slug, data } = state;
-  let m;
-  try { m = await import(`../parts/${file}.js`); }
-  catch { el.innerHTML = html`<div style="border-radius:20px;${CARD};padding:28px;font-size:15px;color:#86868b;text-align:center">${label} isn’t ready in this build yet.</div>`.s; return; }
-  if (m.mount) await m.mount(el, slug, { background: data.background });
-  else el.innerHTML = m.flagsTab(slug, await m.loadFlags(slug)).s; // main's Flags until its mount() is merged
-}
+const part = async (el, file) => (await import(`../parts/${file}.js`)).mount(el, state.slug, { background: state.data.background });
 async function show() {
   const { tab, data, slug } = state, el = $('#report-tab');
   if (!el) return;
   const box = document.createElement('div'); // its own node: a slow tab left behind can't write over the one she moved to
   el.replaceChildren(box);
   try {
-    if (tab === 'flags') return await part(box, 'flags', 'Flags');
-    if (tab === 'exposure') return await part(box, 'exposure', 'Exposure');
+    if (tab === 'flags' || tab === 'records' || tab === 'exposure') return await part(box, tab);
     if (tab === 'family') return await family(box, slug);
     box.innerHTML = (tab === 'accounts' ? accounts(data, slug) : tab === 'timeline' ? timeline(data) : overview(data)).s;
     if (tab === 'accounts' && data.accounts.some(a => a.apify)) { // never holds up the tab; left out if Apify doesn't answer

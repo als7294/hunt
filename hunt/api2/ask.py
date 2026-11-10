@@ -13,12 +13,12 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from . import lists
 from .. import geo, profile, report, vlm
 from ..app import _body
-from ..case import ABROAD, Case
+from ..case import ABROAD, Case, all_cases
 from ..seed import detect
 
-DOING = {"search": "searching", "scan": "reading posts"}
 MAX_TEXT = 2000
 # A description isn't a self-description: the same reading, about someone else
 PROMPT = profile.PROMPT.replace("Someone describes themselves below", "Someone describes a person they are looking for below")
@@ -138,18 +138,11 @@ async def read(req: Request):
 
 
 async def shell(req: Request):
-    """What the nav shows on every screen: the job Hunt is running now, if any (no percentage: none is known here), and
-    the investigator's initials from the report settings, or "" when none is set."""
-    job = next((j for j in reversed(list(req.app.state.jobs.values())) if j.slug and not j.finished), None)
-    running = None
-    if job:
-        try:
-            running = {"slug": job.slug, "label": Case.open(job.slug).details()["label"], "kind": job.kind,
-                       "doing": DOING.get(job.kind, "working")}
-        except LookupError:  # deleted while the job wound down
-            pass
+    """What the nav shows on every screen: the investigator's initials from the report settings ("" when none is set), and
+    how many are saved in the Vault."""
     words = str(report.settings().get("investigator") or "").split()
-    return JSONResponse({"running": running, "initials": "".join(w[0] for w in words[:2]).upper()})
+    vault = await asyncio.to_thread(lambda: sum(len(lists._saved(Case.open(s))) for s in all_cases()))
+    return JSONResponse({"initials": "".join(w[0] for w in words[:2]).upper(), "vault": vault})
 
 
 ROUTES = [Route("/api/v2/shell", shell), Route("/api/v2/ask/read", read, methods=["POST"])]

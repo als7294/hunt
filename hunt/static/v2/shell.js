@@ -10,31 +10,22 @@ export const logo = (size = 26, color = '#e8194f') => { const id = `huntMark${++
 const NAV = [['#/', 'Search', 'search', 'search'], ['#/history', 'History', 'history', 'clock'], ['#/vault', 'Vault', 'vault', 'bookmark']];
 const here = () => { const p = location.hash.replace(/^#\/?/, '').split('/')[0]; return p === 'history' || p === 'vault' ? p : 'search'; };
 
-let state = { running: null, initials: '' };
+let state = { initials: '', vault: 0 };
 function paint() { // the parts of the nav that change without a screen being redrawn
-  const pill = $('#nav-pill'), who = $('#nav-avatar');
+  const who = $('#nav-avatar'), n = $('#nav-vault');
   if (who) who.innerHTML = state.initials ? html`${state.initials}`.s : icon('user', { size: 16, opacity: .6 }).s;
-  if (!pill) return;
-  const r = state.running, onIt = r && location.hash.startsWith(`#/case/${encodeURIComponent(r.slug)}/live`);
-  pill.innerHTML = r && !onIt ? html`<a class="nav-pill" href="#/case/${encodeURIComponent(r.slug)}/live"><span class="spinner"></span><span>${r.label} · ${r.doing}</span></a>`.s : '';
+  if (n) { n.textContent = state.vault || ''; n.hidden = !state.vault; }
 }
-async function refresh() {
-  if (document.hidden) return;
+export async function refreshNav() {
   try { state = await api('/api/v2/shell'); paint(); } catch { /* signed out, or Hunt restarted: the next screen says so */ }
 }
-setInterval(refresh, 5000);
-window.addEventListener('hashchange', () => setTimeout(refresh));
 
-// Everything the design doesn't show lives under the avatar (parts/more.js); until that lands, the old app has it all
-actions['shell-menu'] = () => import('./parts/more.js').then(m => m.openMore()).catch(() => { location.href = '/'; });
-
-export const page = (now, content) => { setTimeout(() => { paint(); refresh(); }); return html`<div class="shell">
+export const page = (now, content) => { setTimeout(() => { paint(); refreshNav(); }); return html`<div class="shell">
   <div class="shell-mark" aria-hidden="true">${logo('100%', '#ff2d55')}</div>
   <div class="nav-wrap"><nav class="nav" aria-label="Hunt">
     <a class="nav-logo" href="#/" aria-label="Hunt, new search">${logo()}<span>hunt</span></a>
     <span class="nav-sep"></span>
-    <div class="nav-items">${NAV.map(([href, label, k, ic]) => html`<a class="nav-item ${k === here() ? 'on' : ''}" href="${href}" ${k === here() ? raw('aria-current="page"') : ''} title="${label}">${icon(ic, { opacity: k === here() ? .9 : .55 })}<span>${label}</span></a>`)}</div>
+    <div class="nav-items">${NAV.map(([href, label, k, ic]) => html`<a class="nav-item ${k === here() ? 'on' : ''}" href="${href}" ${k === here() ? raw('aria-current="page"') : ''} title="${label}">${icon(ic, { opacity: k === here() ? .9 : .55 })}<span>${label}</span>${k === 'vault' ? raw('<span id="nav-vault" class="nav-count" hidden></span>') : ''}</a>`)}</div>
     <a class="nav-classic" href="/" title="The current app, until every screen has moved here">Classic</a>
-    <span id="nav-pill"></span>
-    <button id="nav-avatar" class="nav-avatar" data-act="shell-menu" aria-label="More: settings, accounts and the rest of Hunt" title="More"></button>
+    <button id="nav-avatar" class="nav-avatar" data-act="more-open" aria-label="More: settings, accounts and the rest of Hunt" title="More"></button>
   </nav></div>${content}</div>`; };

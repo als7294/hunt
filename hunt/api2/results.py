@@ -246,7 +246,7 @@ def _withhold(value, red, key=""):
 
 
 async def get_results(req):
-    """{headline, meta, running, kind, people: [{id, own, confirmed, name, initials, meta, match, verdict, counts, summary,
+    """{headline, meta, running, kind, description (for Edit search), people: [{id, own, confirmed, name, initials, meta, match, verdict, counts, summary,
     facts, chain, chain_note, accounts, flags, url, saved}], note}, best first. `match` is null when nothing was scored."""
     c = _case(req)
     screening = c.details()["kind"] == "background"
@@ -265,7 +265,9 @@ async def get_results(req):
     meta = " · ".join(s for s in (_many(len(cards), "person").replace("persons", "people"), _many(accounts, "account"),
                                   _many(flagged, "flagged item") if flagged else "") if s)
     red = report.minors(c, posts, snap["candidates"])
-    return JSONResponse(_withhold({"headline": _headline(cards[0] if cards else None), "meta": meta, "kind": c.details()["kind"],
+    found = c.derived()  # leads Hunt added itself aren't what the investigator typed
+    description = ", ".join(("@" if s.kind == "username" else "") + s.value for s in c.seeds() if s.value.lower() not in found and s.kind != "url")
+    return JSONResponse(_withhold({"headline": _headline(cards[0] if cards else None), "meta": meta, "kind": c.details()["kind"], "description": description,
                                    "running": job.id if (job := _active(req, c.name)) else None, "people": cards, "note": note}, red))
 
 

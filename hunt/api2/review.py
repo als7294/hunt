@@ -45,7 +45,7 @@ def review(snap: dict, details: dict, categories: dict) -> dict:
         "accounts": [row(x) for x in sorted(shown, key=lambda x: (not search.in_person(x), -x["probability"]))],
         "others": [row(x) for x in others],
         "leads": [s for s in pivot.suggestions(snap)[:24]],  # never from an account she rejected
-        "checks": [{"key": k, "label": v["label"], "on": k in look_for} for k, v in categories.items()],
+        "checks": [{"key": k, "label": v["label"], "on": k in look_for, "desc": v.get("question", "")} for k, v in categories.items()],
         "custom": [k for k in look_for if k not in categories],
     }
 

@@ -138,5 +138,6 @@ assert client.post(f"/api/cases/{k.name}/vault", json={"url": p["url"], "saved":
 assert get(client, k)["people"][0]["saved"] and client.get("/api/vault").json()["people"][0]["url"] == p["url"]
 assert client.post(f"/api/cases/{k.name}/vault", json={"url": p["url"], "saved": False}).json() == {"urls": []}
 assert not get(client, k)["people"][0]["saved"]
+assert "Dana Vell" in get(client, k)["description"]  # Edit search starts from what was typed
 assert client.get("/v2/screens/results.js").status_code == 200
 print("ok")

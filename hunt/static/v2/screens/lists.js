@@ -1,6 +1,6 @@
 // History (the real cases, with Run again) and Vault (people saved with Save): the design's lines 234–238.
-import { $, actions, api, fail, html, mount, toast } from '../core.js';
-import { page } from '../shell.js';
+import { actions, api, fail, html, mount, toast } from '../core.js';
+import { page, refreshNav } from '../shell.js';
 import { openMore } from '../parts/more.js';
 
 const enc = encodeURIComponent;
@@ -33,10 +33,9 @@ export async function render({ which, stale = () => false }) {
   const vault = which === 'vault', title = vault ? 'Vault' : 'History';
   const draw = (body, due = 0) => {
     mount(page(which, html`<div style="flex:1;display:flex;flex-direction:column;gap:14px;padding:26px clamp(16px,4vw,40px) 48px;max-width:820px;width:100%;margin:0 auto;box-sizing:border-box">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><div style="font-size:clamp(30px,4vw,40px);font-weight:700;letter-spacing:-.03em">${title}</div><button id="lists-more" data-act="more-open" style="${PILL}">More</button></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><div style="font-size:clamp(30px,4vw,40px);font-weight:700;letter-spacing:-.03em">${title}</div></div>
     ${due ? html`<div style="border-radius:16px;background:rgba(255,45,85,.08);padding:14px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="flex:1;min-width:220px;font-size:14px;color:#a80b36">${due} case${due === 1 ? ' is' : 's are'} past the retention period. Each one needs a decision.</span><button data-act="lists-retention" style="${PILL}">Decide</button></div>` : ''}
     ${body}</div>`));
-    if ($('#nav-avatar')) $('#lists-more').remove(); // the shell's avatar has it
   };
   draw(html`<p style="color:var(--ink-2)">Loading…</p>`); // a long case list takes a few seconds
   let body, due = 0;
@@ -49,8 +48,7 @@ export async function render({ which, stale = () => false }) {
   if (!stale()) draw(body, due);
 }
 
-// Save, for the Results and Report screens: `await savedUrls(slug)`, then saveButton(slug, url, urls.has(url))
-export const savedUrls = async slug => new Set((await api(`/api/cases/${enc(slug)}/vault`)).urls);
+// Save, for the Report screen
 export const saveButton = (slug, url, saved) => html`<button data-act="lists-save" data-slug="${slug}" data-url="${url}" data-saved="${saved ? 1 : 0}" style="${PILL}">${saved ? 'Saved' : 'Save'}</button>`;
 
 Object.assign(actions, {
@@ -67,7 +65,7 @@ Object.assign(actions, {
     try {
       await api(`/api/cases/${enc(el.dataset.slug)}/vault`, { method: 'POST', body: { url: el.dataset.url, saved } });
       el.dataset.saved = saved ? '1' : '0'; el.textContent = saved ? 'Saved' : 'Save';
-      toast(saved ? 'Saved to Vault' : 'Removed from Vault');
+      toast(saved ? 'Saved to Vault' : 'Removed from Vault'); refreshNav();
     } catch (e) { fail(e); }
   },
 });

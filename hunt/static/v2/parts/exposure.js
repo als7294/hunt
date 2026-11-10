@@ -22,7 +22,8 @@ export async function card(el, { slug }) {
         <span style="flex:1;font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis">${e.email}</span>
         <span style="font-size:12px;color:#a1a1a6">${e.registered.length} site${e.registered.length === 1 ? '' : 's'}${e.published.length ? ` · published ${e.published.length}×` : ''}</span></div>`)}</div>`
       : html`<span style="font-size:14px;color:#a1a1a6">No email found for this person yet.</span>`}
-    <span style="font-size:12px;color:#a1a1a6">${d.note}</span></div>`.s;
+    <span style="font-size:12px;color:#a1a1a6">${d.note}</span>
+    ${d.emails.length ? html`<a href="#/case/${encodeURIComponent(slug)}/report/exposure" style="font-size:13px;color:#ff6b8b;text-decoration:none">See where ›</a>` : ''}</div>`.s;
 }
 
 export async function tab(el, { slug }) {

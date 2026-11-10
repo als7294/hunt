@@ -2,6 +2,7 @@
 // pill. Owned by the live stream in docs/frontend-v2.md. Every number on it comes from the job's events: see live_state.js.
 import { html, api, follow, mount, actions, toast, fail } from '../core.js';
 import { page } from '../shell.js';
+import { brand, hasBrand } from '../icons/index.js';
 import * as S from './live_state.js';
 import { mount as mountReview } from '../parts/review.js';
 import { card } from '../parts/evidence.js';
@@ -116,7 +117,8 @@ const skeleton = t => { const { info } = t.s; return html`<style>${CSS}</style>
 
 const set = (id, content) => { const el = document.getElementById(id); if (el && el.dataset.v !== content.s) { el.innerHTML = content.s; el.dataset.v = content.s; } };
 const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = !on ? 'none' : id === 'live-feed' ? 'flex' : 'block'; };
-const tile = name => html`<span style="width:32px;height:32px;flex:none;border-radius:9px;background:linear-gradient(180deg,#fff,#eceef1);box-shadow:inset 0 0 0 .5px rgba(0,0,0,.1);display:grid;place-items:center;font-size:13px;font-weight:600;color:#6e6e73">${(name || '?')[0].toUpperCase()}</span>`;
+const mark = (site, size) => hasBrand(site) ? brand(site, { size }) : (site || '?')[0].toUpperCase();
+const tile = name => html`<span style="width:32px;height:32px;flex:none;border-radius:9px;background:linear-gradient(180deg,#fff,#eceef1);box-shadow:inset 0 0 0 .5px rgba(0,0,0,.1);display:grid;place-items:center;font-size:13px;font-weight:600;color:#6e6e73">${mark(name, 16)}</span>`;
 const dot = (bg, fg, text) => html`<span style="width:18px;height:18px;flex:none;border-radius:50%;background:${bg};color:${fg};font-size:10px;font-weight:700;display:grid;place-items:center">${text}</span>`;
 const spin = html`<span style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(0,0,0,.1);border-top-color:#ff2d55;box-sizing:border-box;animation:hSpin .8s linear infinite;display:inline-block"></span>`;
 
@@ -151,7 +153,7 @@ function paintNote(s) {
 function paintSources(s) {
   const rows = S.sources(s), scanning = s.kind === 'scan' || s.phase === 'ready';
   set('live-sources-head', html`${scanning ? `${S.postsRead(s)} posts read` : s.total ? `${S.finishedRuns(s, false)} of ${s.total} checks` : ''}`);
-  set('live-sources', html`${rows.length ? rows.map(r => html`<div title="${r.note}" style="display:flex;align-items:center;gap:12px;padding:11px 16px;box-shadow:inset 0 -.5px 0 rgba(0,0,0,.07);opacity:${r.state === 'waiting' ? .5 : 1}">${tile(r.label)}<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px"><div style="display:flex;justify-content:space-between;gap:8px"><span style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.label}</span><span style="font-size:12px;color:${r.state === 'failed' ? '#d70f45' : '#86868b'};white-space:nowrap;font-variant-numeric:tabular-nums">${r.count}</span></div>${r.browser.length ? html`<div style="display:flex;flex-wrap:wrap;gap:6px">${r.browser.map(u => html`<button data-act="live-browser" data-url="${u}" title="${u}" style="cursor:pointer;border:0;padding:0;background:none;font-size:13px;color:var(--hunt-deep)">Open in Hunt Browser</button>`)}</div>` : html`<div style="height:3px;border-radius:99px;background:rgba(0,0,0,.06);overflow:hidden"><div style="height:100%;transform:scaleX(${r.width / 100});transform-origin:left;background:${r.state === 'failed' ? '#c7c7cc' : '#ff2d55'};transition:transform .2s linear"></div></div>`}</div></div>`) : html`<div style="padding:16px;color:#86868b;font-size:14px">Nothing has reported yet.</div>`}`);
+  set('live-sources', html`${rows.length ? rows.map(r => html`<div title="${r.note}" style="display:flex;align-items:center;gap:12px;padding:11px 16px;box-shadow:inset 0 -.5px 0 rgba(0,0,0,.07);opacity:${r.state === 'waiting' ? .5 : 1}">${tile(r.label)}<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px"><div style="display:flex;justify-content:space-between;gap:8px"><span style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.label}</span><span style="font-size:12px;color:${r.state === 'failed' ? '#d70f45' : '#86868b'};white-space:nowrap;font-variant-numeric:tabular-nums">${r.count}</span></div>${r.browser.length ? html`<div style="display:flex;flex-wrap:wrap;gap:6px">${r.browser.map(u => html`<button data-act="report-browser" data-case="${s.info.slug}" data-url="${u}" title="${u}" style="cursor:pointer;border:0;padding:0;background:none;font-size:13px;color:var(--hunt-deep)">Open in Hunt Browser</button>`)}</div>` : html`<div style="height:3px;border-radius:99px;background:rgba(0,0,0,.06);overflow:hidden"><div style="height:100%;transform:scaleX(${r.width / 100});transform-origin:left;background:${r.state === 'failed' ? '#c7c7cc' : '#ff2d55'};transition:transform .2s linear"></div></div>`}</div></div>`) : html`<div style="padding:16px;color:#86868b;font-size:14px">Nothing has reported yet.</div>`}`);
 }
 
 function paintApify(s) {
@@ -176,10 +178,10 @@ function paintWho(s) {
     let el = [...host.children].find(c => c.dataset.key === n.key);
     if (!el) { el = document.createElement('div'); el.dataset.key = n.key; el.style.cssText = 'position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:5px;transition:left 1s cubic-bezier(.16,1,.3,1),top 1s cubic-bezier(.16,1,.3,1),opacity .6s;animation:hIn .4s both'; host.appendChild(el); }
     Object.assign(el.style, { left: `${n.x}%`, top: `${n.y}%`, opacity: n.ok ? 1 : .55 });
-    const body = html`<div style="position:relative;width:46px;height:46px;border-radius:50%;background:#fff;box-shadow:${n.ok ? '0 0 0 2px #ff2d55' : '0 0 0 .5px rgba(0,0,0,.14)'};display:grid;place-items:center;font-size:15px;font-weight:600;color:#6e6e73">${(n.site || '?')[0].toUpperCase()}${n.ok ? html`<span style="position:absolute;right:-3px;top:-3px;width:17px;height:17px;border-radius:50%;background:#ff2d55;color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center;box-shadow:0 0 0 2px #fff;animation:hPop .4s both">✓</span>` : ''}</div><span style="font-size:11.5px;font-weight:500;white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis;color:${n.ok ? '#1d1d1f' : '#86868b'};background:rgba(255,255,255,.85);padding:1px 7px;border-radius:99px">${n.label}</span>`;
+    const body = html`<div style="position:relative;width:46px;height:46px;border-radius:50%;background:#fff;box-shadow:${n.ok ? '0 0 0 2px #ff2d55' : '0 0 0 .5px rgba(0,0,0,.14)'};display:grid;place-items:center;font-size:15px;font-weight:600;color:#6e6e73">${mark(n.site, 20)}${n.ok ? html`<span style="position:absolute;right:-3px;top:-3px;width:17px;height:17px;border-radius:50%;background:#ff2d55;color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center;box-shadow:0 0 0 2px #fff;animation:hPop .4s both">✓</span>` : ''}</div><span style="font-size:11.5px;font-weight:500;white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis;color:${n.ok ? '#1d1d1f' : '#86868b'};background:rgba(255,255,255,.85);padding:1px 7px;border-radius:99px">${n.label}</span>`;
     if (el.dataset.v !== body.s) { el.innerHTML = body.s; el.dataset.v = body.s; }
   }
-  set('live-ticker', html`${w.ticker.map((k, i) => html`<div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:13.5px;opacity:${1 - i * .28}">${dot(k.ok ? '#ff2d55' : '#e5e5ea', k.ok ? '#fff' : '#6e6e73', k.ok ? '✓' : '×')}<span style="font-weight:500;white-space:nowrap">${k.site} · ${k.label}</span><span style="color:#86868b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${k.why}</span></div>`)}`);
+  set('live-ticker', html`${w.ticker.map((k, i) => html`<div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:13.5px;opacity:${1 - i * .28}">${dot(k.ok ? '#ff2d55' : '#e5e5ea', k.ok ? '#fff' : '#6e6e73', k.ok ? '✓' : '×')}${hasBrand(k.site) ? brand(k.site, { size: 14, opacity: .7 }) : ''}<span style="font-weight:500;white-space:nowrap">${k.site} · ${k.label}</span><span style="color:#86868b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${k.why}</span></div>`)}`);
 }
 
 function paintReview(t) { // analysis's part, once: mounting it again would lose her unconfirmed ticks
@@ -243,7 +245,6 @@ Object.assign(actions, {
   'live-background': () => { location.hash = '#/'; toast('Running in background'); },
   'live-stop': async () => { const t = current(); if (t?.s.jobId) await api(`/api/jobs/${t.s.jobId}/cancel`, { method: 'POST', body: {} }).catch(fail); },
   'live-search': () => { const t = current(); if (t) startJob(t, 'search').catch(fail); },
-  'live-browser': el => { const t = current(); if (t) api('/api/browser/open', { method: 'POST', body: { url: el.dataset.url, case: t.s.info.slug } }).catch(fail); },
   'live-review': () => { const t = current(); if (t) { t.s.phase = 'review'; paint(t); } },
   'live-open': el => { location.hash = liveHash(el.dataset.slug); },
 });

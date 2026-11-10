@@ -71,7 +71,6 @@ export function card(hit, { slug }) {
     archived: null, sha256: null, grade: null, notes, status: hit.status || 'new' });
 }
 
-export const waitingCard = () => html`<div style="border-radius:20px;border:1.5px dashed #d1d1d6;padding:40px 24px;text-align:center;font-size:15px;color:#86868b;line-height:1.5">Reading posts, photos and check‑ins.<br>Anything matching your checks shows up here.</div>`;
 
 Object.assign(actions, {
   'ev-set': async el => {

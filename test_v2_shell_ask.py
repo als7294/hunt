@@ -6,7 +6,6 @@ Offline; every person is fictional.
 import os
 import re
 import tempfile
-import types
 import warnings
 from pathlib import Path
 
@@ -24,14 +23,11 @@ c = TestClient(server.make_app("tok", 8124), base_url=BASE, follow_redirects=Fal
 assert c.get("/api/v2/shell").status_code == 403  # signed in only
 c.get("/login?t=tok")
 
-# --- The shell: the running job and initials are real, and every icon is on this origin ----------------------------
-assert c.get("/api/v2/shell").json() == {"running": None, "initials": ""}
+# --- The shell: the Vault count and initials are real, and every icon is on this origin ----------------------------
+assert c.get("/api/v2/shell").json() == {"initials": "", "vault": 0}
 kase = Case.create("Quell check", "Insurer XYZ claim 9 (fictional)", kind="insurance")
-job = types.SimpleNamespace(slug=kase.name, kind="search", finished=False)
-c.app.app.state.jobs["j1"] = job
-assert c.get("/api/v2/shell").json()["running"] == {"slug": kase.name, "label": "Quell check", "kind": "search", "doing": "searching"}
-job.finished = True
-assert c.get("/api/v2/shell").json()["running"] is None
+kase.db.execute("insert or replace into meta values ('vault', ?)", ('[{"url": "https://example.test/a", "saved": "2026-01-01"}]',))
+assert c.get("/api/v2/shell").json()["vault"] == 1
 for f in (*V2.glob("icons/*.svg"), *V2.glob("icons/brand/*.svg")):
     assert not re.search(r"<script|\bon\w+=|href=|<foreignObject", f.read_text(), re.I), f
     assert c.get(f"/v2/{f.relative_to(V2)}").headers["content-type"].startswith("image/svg"), f

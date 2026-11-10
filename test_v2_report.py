@@ -108,7 +108,7 @@ assert c.get(f"/api/cases/{bg}/people").json()["people"] == []
 V2 = Path("hunt/static/v2")
 js = (V2 / "screens/report.js").read_text() + (V2 / "parts/family.js").read_text()
 assert not re.search(r"\bon(click|error|load)=", js) and not re.search(r"(?:src|url\()[=\"']*https?:", js)
-assert "d.background ? [] : [['family', 'Family']]" in js and "if (m.mount) await m.mount(el, slug, { background: data.background })" in js and "m.flagsTab(slug, await m.loadFlags(slug))" in js
+assert "d.background ? [] : [['family', 'Family']]" in js and ".mount(el, state.slug, { background: state.data.background })" in js and "['records', 'Records']" in js
 assert "via Apify" in js and "viaApify(a) ? '' : a.walled" in js and "saveButton(slug, data.save_url, data.saved)" in js
 assert "'flags', 'Flags'" in js and "'exposure', 'Exposure'" in js and "Open in Hunt Browser" in js and "/worklist" in js
 for act in set(re.findall(r'data-act="([\w-]+)"', js)):

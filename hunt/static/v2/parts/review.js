@@ -46,12 +46,12 @@ function row(a) {
       <div style="color:#86868b;margin-bottom:4px">${pct(a.probability)} match · ${a.verdict}</div>
       ${a.reasons.map(r => html`<div style="color:${r.against ? '#c80d3f' : '#3a3a3c'}">${r.against ? 'Against: ' : ''}${r.text}</div>`)}
       <div style="display:flex;gap:14px;margin-top:6px">${a.browser
-        ? html`<button data-act="rv-browser" data-url="${a.url}" style="${PLAIN};color:#d70f45">Open in Hunt Browser</button><span style="color:#86868b">Hunt can't read ${a.site} automatically</span>`
+        ? html`<button data-act="report-browser" data-url="${a.url}" data-case="${s.slug}" style="${PLAIN};color:#d70f45">Open in Hunt Browser</button><span style="color:#86868b">Hunt can't read ${a.site} automatically</span>`
         : /^https?:\/\//.test(a.url) ? html`<a href="${a.url}" target="_blank" rel="noopener noreferrer">Open the page</a>` : ''}</div></div>` : ''}</div>`;
 }
 
-function chip(key, label, on, custom) {
-  return html`<button data-act="rv-check" data-key="${key}" aria-pressed="${String(on)}" title="${custom ? 'Custom check' : ''}" style="cursor:pointer;display:flex;align-items:center;gap:7px;height:36px;border-radius:99px;padding:0 14px 0 10px;font-size:13.5px;font-weight:500;color:${on ? '#1d1d1f' : '#6e6e73'};border:1px solid transparent;background:${on ? '#fff' : 'rgba(118,118,128,.1)'};box-shadow:${on ? SHADOW : 'none'};transition:background .2s,color .2s"><span style="width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:700;background:${on ? '#e8194f' : 'rgba(118,118,128,.25)'};color:#fff">${on ? '✓' : ''}</span>${cap(label)}</button>`;
+function chip(key, label, on, custom, desc = '') {
+  return html`<button data-act="rv-check" data-key="${key}" aria-pressed="${String(on)}" title="${custom ? 'Custom check' : desc}" style="cursor:pointer;display:flex;align-items:center;gap:7px;height:36px;border-radius:99px;padding:0 14px 0 10px;font-size:13.5px;font-weight:500;color:${on ? '#1d1d1f' : '#6e6e73'};border:1px solid transparent;background:${on ? '#fff' : 'rgba(118,118,128,.1)'};box-shadow:${on ? SHADOW : 'none'};transition:background .2s,color .2s"><span style="width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:700;background:${on ? '#e8194f' : 'rgba(118,118,128,.25)'};color:#fff">${on ? '✓' : ''}</span>${cap(label)}</button>`;
 }
 
 function leads() {
@@ -81,7 +81,7 @@ function view() {
     ${s.revealed ? leads() : ''}
     <div style="display:flex;flex-direction:column;gap:10px;padding:16px 24px 18px;${LINE};background:rgba(245,245,247,.6)">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px"><span style="font-size:16px;font-weight:600;letter-spacing:-.01em">Then scan their socials for</span><span style="font-size:12.5px;color:#86868b">${label}</span></div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px">${checks.map(c => chip(c.key, c.label, s.look.has(c.key)))}${s.custom.map(k => chip(k, k, s.look.has(k), true))}
+      <div style="display:flex;flex-wrap:wrap;gap:8px">${checks.map(c => chip(c.key, c.label, s.look.has(c.key), false, c.desc))}${s.custom.map(k => chip(k, k, s.look.has(k), true))}
         <button data-act="rv-custom" aria-expanded="${String(s.adding)}" style="cursor:pointer;display:flex;align-items:center;gap:6px;height:36px;border-radius:99px;padding:0 14px 0 12px;font-size:13.5px;font-weight:500;color:#3a3a3c;border:1px dashed #b8bcc3;background:transparent"><span style="font-size:16px;line-height:1;color:#86868b">+</span>Custom</button></div>
       ${s.adding ? html`<div style="display:flex;gap:8px;align-items:center;border-radius:18px;padding:6px 6px 6px 16px;background:#fff;box-shadow:0 0 0 4px rgba(255,45,85,.1),0 0 0 1px rgba(255,45,85,.35),0 10px 24px rgba(20,22,28,.08)">
         <input id="rv-custom-text" aria-label="What to look for" maxlength="200" placeholder="Describe what to look for — e.g. posts about a second job" style="flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:15px;font-family:inherit;color:#1d1d1f;padding:8px 0">
@@ -134,7 +134,6 @@ Object.assign(actions, {
   'rv-decide': async el => {
     try { await decide(el.dataset.url, el.dataset.decision); await load(); draw(); } catch (e) { fail(e); }
   },
-  'rv-browser': el => api('/api/browser/open', { method: 'POST', body: { url: el.dataset.url, case: s.slug } }).catch(fail),
   'rv-check': el => { const k = el.dataset.key; s.look.has(k) ? s.look.delete(k) : s.look.add(k); draw(); },
   'rv-custom': () => { s.adding = !s.adding; draw(); document.getElementById('rv-custom-text')?.focus(); },
   'rv-add': custom,

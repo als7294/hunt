@@ -18,18 +18,17 @@ export function render(el, { slug, first }) {
 }
 
 function draw(s) {
-  const open = s.messages.flatMap(m => (m.open ? [m] : []));
   s.el.innerHTML = html`<div style="${CARD}">
     <div style="font-size:15px;font-weight:600;padding:0 4px 4px">Ask about ${s.first}</div>
     <div style="font-size:12.5px;color:var(--ink-2);padding:0 4px 4px">Answers come from the local model and only from this case's facts; each one cites them.</div>
     <div data-role="log" style="display:flex;flex-direction:column;gap:8px;max-height:360px;overflow:auto">${s.messages.map(bubble)}</div>
     ${s.busy ? html`<div style="align-self:flex-start;border-radius:18px;padding:9px 13px;font-size:14px;background:#f5f5f7;color:var(--ink-2);animation:hPulse 1.2s infinite">Reading the case…</div>` : ''}
     <div style="display:flex;gap:6px;flex-wrap:wrap">${CHIPS.map(t => html`<button type="button" data-act="askchat-chip" data-slug="${s.slug}" data-q="${t}" style="cursor:pointer;border:0;border-radius:99px;padding:6px 12px;font-size:13px;color:#d70f45;background:rgba(255,45,85,.09)">${t}</button>`)}</div>
-    <form data-act="askchat-send" data-slug="${s.slug}" style="display:flex;gap:6px">
+    <form style="display:flex;gap:6px">
       <input name="q" placeholder="Message" maxlength="600" autocomplete="off" style="flex:1;border:0;outline:0;border-radius:99px;padding:10px 16px;background:#f5f5f7;font-size:15px;font-family:inherit;color:#1d1d1f;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.1)">
       <button type="submit" data-act="askchat-send" data-slug="${s.slug}" ${s.busy ? 'disabled' : ''} style="cursor:pointer;border:0;border-radius:99px;padding:10px 16px;font-size:14px;font-weight:600;color:#fff;background:#e8194f">Ask</button>
     </form>
-    ${open.length ? '' : ''}</div>`.s;
+    </div>`.s;
   const log = s.el.querySelector('[data-role=log]');
   if (log) log.scrollTop = log.scrollHeight;
 }

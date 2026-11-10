@@ -1,6 +1,7 @@
 // The family tree and the people around the subject (GET /people; legal.md A1–A10, D25). Only what the case already
 // holds, by name and citation. Nothing about them is searched, children are never named, and a background case has no tab.
 import { html, api, actions, fail, toast } from '../core.js';
+import { prefill } from '../screens/ask.js';
 
 export const CARD = 'border:1px solid transparent;background:linear-gradient(180deg,#ffffff,#f6f7f9) padding-box,linear-gradient(180deg,#ffffff 0%,#d2d5db 34%,#ffffff 52%,#bcc0c7 100%) border-box;box-shadow:0 1px 2px rgba(0,0,0,.04),0 18px 44px rgba(20,22,28,.07),inset 0 1px 0 #fff';
 const CHIP = 'border-radius:99px;padding:3px 9px;font-size:12px;font-weight:600;background:#f2f2f7;color:#6e6e73';
@@ -64,9 +65,7 @@ Object.assign(actions, {
     try { await api(`/api/cases/${encodeURIComponent(slug)}/people/${encodeURIComponent(el.dataset.id)}/hide`, { method: 'POST', body: { hidden: !!el.dataset.hidden } }); await mount(box, slug); }
     catch (e) { fail(e); }
   },
-  'family-case': async el => { // listed, never searched (C13): a new case with its own purpose starts from Ask
-    try { await navigator.clipboard.writeText(el.dataset.name); toast('Name copied. Start a new case and say who asked and why it’s lawful.'); }
-    catch { toast('Start a new case and say who asked and why it’s lawful.'); }
-    location.hash = '#/';
+  'family-case': el => { // listed, never searched (C13): a new case with its own purpose starts from Ask
+    prefill(el.dataset.name); location.hash = '#/'; toast('Say who asked and why it’s lawful, then Investigate.');
   },
 });

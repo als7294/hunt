@@ -49,7 +49,7 @@ assert r["subject"] == {"name": "Dorian Vell", "meta": "Ocala, FL", "match": max
 # Login-walled: marked for the Hunt Browser; the others aren't
 assert rows["https://www.linkedin.com/in/velvetforge"]["browser"] and not tube["browser"]
 # Real checks, what the case already looks for ticked, her own text kept as custom
-assert r["checks"] == [{"key": "lifting", "label": "lifting or carrying", "on": False}, {"key": "travel", "label": "travel", "on": True}]
+assert r["checks"] == [{"key": "lifting", "label": "lifting or carrying", "on": False, "desc": ""}, {"key": "travel", "label": "travel", "on": True, "desc": ""}]
 assert r["custom"] == ["a second job"] and r["others"] == []
 assert any(l["value"] == "bad_lead_77" for l in r["leads"]), r["leads"]
 
