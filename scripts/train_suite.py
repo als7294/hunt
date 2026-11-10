@@ -12,6 +12,8 @@ It also prints train_find's per-source table, summed over the pairs: runs, failu
 accounts each source found are yours, locked or wrong, how many only it found, and its seconds.
 
 Only those counts go to ~/Hunt/training/suite-<when>.json, never an account, a data point or anything from the key.
+A run in which several sources failed on the network itself (the Mac offline, or asleep with the lid closed) is printed
+but not saved: its score would be the outage's, and every later run would be compared with it.
 The table shows each score's change since the last run with the same data points and rounds, and the total's since
 the first (the baseline).
 
@@ -35,6 +37,7 @@ from hunt.seed import detect
 TRAINING = cases.HOME / "training"
 PAIRS = [("name", "handle"), ("name", "state"), ("handle", "state"), ("name", "email"), ("handle", "email")]
 COUNTS = ("locked", "possible", "missed", "wrong", "unknown")
+OFFLINE_SOURCES = 3  # sources failing on the network itself before a run is taken as offline and not saved
 
 
 def score(n: dict) -> float:
@@ -59,6 +62,15 @@ def run(points: dict, key: dict, rounds: int) -> dict:
         stages = ", ".join(f"{k} {v:.0f}s" for k, v in seconds.items() if k.startswith("["))
         print(f"{'+'.join(pair)}: {out['+'.join(pair)]['seconds']}s ({stages}), case {case.name}", flush=True)
     return out, sources
+
+
+OFFLINE = ("ConnectError", "ConnectTimeout", "ReadTimeout", "ReadError", "RemoteProtocolError")  # httpx's, as fan_out notes them
+
+
+def offline(sources: dict) -> list[str]:
+    """The sources whose runs failed on the network itself, not on the site's answer. Several at once means the machine
+    was offline or asleep for part of the run (a closed lid drops every connection), and its counts measure that."""
+    return sorted(name for name, n in sources.items() if any(note.startswith(OFFLINE) for note in n["notes"]))
 
 
 def change(now: float, before: float | None) -> str:
@@ -110,10 +122,14 @@ def main(argv=None) -> dict:
     record = {"when": datetime.now().isoformat(timespec="seconds"), "commit": commit, "setup": setup, "key": fingerprint,
               "pairs": pairs, "score": sum(n["score"] for n in pairs.values()),
               "sources": {name: {k: v for k, v in n.items() if k != "notes"} for name, n in sources.items()}}  # counts only
-    TRAINING.mkdir(parents=True, exist_ok=True)
-    (TRAINING / f"{prefix}-{datetime.now():%Y-%m-%d-%H%M%S-%f}.json").write_text(json.dumps(record, indent=1))
     print("\n" + train_find.source_table(sources))
     print("\n" + table(record, before[-1] if before else None, before[0] if before else None))
+    if len(down := offline(sources)) >= OFFLINE_SOURCES:  # one flaky site is a methodology fact; several is the network
+        print(f"\nnot saved: {len(down)} sources failed on the network itself ({', '.join(down[:6])}...), so the machine was "
+              "offline or asleep for part of this run and the score above is not Hunt's. Run it again, awake and online.")
+        return record
+    TRAINING.mkdir(parents=True, exist_ok=True)
+    (TRAINING / f"{prefix}-{datetime.now():%Y-%m-%d-%H%M%S-%f}.json").write_text(json.dumps(record, indent=1))
     return record
 
 
